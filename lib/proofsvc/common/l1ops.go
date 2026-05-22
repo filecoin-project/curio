@@ -10,7 +10,6 @@ import (
 
 	eabi "github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ipfs/go-cid"
-	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
@@ -306,25 +305,6 @@ const AcceptServiceActorABI = `[
 		"type": "function"
 	}
 ]`
-
-// --- Metrics ---
-
-var (
-	l1OpBuckets  = []float64{0.05, 0.2, 0.5, 1, 5} // seconds
-	l1OpDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
-		Name:    "curio_psvc_l1ops_duration_seconds",
-		Help:    "Duration of L1 operations",
-		Buckets: l1OpBuckets,
-	}, []string{"call"})
-)
-
-func init() {
-	_ = prometheus.Register(l1OpDuration) // ignore AlreadyRegisteredError
-}
-
-func recordL1OpDuration(call string, start time.Time) {
-	l1OpDuration.WithLabelValues(call).Observe(time.Since(start).Seconds())
-}
 
 type Service struct {
 	router      address.Address

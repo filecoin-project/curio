@@ -1,22 +1,18 @@
 import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs';
+import { pollRPC } from '/lib/poll.mjs';
 
 window.customElements.define('chain-connectivity', class MyElement extends LitElement {
+    static properties = {
+        data: { type: Array },
+    };
+
     constructor() {
         super();
         this.data = [];
-        this.loadData();
-    }
-
-    async loadData() {
-        const blockDelay = await RPCCall('BlockDelaySecs');
-        await this.updateData();
-        setTimeout(() => this.loadData(), blockDelay * 1000);
-    };
-
-    async updateData() {
-        this.data = await RPCCall('SyncerState');
-        this.requestUpdate();
+        pollRPC(async () => {
+            this.data = await RPCCall('SyncerState');
+        }, 30 * 1000);
     }
 
     static get styles() {

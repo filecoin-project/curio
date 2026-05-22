@@ -31,8 +31,8 @@ const (
 )
 
 var (
-	entryCacheHitWaitBuckets       = []float64{0.0005, 0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30}
-	entryReconstructionTimeBuckets = []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60}
+	entryCacheHitWaitBuckets       = []float64{0.5, 1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000}
+	entryReconstructionTimeBuckets = []float64{1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000, 60000}
 
 	requestTag, _ = tag.NewKey("request")
 	resultTag, _  = tag.NewKey("result")
@@ -56,7 +56,7 @@ var (
 		stats.UnitDimensionless,
 	)
 	entryCacheHitWaitDuration = stats.Float64(
-		"ipni_entry_cache_hit_wait_seconds",
+		"ipni_entry_cache_hit_wait_milliseconds",
 		"Duration callers wait after hitting the IPNI entry cache.",
 		stats.UnitMilliseconds,
 	)
@@ -66,7 +66,7 @@ var (
 		stats.UnitDimensionless,
 	)
 	entryReconstructionDuration = stats.Float64(
-		"ipni_entry_reconstruction_seconds",
+		"ipni_entry_reconstruction_milliseconds",
 		"Duration of IPNI entry reconstruction after cache miss.",
 		stats.UnitMilliseconds,
 	)
@@ -149,7 +149,7 @@ func observeEntryCacheHitWait(request, origin, state string, took time.Duration)
 		tag.Upsert(requestTag, request),
 		tag.Upsert(originTag, origin),
 		tag.Upsert(stateTag, state),
-	}, entryCacheHitWaitDuration.M(took.Seconds()))
+	}, entryCacheHitWaitDuration.M(float64(took)/float64(time.Millisecond)))
 }
 
 func recordEntrySpeculativeUnused() {
@@ -165,5 +165,5 @@ func observeEntryReconstruction(request, source string, took time.Duration, err 
 		tag.Upsert(requestTag, request),
 		tag.Upsert(sourceTag, source),
 		tag.Upsert(resultTag, result),
-	}, entryReconstructionDuration.M(took.Seconds()))
+	}, entryReconstructionDuration.M(float64(took)/float64(time.Millisecond)))
 }

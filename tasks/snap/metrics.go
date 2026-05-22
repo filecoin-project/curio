@@ -10,7 +10,7 @@ var (
 	// Tags for snap metrics
 	MinerTag, _ = tag.NewKey("miner")
 
-	pre = "curio_snap_"
+	pre = "snap_"
 )
 
 // SnapMeasures groups all snap pipeline metrics.

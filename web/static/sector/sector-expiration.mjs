@@ -395,6 +395,8 @@ customElements.define('sector-expiration', class SectorExpiration extends LitEle
                 };
             }
             const key = count.less_than_days === -1 ? 'open' : count.less_than_days;
+            // Ensure live_count is available (defaults to total_count for backward compat)
+            if (count.live_count === undefined) count.live_count = count.total_count;
             spGroups[count.sp_id].cumulativeCounts[key] = count;
         });
 
@@ -402,6 +404,7 @@ customElements.define('sector-expiration', class SectorExpiration extends LitEle
         const allSPs = Object.entries(spGroups);
 
         // Convert cumulative counts to range counts for each SP
+        const zeroCounts = { total_count: 0, live_count: 0, cc_count: 0, deal_count: 0 };
         allSPs.forEach(([spId, spData]) => {
             spData.rangeCounts = {};
             
@@ -411,20 +414,17 @@ customElements.define('sector-expiration', class SectorExpiration extends LitEle
                 if (range.isLast) {
                     // Open-ended bucket: use the -1 marker data directly
                     const openCount = spData.cumulativeCounts['open'];
-                    spData.rangeCounts['open'] = openCount || {
-                        total_count: 0,
-                        cc_count: 0,
-                        deal_count: 0
-                    };
+                    spData.rangeCounts['open'] = openCount || {...zeroCounts};
                 } else {
                     // Calculate range by subtracting previous cumulative from current
-                    const currentCumulative = spData.cumulativeCounts[range.high] || { total_count: 0, cc_count: 0, deal_count: 0 };
+                    const currentCumulative = spData.cumulativeCounts[range.high] || {...zeroCounts};
                     const previousCumulative = idx > 0 && spData.cumulativeCounts[bucketRanges[idx - 1].high] 
                         ? spData.cumulativeCounts[bucketRanges[idx - 1].high]
-                        : { total_count: 0, cc_count: 0, deal_count: 0 };
+                        : {...zeroCounts};
                     
                     spData.rangeCounts[bucket] = {
                         total_count: currentCumulative.total_count - previousCumulative.total_count,
+                        live_count: currentCumulative.live_count - previousCumulative.live_count,
                         cc_count: currentCumulative.cc_count - previousCumulative.cc_count,
                         deal_count: currentCumulative.deal_count - previousCumulative.deal_count
                     };
@@ -438,6 +438,7 @@ customElements.define('sector-expiration', class SectorExpiration extends LitEle
             const bucket = range.highBucket || 'open';
             aggregatedData[bucket] = {
                 total_count: 0,
+                live_count: 0,
                 cc_count: 0,
                 deal_count: 0
             };
@@ -449,6 +450,7 @@ customElements.define('sector-expiration', class SectorExpiration extends LitEle
                 const count = spData.rangeCounts[bucket];
                 if (count) {
                     aggregatedData[bucket].total_count += count.total_count;
+                    aggregatedData[bucket].live_count += (count.live_count || 0);
                     aggregatedData[bucket].cc_count += count.cc_count;
                     aggregatedData[bucket].deal_count += count.deal_count;
                 }
@@ -496,16 +498,20 @@ customElements.define('sector-expiration', class SectorExpiration extends LitEle
     renderSPTable(title, rangeCounts, bucketRanges) {
         // Calculate column totals
         let totalSum = 0;
+        let liveSum = 0;
         let ccSum = 0;
         let dealSum = 0;
         
         bucketRanges.forEach(range => {
             const bucket = range.highBucket || 'open';
-            const count = rangeCounts[bucket] || { total_count: 0, cc_count: 0, deal_count: 0 };
+            const count = rangeCounts[bucket] || { total_count: 0, live_count: 0, cc_count: 0, deal_count: 0 };
             totalSum += count.total_count;
+            liveSum += (count.live_count || 0);
             ccSum += count.cc_count;
             dealSum += count.deal_count;
         });
+
+        const nonLiveSum = totalSum - liveSum;
 
         return html`
             <table class="table table-dark exp-table">
@@ -513,6 +519,8 @@ customElements.define('sector-expiration', class SectorExpiration extends LitEle
                     <tr>
                         <th>Bucket (Days)</th>
                         <th>Total Sectors</th>
+                        <th>Live</th>
+                        <th>Non-Live</th>
                         <th>CC Sectors</th>
                         <th>Deal Sectors</th>
                         <th>Deal %</th>
@@ -521,8 +529,10 @@ customElements.define('sector-expiration', class SectorExpiration extends LitEle
                 <tbody>
                     ${bucketRanges.map(range => {
                         const bucket = range.highBucket || 'open';
-                        const count = rangeCounts[bucket] || { total_count: 0, cc_count: 0, deal_count: 0 };
+                        const count = rangeCounts[bucket] || { total_count: 0, live_count: 0, cc_count: 0, deal_count: 0 };
                         const totalCount = count.total_count;
+                        const liveCount = count.live_count || 0;
+                        const nonLiveCount = totalCount - liveCount;
                         const ccCount = count.cc_count;
                         const dealCount = count.deal_count;
                         
@@ -554,6 +564,8 @@ customElements.define('sector-expiration', class SectorExpiration extends LitEle
                                         </div>
                                     </div>
                                 </td>
+                                <td>${liveCount.toLocaleString()}</td>
+                                <td style="${nonLiveCount > 0 ? 'color: var(--color-warning-main, #FFD600);' : ''}">${nonLiveCount.toLocaleString()}</td>
                                 <td class="cell-with-bar">
                                     <div class="cell-content">
                                         <span class="cell-number">${ccCount.toLocaleString()}</span>

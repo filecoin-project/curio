@@ -29,20 +29,22 @@ import (
 // Key format: "NN_Category Name" where NN is sort order (01-99)
 // Value: list of path prefixes that belong to this category
 var categoryConfig = map[string][]string{
+	"00_Node Metrics":                       {"lib/metrics"},
 	"01_Database Metrics (HarmonyDB)":       {"harmony/harmonydb"},
 	"02_Task Metrics (HarmonyTask)":         {"harmony/harmonytask"},
 	"03_Wallet Exporter Metrics (Optional)": {"deps/stats"},
 	"04_Proof Share Metrics":                {"tasks/proofshare"},
 	"05_Proof Service Metrics":              {"lib/proofsvc"},
-	"06_Sealing Metrics":                    {"tasks/seal", "tasks/sealsupra"},
+	"06_Sealing Metrics":                    {"tasks/seal"},
 	"07_Snap Pipeline Metrics":              {"tasks/snap"},
 	"08_Mining Metrics":                     {"tasks/winning"},
-	"09_Storage Metrics":                    {"lib/paths", "lib/slotmgr"},
+	"09_Storage Metrics":                    {"lib/paths"},
 	"10_Cache Metrics":                      {"lib/cachedreader"},
 	"11_Network Metrics":                    {"lib/robusthttp", "lib/dealdata"},
 	"12_FFI Metrics":                        {"lib/ffi"},
 	"13_HTTP/Retrieval Metrics":             {"market/"},
 	"14_GC Metrics":                         {"tasks/gc"},
+	"15_Batching Metrics":                   {"tasks/sealsupra", "lib/slotmgr"},
 }
 
 // ============================================================================
@@ -66,6 +68,29 @@ type Category struct {
 type fileResult struct {
 	file    string
 	metrics []Metric
+}
+
+type viewDef struct {
+	Name        string
+	MeasureExpr string
+	Type        string
+	Labels      []string
+}
+
+var registeredLotusMetricViews = map[string]Metric{
+	"DagStorePRAtCacheFillCountView": externalOpenCensusMetric("dagstore/pr_at_cache_fill_count", "Counter", "PieceReader ReadAt full cache fill count", []string{"network"}),
+	"DagStorePRAtHitBytesView":       externalOpenCensusMetric("dagstore/pr_at_hit_bytes", "Counter", "PieceReader ReadAt bytes from cache", []string{"network"}),
+	"DagStorePRAtHitCountView":       externalOpenCensusMetric("dagstore/pr_at_hit_count", "Counter", "PieceReader ReadAt from cache hits", []string{"network"}),
+	"DagStorePRAtReadBytesView":      externalOpenCensusMetric("dagstore/pr_at_read_bytes", "Counter", "PieceReader ReadAt bytes read from source", []string{"pr_size", "network"}),
+	"DagStorePRAtReadCountView":      externalOpenCensusMetric("dagstore/pr_at_read_count", "Counter", "PieceReader ReadAt reads from source", []string{"pr_size", "network"}),
+	"DagStorePRBytesDiscardedView":   externalOpenCensusMetric("dagstore/pr_discarded_bytes", "Counter", "PieceReader discarded bytes", []string{"network"}),
+	"DagStorePRBytesRequestedView":   externalOpenCensusMetric("dagstore/pr_requested_bytes", "Counter", "PieceReader requested bytes", []string{"pr_type", "network"}),
+	"DagStorePRDiscardCountView":     externalOpenCensusMetric("dagstore/pr_discard_count", "Counter", "PieceReader discard count", []string{"network"}),
+	"DagStorePRInitCountView":        externalOpenCensusMetric("dagstore/pr_init_count", "Counter", "PieceReader init count", []string{"network"}),
+	"DagStorePRSeekBackBytesView":    externalOpenCensusMetric("dagstore/pr_seek_back_bytes", "Counter", "PieceReader seek back bytes", []string{"network"}),
+	"DagStorePRSeekBackCountView":    externalOpenCensusMetric("dagstore/pr_seek_back_count", "Counter", "PieceReader seek back count", []string{"network"}),
+	"DagStorePRSeekForwardBytesView": externalOpenCensusMetric("dagstore/pr_seek_forward_bytes", "Counter", "PieceReader seek forward bytes", []string{"network"}),
+	"DagStorePRSeekForwardCountView": externalOpenCensusMetric("dagstore/pr_seek_forward_count", "Counter", "PieceReader seek forward count", []string{"network"}),
 }
 
 func main() {
@@ -188,23 +213,21 @@ func processFile(path string) []Metric {
 	}
 	defer func() { _ = f.Close() }()
 
-	// Read first 4KB to check imports
+	// Read the file once before checking imports. Relying only on a small
+	// header can miss files with long package comments or generated headers.
 	buf := make([]byte, 4096)
 	n, _ := f.Read(buf)
 	if n == 0 {
 		return nil
 	}
+	rest, _ := io.ReadAll(f)
+	content := append(buf[:n], rest...)
 
-	// Quick check for prometheus imports
-	header := buf[:n]
-	if !bytes.Contains(header, []byte("prometheus")) &&
-		!bytes.Contains(header, []byte("opencensus.io/stats")) {
+	// Quick check for metrics imports before parsing.
+	if !bytes.Contains(content, []byte("prometheus")) &&
+		!bytes.Contains(content, []byte("opencensus.io/stats")) {
 		return nil
 	}
-
-	// Has prometheus - read rest of file and parse
-	rest, _ := io.ReadAll(f)
-	content := append(header, rest...)
 
 	return parseMetricsFromSource(path, content)
 }
@@ -219,6 +242,11 @@ func parseMetricsFromSource(path string, content []byte) []Metric {
 
 	var metrics []Metric
 	seen := make(map[string]bool)
+	measures := make(map[string]Metric)
+	tagKeys := make(map[string]string)
+	aggregationVars := make(map[string]string)
+	viewVars := make(map[string]viewDef)
+	lotusMetricsAliases := importAliases(node, "github.com/filecoin-project/lotus/metrics")
 
 	// Find prefix variable value
 	prefix := "curio_"
@@ -235,32 +263,117 @@ func parseMetricsFromSource(path string, content []byte) []Metric {
 		return true
 	})
 
-	// Collect metrics
+	// Collect local symbols first so view registrations can resolve measure
+	// names, aggregation types, and tag labels.
 	ast.Inspect(node, func(n ast.Node) bool {
-		switch x := n.(type) {
-		case *ast.CallExpr:
-			if m := parseMetricCall(x, prefix); m != nil && !seen[m.Name] {
-				m.Source = path
-				seen[m.Name] = true
-				metrics = append(metrics, *m)
+		vs, ok := n.(*ast.ValueSpec)
+		if !ok {
+			return true
+		}
+
+		for i, value := range vs.Values {
+			var assignName string
+			if i < len(vs.Names) {
+				assignName = vs.Names[i].Name
 			}
-			if m := parseStatsCall(x, prefix); m != nil && !seen[m.Name] {
-				m.Source = path
-				seen[m.Name] = true
-				metrics = append(metrics, *m)
+
+			if label, ok := parseTagKeyCall(value); ok && assignName != "" {
+				tagKeys[assignName] = label
 			}
-		case *ast.KeyValueExpr:
-			if call, ok := x.Value.(*ast.CallExpr); ok {
-				if m := parseStatsCall(call, prefix); m != nil && !seen[m.Name] {
-					m.Source = path
-					seen[m.Name] = true
-					metrics = append(metrics, *m)
+
+			if aggType := aggregationType(value, aggregationVars); aggType != "" && assignName != "" {
+				aggregationVars[assignName] = aggType
+			}
+
+			if view := parseView(value, aggregationVars, tagKeys); view != nil && assignName != "" {
+				viewVars[assignName] = *view
+			}
+
+			if metric := parseStatsMeasure(value, prefix); metric != nil && assignName != "" {
+				measures[assignName] = *metric
+			}
+
+			if composite, ok := indirectCompositeLit(value); ok && assignName != "" {
+				for _, elt := range composite.Elts {
+					kv, ok := elt.(*ast.KeyValueExpr)
+					if !ok {
+						continue
+					}
+					fieldName := exprName(kv.Key)
+					if fieldName == "" {
+						continue
+					}
+					if metric := parseStatsMeasure(kv.Value, prefix); metric != nil {
+						measures[assignName+"."+fieldName] = *metric
+					}
+					if view := parseView(kv.Value, aggregationVars, tagKeys); view != nil {
+						viewVars[assignName+"."+fieldName] = *view
+					}
 				}
-				if m := parseMetricCall(call, prefix); m != nil && !seen[m.Name] {
-					m.Source = path
-					seen[m.Name] = true
-					metrics = append(metrics, *m)
+			}
+		}
+		return true
+	})
+
+	// Direct Prometheus collectors are exported by the collector itself.
+	ast.Inspect(node, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		if m := parseMetricCall(call, prefix); m != nil && !seen[m.Name] {
+			m.Source = path
+			seen[m.Name] = true
+			metrics = append(metrics, *m)
+		}
+		return true
+	})
+
+	// OpenCensus metrics are exported through registered views, so the view
+	// aggregation decides the Prometheus type and TagKeys decide labels.
+	ast.Inspect(node, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok || !isSelector(call.Fun, "view", "Register") {
+			return true
+		}
+		for _, arg := range call.Args {
+			view := parseView(arg, aggregationVars, tagKeys)
+			if view == nil {
+				if name := exprName(arg); name != "" {
+					if registeredView, ok := viewVars[name]; ok {
+						view = &registeredView
+					} else if metric, ok := registeredLotusMetricView(arg, lotusMetricsAliases); ok {
+						metric.Source = path
+						if !seen[metric.Name] {
+							seen[metric.Name] = true
+							metrics = append(metrics, metric)
+						}
+						continue
+					} else {
+						fmt.Fprintf(os.Stderr, "WARN: unresolved registered view %s in %s\n", name, path)
+					}
 				}
+			}
+			if view == nil {
+				continue
+			}
+
+			measure, ok := measures[view.MeasureExpr]
+			if !ok {
+				fmt.Fprintf(os.Stderr, "WARN: unresolved measure %s for registered view in %s\n", view.MeasureExpr, path)
+				continue
+			}
+			viewName := measure.Name
+			if view.Name != "" {
+				viewName = view.Name
+			}
+			measure.Name = exportedOpenCensusName(viewName)
+			measure.Type = view.Type
+			measure.Labels = view.Labels
+			measure.Source = path
+			if !seen[measure.Name] {
+				seen[measure.Name] = true
+				metrics = append(metrics, measure)
 			}
 		}
 		return true
@@ -269,27 +382,97 @@ func parseMetricsFromSource(path string, content []byte) []Metric {
 	return metrics
 }
 
+func externalOpenCensusMetric(name, typ, help string, labels []string) Metric {
+	return Metric{
+		Name:   exportedOpenCensusName(name),
+		Type:   typ,
+		Help:   help,
+		Labels: labels,
+	}
+}
+
+func importAliases(node *ast.File, importPath string) map[string]bool {
+	aliases := make(map[string]bool)
+	for _, spec := range node.Imports {
+		if strings.Trim(spec.Path.Value, `"`) != importPath {
+			continue
+		}
+		if spec.Name != nil {
+			if spec.Name.Name != "." && spec.Name.Name != "_" {
+				aliases[spec.Name.Name] = true
+			}
+			continue
+		}
+		aliases[lastImportPathPart(importPath)] = true
+	}
+	return aliases
+}
+
+func lastImportPathPart(importPath string) string {
+	idx := strings.LastIndex(importPath, "/")
+	if idx < 0 {
+		return importPath
+	}
+	return importPath[idx+1:]
+}
+
+func registeredLotusMetricView(expr ast.Expr, lotusMetricsAliases map[string]bool) (Metric, bool) {
+	sel, ok := expr.(*ast.SelectorExpr)
+	if !ok {
+		return Metric{}, false
+	}
+	pkg, ok := sel.X.(*ast.Ident)
+	if !ok || !lotusMetricsAliases[pkg.Name] {
+		return Metric{}, false
+	}
+	metric, ok := registeredLotusMetricViews[sel.Sel.Name]
+	return metric, ok
+}
+
 // categoryFromPath derives a category name and key from the file path.
 // Falls back to "99_Uncategorized" with a warning if no match found.
 func categoryFromPath(path string) (key, name string) {
 	cleanPath := filepath.Clean(path)
 
-	for catKey, prefixes := range categoryConfig {
+	var bestKey string
+	bestPrefixLen := -1
+
+	keys := make([]string, 0, len(categoryConfig))
+	for catKey := range categoryConfig {
+		keys = append(keys, catKey)
+	}
+	sort.Strings(keys)
+
+	for _, catKey := range keys {
+		prefixes := categoryConfig[catKey]
 		for _, prefix := range prefixes {
-			if strings.Contains(cleanPath, prefix) {
-				// Extract display name by removing the "NN_" prefix
-				name = catKey
-				if len(catKey) > 3 && catKey[2] == '_' {
-					name = catKey[3:]
-				}
-				return catKey, name
+			if pathMatchesPrefix(cleanPath, prefix) && len(prefix) > bestPrefixLen {
+				bestKey = catKey
+				bestPrefixLen = len(prefix)
 			}
 		}
+	}
+
+	if bestKey != "" {
+		name = bestKey
+		if len(bestKey) > 3 && bestKey[2] == '_' {
+			name = bestKey[3:]
+		}
+		return bestKey, name
 	}
 
 	// Fallback for uncategorized files - warn but don't fail
 	fmt.Fprintf(os.Stderr, "WARN: no category for %s (add entry to categoryConfig)\n", path)
 	return "99_Uncategorized (" + filepath.Dir(path) + ")", "Uncategorized (" + filepath.Dir(path) + ")"
+}
+
+func pathMatchesPrefix(path, prefix string) bool {
+	path = filepath.ToSlash(filepath.Clean(path))
+	prefix = filepath.ToSlash(filepath.Clean(prefix))
+
+	return path == prefix ||
+		strings.HasPrefix(path, prefix+"/") ||
+		strings.Contains(path, "/"+prefix+"/")
 }
 
 func printHeader() {
@@ -299,7 +482,7 @@ func printHeader() {
 
 # Metrics Reference
 
-This document lists all Prometheus metrics exported by Curio. All metrics use the ` + "`curio_`" + ` namespace prefix.
+This document lists Prometheus metrics exported by Curio using the exact metric names exposed on the scrape endpoint.
 
 > **Note**: This file is auto-generated from source code. Run ` + "`make docsgen-metrics`" + ` to update.`)
 }
@@ -364,24 +547,17 @@ func parseMetricCall(call *ast.CallExpr, prefix string) *Metric {
 
 	funcName := sel.Sel.Name
 	var metricType string
+	isVec := strings.HasSuffix(funcName, "Vec")
 
 	switch funcName {
-	case "NewHistogram":
+	case "NewHistogram", "NewHistogramVec":
 		metricType = "Histogram"
-	case "NewHistogramVec":
-		metricType = "HistogramVec"
-	case "NewCounter":
+	case "NewCounter", "NewCounterVec":
 		metricType = "Counter"
-	case "NewCounterVec":
-		metricType = "CounterVec"
-	case "NewGauge":
+	case "NewGauge", "NewGaugeVec":
 		metricType = "Gauge"
-	case "NewGaugeVec":
-		metricType = "GaugeVec"
-	case "NewSummary":
+	case "NewSummary", "NewSummaryVec":
 		metricType = "Summary"
-	case "NewSummaryVec":
-		metricType = "SummaryVec"
 	default:
 		return nil
 	}
@@ -426,7 +602,7 @@ func parseMetricCall(call *ast.CallExpr, prefix string) *Metric {
 	}
 
 	// Parse labels for Vec types (second argument)
-	if strings.HasSuffix(metricType, "Vec") && len(call.Args) > 1 {
+	if isVec && len(call.Args) > 1 {
 		if labels, ok := call.Args[1].(*ast.CompositeLit); ok {
 			for _, elt := range labels.Elts {
 				if lit, ok := elt.(*ast.BasicLit); ok {
@@ -441,15 +617,15 @@ func parseMetricCall(call *ast.CallExpr, prefix string) *Metric {
 		return nil
 	}
 
-	// Add curio_ prefix if not present
-	if !strings.HasPrefix(metric.Name, "curio_") {
-		metric.Name = "curio_" + metric.Name
-	}
-
 	return metric
 }
 
-func parseStatsCall(call *ast.CallExpr, prefix string) *Metric {
+func parseStatsMeasure(expr ast.Expr, prefix string) *Metric {
+	call, ok := expr.(*ast.CallExpr)
+	if !ok {
+		return nil
+	}
+
 	sel, ok := call.Fun.(*ast.SelectorExpr)
 	if !ok {
 		return nil
@@ -464,7 +640,7 @@ func parseStatsCall(call *ast.CallExpr, prefix string) *Metric {
 	var metricType string
 	switch sel.Sel.Name {
 	case "Int64":
-		metricType = "Gauge/Counter"
+		metricType = "Counter"
 	case "Float64":
 		metricType = "Gauge"
 	default:
@@ -494,12 +670,201 @@ func parseStatsCall(call *ast.CallExpr, prefix string) *Metric {
 		return nil
 	}
 
-	// Add curio_ prefix if not present
-	if !strings.HasPrefix(metric.Name, "curio_") {
-		metric.Name = "curio_" + metric.Name
+	return metric
+}
+
+func parseTagKeyCall(expr ast.Expr) (string, bool) {
+	call, ok := expr.(*ast.CallExpr)
+	if !ok || !isSelector(call.Fun, "tag", "NewKey") || len(call.Args) == 0 {
+		return "", false
+	}
+	lit, ok := call.Args[0].(*ast.BasicLit)
+	if !ok {
+		return "", false
+	}
+	return strings.Trim(lit.Value, `"`), true
+}
+
+func parseView(expr ast.Expr, aggregationVars map[string]string, tagKeys map[string]string) *viewDef {
+	composite, ok := indirectCompositeLit(expr)
+	if !ok || !isViewComposite(composite) {
+		return nil
 	}
 
-	return metric
+	view := &viewDef{}
+	for _, elt := range composite.Elts {
+		kv, ok := elt.(*ast.KeyValueExpr)
+		if !ok {
+			continue
+		}
+		key := exprName(kv.Key)
+		switch key {
+		case "Name":
+			view.Name = stringExpr(kv.Value, "curio_")
+		case "Measure":
+			view.MeasureExpr = exprName(kv.Value)
+		case "Aggregation":
+			view.Type = aggregationType(kv.Value, aggregationVars)
+		case "TagKeys":
+			view.Labels = parseTagKeys(kv.Value, tagKeys)
+		}
+	}
+	if view.MeasureExpr == "" || view.Type == "" {
+		return nil
+	}
+	return view
+}
+
+func aggregationType(expr ast.Expr, aggregationVars map[string]string) string {
+	switch x := expr.(type) {
+	case *ast.CallExpr:
+		sel, ok := x.Fun.(*ast.SelectorExpr)
+		if !ok {
+			return ""
+		}
+		pkg, ok := sel.X.(*ast.Ident)
+		if !ok || pkg.Name != "view" {
+			return ""
+		}
+		switch sel.Sel.Name {
+		case "Distribution":
+			return "Histogram"
+		case "LastValue":
+			return "Gauge"
+		case "Sum", "Count":
+			return "Counter"
+		default:
+			return ""
+		}
+	case *ast.Ident:
+		return aggregationVars[x.Name]
+	default:
+		return ""
+	}
+}
+
+func parseTagKeys(expr ast.Expr, tagKeys map[string]string) []string {
+	composite, ok := expr.(*ast.CompositeLit)
+	if !ok {
+		return nil
+	}
+
+	var labels []string
+	for _, elt := range composite.Elts {
+		key := exprName(elt)
+		if key == "" {
+			continue
+		}
+		label, ok := tagKeys[key]
+		if !ok {
+			label = lastNamePart(key)
+		}
+		labels = append(labels, sanitizePrometheusName(label))
+	}
+	return labels
+}
+
+func indirectCompositeLit(expr ast.Expr) (*ast.CompositeLit, bool) {
+	switch x := expr.(type) {
+	case *ast.CompositeLit:
+		return x, true
+	case *ast.UnaryExpr:
+		if x.Op == token.AND {
+			return indirectCompositeLit(x.X)
+		}
+	}
+	return nil, false
+}
+
+func isViewComposite(composite *ast.CompositeLit) bool {
+	switch typ := composite.Type.(type) {
+	case *ast.SelectorExpr:
+		return isSelector(typ, "view", "View")
+	case *ast.StarExpr:
+		if sel, ok := typ.X.(*ast.SelectorExpr); ok {
+			return isSelector(sel, "view", "View")
+		}
+	}
+	return false
+}
+
+func isSelector(expr ast.Expr, pkg, name string) bool {
+	sel, ok := expr.(*ast.SelectorExpr)
+	if !ok || sel.Sel.Name != name {
+		return false
+	}
+	x, ok := sel.X.(*ast.Ident)
+	return ok && x.Name == pkg
+}
+
+func exprName(expr ast.Expr) string {
+	switch x := expr.(type) {
+	case *ast.Ident:
+		return x.Name
+	case *ast.SelectorExpr:
+		parent := exprName(x.X)
+		if parent == "" {
+			return x.Sel.Name
+		}
+		return parent + "." + x.Sel.Name
+	case *ast.UnaryExpr:
+		return exprName(x.X)
+	case *ast.ParenExpr:
+		return exprName(x.X)
+	default:
+		return ""
+	}
+}
+
+func lastNamePart(name string) string {
+	parts := strings.Split(name, ".")
+	return parts[len(parts)-1]
+}
+
+func exportedOpenCensusName(name string) string {
+	return "curio_" + sanitizePrometheusName(name)
+}
+
+func sanitizePrometheusName(name string) string {
+	if name == "" {
+		return name
+	}
+	if len(name) > 100 {
+		name = name[:100]
+	}
+
+	var b strings.Builder
+	for _, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z':
+			b.WriteRune(r)
+		case r >= 'A' && r <= 'Z':
+			b.WriteRune(r)
+		case r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == '_' || r == ':':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('_')
+		}
+	}
+
+	out := b.String()
+	if strings.HasPrefix(out, "_") {
+		return "key" + out
+	}
+	return out
+}
+
+func stringExpr(expr ast.Expr, prefix string) string {
+	switch x := expr.(type) {
+	case *ast.BasicLit:
+		return strings.Trim(x.Value, `"`)
+	case *ast.BinaryExpr:
+		return extractConcatString(x, prefix)
+	default:
+		return ""
+	}
 }
 
 func extractConcatString(bin *ast.BinaryExpr, prefix string) string {

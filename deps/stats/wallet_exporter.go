@@ -7,7 +7,6 @@ import (
 	"time"
 
 	logging "github.com/ipfs/go-log/v2"
-	promclient "github.com/prometheus/client_golang/prometheus"
 	"go.opencensus.io/stats"
 	"go.opencensus.io/stats/view"
 	"go.opencensus.io/tag"
@@ -42,7 +41,7 @@ var WalletExporterMeasures = struct {
 	SentNFil    *stats.Int64Measure // landed messages
 	GasPaidNFil *stats.Int64Measure // landed messages (gasUsed * (basefee + tip))
 
-	MessageLandDuration promclient.Histogram
+	MessageLandDuration *stats.Float64Measure
 }{
 	BalanceNFil: stats.Int64(pre+"balance_nfil", "Balance in NanoFIL", stats.UnitDimensionless),
 	Power:       stats.Int64(pre+"power", "Power in Bytes", stats.UnitBytes),
@@ -56,11 +55,7 @@ var WalletExporterMeasures = struct {
 	SentNFil:    stats.Int64(pre+"sent_nfil", "Sent NanoFIL", stats.UnitDimensionless),
 	GasPaidNFil: stats.Int64(pre+"gas_paid_nfil", "Gas paid NanoFIL", stats.UnitDimensionless),
 
-	MessageLandDuration: promclient.NewHistogram(promclient.HistogramOpts{
-		Name:    pre + "message_land_duration_seconds",
-		Buckets: []float64{30 * 1, 30 * 2, 30 * 4, 30 * 5, 30 * 7, 30 * 15, 30 * 45, 30 * 120, 30 * 300, 30 * 1000, 30 * 2880},
-		Help:    "The histogram of message land durations in seconds.",
-	}),
+	MessageLandDuration: stats.Float64(pre+"message_land_duration_seconds", "The histogram of message land durations in seconds.", stats.UnitSeconds),
 }
 
 func init() {
@@ -104,6 +99,10 @@ func init() {
 			Measure:     WalletExporterMeasures.GasPaidNFil,
 			Aggregation: view.Sum(),
 			TagKeys:     []tag.Key{tagFromKey, tagFromName, tagToKey, tagToName, tagMethodKey, tagSendReasonKey, tagExitCodeKey},
+		},
+		&view.View{
+			Measure:     WalletExporterMeasures.MessageLandDuration,
+			Aggregation: view.Distribution(30*1, 30*2, 30*4, 30*5, 30*7, 30*15, 30*45, 30*120, 30*300, 30*1000, 30*2880),
 		},
 	)
 	if err != nil {
@@ -467,7 +466,7 @@ func walletExporterObserveLandedMsgs(ctx context.Context, db *harmonydb.DB, api 
 			if durationSeconds < 0 {
 				durationSeconds = 0
 			}
-			WalletExporterMeasures.MessageLandDuration.Observe(durationSeconds)
+			stats.Record(ctx, WalletExporterMeasures.MessageLandDuration.M(durationSeconds))
 		}
 
 		_ = stats.RecordWithTags(ctx, []tag.Mutator{

@@ -1,10 +1,8 @@
-package pay
+package filecoinpayment
 
 import (
 	"encoding/hex"
 	"strings"
-
-	"github.com/filecoin-project/curio/lib/filecoinpayment"
 )
 
 // ErrSelectorRailInactiveOrSettled is the hex-encoded 4-byte selector for
@@ -13,7 +11,7 @@ import (
 var ErrSelectorRailInactiveOrSettled string
 
 func init() {
-	parsed, err := filecoinpayment.PaymentsMetaData.GetAbi()
+	parsed, err := PaymentsMetaData.GetAbi()
 	if err != nil {
 		panic("failed to parse FilecoinPay Payments ABI: " + err.Error())
 	}

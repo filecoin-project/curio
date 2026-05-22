@@ -317,7 +317,7 @@ func (t *WinPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 			return false, err
 		}
 
-		MiningMeasures.ComputeTime.Observe(computeDuration.Seconds())
+		stats.Record(ctx, MiningMeasures.ComputeTime.M(computeDuration.Seconds()))
 	}
 
 	log.Infow("WinPostTask winning PoSt computed", "tipset", types.LogCids(base.TipSet.Cids()), "miner", maddr, "round", round, "proofs", wpostProof, "compute_time", computeDuration)
