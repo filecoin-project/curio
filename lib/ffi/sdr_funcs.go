@@ -318,7 +318,7 @@ func (sb *SealCalls) TreeRC(ctx context.Context, task *harmonytask.TaskID, secto
 		for range C1CheckNumber {
 			var sd [32]byte
 			_, _ = rand.Read(sd[:])
-			_, err = ffi.SealCommitPhase1(sector.ProofType, out.Sealed, unsealed, fspaths.Cache, fspaths.Sealed, sector.ID.Number, sector.ID.Miner, randomness, sd[:], pieces)
+			err = ffiselect.FFISelect.CheckSealCommitPhase1(ctx, sector.ProofType, out.Sealed, unsealed, fspaths.Cache, fspaths.Sealed, sector.ID.Number, sector.ID.Miner, randomness, sd[:], pieces)
 			if err != nil {
 				return cid.Undef, cid.Undef, xerrors.Errorf("checking PreCommit for sector num:%d tkt:%v seed:%v sealedCID:%v, unsealedCID:%v failed: %w", sector.ID.Number, randomness, sd[:], out.Sealed, unsealed, err)
 			}
@@ -640,8 +640,17 @@ func TruncateAndMoveUnsealed(tempUnsealed, unsealed string, ssize abi.SectorSize
 	return nil
 }
 
+func finalizeExistingFileTypes(proofType abi.RegisteredSealProof, keepUnsealed bool) storiface.SectorFileType {
+	existing := storiface.FTCache
+	if abi.Synthetic[proofType] && keepUnsealed {
+		existing |= storiface.FTUnsealed
+	}
+
+	return existing
+}
+
 func (sb *SealCalls) FinalizeSector(ctx context.Context, sector storiface.SectorRef, keepUnsealed bool) error {
-	sectorPaths, pathIDs, releaseSector, err := sb.Sectors.AcquireSector(ctx, nil, sector, storiface.FTCache, storiface.FTNone, storiface.PathSealing)
+	sectorPaths, pathIDs, releaseSector, err := sb.Sectors.AcquireSector(ctx, nil, sector, finalizeExistingFileTypes(sector.ProofType, keepUnsealed), storiface.FTNone, storiface.PathSealing)
 	if err != nil {
 		return xerrors.Errorf("acquiring sector paths: %w", err)
 	}
@@ -803,7 +812,7 @@ func (sb *SealCalls) SyntheticProofs(ctx context.Context, task *harmonytask.Task
 	for range C1CheckNumber {
 		var sd [32]byte
 		_, _ = rand.Read(sd[:])
-		_, err = ffi.SealCommitPhase1(sector.ProofType, sealed, unsealed, fspaths.Cache, fspaths.Sealed, sector.ID.Number, sector.ID.Miner, randomness, sd[:], pieces)
+		err = ffiselect.FFISelect.CheckSealCommitPhase1(ctx, sector.ProofType, sealed, unsealed, fspaths.Cache, fspaths.Sealed, sector.ID.Number, sector.ID.Miner, randomness, sd[:], pieces)
 		if err != nil {
 			return xerrors.Errorf("checking PreCommit for synthetic proofs for num:%d tkt:%v seed:%v sealedCID:%v, unsealedCID:%v failed: %w", sector.ID.Number, randomness, sd[:], sealed, unsealed, err)
 		}

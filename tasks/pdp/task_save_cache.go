@@ -24,6 +24,8 @@ import (
 	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
+// MinSizeForCache: pieces with padded size > this get a cached middle merkle
+// layer. Keyed on padded size (the merkle tree's domain), not raw.
 const MinSizeForCache = uint64(32 * 1024 * 1024)
 const PaddedReadSize = 4 << 20
 
@@ -75,9 +77,7 @@ func (t *TaskPDPSaveCache) Do(ctx context.Context, taskID harmonytask.TaskID, st
 		return false, xerrors.Errorf("failed to get piece info: %w", err)
 	}
 
-	// Let's build the merkle Tree again (commP) and save a middle layer for fast proving
-	// for pieces larger than 100 MiB
-	if pi.RawSize > MinSizeForCache {
+	if uint64(pi.Size) > MinSizeForCache {
 		has, _, err := t.idx.GetPDPLayerIndex(ctx, pcid)
 		if err != nil {
 			return false, xerrors.Errorf("failed to check if piece has PDP layer: %w", err)

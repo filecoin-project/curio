@@ -13,6 +13,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
+	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/pdp/contract"
@@ -142,8 +143,9 @@ func (t *DeleteDataSetTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Name:      tasknames.PDPv0_DelDataSet,
 		MayFollow: []string{tasknames.PDPv0_Prove},
+		Max:       taskhelp.Max(10),
 		Cost: resources.Resources{
-			Cpu: 1,
+			Cpu: 0,
 			Gpu: 0,
 			Ram: 64 << 20,
 		},

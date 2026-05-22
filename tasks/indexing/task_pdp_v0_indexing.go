@@ -164,7 +164,7 @@ func (P *PDPIndexingV0Task) Do(ctx context.Context, taskID harmonytask.TaskID, s
 
 func (P *PDPIndexingV0Task) recordCompletion(ctx context.Context, taskID harmonytask.TaskID, id int64, needsIPNI bool) error {
 
-	n, err := P.db.Exec(ctx, `UPDATE pdp_piecerefs SET needs_indexing = FALSE, needs_ipni = $3, indexing_task_id = NULL 
+	n, err := P.db.Exec(ctx, `UPDATE pdp_piecerefs SET needs_indexing = FALSE, indexed_at = NOW(), needs_ipni = $3, indexing_task_id = NULL 
 									WHERE id = $1 AND indexing_task_id = $2`, id, taskID, needsIPNI)
 	if err != nil {
 		return xerrors.Errorf("store indexing success: updating pipeline: %w", err)

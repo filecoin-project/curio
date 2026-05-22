@@ -1,15 +1,17 @@
 import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs';
+import { pollRPC } from '/lib/poll.mjs';
 customElements.define('storage-gc-stats',class StorageGCStats extends LitElement {
+    static properties = {
+        data: { type: Array },
+    };
+
     constructor() {
         super();
         this.data = [];
-        this.loadData();
-    }
-
-    async loadData() {
-        this.data = await RPCCall('StorageGCStats') || [];
-        this.requestUpdate();
+        pollRPC(async () => {
+            this.data = await RPCCall('StorageGCStats') || [];
+        }, 10000);
     }
 
     render() {

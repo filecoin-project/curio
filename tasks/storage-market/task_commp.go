@@ -234,7 +234,7 @@ func (c *CommpTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwne
 		}
 
 		if !pcid.Equals(calculatedCommp.PieceCID) {
-			return false, xerrors.Errorf("commP mismatch calculated %s and supplied %s", pcid, calculatedCommp.PieceCID)
+			return false, xerrors.Errorf("commP mismatch calculated %s and supplied %s", calculatedCommp.PieceCID, pcid)
 		}
 
 		var n int

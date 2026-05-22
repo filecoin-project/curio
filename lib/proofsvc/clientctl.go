@@ -14,7 +14,6 @@ import (
 
 	"github.com/ipfs/go-cid"
 	mh "github.com/multiformats/go-multihash"
-	"github.com/prometheus/client_golang/prometheus"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-state-types/abi"
@@ -41,25 +40,6 @@ var (
 	lastPriceCheck = time.Now().Add(-time.Hour)
 	lastPrice      = PriceResponse{}
 )
-
-// --- Metrics ---
-
-var (
-	clientctlBuckets  = []float64{0.05, 0.2, 0.5, 1, 5} // seconds
-	clientctlDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
-		Name:    "curio_psvc_clientctl_duration_seconds",
-		Help:    "Duration of proofsvc clientctl operations",
-		Buckets: clientctlBuckets,
-	}, []string{"call"})
-)
-
-func init() {
-	_ = prometheus.Register(clientctlDuration)
-}
-
-func recordClientctlDuration(call string, start time.Time) {
-	clientctlDuration.WithLabelValues(call).Observe(time.Since(start).Seconds())
-}
 
 // NfilFromTokenAmount converts a token amount in attoFIL to nanoFIL (nFIL).
 // It returns an error if the token amount is not divisible by 1 nFIL.

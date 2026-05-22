@@ -11,7 +11,7 @@ var (
 	MinerTag, _    = tag.NewKey("miner")
 	FileTypeTag, _ = tag.NewKey("filetype")
 
-	pre = "curio_gc_"
+	pre = "gc_"
 )
 
 // GCMeasures groups all GC metrics.

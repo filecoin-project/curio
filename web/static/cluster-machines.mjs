@@ -1,5 +1,6 @@
 import { LitElement, css, html } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs';
+import { pollRPC } from '/lib/poll.mjs';
 
 customElements.define('cluster-machines', class ClusterMachines extends LitElement {
     static properties = {
@@ -22,13 +23,9 @@ customElements.define('cluster-machines', class ClusterMachines extends LitEleme
         super();
         this.data = [];
         this.detailed = false; // Default to not detailed
-        this.loadData();
-    }
-
-    async loadData() {
-        this.data = await RPCCall('ClusterMachines');
-        setTimeout(() => this.loadData(), 5000);
-        this.requestUpdate();
+        pollRPC(async () => {
+            this.data = await RPCCall('ClusterMachines');
+        }, 5000);
     }
 
     toggleDetailed(e) {

@@ -355,7 +355,9 @@ func (h *taskTypeHandler) recordCompletion(tID TaskID, sectorID *abi.SectorID, w
 		}, TaskMeasures.ActiveTasks.M(int64(h.Max.ActiveThis())))
 
 		duration := workEnd.Sub(workStart).Seconds()
-		TaskMeasures.TaskDuration.Observe(duration)
+		_ = stats.RecordWithTags(context.Background(), []tag.Mutator{
+			tag.Upsert(taskNameTag, h.Name),
+		}, TaskMeasures.TaskDuration.M(duration))
 
 		if done {
 			_ = stats.RecordWithTags(context.Background(), []tag.Mutator{
@@ -368,16 +370,21 @@ func (h *taskTypeHandler) recordCompletion(tID TaskID, sectorID *abi.SectorID, w
 		}
 	}
 
+	var waitStartTime time.Time
 retryRecordCompletion:
 	cm, err := h.TaskEngine.cfg.db.BeginTransaction(context.Background(), func(tx *harmonydb.Tx) (bool, error) {
 		var postedTime time.Time
 		var retries uint
-		err := tx.QueryRow(`SELECT posted_time, retries FROM harmony_task WHERE id=$1`, tID).Scan(&postedTime, &retries)
+		var updateTime time.Time
+		err := tx.QueryRow(`SELECT posted_time, update_time, retries FROM harmony_task WHERE id=$1`, tID).Scan(&postedTime, &updateTime, &retries)
 		if err != nil {
 			return false, fmt.Errorf("could not log completion: %w ", err)
 		}
-
-		var result string
+		waitStartTime = postedTime
+		if retries > 0 {
+			waitStartTime = updateTime
+		}
+		result := ""
 		switch {
 		case done:
 			_, err = tx.Exec("DELETE FROM harmony_task WHERE id=$1", tID)
@@ -440,6 +447,14 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`, tID, h.Name, postedTime.U
 		}
 		goto retryRecordCompletion
 	}
+
+	scheduledWait := workStart.Sub(waitStartTime).Seconds()
+	if scheduledWait < 0 {
+		scheduledWait = 0
+	}
+	_ = stats.RecordWithTags(context.Background(), []tag.Mutator{
+		tag.Upsert(taskNameTag, h.Name),
+	}, TaskMeasures.TaskScheduledWait.M(scheduledWait))
 }
 
 // maxHeadroom limits how many tasks of a single type can be accepted in one

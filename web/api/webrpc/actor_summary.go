@@ -110,7 +110,7 @@ func (a *WebRPC) ActorInfo(ctx context.Context, ActorIDstr string) (*ActorDetail
 	confNameToAddr := map[address.Address][]string{}
 	minerWallets := map[string][]address.Address{}
 
-	err = a.visitAddresses(func(layer string, cAddrs config.CurioAddresses, madr address.Address) {
+	err = a.visitAddresses(ctx, func(layer string, cAddrs config.CurioAddresses, madr address.Address) {
 		if !bytes.Equal(maddr.Bytes(), madr.Bytes()) {
 			return
 		}
@@ -281,7 +281,7 @@ func (a *WebRPC) ActorInfo(ctx context.Context, ActorIDstr string) (*ActorDetail
 
 func (a *WebRPC) ActorSummary(ctx context.Context) ([]ActorSummary, error) {
 	confNameToAddr := map[address.Address][]string{}
-	err := a.visitAddresses(func(name string, _ config.CurioAddresses, a address.Address) {
+	err := a.visitAddresses(ctx, func(name string, _ config.CurioAddresses, a address.Address) {
 		confNameToAddr[a] = append(confNameToAddr[a], name)
 	})
 	if err != nil {
@@ -291,8 +291,8 @@ func (a *WebRPC) ActorSummary(ctx context.Context) ([]ActorSummary, error) {
 	return as, err
 }
 
-func (a *WebRPC) visitAddresses(cb func(string, config.CurioAddresses, address.Address)) error {
-	err := forEachConfig(a, func(name string, info minimalActorInfo) error {
+func (a *WebRPC) visitAddresses(ctx context.Context, cb func(string, config.CurioAddresses, address.Address)) error {
+	err := config.ForEachConfig(ctx, a.deps.DB, func(name string, info minimalActorInfo) error {
 		for _, aset := range info.Addresses {
 			for _, addr := range aset.MinerAddresses {
 				a, err := address.NewFromString(addr)
@@ -550,7 +550,7 @@ func (a *WebRPC) spWins(ctx context.Context) (map[address.Address]wins, error) {
 func (a *WebRPC) ActorList(ctx context.Context) ([]string, error) {
 	confNameToAddr := map[address.Address][]string{}
 
-	err := forEachConfig(a, func(name string, info minimalActorInfo) error {
+	err := config.ForEachConfig(ctx, a.deps.DB, func(name string, info minimalActorInfo) error {
 		for _, aset := range info.Addresses {
 			for _, addr := range aset.MinerAddresses {
 				a, err := address.NewFromString(addr)

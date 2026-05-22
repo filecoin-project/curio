@@ -2,6 +2,7 @@ package pdp
 
 import (
 	"context"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -25,6 +26,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/lib/paths"
+	ipni_provider "github.com/filecoin-project/curio/market/ipni/ipni-provider"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/tasks/indexing"
 	"github.com/filecoin-project/curio/tasks/message"
@@ -69,6 +71,8 @@ type PDPService struct {
 	alertTask *alertmanager.AlertTask
 
 	pullHandler *PullHandler
+
+	ipp *ipni_provider.Provider
 }
 
 type PDPServiceNodeApi interface {
@@ -76,7 +80,15 @@ type PDPServiceNodeApi interface {
 }
 
 // NewPDPService creates a new instance of PDPService with the provided stores.
-func NewPDPService(ctx context.Context, db *harmonydb.DB, stor paths.StashStore, ec ethchain.EthClient, fc PDPServiceNodeApi, sn *message.SenderETH, alertTask *alertmanager.AlertTask) *PDPService {
+func NewPDPService(
+	ctx context.Context,
+	db *harmonydb.DB,
+	stor paths.StashStore,
+	ec ethchain.EthClient,
+	fc PDPServiceNodeApi,
+	sn *message.SenderETH,
+	alertTask *alertmanager.AlertTask,
+	ipp *ipni_provider.Provider) *PDPService {
 	auth := &NullAuth{}
 	pullStore := NewDBPullStore(db)
 	pullValidator := NewEthCallValidator(ec, db)
@@ -93,21 +105,38 @@ func NewPDPService(ctx context.Context, db *harmonydb.DB, stor paths.StashStore,
 		alertTask: alertTask,
 
 		pullHandler: NewPullHandler(auth, pullStore, pullValidator),
+
+		ipp: ipp,
 	}
 
 	go p.cleanup(ctx)
 	return p
 }
 
-// Routes registers the HTTP routes with the provided router
+// kvDataSetID extracts the dataset URL param for lifecycle logging.
+func kvDataSetID(r *http.Request) []any {
+	return []any{"dataset", chi.URLParam(r, "dataSetId")}
+}
+
+// kvDataSetPiece extracts dataset + piece URL params for lifecycle logging.
+func kvDataSetPiece(r *http.Request) []any {
+	return []any{"dataset", chi.URLParam(r, "dataSetId"), "piece_id", chi.URLParam(r, "pieceID")}
+}
+
+// kvUploadUUID extracts the upload UUID URL param for lifecycle logging.
+func kvUploadUUID(r *http.Request) []any {
+	return []any{"upload_uuid", chi.URLParam(r, "uploadUUID")}
+}
+
+// Routes registers the HTTP routes with the provided router.
 func Routes(r *chi.Mux, p *PDPService) {
 	// Routes for data sets
 	r.Route(path.Join(PDPRoutePath, "/data-sets"), func(r chi.Router) {
 		// POST /pdp/data-sets - Create a new data set
-		r.Post("/", p.handleCreateDataSet)
+		r.Post("/", instrument("dataSetCreate", p.handleCreateDataSet, nil))
 
 		// POST /pdp/data-sets/create-and-add - Create a new data set and add pieces at the same time
-		r.Post("/create-and-add", p.handleCreateDataSetAndAddPieces)
+		r.Post("/create-and-add", instrument("dataSetCreateAndAdd", p.handleCreateDataSetAndAddPieces, nil))
 
 		// GET /pdp/data-sets/created/{txHash} - Get the status of a data set creation
 		r.Get("/created/{txHash}", p.handleGetDataSetCreationStatus)
@@ -118,12 +147,12 @@ func Routes(r *chi.Mux, p *PDPService) {
 			r.Get("/", p.handleGetDataSet)
 
 			// DEL /pdp/data-sets/{set-id}
-			r.Delete("/", p.handleDeleteDataSet)
+			r.Delete("/", instrument("dataSetDelete", p.handleDeleteDataSet, kvDataSetID))
 
 			// Routes for pieces within a data set
 			r.Route("/pieces", func(r chi.Router) {
 				// POST /pdp/data-sets/{set-id}/pieces
-				r.Post("/", p.handleAddPieceToDataSet)
+				r.Post("/", instrument("pieceAdd", p.handleAddPieceToDataSet, kvDataSetID))
 
 				// GET /pdp/data-sets/{set-id}/pieces/added/{txHash}
 				r.Get("/added/{txHash}", p.handleGetPieceAdditionStatus)
@@ -134,7 +163,7 @@ func Routes(r *chi.Mux, p *PDPService) {
 					r.Get("/", p.handleGetDataSetPiece)
 
 					// DEL /pdp/data-sets/{set-id}/pieces/{piece-id}
-					r.Delete("/", p.handleDeleteDataSetPiece)
+					r.Delete("/", instrument("pieceDelete", p.handleDeleteDataSetPiece, kvDataSetPiece))
 				})
 			})
 		})
@@ -147,29 +176,25 @@ func Routes(r *chi.Mux, p *PDPService) {
 
 	// Routes for piece storage and retrieval
 	// POST /pdp/piece
-	r.Post(path.Join(PDPRoutePath, "/piece"), p.handlePiecePost)
+	r.Post(path.Join(PDPRoutePath, "/piece"), instrument("pieceUploadInit", p.handlePiecePost, nil))
 
 	// GET /pdp/piece/
 	r.Get(path.Join(PDPRoutePath, "/piece/"), p.handleFindPiece)
 
 	// PUT /pdp/piece/upload/{uploadUUID}
-	r.Put(path.Join(PDPRoutePath, "/piece/upload/{uploadUUID}"), func(w http.ResponseWriter, r *http.Request) {
-		log.Debugw("[handlePieceUpload] -- router says upload started", "uploadUUID", chi.URLParam(r, "uploadUUID"))
-		p.handlePieceUpload(w, r)
-		log.Debugw("[handlePieceUpload] -- router says its done", "uploadUUID", chi.URLParam(r, "uploadUUID"))
-	})
+	r.Put(path.Join(PDPRoutePath, "/piece/upload/{uploadUUID}"), instrument("pieceUpload", p.handlePieceUpload, kvUploadUUID))
 
 	// POST /pdp/piece/uploads
-	r.Post(path.Join(PDPRoutePath, "/piece/uploads"), p.handleStreamingUploadURL)
+	r.Post(path.Join(PDPRoutePath, "/piece/uploads"), instrument("pieceStreamInit", p.handleStreamingUploadURL, nil))
 
 	// PUT /pdp/piece/uploads/{uploadUUID}
-	r.Put(path.Join(PDPRoutePath, "/piece/uploads/{uploadUUID}"), p.handleStreamingUpload)
+	r.Put(path.Join(PDPRoutePath, "/piece/uploads/{uploadUUID}"), instrument("pieceStreamUpload", p.handleStreamingUpload, kvUploadUUID))
 
 	// POST /pdp/piece/uploads/{uploadUUID}
-	r.Post(path.Join(PDPRoutePath, "/piece/uploads/{uploadUUID}"), p.handleFinalizeStreamingUpload)
+	r.Post(path.Join(PDPRoutePath, "/piece/uploads/{uploadUUID}"), instrument("pieceStreamFinalize", p.handleFinalizeStreamingUpload, kvUploadUUID))
 
 	// POST /pdp/piece/pull - Pull pieces from other SPs
-	r.Post(path.Join(PDPRoutePath, "/piece/pull"), p.pullHandler.HandlePull)
+	r.Post(path.Join(PDPRoutePath, "/piece/pull"), instrument("piecePull", p.pullHandler.HandlePull, nil))
 }
 
 // Handler functions
@@ -216,71 +241,79 @@ func (p *PDPService) handleGetPieceStatus(w http.ResponseWriter, r *http.Request
 	pieceCidV1Str := info.CidV1.String()
 
 	// Query status from database
-	var result struct {
-		PieceCID     string     `db:"piece_cid"`
-		PieceRawSize uint64     `db:"piece_raw_size"`
-		CreatedAt    time.Time  `db:"created_at"`
-		Indexed      bool       `db:"indexed"`
-		Advertised   bool       `db:"advertised"`
-		AdCID        *string    `db:"ad_cid"`
-		Retrieved    bool       `db:"retrieved"`
-		RetrievedAt  *time.Time `db:"retrieved_at"`
-		Status       string     `db:"status"`
+	var results []struct {
+		PieceCID                 string         `db:"piece_cid"`
+		PieceRawSize             uint64         `db:"piece_raw_size"`
+		CreatedAt                time.Time      `db:"created_at"`
+		Indexed                  bool           `db:"indexed"`
+		IndexedAt                sql.NullTime   `db:"indexed_at"`
+		AdvertisementCreated     bool           `db:"advertisement_created"`
+		AdvertisementCreatedAt   sql.NullTime   `db:"advertisement_created_at"`
+		AdCID                    sql.NullString `db:"ad_cid"`
+		AdvertisementRetrieved   bool           `db:"advertisement_retrieved"`
+		AdvertisementRetrievedAt sql.NullTime   `db:"advertisement_retrieved_at"`
+		Status                   string         `db:"status"`
+		Provider                 sql.NullString `db:"provider"`
 	}
 
-	err = p.db.QueryRow(ctx, `
+	err = p.db.Select(ctx, &results, `
 		SELECT
 			pr.piece_cid,
 			pp.piece_raw_size,
 			pr.created_at,
 
 			-- Indexing status (true when CAR indexing completed and ready for/in IPNI)
-			(pr.needs_ipni OR pr.ipni_task_id IS NOT NULL OR i.ad_cid IS NOT NULL) as indexed,
+			(pr.needs_ipni OR pr.ipni_task_id IS NOT NULL OR ia.ad_cid IS NOT NULL) as indexed,
+			pr.indexed_at,
 
 			-- Advertisement status
-			i.ad_cid IS NOT NULL as advertised,
-			i.ad_cid,
+			ia.ad_cid IS NOT NULL as advertisement_created,
+			pr.advertisement_created_at as advertisement_created_at,
+			ia.ad_cid,
 
-			-- Fetch status
-			af.fetched_at IS NOT NULL as retrieved,
-			af.fetched_at as retrieved_at,
+			-- Advertisement Fetch status
+			ia.fetched_at IS NOT NULL as advertisement_retrieved,
+			ia.fetched_at as advertisement_retrieved_at,
 
 			-- Determine overall status
 			CASE
-				WHEN af.fetched_at IS NOT NULL THEN 'retrieved'
-				WHEN i.ad_cid IS NOT NULL THEN 'announced'
+				WHEN ia.fetched_at IS NOT NULL THEN 'retrieved'
+				WHEN ia.ad_cid IS NOT NULL THEN 'announced'
 				WHEN pr.ipni_task_id IS NOT NULL THEN 'creating_ad'
 				WHEN pr.indexing_task_id IS NOT NULL THEN 'indexing'
 				ELSE 'pending'
-			END as status
+			END as status,
+		
+			ia.provider
 
 		FROM pdp_piecerefs pr
 		JOIN parked_piece_refs pprf ON pprf.ref_id = pr.piece_ref
 		JOIN parked_pieces pp ON pp.id = pprf.piece_id
-		LEFT JOIN ipni i ON i.piece_cid = pr.piece_cid
-			AND i.provider = (SELECT peer_id FROM ipni_peerid WHERE sp_id = $3)
-		LEFT JOIN ipni_ad_fetches af ON af.ad_cid = i.ad_cid
+		LEFT JOIN LATERAL (
+			SELECT
+				MIN(i.ad_cid) as ad_cid,
+				MIN(i.provider) as provider,
+				MIN(af.fetched_at) as fetched_at
+			FROM ipni i
+			LEFT JOIN ipni_ad_fetches af ON af.ad_cid = i.ad_cid
+			WHERE i.piece_cid = pr.piece_cid
+				AND i.provider = (SELECT peer_id FROM ipni_peerid WHERE sp_id = $3)
+				AND i.is_rm = FALSE
+		) ia ON true
 		WHERE pr.piece_cid = $1 AND pr.service = $2
 		LIMIT 1
-	`, pieceCidV1Str, serviceLabel, indexing.PDP_v0_SP_ID).Scan(
-		&result.PieceCID,
-		&result.PieceRawSize,
-		&result.CreatedAt,
-		&result.Indexed,
-		&result.Advertised,
-		&result.AdCID,
-		&result.Retrieved,
-		&result.RetrievedAt,
-		&result.Status,
-	)
+	`, pieceCidV1Str, serviceLabel, indexing.PDP_v0_SP_ID)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			http.Error(w, "Piece not found or does not belong to service", http.StatusNotFound)
-			return
-		}
 		httpServerError(w, http.StatusInternalServerError, "Failed to query piece status", err)
 		return
 	}
+
+	if len(results) == 0 {
+		http.Error(w, "Piece not found or does not belong to service", http.StatusNotFound)
+		return
+	}
+
+	result := results[0]
 
 	// Convert authoritative PieceCID back from v1 to v2 for external API
 	pieceInfo, err := PieceCidV2FromV1Str(result.PieceCID, result.PieceRawSize)
@@ -291,19 +324,103 @@ func (p *PDPService) handleGetPieceStatus(w http.ResponseWriter, r *http.Request
 
 	// Prepare response
 	response := struct {
-		PieceCID    string     `json:"pieceCid"`
-		Status      string     `json:"status"`
-		Indexed     bool       `json:"indexed"`
-		Advertised  bool       `json:"advertised"`
-		Retrieved   bool       `json:"retrieved"`
-		RetrievedAt *time.Time `json:"retrievedAt,omitempty"`
+		PieceCID     string     `json:"pieceCid"`
+		Status       string     `json:"status"`
+		Indexed      bool       `json:"indexed"`
+		IndexedAt    *time.Time `json:"indexedAt,omitempty"`
+		AdCreated    bool       `json:"adCreated"`
+		AdCreatedAt  *time.Time `json:"adCreatedAt,omitempty"`
+		Advertised   bool       `json:"advertised"`
+		AdvertisedAt *time.Time `json:"advertisedAt,omitempty"`
+		Retrieved    bool       `json:"retrieved"`
+		RetrievedAt  *time.Time `json:"retrievedAt,omitempty"`
 	}{
-		PieceCID:    pieceInfo.CidV2.String(),
-		Status:      result.Status,
-		Indexed:     result.Indexed,
-		Advertised:  result.Advertised,
-		Retrieved:   result.Retrieved,
-		RetrievedAt: result.RetrievedAt,
+		PieceCID:  pieceInfo.CidV2.String(),
+		Status:    result.Status,
+		Indexed:   result.Indexed,
+		AdCreated: result.AdvertisementCreated,
+		Retrieved: result.AdvertisementRetrieved,
+	}
+
+	if !result.IndexedAt.Valid {
+		response.IndexedAt = nil
+	} else {
+		response.IndexedAt = &result.IndexedAt.Time
+	}
+
+	if !result.AdvertisementCreatedAt.Valid {
+		response.AdCreatedAt = nil
+	} else {
+		response.AdCreatedAt = &result.AdvertisementCreatedAt.Time
+	}
+
+	if !result.AdvertisementRetrievedAt.Valid {
+		response.RetrievedAt = nil
+	} else {
+		response.RetrievedAt = &result.AdvertisementRetrievedAt.Time
+	}
+
+	// Advertised and AdvertisedAt are derived from three signals, in order:
+	// 1. A recorded fetch of this ad in ipni_ad_fetches is the strongest per-ad
+	//    signal. If an indexer fetched the ad, it must have been advertised
+	//    already. Since we do not store the actual first publish time for each
+	//    ad, AdvertisedAt is estimated as the earlier of
+	//    advertisement_created_at + PublishInterval and the first fetch time.
+	//    This keeps AdvertisedAt from appearing after RetrievedAt.
+	// 2. The in-process IPNI provider exposes LastPublishTime per provider, not
+	//    per ad. It is useful only when there is no fetch record and we know
+	//    when this ad was created. A provider publish after this ad was created
+	//    means the ad should have been included in the announced head; an older
+	//    provider publish means it was not, and we do not fall through to the
+	//    timing heuristic.
+	// 3. Without either signal, fall back to the old timing heuristic: after
+	//    PublishInterval has elapsed from ad creation, assume the ad was
+	//    announced.
+	if result.AdvertisementRetrieved {
+		response.Advertised = true
+		if result.AdvertisementRetrievedAt.Valid {
+			advertisedAt := result.AdvertisementRetrievedAt.Time
+			if result.AdvertisementCreatedAt.Valid {
+				createdAtEstimate := result.AdvertisementCreatedAt.Time.Add(ipni_provider.PublishInterval)
+				if createdAtEstimate.Before(advertisedAt) {
+					advertisedAt = createdAtEstimate
+				}
+			}
+			response.AdvertisedAt = &advertisedAt
+		} else {
+			response.AdvertisedAt = nil
+		}
+	}
+
+	advertisedFromProvider := false
+	if !response.Advertised && result.AdvertisementCreatedAt.Valid && p.ipp != nil && result.Provider.Valid {
+		publishedAt := p.ipp.LastPublishTime(result.Provider.String)
+		if publishedAt != nil {
+			advertisedFromProvider = true
+			if publishedAt.After(result.AdvertisementCreatedAt.Time) {
+				response.Advertised = true
+				response.AdvertisedAt = new(*publishedAt)
+				if publishedAt.After(time.Now().Add(ipni_provider.PublishInterval)) {
+					response.AdvertisedAt = new(result.AdvertisementCreatedAt.Time.Add(ipni_provider.PublishInterval))
+				}
+			} else {
+				response.Advertised = false
+				response.AdvertisedAt = nil
+			}
+		}
+	}
+
+	if !advertisedFromProvider && !response.Advertised {
+		if result.AdvertisementCreated && result.AdvertisementCreatedAt.Valid {
+			if time.Since(result.AdvertisementCreatedAt.Time) > ipni_provider.PublishInterval {
+				// More than 5 seconds since advertisement was created, assume it's published
+				response.Advertised = true
+				response.AdvertisedAt = new(result.AdvertisementCreatedAt.Time.Add(ipni_provider.PublishInterval))
+			} else {
+				response.Advertised = false
+				response.AdvertisedAt = nil
+			}
+		}
 	}
 
 	// Return JSON response

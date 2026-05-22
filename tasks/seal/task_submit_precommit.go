@@ -261,6 +261,14 @@ func (s *SubmitPrecommitTask) Do(ctx context.Context, taskID harmonytask.TaskID,
 		params.Sectors = append(params.Sectors, param)
 	}
 
+	// Check if we have any valid sectors
+	if len(params.Sectors) == 0 {
+		log.Warnf("no valid sectors to precommit")
+		// We return true here because only way sectors are 0 is if they were removed due to ticket expiration,
+		// and we have already marked them as failed in pipeline
+		return true, nil
+	}
+
 	// 3. Prepare and send message
 
 	var pbuf bytes.Buffer

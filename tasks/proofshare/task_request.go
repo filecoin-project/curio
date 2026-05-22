@@ -6,7 +6,6 @@ import (
 	"time"
 
 	logging "github.com/ipfs/go-log/v2"
-	"github.com/prometheus/client_golang/prometheus"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -22,55 +21,6 @@ import (
 )
 
 var log = logging.Logger("proofshare")
-
-// --- Metrics ---
-
-var (
-	trBuckets = []float64{0.05, 0.2, 0.5, 1, 5, 15, 45} // seconds
-
-	queueCountGauge = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "curio_psvc_proofshare_queue_count",
-		Help: "Current proofshare request queue count",
-	})
-	adderCommitCounter = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "curio_psvc_proofshare_adder_commits_total",
-		Help: "Total number of successful task additions scheduled by Adder",
-	})
-	adderHoldDecisionCounter = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Name: "curio_psvc_proofshare_adder_hold_decisions_total",
-		Help: "Total number of hold decisions made by Adder",
-	}, []string{"hold"})
-
-	needAsksGauge = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "curio_psvc_proofshare_need_asks",
-		Help: "Number of asks still needed in current Do loop iteration",
-	})
-	toRequestGauge = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "curio_psvc_proofshare_to_request_remaining",
-		Help: "Remaining requests to fulfill for high-water mark",
-	})
-
-	newlyAddedCounter = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "curio_psvc_proofshare_newly_added_total",
-		Help: "Total number of new work requests inserted locally",
-	})
-
-	createAsksDuration = prometheus.NewHistogram(prometheus.HistogramOpts{
-		Name:    "curio_psvc_proofshare_create_asks_seconds",
-		Help:    "Duration of create asks inner loop",
-		Buckets: trBuckets,
-	})
-)
-
-func init() {
-	_ = prometheus.Register(queueCountGauge)
-	_ = prometheus.Register(adderCommitCounter)
-	_ = prometheus.Register(needAsksGauge)
-	_ = prometheus.Register(toRequestGauge)
-	_ = prometheus.Register(newlyAddedCounter)
-	_ = prometheus.Register(createAsksDuration)
-	_ = prometheus.Register(adderHoldDecisionCounter)
-}
 
 var ProofRequestPollInterval = time.Second * 3
 var BoredBeforeToStart = time.Second * 7
@@ -108,10 +58,10 @@ func (t *TaskRequestProofs) Adder(taskTx harmonytask.AddTaskFunc) {
 			// check if snap/porep tasks were bored recently
 			if ShouldHoldProofShare(ctx, t.db) {
 				log.Infow("TaskRequestProofs.Adder() HOLDING OFF")
-				adderHoldDecisionCounter.WithLabelValues("hold").Inc()
+				recordProofshareAdderHoldDecision("hold")
 				continue
 			}
-			adderHoldDecisionCounter.WithLabelValues("pass").Inc()
+			recordProofshareAdderHoldDecision("pass")
 
 			taskTx(func(taskID harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
 				// Get current state from proofshare_meta
@@ -144,7 +94,7 @@ func (t *TaskRequestProofs) Adder(taskTx harmonytask.AddTaskFunc) {
 					return false, err
 				}
 
-				queueCountGauge.Set(float64(queueCount))
+				recordProofshareQueueCount(queueCount)
 
 				if queueCount > RequestQueueLowWaterMark {
 					log.Debugw("TaskRequestProofs.Adder() queue is at or above low water mark, not scheduling", "queueCount", queueCount)
@@ -162,7 +112,7 @@ func (t *TaskRequestProofs) Adder(taskTx harmonytask.AddTaskFunc) {
 				}
 
 				// Successful commit
-				adderCommitCounter.Inc()
+				recordProofshareAdderCommit()
 
 				return true, nil
 			})
@@ -219,7 +169,7 @@ func (t *TaskRequestProofs) Do(ctx context.Context, taskID harmonytask.TaskID, s
 	log.Infow("checked queue count", "count", queueCount)
 
 	toRequest := RequestQueueHighWaterMark - queueCount
-	toRequestGauge.Set(float64(toRequest))
+	recordProofshareToRequestRemaining(toRequest)
 	if toRequest <= 0 {
 		log.Infow("queue is at or above high water mark, nothing to request")
 		return true, nil
@@ -330,7 +280,7 @@ func (t *TaskRequestProofs) Do(ctx context.Context, taskID harmonytask.TaskID, s
 		// If we still need more requests, create new work asks
 		neededAsks := toRequest - len(work.ActiveAsks)
 		log.Infow("checking if more asks needed", "neededAsks", neededAsks, "toRequest", toRequest, "activeAsks", len(work.ActiveAsks))
-		needAsksGauge.Set(float64(neededAsks))
+		recordProofshareNeedAsks(neededAsks)
 
 		// Prepare signing material once, outside the ask-creation loop.
 		var (
@@ -371,10 +321,10 @@ func (t *TaskRequestProofs) Do(ctx context.Context, taskID harmonytask.TaskID, s
 			}
 			asksCreated++
 			log.Infow("created new work ask", "askID", askID)
-			newlyAddedCounter.Inc()
+			recordProofshareNewlyAdded()
 		}
 		if asksCreated > 0 {
-			createAsksDuration.Observe(time.Since(startCreate).Seconds())
+			observeProofshareCreateAsksDuration(time.Since(startCreate))
 		}
 
 		// Track whether we made forward progress this iteration.
@@ -395,7 +345,7 @@ func (t *TaskRequestProofs) Do(ctx context.Context, taskID harmonytask.TaskID, s
 		// (If !madeProgress && !rateLimited we keep the current backoff;
 		// the service may just be slow matching asks to work.)
 
-		toRequestGauge.Set(float64(toRequest))
+		recordProofshareToRequestRemaining(toRequest)
 
 		log.Infow("waiting before next poll", "interval", pollBackoff, "madeProgress", madeProgress, "rateLimited", rateLimited)
 		time.Sleep(pollBackoff)

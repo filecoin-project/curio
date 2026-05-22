@@ -1,22 +1,24 @@
 import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs'
+import { pollRPC } from '/lib/poll.mjs';
 customElements.define('harmony-task-counts', class HarmonyTaskStatsTable extends LitElement {
+    static properties = {
+        data: { type: Array },
+    };
+
     constructor() {
         super();
         this.data = [];
-        this.loadData();
-    }
-
-    async loadData() {
-        this.data = await RPCCall('HarmonyTaskStats');
-        this.calculatePercentages();
-        this.requestUpdate();
+        pollRPC(async () => {
+            this.data = await RPCCall('HarmonyTaskStats');
+            this.calculatePercentages();
+        }, 10000);
     }
 
     calculatePercentages() {
         this.data = this.data.map(task => ({
             ...task,
-            FailedPercentage: task.FalseCount > 0 ? `${((task.FalseCount / task.TotalCount) * 100).toFixed(2)}%` : '0%'
+            FailedPercentage: task.failure > 0 ? `${((task.failure / task.total) * 100).toFixed(2)}%` : '0%'
         }));
     }
 
@@ -42,10 +44,10 @@ customElements.define('harmony-task-counts', class HarmonyTaskStatsTable extends
                 </thead>
                 <tbody>
                     ${this.data.map(task => html`
-                    <tr class="${task.FalseCount > task.TrueCount && task.TrueCount === 0 ? 'row-error' : ''}">
-                        <td><a href="/pages/task/?name=${task.Name}">${task.Name}</a></td>
-                        <td>${task.TrueCount}</td>
-                        <td>${task.FalseCount} (${task.FailedPercentage})</td>
+                    <tr class="${task.failure > 0 && task.success === 0 ? 'row-error' : ''}">
+                        <td><a href="/pages/task/?name=${task.name}">${task.name}</a></td>
+                        <td>${task.success}</td>
+                        <td>${task.failure} (${task.FailedPercentage})</td>
                     </tr>
                     `)}
                 </tbody>

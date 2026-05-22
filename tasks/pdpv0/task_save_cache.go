@@ -10,6 +10,7 @@ import (
 
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	commp "github.com/filecoin-project/go-fil-commp-hashhash"
+	"github.com/filecoin-project/go-padreader"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
@@ -21,12 +22,16 @@ import (
 	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
-// MinSizeForCache is the minimum piece size for which we will build and
-// save a PDP layer for caching purposes. This is a tradeoff between the
-// cost of building/saving the layer. The 32 MiB threshold value was derived from conversations
-// here: https://github.com/filecoin-project/curio/pull/997#issuecomment-3960996974
+// MinSizeForCache: sub-pieces with padded size > this get a cached middle
+// merkle layer. Keyed on padded size (not raw) so SaveCache and Prove agree
+// on which pieces qualify (#1204). 32 MiB threshold derived from
+// https://github.com/filecoin-project/curio/pull/997#issuecomment-3960996974
 const MinSizeForCache = uint64(32 * 1024 * 1024)
 const PaddedReadSize = 4 << 20
+
+// MaxRawSizeForSkip is the largest raw size whose padded size is <=
+// MinSizeForCache. Used in SQL, where only raw size is available.
+const MaxRawSizeForSkip = MinSizeForCache * 127 / 128
 
 type TaskPDPSaveCache struct {
 	db  *harmonydb.DB
@@ -86,12 +91,10 @@ func (t *TaskPDPSaveCache) Do(ctx context.Context, taskID harmonytask.TaskID, st
 		return false, xerrors.Errorf("failed to construct piece cid v2: %w", err)
 	}
 
-	// Build the merkle tree and save a middle layer for fast proving
-	// Only for pieces larger than 100 MiB
-	if task.RawSize <= MinSizeForCache {
-		log.Debugw("PDPv0_SaveCache: piece below cache threshold, skipping layer build", "pieceCID", task.PieceCID, "rawSize", task.RawSize, "threshold", MinSizeForCache)
-	}
-	if task.RawSize > MinSizeForCache {
+	paddedSize := uint64(padreader.PaddedSize(task.RawSize).Padded())
+	if paddedSize <= MinSizeForCache {
+		log.Debugw("PDPv0_SaveCache: piece below cache threshold, skipping layer build", "pieceCID", task.PieceCID, "rawSize", task.RawSize, "paddedSize", paddedSize, "threshold", MinSizeForCache)
+	} else {
 		has, _, err := t.idx.GetPDPLayerIndex(ctx, pcidV2)
 		if err != nil {
 			return false, xerrors.Errorf("failed to check if piece has PDP layer: %w", err)
@@ -252,7 +255,7 @@ func (t *TaskPDPSaveCache) scheduleMigrationCleanup(_ context.Context, taskFunc 
             WHERE pprf.ref_id = pr.piece_ref
             AND pr.needs_save_cache = TRUE
             AND pr.save_cache_task_id IS NULL
-            AND pp.piece_raw_size <= $1`, MinSizeForCache)
+            AND pp.piece_raw_size <= $1`, MaxRawSizeForSkip)
 	if err != nil {
 		return xerrors.Errorf("bulk clearing small pieces: %w", err)
 	}

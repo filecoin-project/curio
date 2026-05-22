@@ -853,9 +853,7 @@ func insertPDPPipeline(ctx context.Context, tx *harmonydb.Tx, deal *Deal) error 
 			}
 		}
 
-		batch := &pgx.Batch{}
-		batchSize := 5000
-
+		var downloadRefs []ParkedPieceDownloadRef
 		for k, v := range toDownload {
 			for _, src := range v {
 				headers, err := json.Marshal(src.Headers)
@@ -865,51 +863,20 @@ func insertPDPPipeline(ctx context.Context, tx *harmonydb.Tx, deal *Deal) error 
 				if headers == nil {
 					headers = []byte("{}")
 				}
-				batch.Queue(`
-							WITH selected_piece AS (
-							  INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
-							  VALUES ($1, $2, $3, FALSE)
-							  ON CONFLICT (piece_cid, piece_padded_size, long_term) WHERE cleanup_task_id IS NULL
-							  -- no-op SET so RETURNING fires on the conflict path (DO NOTHING returns no rows)
-							  DO UPDATE SET piece_raw_size = EXCLUDED.piece_raw_size
-							  RETURNING id
-							),
-							inserted_ref AS (
-							  INSERT INTO parked_piece_refs (piece_id, data_url, data_headers, long_term)
-							  SELECT id, $4, $5, FALSE FROM selected_piece
-							  RETURNING ref_id
-							)
-							INSERT INTO market_mk20_download_pipeline (id, piece_cid_v2, product, ref_ids)
-							VALUES ($6, $8, $7, ARRAY[(SELECT ref_id FROM inserted_ref)])
-							ON CONFLICT (id, piece_cid_v2, product) DO UPDATE
-							SET ref_ids = array_append(
-							  market_mk20_download_pipeline.ref_ids,
-							  (SELECT ref_id FROM inserted_ref)
-							)
-							WHERE NOT market_mk20_download_pipeline.ref_ids @> ARRAY[(SELECT ref_id FROM inserted_ref)];`,
-					k.PieceCID.String(), k.Size, k.RawSize, src.URL, headers, k.ID, ProductNamePDPV1, k.PieceCIDV2.String())
-			}
-
-			if batch.Len() > batchSize {
-				res, err := tx.SendBatch(ctx, batch)
-				if err != nil {
-					return xerrors.Errorf("failed to send batch: %w", err)
-				}
-				if err := res.Close(); err != nil {
-					return xerrors.Errorf("closing parked piece query batch: %w", err)
-				}
-				batch = &pgx.Batch{}
+				downloadRefs = append(downloadRefs, ParkedPieceDownloadRef{
+					ID:         k.ID,
+					PieceCIDV2: k.PieceCIDV2.String(),
+					PieceCID:   k.PieceCID.String(),
+					PaddedSize: int64(k.Size),
+					RawSize:    int64(k.RawSize),
+					URL:        src.URL,
+					Headers:    headers,
+					LongTerm:   false,
+				})
 			}
 		}
-
-		if batch.Len() > 0 {
-			res, err := tx.SendBatch(ctx, batch)
-			if err != nil {
-				return xerrors.Errorf("failed to send batch: %w", err)
-			}
-			if err := res.Close(); err != nil {
-				return xerrors.Errorf("closing parked piece query batch: %w", err)
-			}
+		if err := InsertParkedPieceDownloadRefsBatch(ctx, tx, ProductNamePDPV1, downloadRefs); err != nil {
+			return xerrors.Errorf("inserting parked piece download refs: %w", err)
 		}
 
 		pBatch := &pgx.Batch{}

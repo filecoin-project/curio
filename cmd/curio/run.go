@@ -16,6 +16,7 @@ import (
 	"github.com/filecoin-project/curio/cmd/curio/rpc"
 	"github.com/filecoin-project/curio/cmd/curio/tasks"
 	"github.com/filecoin-project/curio/deps"
+	curiometrics "github.com/filecoin-project/curio/lib/metrics"
 	"github.com/filecoin-project/curio/lib/shutdown"
 
 	"github.com/filecoin-project/lotus/lib/ulimit"
@@ -120,6 +121,9 @@ var runCmd = &cli.Command{
 		err = dependencies.PopulateRemainingDeps(ctx, cctx, true)
 		if err != nil {
 			return err
+		}
+		if err := curiometrics.RecordNodeInfo(ctx, dependencies.Name, dependencies.ListenAddr); err != nil {
+			log.Errorf("recording node info, metrics will no longer have correct node label: %s", err)
 		}
 
 		go ffiSelfTest() // Panics on failure

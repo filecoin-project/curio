@@ -426,8 +426,8 @@ func (p *ProveTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwne
 	}
 
 	reason := "pdp-prove"
-	txHash, err := p.sender.Send(ctx, fromAddress, txEth, reason)
-	if err != nil {
+	txHash, sendErr := p.sender.Send(ctx, fromAddress, txEth, reason)
+	if sendErr != nil {
 		// Get current height for error handling
 		ts, heightErr := p.fil.ChainHead(ctx)
 		if heightErr != nil {
@@ -440,14 +440,24 @@ func (p *ProveTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwne
 		}
 		currentHeight := int64(ts.Height())
 
-		done, handleErr := HandleProvingSendError(ctx, p.db, dataSetId, currentHeight, err)
-		if done {
+		comm, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+			handleErr := HandleProvingSendError(tx, dataSetId, currentHeight, sendErr)
+			if handleErr != nil {
+				return false, xerrors.Errorf("failed to handle proving send error: %w", handleErr)
+			}
 			return true, nil
+		}, harmonydb.OptionRetry())
+		if err != nil {
+			return false, xerrors.Errorf("failed to send transaction: %w", err)
 		}
-		return false, xerrors.Errorf("failed to send transaction: %w", handleErr)
+		if !comm {
+			return false, xerrors.Errorf("failed to commit transaction")
+		}
+		return true, nil
 	}
 
-	// Success, reset any accumulated failure count
+	// Success, reset any accumulated failure count. We cannot fail the task here to avoid sending proof for same dataSet multiple times
+	// In case, this reset fails, it should be handled in task_chain_sync
 	if resetErr := ResetProvingFailures(ctx, p.db, dataSetId); resetErr != nil {
 		log.Warnw("Failed to reset proving failures after success", "error", resetErr, "dataSetId", dataSetId)
 	}
@@ -677,7 +687,7 @@ func (p *ProveTask) provePiece(ctx context.Context, dataSetId int64, pieceId int
 	var subPieceProof *proof.RawMerkleProof
 
 	isIdxNotNull := p.idx != nil
-	isLargeSubPiece := challSubPiece.SubPieceSize >= int64(MinSizeForCache) && challSubPiece.PieceRawSize > 0
+	isLargeSubPiece := uint64(challSubPiece.SubPieceSize) > MinSizeForCache && challSubPiece.PieceRawSize > 0
 	isUsingCachedProof := isIdxNotNull && isLargeSubPiece
 
 	// Try cached approach for large sub-pieces

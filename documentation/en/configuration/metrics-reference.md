@@ -4,197 +4,231 @@
 
 # Metrics Reference
 
-This document lists all Prometheus metrics exported by Curio. All metrics use the `curio_` namespace prefix.
+This document lists Prometheus metrics exported by Curio using the exact metric names exposed on the scrape endpoint.
 
 > **Note**: This file is auto-generated from source code. Run `make docsgen-metrics` to update.
+## Node Metrics
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `curio_node_info` | gauge | `node`, `version` | Curio node identity and version. Value is always 1. |
+
 ## Task Metrics (HarmonyTask)
 
-| Metric | Type | Description |
-|--------|------|-------------|
-| `curio_harmonytask_active_tasks` | gauge/counter | Current number of active tasks. |
-| `curio_harmonytask_added_tasks` | gauge/counter | Total number of tasks added. |
-| `curio_harmonytask_cpu_usage` | gauge | Percentage of CPU in use. |
-| `curio_harmonytask_gpu_usage` | gauge | Percentage of GPU in use. |
-| `curio_harmonytask_poller_iterations` | gauge/counter | Total number of poller iterations. |
-| `curio_harmonytask_ram_usage` | gauge | Percentage of RAM in use. |
-| `curio_harmonytask_task_duration_seconds` | histogram | The histogram of task durations in seconds. |
-| `curio_harmonytask_tasks_completed` | gauge/counter | Total number of tasks completed successfully. |
-| `curio_harmonytask_tasks_failed` | gauge/counter | Total number of tasks that failed. |
-| `curio_harmonytask_tasks_started` | gauge/counter | Total number of tasks started. |
-| `curio_harmonytask_uptime` | gauge/counter | Total uptime of the node in seconds. |
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `curio_harmonytask_active_tasks` | gauge | `task_name` | Current number of active tasks. |
+| `curio_harmonytask_added_tasks` | counter | `task_name` | Total number of tasks added. |
+| `curio_harmonytask_cpu_usage` | gauge | — | Percentage of CPU in use. |
+| `curio_harmonytask_gpu_usage` | gauge | — | Percentage of GPU in use. |
+| `curio_harmonytask_poller_iterations` | counter | — | Total number of poller iterations. |
+| `curio_harmonytask_ram_usage` | gauge | — | Percentage of RAM in use. |
+| `curio_harmonytask_task_duration_seconds` | histogram | `task_name` | The histogram of task durations in seconds. |
+| `curio_harmonytask_task_scheduled_wait_seconds` | histogram | `task_name` | The histogram of task wait times from posting or previous attempt completion to work start in seconds. |
+| `curio_harmonytask_tasks_completed` | counter | `task_name` | Total number of tasks completed successfully. |
+| `curio_harmonytask_tasks_failed` | counter | `task_name` | Total number of tasks that failed. |
+| `curio_harmonytask_tasks_started` | counter | `task_name`, `source` | Total number of tasks started. |
+| `curio_harmonytask_uptime` | gauge | `version` | Total uptime of the node in seconds. |
 
 ## Wallet Exporter Metrics (Optional)
 
-| Metric | Type | Description |
-|--------|------|-------------|
-| `curio_wallet_balance_nfil` | gauge/counter | Balance in NanoFIL |
-| `curio_wallet_gas_paid_nfil` | gauge/counter | Gas paid NanoFIL |
-| `curio_wallet_gas_units_requested` | gauge/counter | Gas units requested |
-| `curio_wallet_gas_units_used` | gauge/counter | Gas units used |
-| `curio_wallet_message_land_duration_seconds` | histogram | The histogram of message land durations in seconds. |
-| `curio_wallet_message_landed` | gauge/counter | Message landed |
-| `curio_wallet_message_sent` | gauge/counter | Message sent |
-| `curio_wallet_power` | gauge/counter | Power in Bytes |
-| `curio_wallet_sent_nfil` | gauge/counter | Sent NanoFIL |
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `curio_wallet_balance_nfil` | gauge | `address`, `type`, `name` | Balance in NanoFIL |
+| `curio_wallet_gas_paid_nfil` | counter | `from`, `from_name`, `to`, `to_name`, `method`, `send_reason`, `exit_code` | Gas paid NanoFIL |
+| `curio_wallet_gas_units_requested` | counter | `from`, `from_name`, `to`, `to_name`, `method`, `send_reason` | Gas units requested |
+| `curio_wallet_gas_units_used` | counter | `from`, `from_name`, `to`, `to_name`, `method`, `send_reason`, `exit_code` | Gas units used |
+| `curio_wallet_message_land_duration_seconds` | histogram | — | The histogram of message land durations in seconds. |
+| `curio_wallet_message_landed` | counter | `from`, `from_name`, `to`, `to_name`, `method`, `send_reason`, `exit_code` | Message landed |
+| `curio_wallet_message_sent` | counter | `from`, `from_name`, `to`, `to_name`, `method`, `send_reason` | Message sent |
+| `curio_wallet_power` | gauge | `address`, `type` | Power in Bytes |
+| `curio_wallet_sent_nfil` | counter | `from`, `from_name`, `to`, `to_name`, `method`, `send_reason`, `exit_code` | Sent NanoFIL |
 
 ## Proof Share Metrics
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
 | `curio_psvc_proofshare_adder_commits_total` | counter | — | Total number of successful task additions scheduled by Adder |
-| `curio_psvc_proofshare_adder_hold_decisions_total` | countervec | `hold` | Total number of hold decisions made by Adder |
+| `curio_psvc_proofshare_adder_hold_decisions_total` | counter | `hold` | Total number of hold decisions made by Adder |
 | `curio_psvc_proofshare_create_asks_seconds` | histogram | — | Duration of create asks inner loop |
-| `curio_psvc_proofshare_duration_seconds` | histogramvec | `call` | Duration of proofshare client_common operations |
+| `curio_psvc_proofshare_duration_seconds` | histogram | `call` | Duration of proofshare client_common operations |
 | `curio_psvc_proofshare_need_asks` | gauge | — | Number of asks still needed in current Do loop iteration |
 | `curio_psvc_proofshare_newly_added_total` | counter | — | Total number of new work requests inserted locally |
 | `curio_psvc_proofshare_queue_count` | gauge | — | Current proofshare request queue count |
-| `curio_psvc_proofshare_retry_count` | histogramvec | `call` | Retry count per call in proofshare client_common operations |
+| `curio_psvc_proofshare_retry_count` | histogram | `call` | Retry count per call in proofshare client_common operations |
 | `curio_psvc_proofshare_to_request_remaining` | gauge | — | Remaining requests to fulfill for high-water mark |
 
 ## Proof Service Metrics
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
-| `curio_psvc_clientctl_duration_seconds` | histogramvec | `call` | Duration of proofsvc clientctl operations |
-| `curio_psvc_l1ops_duration_seconds` | histogramvec | `call` | Duration of L1 operations |
-| `curio_psvc_provictl_duration_seconds` | histogramvec | `call` | Duration of proofsvc provider control operations |
+| `curio_psvc_clientctl_duration_seconds` | histogram | `call` | Duration of proofsvc clientctl operations |
+| `curio_psvc_l1ops_duration_seconds` | histogram | `call` | Duration of L1 operations |
+| `curio_psvc_provictl_duration_seconds` | histogram | `call` | Duration of proofsvc provider control operations |
 
 ## Sealing Metrics
 
-| Metric | Type | Description |
-|--------|------|-------------|
-| `curio_seal_commit_submitted_total` | gauge/counter | Commit messages submitted. |
-| `curio_seal_finalize_completed_total` | gauge/counter | Finalizations completed. |
-| `curio_seal_movestorage_completed_total` | gauge/counter | Move storage operations completed. |
-| `curio_seal_porep_completed_total` | gauge/counter | PoRep computations completed. |
-| `curio_seal_precommit_submitted_total` | gauge/counter | Precommit messages submitted. |
-| `curio_seal_sdr_completed_total` | gauge/counter | SDR computations completed. |
-| `curio_seal_synth_completed_total` | gauge/counter | Synthetic proofs completed. |
-| `curio_seal_treed_completed_total` | gauge/counter | Tree D computations completed. |
-| `curio_seal_treerc_completed_total` | gauge/counter | Tree R/C computations completed. |
-| `curio_sealsupra_nvme_available_spare` | gauge/counter | NVMe Available Spare |
-| `curio_sealsupra_nvme_bytes_read` | gauge/counter | NVMe Bytes Read |
-| `curio_sealsupra_nvme_bytes_written` | gauge/counter | NVMe Bytes Written |
-| `curio_sealsupra_nvme_critical_warning` | gauge/counter | NVMe Critical Warning Flags |
-| `curio_sealsupra_nvme_error_log_entries` | gauge/counter | NVMe Error Log Entries |
-| `curio_sealsupra_nvme_media_errors` | gauge/counter | NVMe Media Errors |
-| `curio_sealsupra_nvme_percentage_used` | gauge/counter | NVMe Percentage Used |
-| `curio_sealsupra_nvme_power_cycles` | gauge/counter | NVMe Power Cycles |
-| `curio_sealsupra_nvme_power_on_hours` | gauge | NVMe Power On Hours |
-| `curio_sealsupra_nvme_read_io` | gauge/counter | NVMe Read IOs |
-| `curio_sealsupra_nvme_temperature_celsius` | gauge | NVMe Temperature in Celsius |
-| `curio_sealsupra_nvme_unsafe_shutdowns` | gauge/counter | NVMe Unsafe Shutdowns |
-| `curio_sealsupra_nvme_write_io` | gauge/counter | NVMe Write IOs |
-| `curio_sealsupra_phase_avg_duration` | gauge | Average duration of each phase in seconds |
-| `curio_sealsupra_phase_duration_so_far` | gauge | Duration of the phase so far in seconds |
-| `curio_sealsupra_phase_lock_count` | gauge/counter | Number of active locks in each phase |
-| `curio_sealsupra_phase_waiting_count` | gauge/counter | Number of goroutines waiting for a phase lock |
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `curio_seal_commit_submitted_total` | counter | `miner` | Commit messages submitted. |
+| `curio_seal_finalize_completed_total` | counter | `miner` | Finalizations completed. |
+| `curio_seal_movestorage_completed_total` | counter | `miner` | Move storage operations completed. |
+| `curio_seal_porep_completed_total` | counter | `miner` | PoRep computations completed. |
+| `curio_seal_precommit_submitted_total` | counter | `miner` | Precommit messages submitted. |
+| `curio_seal_sdr_completed_total` | counter | `miner` | SDR computations completed. |
+| `curio_seal_synth_completed_total` | counter | `miner` | Synthetic proofs completed. |
+| `curio_seal_treed_completed_total` | counter | `miner` | Tree D computations completed. |
+| `curio_seal_treerc_completed_total` | counter | `miner` | Tree R/C computations completed. |
 
 ## Snap Pipeline Metrics
 
-| Metric | Type | Description |
-|--------|------|-------------|
-| `curio_snap_encode_completed_total` | gauge/counter | Snap encodes completed. |
-| `curio_snap_movestorage_completed_total` | gauge/counter | Snap move storage operations completed. |
-| `curio_snap_prove_completed_total` | gauge/counter | Snap proves completed. |
-| `curio_snap_submit_completed_total` | gauge/counter | Snap submissions completed. |
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `curio_snap_encode_completed_total` | counter | `miner` | Snap encodes completed. |
+| `curio_snap_movestorage_completed_total` | counter | `miner` | Snap move storage operations completed. |
+| `curio_snap_prove_completed_total` | counter | `miner` | Snap proves completed. |
+| `curio_snap_submit_completed_total` | counter | `miner` | Snap submissions completed. |
 
 ## Mining Metrics
 
-| Metric | Type | Description |
-|--------|------|-------------|
-| `curio_mining_blocks_included_total` | gauge/counter | Blocks included in the chain. |
-| `curio_mining_blocks_submitted_total` | gauge/counter | Blocks submitted to the network. |
-| `curio_mining_compute_time_seconds` | histogram | Histogram of winning post compute times in seconds. |
-| `curio_mining_wins_total` | gauge/counter | Blocks won (election success). |
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `curio_mining_blocks_included_total` | counter | `miner` | Blocks included in the chain. |
+| `curio_mining_blocks_submitted_total` | counter | `miner` | Blocks submitted to the network. |
+| `curio_mining_compute_time_seconds` | histogram | — | Histogram of winning post compute times in seconds. |
+| `curio_mining_wins_total` | counter | `miner` | Blocks won (election success). |
 
 ## Storage Metrics
 
-| Metric | Type | Description |
-|--------|------|-------------|
-| `curio_slotmgr_slot_errors` | gauge/counter | Total number of slot errors (e.g., failed to put). |
-| `curio_slotmgr_slot_in_use` | gauge/counter | Slot actively in use (batch sealing). 1=in use, 0=not in use |
-| `curio_slotmgr_slot_sector_count` | gauge/counter | Number of sectors in the slot |
-| `curio_slotmgr_slots_acquired` | gauge/counter | Total number of slots acquired. |
-| `curio_slotmgr_slots_available` | gauge/counter | Number of available slots. |
-| `curio_slotmgr_slots_released` | gauge/counter | Total number of slots released. |
-| `curio_stor_available_bytes` | gauge/counter | Available storage capacity in bytes |
-| `curio_stor_capacity_bytes` | gauge/counter | Total storage capacity in bytes |
-| `curio_stor_find_sector_cache_hits` | gauge/counter | Number of findSectorCache hits |
-| `curio_stor_find_sector_cache_misses` | gauge/counter | Number of findSectorCache misses |
-| `curio_stor_find_sector_uncached` | gauge/counter | Number of findSector uncached calls |
-| `curio_stor_generate_single_vanilla_proof_calls` | gauge/counter | Number of calls to GenerateSingleVanillaProof |
-| `curio_stor_generate_single_vanilla_proof_duration_seconds` | gauge/counter | Duration of GenerateSingleVanillaProof in seconds |
-| `curio_stor_generate_single_vanilla_proof_errors` | gauge/counter | Number of errors in GenerateSingleVanillaProof |
-| `curio_stor_used_bytes` | gauge/counter | Used storage capacity in bytes |
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `curio_stor_available_bytes` | gauge | `id`, `can_seal`, `can_store` | Available storage capacity in bytes |
+| `curio_stor_capacity_bytes` | gauge | `id`, `can_seal`, `can_store` | Total storage capacity in bytes |
+| `curio_stor_find_sector_cache_hits` | counter | — | Number of findSectorCache hits |
+| `curio_stor_find_sector_cache_misses` | counter | — | Number of findSectorCache misses |
+| `curio_stor_find_sector_uncached` | counter | — | Number of findSector uncached calls |
+| `curio_stor_generate_single_vanilla_proof_calls` | counter | `update`, `cache_id`, `sealed_id` | Number of calls to GenerateSingleVanillaProof |
+| `curio_stor_generate_single_vanilla_proof_duration_milliseconds` | histogram | `update`, `cache_id`, `sealed_id` | Duration of GenerateSingleVanillaProof in milliseconds |
+| `curio_stor_generate_single_vanilla_proof_errors` | counter | `update`, `cache_id`, `sealed_id` | Number of errors in GenerateSingleVanillaProof |
+| `curio_stor_used_bytes` | gauge | `id`, `can_seal`, `can_store` | Used storage capacity in bytes |
 
 ## Cache Metrics
 
-| Metric | Type | Description |
-|--------|------|-------------|
-| `curio_cachedreader_cache_evictions` | gauge/counter | Number of cache evictions. |
-| `curio_cachedreader_cache_hits` | gauge/counter | Number of cache hits. |
-| `curio_cachedreader_cache_misses` | gauge/counter | Number of cache misses. |
-| `curio_cachedreader_cache_refs` | gauge/counter | Number of active references to cached readers. |
-| `curio_cachedreader_cache_size` | gauge/counter | Current number of entries in cache. |
-| `curio_cachedreader_reader_errors` | gauge/counter | Total number of piece reader errors. |
-| `curio_cachedreader_reader_successes` | gauge/counter | Total number of successful piece reader creations. |
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `curio_cachedreader_cache_evictions` | counter | `cache_type`, `reason` | Number of cache evictions. |
+| `curio_cachedreader_cache_hits` | counter | `cache_type` | Number of cache hits. |
+| `curio_cachedreader_cache_misses` | counter | `cache_type` | Number of cache misses. |
+| `curio_cachedreader_cache_refs` | gauge | — | Number of active references to cached readers. |
+| `curio_cachedreader_cache_size` | gauge | `cache_type` | Current number of entries in cache. |
+| `curio_cachedreader_reader_errors` | counter | `reason` | Total number of piece reader errors. |
+| `curio_cachedreader_reader_successes` | counter | — | Total number of successful piece reader creations. |
 
 ## Network Metrics
 
-| Metric | Type | Description |
-|--------|------|-------------|
-| `curio_dealdata_data_read` | gauge/counter | Number of bytes read from data URLs |
-| `curio_robusthttp_active_transfers` | gauge/counter | Current number of active robusthttp transfers |
-| `curio_robusthttp_bytes_read` | gauge/counter | Total bytes delivered by robusthttp readers |
-| `curio_robusthttp_read_errors` | gauge/counter | Total number of robusthttp read/request errors (non-EOF) |
-| `curio_robusthttp_read_failures` | gauge/counter | Number of robusthttp requests that failed after retries |
-| `curio_robusthttp_requests_started` | gauge/counter | Number of robusthttp logical requests started |
-| `curio_robusthttp_retries` | gauge/counter | Total number of robusthttp retries across requests |
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `curio_dealdata_data_read` | gauge | `kind` | Number of bytes read from data URLs |
+| `curio_robusthttp_active_transfers` | gauge | — | Current number of active robusthttp transfers |
+| `curio_robusthttp_bytes_read` | counter | — | Total bytes delivered by robusthttp readers |
+| `curio_robusthttp_read_errors` | counter | — | Total number of robusthttp read/request errors (non-EOF) |
+| `curio_robusthttp_read_failures` | counter | — | Number of robusthttp requests that failed after retries |
+| `curio_robusthttp_requests_started` | counter | — | Number of robusthttp logical requests started |
+| `curio_robusthttp_retries` | counter | — | Total number of robusthttp retries across requests |
 
 ## FFI Metrics
 
-| Metric | Type | Description |
-|--------|------|-------------|
-| `curio_cuffi_snap_enc_active` | gauge/counter | Number of tasks in each phase |
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `curio_cuffi_snap_enc_active` | gauge | `phase` | Number of tasks in each phase |
 
 ## HTTP/Retrieval Metrics
 
-| Metric | Type | Description |
-|--------|------|-------------|
-| `curio_http/active_requests` | gauge/counter | Number of active/in-flight HTTP requests |
-| `curio_http/blockstore_cache_hits` | gauge/counter | Counter of blockstore cache hits |
-| `curio_http/blockstore_cache_misses` | gauge/counter | Counter of blockstore cache misses |
-| `curio_http/piece_by_cid_200_response_count` | gauge/counter | Counter of /piece/<piece-cid> 200 responses |
-| `curio_http/piece_by_cid_400_response_count` | gauge/counter | Counter of /piece/<piece-cid> 400 responses |
-| `curio_http/piece_by_cid_404_response_count` | gauge/counter | Counter of /piece/<piece-cid> 404 responses |
-| `curio_http/piece_by_cid_500_response_count` | gauge/counter | Counter of /piece/<piece-cid> 500 responses |
-| `curio_http/piece_by_cid_request_count` | gauge/counter | Counter of /piece/<piece-cid> requests |
-| `curio_http/piece_by_cid_request_duration_ms` | gauge | Time spent retrieving a piece by cid |
-| `curio_http/rbls_bytes_sent_count` | gauge/counter | Counter of the number of bytes sent by bitswap since startup |
-| `curio_http/rbls_get_fail_response_count` | gauge/counter | Counter of failed RemoteBlockstore Get responses |
-| `curio_http/rbls_get_request_count` | gauge/counter | Counter of RemoteBlockstore Get requests |
-| `curio_http/rbls_get_success_response_count` | gauge/counter | Counter of successful RemoteBlockstore Get responses |
-| `curio_http/rbls_getsize_fail_response_count` | gauge/counter | Counter of failed RemoteBlockstore GetSize responses |
-| `curio_http/rbls_getsize_request_count` | gauge/counter | Counter of RemoteBlockstore GetSize requests |
-| `curio_http/rbls_getsize_success_response_count` | gauge/counter | Counter of successful RemoteBlockstore GetSize responses |
-| `curio_http/rbls_has_fail_response_count` | gauge/counter | Counter of failed RemoteBlockstore Has responses |
-| `curio_http/rbls_has_request_count` | gauge/counter | Counter of RemoteBlockstore Has requests |
-| `curio_http/rbls_has_success_response_count` | gauge/counter | Counter of successful RemoteBlockstore Has responses |
-| `curio_http/request_count` | gauge/counter | Counter of HTTP requests |
-| `curio_http/response_bytes_count` | gauge/counter | Sum of HTTP response content-length |
-| `curio_http/response_status_count` | gauge/counter | Counter of HTTP response status codes |
-| `curio_pdp/piece_by_cid_200_response_count` | gauge/counter | Counter of /piece/<piece-cid> 200 responses for PDP |
-| `curio_pdp/piece_by_cid_request_count` | gauge/counter | Counter of /piece/<piece-cid> requests for PDP |
-| `curio_pdp/piece_by_cid_request_duration_ms` | gauge | Time spent retrieving a piece by cid for PDP |
-| `curio_pdp/piece_bytes_served_count` | gauge/counter | Counter of the number of bytes served by PDP since startup |
-| `curio_retrieval_info` | gauge/counter | Arbitrary counter to tag node info to |
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `curio_dagstore_pr_at_cache_fill_count` | counter | `network` | PieceReader ReadAt full cache fill count |
+| `curio_dagstore_pr_at_hit_bytes` | counter | `network` | PieceReader ReadAt bytes from cache |
+| `curio_dagstore_pr_at_hit_count` | counter | `network` | PieceReader ReadAt from cache hits |
+| `curio_dagstore_pr_at_read_bytes` | counter | `pr_size`, `network` | PieceReader ReadAt bytes read from source |
+| `curio_dagstore_pr_at_read_count` | counter | `pr_size`, `network` | PieceReader ReadAt reads from source |
+| `curio_dagstore_pr_discard_count` | counter | `network` | PieceReader discard count |
+| `curio_dagstore_pr_discarded_bytes` | counter | `network` | PieceReader discarded bytes |
+| `curio_dagstore_pr_init_count` | counter | `network` | PieceReader init count |
+| `curio_dagstore_pr_requested_bytes` | counter | `pr_type`, `network` | PieceReader requested bytes |
+| `curio_dagstore_pr_seek_back_bytes` | counter | `network` | PieceReader seek back bytes |
+| `curio_dagstore_pr_seek_back_count` | counter | `network` | PieceReader seek back count |
+| `curio_dagstore_pr_seek_forward_bytes` | counter | `network` | PieceReader seek forward bytes |
+| `curio_dagstore_pr_seek_forward_count` | counter | `network` | PieceReader seek forward count |
+| `curio_http_active_requests` | gauge | `path`, `method` | Number of active/in-flight HTTP requests |
+| `curio_http_blockstore_cache_hits` | counter | — | Counter of blockstore cache hits |
+| `curio_http_blockstore_cache_misses` | counter | — | Counter of blockstore cache misses |
+| `curio_http_piece_by_cid_200_response_count` | counter | — | Counter of /piece/<piece-cid> 200 responses |
+| `curio_http_piece_by_cid_400_response_count` | counter | — | Counter of /piece/<piece-cid> 400 responses |
+| `curio_http_piece_by_cid_404_response_count` | counter | — | Counter of /piece/<piece-cid> 404 responses |
+| `curio_http_piece_by_cid_500_response_count` | counter | — | Counter of /piece/<piece-cid> 500 responses |
+| `curio_http_piece_by_cid_request_count` | counter | — | Counter of /piece/<piece-cid> requests |
+| `curio_http_piece_by_cid_request_duration_ms` | histogram | — | Time spent retrieving a piece by cid |
+| `curio_http_rbls_bytes_sent_count` | counter | — | Counter of the number of bytes sent by bitswap since startup |
+| `curio_http_rbls_get_fail_response_count` | counter | — | Counter of failed RemoteBlockstore Get responses |
+| `curio_http_rbls_get_request_count` | counter | — | Counter of RemoteBlockstore Get requests |
+| `curio_http_rbls_get_success_response_count` | counter | — | Counter of successful RemoteBlockstore Get responses |
+| `curio_http_rbls_getsize_fail_response_count` | counter | — | Counter of failed RemoteBlockstore GetSize responses |
+| `curio_http_rbls_getsize_request_count` | counter | — | Counter of RemoteBlockstore GetSize requests |
+| `curio_http_rbls_getsize_success_response_count` | counter | — | Counter of successful RemoteBlockstore GetSize responses |
+| `curio_http_rbls_has_fail_response_count` | counter | — | Counter of failed RemoteBlockstore Has responses |
+| `curio_http_rbls_has_request_count` | counter | — | Counter of RemoteBlockstore Has requests |
+| `curio_http_rbls_has_success_response_count` | counter | — | Counter of successful RemoteBlockstore Has responses |
+| `curio_http_request_count` | counter | `path`, `method` | Counter of HTTP requests |
+| `curio_http_response_bytes_count` | counter | `status_code`, `path` | Sum of HTTP response content-length |
+| `curio_http_response_status_count` | counter | `status_code`, `path`, `method` | Counter of HTTP response status codes |
+| `curio_ipni_announce_attempts_total` | counter | `provider`, `result` | Total number of IPNI direct announce attempts. |
+| `curio_ipni_announce_http_roundtrip_milliseconds` | histogram | `provider`, `status` | Duration of outbound IPNI announce HTTP round trips in milliseconds. |
+| `curio_ipni_entry_cache_hit_wait_milliseconds` | histogram | `request`, `origin`, `state` | Duration callers wait after hitting the IPNI entry cache. |
+| `curio_ipni_entry_cache_hits_total` | counter | `request`, `origin`, `state` | Total number of IPNI entry cache hits by request type, cache origin, and readiness state. |
+| `curio_ipni_entry_cache_lookups_total` | counter | `request`, `result` | Total number of IPNI entry cache lookups. |
+| `curio_ipni_entry_reconstruction_milliseconds` | histogram | `request`, `source`, `result` | Duration of IPNI entry reconstruction after cache miss. |
+| `curio_ipni_entry_requests_total` | counter | `request` | Total number of IPNI entry requests handled by the serve chunker. |
+| `curio_ipni_entry_speculative_unused_total` | counter | — | Total number of speculative IPNI entry cache fills evicted without being consumed by a demand request. |
+| `curio_ipni_provider_http_request_milliseconds` | histogram | `provider`, `content`, `status` | Duration of inbound IPNI provider HTTP requests in milliseconds. |
+| `curio_ipni_provider_http_requests_total` | counter | `provider`, `content`, `status` | Total number of inbound IPNI provider HTTP requests. |
+| `curio_pdp_piece_by_cid_200_response_count` | counter | — | Counter of /piece/<piece-cid> 200 responses for PDP |
+| `curio_pdp_piece_by_cid_request_count` | counter | — | Counter of /piece/<piece-cid> requests for PDP |
+| `curio_pdp_piece_by_cid_request_duration_ms` | histogram | — | Time spent retrieving a piece by cid for PDP |
+| `curio_pdp_piece_bytes_served_count` | counter | — | Counter of the number of bytes served by PDP since startup |
 
 ## GC Metrics
 
-| Metric | Type | Description |
-|--------|------|-------------|
-| `curio_gc_sectors_marked_total` | gauge/counter | Sectors marked for GC. |
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `curio_gc_sectors_marked_total` | counter | `miner`, `filetype` | Sectors marked for GC. |
+
+## Batching Metrics
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `curio_sealsupra_nvme_available_spare` | gauge | `nvme_device` | NVMe Available Spare |
+| `curio_sealsupra_nvme_bytes_read` | counter | `nvme_device` | NVMe Bytes Read |
+| `curio_sealsupra_nvme_bytes_written` | counter | `nvme_device` | NVMe Bytes Written |
+| `curio_sealsupra_nvme_critical_warning` | gauge | `nvme_device` | NVMe Critical Warning Flags |
+| `curio_sealsupra_nvme_error_log_entries` | gauge | `nvme_device` | NVMe Error Log Entries |
+| `curio_sealsupra_nvme_media_errors` | gauge | `nvme_device` | NVMe Media Errors |
+| `curio_sealsupra_nvme_percentage_used` | gauge | `nvme_device` | NVMe Percentage Used |
+| `curio_sealsupra_nvme_power_cycles` | gauge | `nvme_device` | NVMe Power Cycles |
+| `curio_sealsupra_nvme_power_on_hours` | gauge | `nvme_device` | NVMe Power On Hours |
+| `curio_sealsupra_nvme_read_io` | counter | `nvme_device` | NVMe Read IOs |
+| `curio_sealsupra_nvme_temperature_celsius` | gauge | `nvme_device` | NVMe Temperature in Celsius |
+| `curio_sealsupra_nvme_unsafe_shutdowns` | gauge | `nvme_device` | NVMe Unsafe Shutdowns |
+| `curio_sealsupra_nvme_write_io` | counter | `nvme_device` | NVMe Write IOs |
+| `curio_sealsupra_phase_avg_duration` | gauge | `phase` | Average duration of each phase in seconds |
+| `curio_sealsupra_phase_duration_so_far` | gauge | `phase` | Duration of the phase so far in seconds |
+| `curio_sealsupra_phase_lock_count` | gauge | `phase` | Number of active locks in each phase |
+| `curio_sealsupra_phase_waiting_count` | gauge | `phase` | Number of goroutines waiting for a phase lock |
+| `curio_slotmgr_slot_errors` | counter | — | Total number of slot errors (e.g., failed to put). |
+| `curio_slotmgr_slot_in_use` | gauge | `slot_offset` | Slot actively in use (batch sealing). 1=in use, 0=not in use |
+| `curio_slotmgr_slot_sector_count` | gauge | `slot_offset` | Number of sectors in the slot |
+| `curio_slotmgr_slots_acquired` | counter | — | Total number of slots acquired. |
+| `curio_slotmgr_slots_available` | gauge | — | Number of available slots. |
+| `curio_slotmgr_slots_released` | counter | — | Total number of slots released. |
 
 ---
 

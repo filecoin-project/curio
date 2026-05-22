@@ -75,7 +75,7 @@ type TaskTypeDetails struct {
 	// This is implied for background tasks.
 	CanYield bool
 
-	// SchedOverrides is a map of task names which, when running while the node is not schedulable,
+	// SchedulingOverrides is a map of task names which, when running while the node is not schedulable,
 	// allow this task to continue being scheduled. This is useful in pipelines where a long-running
 	// task would block a short-running task from being scheduled, blocking other related pipelines on
 	// other machines.
