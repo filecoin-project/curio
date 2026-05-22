@@ -31,12 +31,12 @@ create table if not exists parked_pieces (
  *
  * data_url is optional for refs which also act as data sources.
  *
- * Refs are ADDED when:
- * 1. MK12 market accepts a non-offline deal
+ * Refs are ADDED when a subsystem needs to keep a parked piece alive or
+ * provide a source URL for parking. This includes market, PDP upload, and
+ * PDP pull flows.
  *
- * Refs are REMOVED when:
- * 1. (MK12) A sector related to a pieceref: url piece is finalized
- * 2. (MK12) A deal pipeline not yet assigned to a sector is deleted
+ * Refs are REMOVED by the subsystem that created them once that reference is
+ * no longer needed.
  *
  */
 create table if not exists parked_piece_refs (

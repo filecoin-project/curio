@@ -2,10 +2,12 @@ package pdp
 
 import (
 	"context"
+	"fmt"
 	"math/big"
 	"slices"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
+	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/ethchain"
@@ -49,7 +51,7 @@ func CheckIfIndexingNeeded(
 // CheckIfIndexingNeededFromExtraData checks if extraData contains withIPFSIndexing metadata.
 // This is used for the CreateDataSet+AddPieces combined operation where the dataset doesn't exist yet.
 // The extraData format for combined operations is: (bytes createPayload, bytes addPayload)
-// We attempt to decode the createPayload format is is decoded according to the
+// We attempt to decode createPayload according to the
 // FilecoinWarmStorageService format:
 //
 //	(address payer, uint256 clientDataSetId, string[] keys, string[] values, bytes signature)
@@ -58,66 +60,114 @@ func CheckIfIndexingNeededFromExtraData(extraData []byte) (bool, error) {
 		return false, nil
 	}
 
-	// Define the ABI types for nested decoding
-	bytes32Type, _ := abi.NewType("bytes", "", nil)
-	outerArgs := abi.Arguments{
-		{Type: bytes32Type}, // createPayload
-		{Type: bytes32Type}, // addPayload
-	}
-
-	// Decode outer layer: (bytes createPayload, bytes addPayload)
-	decoded, err := outerArgs.Unpack(extraData)
+	payload, err := decodeFWSSCreatePayload(extraData)
 	if err != nil {
 		log.Debugw("Failed to decode extraData as combined operation, not an error", "error", err)
 		return false, nil
 	}
 
-	if len(decoded) < 1 {
-		return false, nil
-	}
-
-	createPayload, ok := decoded[0].([]byte)
-	if !ok {
-		log.Debugw("createPayload is not bytes")
-		return false, nil
-	}
-
-	// Define the ABI types for createPayload decoding
-	addressType, _ := abi.NewType("address", "", nil)
-	uint256Type, _ := abi.NewType("uint256", "", nil)
-	stringArrayType, _ := abi.NewType("string[]", "", nil)
-	createArgs := abi.Arguments{
-		{Type: addressType},     // payer
-		{Type: uint256Type},     // clientDataSetId
-		{Type: stringArrayType}, // keys
-		{Type: stringArrayType}, // values
-		{Type: bytes32Type},     // signature
-	}
-
-	// Decode createPayload: (address payer, uint256 clientDataSetId, string[] keys, string[] values, bytes signature)
-	createDecoded, err := createArgs.Unpack(createPayload)
-	if err != nil {
-		log.Debugw("Failed to decode createPayload", "error", err)
-		return false, nil
-	}
-
-	if len(createDecoded) < 3 {
-		return false, nil
-	}
-
-	keys, ok := createDecoded[2].([]string)
-	if !ok {
-		log.Debugw("keys is not []string")
-		return false, nil
-	}
-
 	// Look for withIPFSIndexing in the keys array
-	if slices.Contains(keys, "withIPFSIndexing") {
+	if slices.Contains(payload.MetadataKeys, "withIPFSIndexing") {
 		log.Debugw("Found withIPFSIndexing in extraData metadata keys")
 		return true, nil
 	}
 
 	return false, nil
+}
+
+// FWSSPayerFromExtraData extracts the FilecoinWarmStorageService payer from
+// pull extraData. The expected format is the combined operation payload:
+//
+//	(bytes createPayload, bytes addPayload)
+//
+// where createPayload is:
+//
+//	(address payer, uint256 clientDataSetId, string[] keys, string[] values, bytes signature)
+func FWSSPayerFromExtraData(extraData []byte) (common.Address, error) {
+	payload, err := decodeFWSSCreatePayload(extraData)
+	if err != nil {
+		return common.Address{}, err
+	}
+	if payload.Payer == (common.Address{}) {
+		return common.Address{}, fmt.Errorf("payer is zero address")
+	}
+
+	return payload.Payer, nil
+}
+
+type fwssCreatePayload struct {
+	Payer        common.Address
+	MetadataKeys []string
+}
+
+func decodeFWSSCreatePayload(extraData []byte) (*fwssCreatePayload, error) {
+	if len(extraData) == 0 {
+		return nil, fmt.Errorf("extraData is empty")
+	}
+
+	bytesType, err := abi.NewType("bytes", "", nil)
+	if err != nil {
+		return nil, fmt.Errorf("create bytes ABI type: %w", err)
+	}
+	outerArgs := abi.Arguments{
+		{Type: bytesType}, // createPayload
+		{Type: bytesType}, // addPayload
+	}
+
+	decoded, err := outerArgs.Unpack(extraData)
+	if err != nil {
+		return nil, fmt.Errorf("decode combined extraData: %w", err)
+	}
+	if len(decoded) < 1 {
+		return nil, fmt.Errorf("combined extraData missing createPayload")
+	}
+
+	createPayload, ok := decoded[0].([]byte)
+	if !ok {
+		return nil, fmt.Errorf("createPayload is not bytes")
+	}
+
+	addressType, err := abi.NewType("address", "", nil)
+	if err != nil {
+		return nil, fmt.Errorf("create address ABI type: %w", err)
+	}
+	uint256Type, err := abi.NewType("uint256", "", nil)
+	if err != nil {
+		return nil, fmt.Errorf("create uint256 ABI type: %w", err)
+	}
+	stringArrayType, err := abi.NewType("string[]", "", nil)
+	if err != nil {
+		return nil, fmt.Errorf("create string array ABI type: %w", err)
+	}
+	createArgs := abi.Arguments{
+		{Type: addressType},     // payer
+		{Type: uint256Type},     // clientDataSetId
+		{Type: stringArrayType}, // keys
+		{Type: stringArrayType}, // values
+		{Type: bytesType},       // signature
+	}
+
+	createDecoded, err := createArgs.Unpack(createPayload)
+	if err != nil {
+		return nil, fmt.Errorf("decode createPayload: %w", err)
+	}
+	if len(createDecoded) < 3 {
+		return nil, fmt.Errorf("createPayload missing metadata keys")
+	}
+
+	payer, ok := createDecoded[0].(common.Address)
+	if !ok {
+		return nil, fmt.Errorf("payer is not an address")
+	}
+	keys, ok := createDecoded[2].([]string)
+	if !ok {
+		return nil, fmt.Errorf("keys is not []string")
+	}
+
+	return &fwssCreatePayload{
+		Payer:        payer,
+		MetadataKeys: keys,
+	}, nil
 }
 
 // EnableIndexingForPiecesInTx marks the specified piecerefs as needing indexing within a transaction.

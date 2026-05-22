@@ -1,0 +1,1 @@
+-- no-op downgrade: added columns and pull item state migration are retained

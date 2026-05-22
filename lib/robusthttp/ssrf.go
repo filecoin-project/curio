@@ -58,6 +58,12 @@ func SetGlobalSSRFOverride(p *SSRFPolicy) {
 	globalSSRFOverride.Store(p)
 }
 
+// CurrentSSRFPolicy returns the effective SSRF policy, including any global
+// override installed from config.
+func CurrentSSRFPolicy() SSRFPolicy {
+	return *withSSRFDefaults(nil)
+}
+
 // ValidateClientFetchURL is for early deal/proposal validation.
 func ValidateClientFetchURL(raw string, headers http.Header, policy *SSRFPolicy) (*url.URL, error) {
 	policy = withSSRFDefaults(policy)

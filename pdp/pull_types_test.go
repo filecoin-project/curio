@@ -224,6 +224,31 @@ func TestPullRequest_Validate(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "valid request with same piece from different sources",
+			req: PullRequest{
+				ExtraData: "0x1234",
+				DataSetId: &dataSetId,
+				Pieces: []PullPieceRequest{
+					{PieceCid: validCid, SourceURL: validURL},
+					{PieceCid: validCid, SourceURL: "https://backup.example.com/piece/" + validCid},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "duplicate piece and source",
+			req: PullRequest{
+				ExtraData: "0x1234",
+				DataSetId: &dataSetId,
+				Pieces: []PullPieceRequest{
+					{PieceCid: validCid, SourceURL: validURL},
+					{PieceCid: validCid, SourceURL: validURL},
+				},
+			},
+			wantErr:     true,
+			errContains: "duplicate pieceCid/sourceUrl",
+		},
+		{
 			name: "missing extraData",
 			req: PullRequest{
 				ExtraData: "",

@@ -11,9 +11,6 @@ import (
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ipfs/go-cid"
-
-	commcid "github.com/filecoin-project/go-fil-commcid"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/ethchain"
@@ -35,77 +32,6 @@ func getPDPSenderAddress(ctx context.Context, db *harmonydb.DB) (common.Address,
 	}
 
 	return crypto.PubkeyToAddress(privateKey.PublicKey), nil
-}
-
-// PullRecord represents a pull request record from the database
-type PullRecord struct {
-	ID            int64
-	Service       string
-	ExtraDataHash []byte
-	DataSetId     uint64 // 0 = create new
-	RecordKeeper  string // address, required when DataSetId is 0
-}
-
-// PieceStatus represents the status of a piece in storage
-type PieceStatus struct {
-	PieceCid   string
-	Complete   bool
-	TaskID     *int64 // task_id from parked_pieces (may point to deleted task)
-	TaskExists bool   // true if task_id exists in harmony_task
-	Retries    int    // retry count from harmony_task (0 if task doesn't exist)
-}
-
-// ParkedPieceEntry represents the data needed to create a parked piece entry
-type ParkedPieceEntry struct {
-	PieceCid        string
-	PiecePaddedSize int64
-	PieceRawSize    int64
-	DataURL         string
-}
-
-// PullPiece represents a piece stored in a pull request (v1 CID + raw size for v2 reconstruction)
-type PullPiece struct {
-	CidV1      cid.Cid
-	RawSize    uint64
-	SourceURL  string // external SP URL to pull from
-	Failed     bool   // true if piece permanently failed
-	FailReason string // error message when failed
-}
-
-// PullItemStatus represents the status of a pull item
-type PullItemStatus struct {
-	TaskID     *int64 // task_id from pdp_piece_pull_items
-	TaskExists bool   // true if task_id exists in harmony_task
-	Retries    int    // retry count from harmony_task (0 if task doesn't exist)
-	Failed     bool   // true if piece permanently failed
-}
-
-// PullStore abstracts database operations for the pull handler
-type PullStore interface {
-	// GetPullByKey retrieves a pull record by its idempotency key
-	GetPullByKey(ctx context.Context, service string, hash []byte, dataSetId uint64, recordKeeper string) (*PullRecord, error)
-
-	// CreatePullWithPieces creates a pull record and its associated piece items in a transaction
-	// Returns the created pull ID
-	CreatePullWithPieces(ctx context.Context, pull *PullRecord, pieces []PullPiece) (int64, error)
-
-	// GetPieceStatuses retrieves the status of multiple pieces from parked_pieces (keyed by v1 CID string)
-	// This checks if pieces have been successfully stored (complete=true)
-	GetPieceStatuses(ctx context.Context, pieceCids []cid.Cid) (map[string]*PieceStatus, error)
-
-	// GetPullItemStatuses retrieves the status of pull items (keyed by v1 CID string)
-	// This checks the pull task state (task_id, failed)
-	GetPullItemStatuses(ctx context.Context, pullID int64, pieceCids []cid.Cid) (map[string]*PullItemStatus, error)
-
-	// GetPullPieces retrieves all pieces associated with a pull record (includes failure info)
-	GetPullPieces(ctx context.Context, pullID int64) ([]PullPiece, error)
-
-	// MarkPieceFailed marks a piece as permanently failed in the pull items table
-	MarkPieceFailed(ctx context.Context, pullID int64, pieceCid string, reason string) error
-
-	// CheckTaskExhaustedRetries checks if a task exhausted its retries by looking at harmony_task_history
-	// Returns true if the task failed permanently, along with the error message
-	CheckTaskExhaustedRetries(ctx context.Context, taskID int64) (bool, string, error)
 }
 
 // AddPiecesValidatorParams contains parameters for eth_call validation
@@ -250,8 +176,10 @@ func NewPullHandler(auth Auth, store PullStore, validator AddPiecesValidator) *P
 //
 //  1. Client calls POST /pdp/piece/pull with piece CIDs and source URLs
 //  2. Server validates extraData via eth_call (ensures authorization)
-//  3. Server creates pull tracking record and queues pieces for download
-//  4. Background task (StorePiece) downloads pieces from source URLs
+//  3. Server creates pull tracking records; duplicate pieces with different
+//     source URLs are kept so PullPiece can try each supplied source.
+//  4. PDPPullPieceTask groups work by piece, attaches pull refs to the active
+//     long-term parked_pieces row, and downloads directly when it created that row.
 //  5. Client polls the same endpoint to check status (idempotent)
 //  6. Once all pieces are "complete", client calls the contract to add pieces to dataset
 //
@@ -259,11 +187,12 @@ func NewPullHandler(auth Auth, store PullStore, validator AddPiecesValidator) *P
 //
 // Each piece progresses through these statuses:
 //
-//   - pending: Piece is queued but download hasn't started
-//   - inProgress: Download task is actively running (first attempt)
-//   - retrying: Download task is running after one or more failures
+//   - pending: Piece is queued or waiting on an existing parked_pieces row
+//   - inProgress: PullPiece task is actively running
+//   - retrying: The current task row has a retry count greater than zero
 //   - complete: Piece successfully downloaded and verified
-//   - failed: Piece permanently failed after exhausting retries (currently 5 attempts)
+//   - failed: Piece permanently failed; the task enforces this through explicit
+//     item state rather than inferring it from parked_pieces.
 //
 // The overall response status reflects the worst-case across all pieces:
 // failed > retrying > inProgress > pending > complete
@@ -355,6 +284,11 @@ func (h *PullHandler) HandlePull(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	extraDataHash := sha256.Sum256(extraDataBytes)
+	payer, err := FWSSPayerFromExtraData(extraDataBytes)
+	if err != nil {
+		httpServerError(w, http.StatusBadRequest, "Invalid extraData payer: "+err.Error(), err)
+		return
+	}
 
 	// Build idempotency key components
 	var dataSetId uint64
@@ -428,17 +362,26 @@ func (h *PullHandler) HandlePull(w http.ResponseWriter, r *http.Request) {
 		ExtraDataHash: extraDataHash[:],
 		DataSetId:     dataSetId,
 		RecordKeeper:  recordKeeperStr,
+		ClientAddress: payer.Hex(),
 	}
 
-	pullID, err := h.store.CreatePullWithPieces(ctx, pullRecord, pullPieces)
+	pullID, backpressure, err := h.store.CreatePullWithPieces(ctx, pullRecord, pullPieces)
 	if err != nil {
 		log.Errorw("failed to create pull record", "error", err)
 		httpServerError(w, http.StatusInternalServerError, "Internal error", err)
 		return
 	}
 
-	// PDPPullPieceTask will pick up items from pdp_piece_pull_items,
-	// download pieces, verify CommP, and create parked_pieces entries.
+	if backpressure {
+		log.Warnw("pull queue backpressure", "client", pullRecord.ClientAddress)
+		w.Header().Set("Retry-After", "60")
+		http.Error(w, "pull queue backpressure", http.StatusTooManyRequests)
+		return
+	}
+
+	// PDPPullPieceTask will pick up items from pdp_piece_pull_items, group them
+	// by piece, attach refs to parked_pieces, and download when PullPiece owns
+	// the parked row.
 
 	// Return status
 	h.respondWithStatus(ctx, w, pullID)
@@ -447,57 +390,15 @@ func (h *PullHandler) HandlePull(w http.ResponseWriter, r *http.Request) {
 // respondWithStatus queries piece statuses and returns a JSON response
 func (h *PullHandler) respondWithStatus(ctx context.Context, w http.ResponseWriter, pullID int64) {
 	// Get pieces for this pull
-	pieces, err := h.store.GetPullPieces(ctx, pullID)
+	pieces, err := h.store.GetPullStatus(ctx, pullID)
 	if err != nil {
 		log.Errorw("failed to get pull pieces", "error", err)
 		httpServerError(w, http.StatusInternalServerError, "Internal error", err)
 		return
 	}
 
-	// Extract v1 CIDs for status lookup
-	cidV1s := make([]cid.Cid, len(pieces))
-	for i, p := range pieces {
-		cidV1s[i] = p.CidV1
-	}
-
-	// Get parked_pieces statuses (keyed by v1 CID string)
-	pieceStatuses, err := h.store.GetPieceStatuses(ctx, cidV1s)
-	if err != nil {
-		log.Errorw("failed to get piece statuses", "error", err)
-		httpServerError(w, http.StatusInternalServerError, "Internal error", err)
-		return
-	}
-
-	// Get pull item statuses (keyed by v1 CID string)
-	pullItemStatuses, err := h.store.GetPullItemStatuses(ctx, pullID, cidV1s)
-	if err != nil {
-		log.Errorw("failed to get pull item statuses", "error", err)
-		httpServerError(w, http.StatusInternalServerError, "Internal error", err)
-		return
-	}
-
-	// Build response with v2 CIDs for API
 	resp := &PullResponse{
-		Pieces: make([]PullPieceStatus, len(pieces)),
-	}
-
-	for i, piece := range pieces {
-		// Determine status based on pull item and parked piece state
-		cidV1Str := piece.CidV1.String()
-		status := h.determinePieceStatus(ctx, pullID, piece, pullItemStatuses[cidV1Str], pieceStatuses[cidV1Str])
-
-		// Reconstruct v2 CID for API response
-		cidV2, err := commcid.PieceCidV2FromV1(piece.CidV1, piece.RawSize)
-		if err != nil {
-			log.Errorw("failed to reconstruct v2 CID", "error", err, "cidV1", piece.CidV1.String())
-			httpServerError(w, http.StatusInternalServerError, "Internal error", err)
-			return
-		}
-
-		resp.Pieces[i] = PullPieceStatus{
-			PieceCid: cidV2.String(),
-			Status:   status,
-		}
+		Pieces: pieces,
 	}
 
 	resp.ComputeOverallStatus()
@@ -506,354 +407,4 @@ func (h *PullHandler) respondWithStatus(ctx context.Context, w http.ResponseWrit
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		log.Errorw("failed to encode response", "error", err)
 	}
-}
-
-// determinePieceStatus determines the status of a piece based on pull item and parked piece state.
-//
-// Status priority:
-// 1. Check pull item failed flag: if true, return failed
-// 2. Check pull item task_id: if not null, the pull task is running
-// 3. Check parked_pieces complete: if true, return complete
-// 4. Check parked_pieces task_id: if not null, StorePiece is running
-// 5. Otherwise return pending (waiting for pull task to pick up)
-func (h *PullHandler) determinePieceStatus(ctx context.Context, pullID int64, piece PullPiece, fis *PullItemStatus, ps *PieceStatus) PullStatus {
-	cidV1Str := piece.CidV1.String()
-
-	// Already marked failed in pull_items (from PullPiece struct)
-	if piece.Failed {
-		return PullStatusFailed
-	}
-
-	// Check pull item status (PDPPullPieceTask)
-	if fis != nil {
-		if fis.Failed {
-			return PullStatusFailed
-		}
-
-		// Pull task is assigned
-		if fis.TaskID != nil {
-			if fis.TaskExists {
-				// Task is alive
-				if fis.Retries > 0 {
-					return PullStatusRetrying
-				}
-				return PullStatusInProgress
-			}
-
-			// Task was deleted (orphaned), check if it failed permanently
-			exhausted, reason, err := h.store.CheckTaskExhaustedRetries(ctx, *fis.TaskID)
-			if err != nil {
-				log.Errorw("failed to check task history", "error", err, "taskId", *fis.TaskID)
-				return PullStatusPending
-			}
-
-			if exhausted {
-				// Mark as failed in our tracking table
-				if err := h.store.MarkPieceFailed(ctx, pullID, cidV1Str, reason); err != nil {
-					log.Errorw("failed to mark piece as failed", "error", err, "pieceCid", cidV1Str)
-				}
-				return PullStatusFailed
-			}
-
-			// Task deleted but not due to exhausted retries, mark as failed
-			if err := h.store.MarkPieceFailed(ctx, pullID, cidV1Str, "pull task orphaned without failure record"); err != nil {
-				log.Errorw("failed to mark piece as failed", "error", err, "pieceCid", cidV1Str)
-			}
-			return PullStatusFailed
-		}
-	}
-
-	// Pull task completed successfully, check parked_pieces status
-	if ps != nil {
-		// Complete
-		if ps.Complete {
-			return PullStatusComplete
-		}
-
-		// StorePiece task is assigned
-		if ps.TaskID != nil {
-			if ps.TaskExists {
-				// Task is alive
-				if ps.Retries > 0 {
-					return PullStatusRetrying
-				}
-				return PullStatusInProgress
-			}
-
-			// StorePiece task was deleted, check if it failed permanently
-			exhausted, reason, err := h.store.CheckTaskExhaustedRetries(ctx, *ps.TaskID)
-			if err != nil {
-				log.Errorw("failed to check task history", "error", err, "taskId", *ps.TaskID)
-				return PullStatusPending
-			}
-
-			if exhausted {
-				// Mark as failed
-				if err := h.store.MarkPieceFailed(ctx, pullID, cidV1Str, "StorePiece: "+reason); err != nil {
-					log.Errorw("failed to mark piece as failed", "error", err, "pieceCid", cidV1Str)
-				}
-				return PullStatusFailed
-			}
-
-			// StorePiece task orphaned, mark as failed
-			if err := h.store.MarkPieceFailed(ctx, pullID, cidV1Str, "StorePiece task orphaned without failure record"); err != nil {
-				log.Errorw("failed to mark piece as failed", "error", err, "pieceCid", cidV1Str)
-			}
-			return PullStatusFailed
-		}
-
-		// parked_pieces exists but task_id is NULL and not complete, waiting for StorePiece to pick up
-		return PullStatusInProgress
-	}
-
-	// No parked_pieces yet, waiting for pull task to pick up
-	return PullStatusPending
-}
-
-// dbPullStore implements PullStore using harmonydb
-type dbPullStore struct {
-	db *harmonydb.DB
-}
-
-// NewDBPullStore creates a PullStore backed by harmonydb
-func NewDBPullStore(db *harmonydb.DB) PullStore {
-	return &dbPullStore{db: db}
-}
-
-func (s *dbPullStore) GetPullByKey(ctx context.Context, service string, hash []byte, dataSetId uint64, recordKeeper string) (*PullRecord, error) {
-	var records []struct {
-		ID            int64  `db:"id"`
-		Service       string `db:"service"`
-		ExtraDataHash []byte `db:"extra_data_hash"`
-		DataSetId     uint64 `db:"data_set_id"`
-		RecordKeeper  string `db:"record_keeper"`
-	}
-
-	err := s.db.Select(ctx, &records, `
-		SELECT id, service, extra_data_hash, data_set_id, record_keeper
-		FROM pdp_piece_pulls
-		WHERE service = $1 AND extra_data_hash = $2 AND data_set_id = $3 AND record_keeper = $4
-	`, service, hash, dataSetId, recordKeeper)
-	if err != nil {
-		return nil, fmt.Errorf("query pull by key: %w", err)
-	}
-
-	if len(records) == 0 {
-		return nil, nil
-	}
-
-	return &PullRecord{
-		ID:            records[0].ID,
-		Service:       records[0].Service,
-		ExtraDataHash: records[0].ExtraDataHash,
-		DataSetId:     records[0].DataSetId,
-		RecordKeeper:  records[0].RecordKeeper,
-	}, nil
-}
-
-func (s *dbPullStore) CreatePullWithPieces(ctx context.Context, pull *PullRecord, pieces []PullPiece) (int64, error) {
-	var pullID int64
-
-	_, err := s.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
-		// Insert pull record and get the auto-generated ID
-		err := tx.QueryRow(`
-			INSERT INTO pdp_piece_pulls (service, extra_data_hash, data_set_id, record_keeper)
-			VALUES ($1, $2, $3, $4)
-			RETURNING id
-		`, pull.Service, pull.ExtraDataHash, pull.DataSetId, pull.RecordKeeper).Scan(&pullID)
-		if err != nil {
-			return false, fmt.Errorf("insert pull: %w", err)
-		}
-
-		// Insert piece items with raw size and source_url for task to pick up
-		for _, piece := range pieces {
-			_, err := tx.Exec(`
-				INSERT INTO pdp_piece_pull_items (fetch_id, piece_cid, piece_raw_size, source_url)
-				VALUES ($1, $2, $3, $4)
-			`, pullID, piece.CidV1.String(), piece.RawSize, piece.SourceURL)
-			if err != nil {
-				return false, fmt.Errorf("insert pull item: %w", err)
-			}
-		}
-
-		return true, nil
-	}, harmonydb.OptionRetry())
-
-	return pullID, err
-}
-
-func (s *dbPullStore) GetPieceStatuses(ctx context.Context, pieceCids []cid.Cid) (map[string]*PieceStatus, error) {
-	if len(pieceCids) == 0 {
-		return make(map[string]*PieceStatus), nil
-	}
-
-	// Build array of CID strings for batch query
-	cidStrs := make([]string, len(pieceCids))
-	for i, c := range pieceCids {
-		cidStrs[i] = c.String()
-	}
-
-	var pieces []struct {
-		PieceCid   string `db:"piece_cid"`
-		Complete   bool   `db:"complete"`
-		TaskID     *int64 `db:"task_id"`
-		TaskExists bool   `db:"task_exists"`
-		Retries    int    `db:"retries"`
-	}
-
-	// Batch query with ANY() for all CIDs at once
-	err := s.db.Select(ctx, &pieces, `
-		SELECT pp.piece_cid, pp.complete, pp.task_id,
-		       (ht.id IS NOT NULL) as task_exists,
-		       COALESCE(ht.retries, 0) as retries
-		FROM parked_pieces pp
-		LEFT JOIN harmony_task ht ON pp.task_id = ht.id
-		WHERE pp.piece_cid = ANY($1) AND pp.long_term = TRUE AND pp.cleanup_task_id IS NULL
-	`, cidStrs)
-	if err != nil {
-		return nil, fmt.Errorf("query piece statuses: %w", err)
-	}
-
-	result := make(map[string]*PieceStatus)
-	for _, p := range pieces {
-		result[p.PieceCid] = &PieceStatus{
-			PieceCid:   p.PieceCid,
-			Complete:   p.Complete,
-			TaskID:     p.TaskID,
-			TaskExists: p.TaskExists,
-			Retries:    p.Retries,
-		}
-	}
-
-	return result, nil
-}
-
-func (s *dbPullStore) GetPullItemStatuses(ctx context.Context, pullID int64, pieceCids []cid.Cid) (map[string]*PullItemStatus, error) {
-	if len(pieceCids) == 0 {
-		return make(map[string]*PullItemStatus), nil
-	}
-
-	// Build array of CID strings for batch query
-	cidStrs := make([]string, len(pieceCids))
-	for i, c := range pieceCids {
-		cidStrs[i] = c.String()
-	}
-
-	var items []struct {
-		PieceCid   string `db:"piece_cid"`
-		TaskID     *int64 `db:"task_id"`
-		TaskExists bool   `db:"task_exists"`
-		Retries    int    `db:"retries"`
-		Failed     bool   `db:"failed"`
-	}
-
-	// Batch query with ANY() for all CIDs at once
-	err := s.db.Select(ctx, &items, `
-		SELECT fi.piece_cid, fi.task_id, fi.failed,
-		       (ht.id IS NOT NULL) as task_exists,
-		       COALESCE(ht.retries, 0) as retries
-		FROM pdp_piece_pull_items fi
-		LEFT JOIN harmony_task ht ON fi.task_id = ht.id
-		WHERE fi.fetch_id = $1 AND fi.piece_cid = ANY($2)
-	`, pullID, cidStrs)
-	if err != nil {
-		return nil, fmt.Errorf("query pull item statuses: %w", err)
-	}
-
-	result := make(map[string]*PullItemStatus)
-	for _, item := range items {
-		result[item.PieceCid] = &PullItemStatus{
-			TaskID:     item.TaskID,
-			TaskExists: item.TaskExists,
-			Retries:    item.Retries,
-			Failed:     item.Failed,
-		}
-	}
-
-	return result, nil
-}
-
-func (s *dbPullStore) GetPullPieces(ctx context.Context, pullID int64) ([]PullPiece, error) {
-	var items []struct {
-		PieceCid     string  `db:"piece_cid"`
-		PieceRawSize uint64  `db:"piece_raw_size"`
-		SourceURL    string  `db:"source_url"`
-		Failed       bool    `db:"failed"`
-		FailReason   *string `db:"fail_reason"`
-	}
-
-	err := s.db.Select(ctx, &items, `
-		SELECT piece_cid, piece_raw_size, source_url, failed, fail_reason
-		FROM pdp_piece_pull_items WHERE fetch_id = $1
-	`, pullID)
-	if err != nil {
-		return nil, fmt.Errorf("query pull items: %w", err)
-	}
-
-	result := make([]PullPiece, len(items))
-	for i, item := range items {
-		c, err := cid.Parse(item.PieceCid)
-		if err != nil {
-			return nil, fmt.Errorf("parse CID %q: %w", item.PieceCid, err)
-		}
-		failReason := ""
-		if item.FailReason != nil {
-			failReason = *item.FailReason
-		}
-		result[i] = PullPiece{
-			CidV1:      c,
-			RawSize:    item.PieceRawSize,
-			SourceURL:  item.SourceURL,
-			Failed:     item.Failed,
-			FailReason: failReason,
-		}
-	}
-
-	return result, nil
-}
-
-func (s *dbPullStore) MarkPieceFailed(ctx context.Context, pullID int64, pieceCid string, reason string) error {
-	_, err := s.db.Exec(ctx, `
-		UPDATE pdp_piece_pull_items
-		SET failed = TRUE, fail_reason = $3
-		WHERE fetch_id = $1 AND piece_cid = $2
-	`, pullID, pieceCid, reason)
-	if err != nil {
-		return fmt.Errorf("mark piece failed: %w", err)
-	}
-	return nil
-}
-
-func (s *dbPullStore) CheckTaskExhaustedRetries(ctx context.Context, taskID int64) (bool, string, error) {
-	// Look up the last history entry for this task to check if it failed
-	var history []struct {
-		Result bool    `db:"result"` // true = success, false = failure
-		Err    *string `db:"err"`    // error message when result is false
-	}
-
-	err := s.db.Select(ctx, &history, `
-		SELECT result, err FROM harmony_task_history
-		WHERE task_id = $1
-		ORDER BY id DESC
-		LIMIT 1
-	`, taskID)
-	if err != nil {
-		return false, "", fmt.Errorf("query task history: %w", err)
-	}
-
-	if len(history) == 0 {
-		// Task may have been cleaned up or never ran
-		return false, "", nil
-	}
-
-	// result=false means the task failed
-	if !history[0].Result {
-		reason := "unknown error"
-		if history[0].Err != nil {
-			reason = *history[0].Err
-		}
-		return true, reason, nil
-	}
-
-	return false, "", nil
 }
