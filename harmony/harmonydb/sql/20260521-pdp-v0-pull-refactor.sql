@@ -19,6 +19,10 @@ FROM pdp_piece_pulls pp
 WHERE pp.id = fi.fetch_id
     AND fi.created_at IS NULL;
 
+UPDATE pdp_piece_pull_items
+SET created_at = NOW()
+WHERE created_at IS NULL;
+
 ALTER TABLE pdp_piece_pull_items
     ALTER COLUMN created_at SET DEFAULT NOW();
 
