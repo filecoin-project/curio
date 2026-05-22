@@ -33,5 +33,6 @@ const (
 	PDPv0_Notify     = "PDPv0_Notify"
 	PDPv0_DelDataSet = "PDPv0_DelDataSet"
 	PDPv0_TermFWSS   = "PDPv0_TermFWSS"
+	PDPv0_ReorgChk   = "PDPv0_ReorgChk"
 	PDPv0_ChainSync  = "PDPv0_ChainSync"
 )

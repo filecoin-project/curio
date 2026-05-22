@@ -54,11 +54,14 @@ func NewPieceDeleteWatcher(cfg *config.HTTPConfig, db *harmonydb.DB, ethClient e
 //nolint:unused // TODO: reinstate after debugging
 func _processPendingCleanup(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient) error {
 	var pieces []struct {
-		DataSetID int64 `db:"data_set"`
-		PieceID   int64 `db:"piece_id"`
+		DataSetID int64  `db:"data_set"`
+		PieceID   int64  `db:"piece_id"`
+		RmTxHash  string `db:"rm_message_hash"`
 	}
 
-	err := db.Select(ctx, &pieces, `SELECT data_set, piece_id FROM pdp_data_set_pieces WHERE removed = TRUE`)
+	err := db.Select(ctx, &pieces, `SELECT data_set, piece_id, rm_message_hash
+		FROM pdp_data_set_pieces
+		WHERE removed = TRUE AND rm_message_hash IS NOT NULL`)
 	if err != nil {
 		return xerrors.Errorf("failed to select pending piece deletes: %w", err)
 	}
