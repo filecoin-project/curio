@@ -264,6 +264,7 @@ jobs:
         env:
           FFI_USE_OPENCL: 1
         run: |
+          mkdir -p coverage
           go test -v --tags="debug,fvm,nosupraseal" -timeout 30m -coverprofile=coverage/test-lib-proof.out -covermode=atomic ./lib/proof/...
 
       - name: Upload coverage artifact
