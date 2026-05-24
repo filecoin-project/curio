@@ -32,10 +32,24 @@ type taskTypeHandler struct {
 	TaskTypeDetails
 	TaskEngine      *TaskEngine
 	storageFailures map[TaskID]time.Time
+
+	// lastInsufficientWarn rate-limits the WARN that fires when this task
+	// type has unowned tasks waiting but the machine cannot accept them
+	// (out of CPU/RAM/GPU, or Max already reached). Single-writer:
+	// scheduler goroutine only. See harmonytask.go schedule().
+	lastInsufficientWarn time.Time
 }
 
 // Anti-hammering of storage claims.
 const STORAGE_FAILURE_TIMEOUT = 3 * time.Minute
+
+// insufficientWarnInterval is the rate limit for the WARN that fires when
+// unowned tasks are waiting but the machine cannot accept them (resource
+// rejection). Without rate-limiting, every poll cycle (~3s) re-emits the
+// same WARN. 5 minutes is short enough to surface a real misconfiguration
+// promptly, long enough to keep logs readable on a sustained stuck-task
+// condition.
+const insufficientWarnInterval = 5 * time.Minute
 
 func (h *taskTypeHandler) AddTask(extra func(TaskID, *harmonydb.Tx) (bool, error)) {
 	var tID TaskID

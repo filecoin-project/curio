@@ -399,8 +399,29 @@ func (e *TaskEngine) pollerTryAllWork(schedulable bool) bool {
 			}
 		}
 
-		if _, err := v.AssertMachineHasCapacity(); err != nil {
-			log.Debugf("skipped scheduling %s type tasks on due to %s", v.Name, err.Error())
+		if _, capErr := v.AssertMachineHasCapacity(); capErr != nil {
+			log.Debugf("skipped scheduling %s type tasks on due to %s", v.Name, capErr.Error())
+
+			// If unowned tasks are waiting on a resource rejection,
+			// surface that at WARN so operators can see the silent
+			// stuck-task condition. Without this, a task with a Cost
+			// that exceeds the machine's resource budget sits in
+			// harmony_task indefinitely with no diagnostic at INFO
+			// level. Rate-limited per task type (default 5 min)
+			// so a sustained stuck condition doesn't spam logs.
+			var waitingCount int
+			if qerr := e.db.QueryRow(e.ctx,
+				`SELECT COUNT(*) FROM harmony_task WHERE owner_id IS NULL AND name=$1`,
+				v.Name).Scan(&waitingCount); qerr == nil &&
+				waitingCount > 0 &&
+				time.Since(v.lastInsufficientWarn) > insufficientWarnInterval {
+				log.Warnw("task waiting but machine cannot accept it",
+					"task_type", v.Name,
+					"reason", capErr.Error(),
+					"waiting_count", waitingCount,
+					"hint", "check engine resource budget vs task Cost (Cpu/Ram/Gpu) or task Max limit")
+				v.lastInsufficientWarn = time.Now()
+			}
 			continue
 		}
 		type task struct {
