@@ -135,19 +135,6 @@ BEGIN
 END
 $$;
 
-CREATE INDEX IF NOT EXISTS pdp_delete_data_set_immediate_settle_pending_idx
-    ON pdp_delete_data_set (service_termination_epoch, id)
-    WHERE client_requested_termination = TRUE
-      AND after_terminate_service = TRUE
-      AND service_termination_epoch IS NOT NULL
-      AND deletion_allowed = FALSE
-      AND immediate_settle_task_id IS NULL
-      AND after_immediate_settle = FALSE;
-
-CREATE INDEX IF NOT EXISTS pdp_delete_data_set_immediate_settle_tx_hash_idx
-    ON pdp_delete_data_set (immediate_settle_tx_hash)
-    WHERE immediate_settle_tx_hash IS NOT NULL;
-
 DO $$
 BEGIN
     IF NOT EXISTS (
