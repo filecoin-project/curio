@@ -44,14 +44,14 @@ func (t *TaskChainSync) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 		return false, xerrors.Errorf("syncing stale PDP deletion task ids: %w", err)
 	}
 
-	if !stillOwned(){
+	if !stillOwned() {
 		return false, nil
 	}
 	if err := t.syncMissingDataSetTerminationMessageWaits(ctx); err != nil {
 		return false, xerrors.Errorf("syncing missing PDP termination message waits: %w", err)
 	}
 
-	if !stillOwned(){
+	if !stillOwned() {
 		return false, nil
 	}
 	if err := t.syncMissingDataSetDeleteMessageWaits(ctx); err != nil {
