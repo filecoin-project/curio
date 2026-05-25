@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/curiostorage/harmonyquery"
 	"github.com/ipfs/go-cid"
@@ -234,9 +235,17 @@ type PullPiece struct {
 const (
 	// Admission counts active unique (piece_cid, piece_raw_size) keys plus
 	// the incoming request's unique keys before inserting new pull rows.
-	pullGlobalPendingLimit    = 128
-	pullPerClientPendingLimit = 10
+	pullGlobalPendingLimit          = 120
+	pullPerClientPendingLimit       = 10
+	pullSoloClientPendingPercentage = 90
+	pullRetryAfterMin               = time.Minute
+	pullRetryAfterMax               = 5 * time.Minute
+	pullRetryAfterStepPieces        = 10
 )
+
+type PullBackpressure struct {
+	RetryAfter time.Duration
+}
 
 // PullStore abstracts database operations for the pull handler
 type PullStore interface {
@@ -244,8 +253,8 @@ type PullStore interface {
 	GetPullByKey(ctx context.Context, service string, hash []byte, dataSetId uint64, recordKeeper string) (*PullRecord, error)
 
 	// CreatePullWithPieces creates a pull record and its associated piece items in a transaction.
-	// It returns the created pull ID and whether admission was rejected due to pull backpressure.
-	CreatePullWithPieces(ctx context.Context, pull *PullRecord, pieces []PullPiece) (int64, bool, error)
+	// It returns the created pull ID and pull backpressure details when admission is rejected.
+	CreatePullWithPieces(ctx context.Context, pull *PullRecord, pieces []PullPiece) (int64, *PullBackpressure, error)
 
 	// GetPullStatus retrieves all piece statuses associated with a pull record.
 	GetPullStatus(ctx context.Context, pullID int64) ([]PullPieceStatus, error)
@@ -335,12 +344,12 @@ func (s *dbPullStore) GetPullByKey(ctx context.Context, service string, hash []b
 	}, nil
 }
 
-func (s *dbPullStore) CreatePullWithPieces(ctx context.Context, pull *PullRecord, pieces []PullPiece) (int64, bool, error) {
+func (s *dbPullStore) CreatePullWithPieces(ctx context.Context, pull *PullRecord, pieces []PullPiece) (int64, *PullBackpressure, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	var pullID int64
-	var backpressure bool
+	var backpressure *PullBackpressure
 	var existing bool
 
 	comm, err := s.db.BeginTransaction(ctx, func(tx *harmonyquery.Tx) (commit bool, err error) {
@@ -374,7 +383,7 @@ func (s *dbPullStore) CreatePullWithPieces(ctx context.Context, pull *PullRecord
 			return false, err
 		}
 
-		if backpressure {
+		if backpressure != nil {
 			return false, nil
 		}
 
@@ -393,22 +402,22 @@ func (s *dbPullStore) CreatePullWithPieces(ctx context.Context, pull *PullRecord
 	}, harmonydb.OptionRetry())
 
 	if err != nil {
-		return pullID, false, xerrors.Errorf("insert pull items: %w", err)
+		return pullID, nil, xerrors.Errorf("insert pull items: %w", err)
 	}
 
 	if existing {
-		return pullID, false, nil
+		return pullID, nil, nil
 	}
 
-	if !comm && !backpressure {
-		return pullID, false, xerrors.Errorf("failed to commit the transaction")
+	if !comm && backpressure == nil {
+		return pullID, nil, xerrors.Errorf("failed to commit the transaction")
 	}
 
-	if backpressure {
-		return pullID, true, nil
+	if backpressure != nil {
+		return pullID, backpressure, nil
 	}
 
-	return pullID, false, nil
+	return pullID, nil, nil
 }
 
 func (s *dbPullStore) GetPullStatus(ctx context.Context, pullID int64) ([]PullPieceStatus, error) {
@@ -473,7 +482,7 @@ func pullStatusFromItem(complete, failed bool, taskID *int64, taskExists bool, r
 	return PullStatusPending
 }
 
-func (s *dbPullStore) enforceBackpressure(tx *harmonydb.Tx, pull *PullRecord, pieces []PullPiece) (bool, error) {
+func (s *dbPullStore) enforceBackpressure(tx *harmonydb.Tx, pull *PullRecord, pieces []PullPiece) (*PullBackpressure, error) {
 	type pieceKey struct {
 		cid     string
 		rawSize uint64
@@ -493,10 +502,10 @@ func (s *dbPullStore) enforceBackpressure(tx *harmonydb.Tx, pull *PullRecord, pi
 	}
 
 	if len(pieceCids) == 0 {
-		return false, nil
+		return nil, nil
 	}
 
-	var globalPending, clientPending int
+	var globalPending, clientPending, otherPending int
 	err := tx.QueryRow(`
 		WITH incoming AS (
 			SELECT DISTINCT piece_cid, piece_raw_size
@@ -516,6 +525,14 @@ func (s *dbPullStore) enforceBackpressure(tx *harmonydb.Tx, pull *PullRecord, pi
 				AND fi.failed = FALSE
 				AND fp.client_address = $3
 		),
+		other_active AS (
+			SELECT DISTINCT fi.piece_cid, fi.piece_raw_size
+			FROM pdp_piece_pull_items fi
+			JOIN pdp_piece_pulls fp ON fp.id = fi.fetch_id
+			WHERE fi.complete = FALSE
+				AND fi.failed = FALSE
+				AND fp.client_address <> $3
+		),
 		global_combined AS (
 			SELECT piece_cid, piece_raw_size FROM global_active
 			UNION
@@ -528,17 +545,49 @@ func (s *dbPullStore) enforceBackpressure(tx *harmonydb.Tx, pull *PullRecord, pi
 		)
 		SELECT
 			(SELECT COUNT(*) FROM global_combined),
-			(SELECT COUNT(*) FROM client_combined)
-	`, pieceCids, rawSizes, pull.ClientAddress).Scan(&globalPending, &clientPending)
+			(SELECT COUNT(*) FROM client_combined),
+			(SELECT COUNT(*) FROM other_active)
+	`, pieceCids, rawSizes, pull.ClientAddress).Scan(&globalPending, &clientPending, &otherPending)
 	if err != nil {
-		return false, fmt.Errorf("count pull pending pieces: %w", err)
+		return nil, fmt.Errorf("count pull pending pieces: %w", err)
 	}
 	if globalPending > pullGlobalPendingLimit {
-		return true, nil
+		return &PullBackpressure{RetryAfter: pullRetryAfter(globalPending, pullGlobalPendingLimit)}, nil
 	}
-	if clientPending > pullPerClientPendingLimit {
-		return true, nil
+	clientLimit := pullEffectiveClientPendingLimit(otherPending)
+
+	if clientPending > clientLimit {
+		return &PullBackpressure{RetryAfter: pullRetryAfter(clientPending, clientLimit)}, nil
 	}
 
-	return false, nil
+	return nil, nil
+}
+
+func pullClientBorrowLimit() int {
+	return pullGlobalPendingLimit * pullSoloClientPendingPercentage / 100
+}
+
+func pullEffectiveClientPendingLimit(otherPending int) int {
+	limit := pullClientBorrowLimit() - otherPending
+	if limit < pullPerClientPendingLimit {
+		return pullPerClientPendingLimit
+	}
+	return limit
+}
+
+func pullRetryAfter(pending, limit int) time.Duration {
+	over := pending - limit
+	if over <= 0 {
+		return pullRetryAfterMin
+	}
+
+	minutes := 1 + (over-1)/pullRetryAfterStepPieces
+	retryAfter := time.Duration(minutes) * time.Minute
+	if retryAfter < pullRetryAfterMin {
+		return pullRetryAfterMin
+	}
+	if retryAfter > pullRetryAfterMax {
+		return pullRetryAfterMax
+	}
+	return retryAfter
 }

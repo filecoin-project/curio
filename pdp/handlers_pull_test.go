@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
@@ -24,7 +25,7 @@ type mockPullStore struct {
 	existingPull *PullRecord
 	pullPieces   []PullPieceStatus
 	createError  error
-	backpressure bool
+	backpressure *PullBackpressure
 
 	// Tracking calls
 	createPullCalled    bool
@@ -38,12 +39,12 @@ func (m *mockPullStore) GetPullByKey(ctx context.Context, service string, hash [
 	return m.existingPull, nil
 }
 
-func (m *mockPullStore) CreatePullWithPieces(ctx context.Context, pull *PullRecord, pieces []PullPiece) (int64, bool, error) {
+func (m *mockPullStore) CreatePullWithPieces(ctx context.Context, pull *PullRecord, pieces []PullPiece) (int64, *PullBackpressure, error) {
 	m.createPullCalled = true
 	m.createdPull = pull
 	m.createdPieces = pieces
 	if m.createError != nil {
-		return 0, false, m.createError
+		return 0, nil, m.createError
 	}
 	m.lastCreatedID++
 	return m.lastCreatedID, m.backpressure, nil
@@ -468,7 +469,7 @@ func TestHandlePull_CreateError(t *testing.T) {
 
 func TestHandlePull_Backpressure(t *testing.T) {
 	store := &mockPullStore{
-		backpressure: true,
+		backpressure: &PullBackpressure{RetryAfter: 2 * time.Minute},
 	}
 	validator := &mockValidator{shouldPass: true}
 	handler := NewPullHandler(&NullAuth{}, store, validator)
@@ -487,6 +488,7 @@ func TestHandlePull_Backpressure(t *testing.T) {
 	handler.HandlePull(rec, req)
 
 	require.Equal(t, http.StatusTooManyRequests, rec.Code)
+	require.Equal(t, "120", rec.Header().Get("Retry-After"))
 	require.True(t, store.createPullCalled)
 	require.False(t, store.getPullPiecesCalled)
 }

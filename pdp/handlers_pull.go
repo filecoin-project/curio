@@ -372,9 +372,9 @@ func (h *PullHandler) HandlePull(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if backpressure {
-		log.Warnw("pull queue backpressure", "client", pullRecord.ClientAddress)
-		w.Header().Set("Retry-After", "60")
+	if backpressure != nil {
+		log.Warnw("pull queue backpressure", "client", pullRecord.ClientAddress, "retryAfter", backpressure.RetryAfter)
+		w.Header().Set("Retry-After", fmt.Sprint(int(backpressure.RetryAfter.Seconds())))
 		http.Error(w, "pull queue backpressure", http.StatusTooManyRequests)
 		return
 	}
