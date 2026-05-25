@@ -1,9 +1,3 @@
--- PDPv0 pull pipeline refactor.
---
--- Pull items are now scheduled by unique piece key and written directly to
--- long-term piece storage. Pull item terminal state is explicit so status no
--- longer has to be inferred from StorePiece/parked_pieces task state.
-
 ALTER TABLE pdp_piece_pulls
     ADD COLUMN IF NOT EXISTS client_address TEXT NOT NULL DEFAULT '';
 
@@ -31,6 +25,14 @@ ALTER TABLE pdp_piece_pull_items
 ALTER TABLE pdp_piece_pull_items
     ADD CONSTRAINT pdp_piece_pull_items_terminal_state_check
     CHECK (NOT (complete AND failed));
+
+-- Support ON DELETE SET NULL from parked_piece_refs and parked_pieces without
+-- scanning all pull items for each deleted parent row.
+CREATE INDEX IF NOT EXISTS idx_pdp_piece_pull_items_parked_piece_ref
+    ON pdp_piece_pull_items (parked_piece_ref);
+
+CREATE INDEX IF NOT EXISTS idx_pdp_piece_pull_items_pull_parked_piece_id
+    ON pdp_piece_pull_items (pull_parked_piece_id);
 
 UPDATE pdp_piece_pull_items fi
 SET created_at = COALESCE(pp.created_at, fi.created_at)
