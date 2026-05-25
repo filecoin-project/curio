@@ -101,3 +101,14 @@ BEGIN
     END IF;
 END
 $$;
+
+-- Indexes for PDPv0 piece GC and pdp_pieceref deletion paths.
+CREATE INDEX IF NOT EXISTS idx_pdp_data_set_piece_adds_pdp_pieceref
+    ON pdp_data_set_piece_adds (pdp_pieceref);
+
+CREATE INDEX IF NOT EXISTS idx_pdp_data_set_pieces_pdp_pieceref
+    ON pdp_data_set_pieces (pdp_pieceref);
+
+CREATE INDEX IF NOT EXISTS idx_pdp_piecerefs_zero_refcount_created
+    ON pdp_piecerefs (created_at ASC, id)
+    WHERE data_set_refcount = 0;
