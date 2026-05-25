@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math/big"
 
-	"github.com/curiostorage/harmonyquery"
 	"github.com/ethereum/go-ethereum/common"
 	"golang.org/x/xerrors"
 
@@ -158,7 +157,7 @@ func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthC
 		return xerrors.Errorf("failed to get current block number: %w", err)
 	}
 
-	comm, err := db.BeginTransaction(ctx, func(tx *harmonyquery.Tx) (commit bool, err error) {
+	comm, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		for _, railId := range settle.Rails {
 			view, getRailErr := payment.GetRail(contract.EthCallOpts(ctx), big.NewInt(railId))
 

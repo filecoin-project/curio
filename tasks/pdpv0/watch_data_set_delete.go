@@ -4,14 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"math/big"
 
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/chainsched"
 	"github.com/filecoin-project/curio/lib/ethchain"
-	"github.com/filecoin-project/curio/pdp/contract"
 
 	chainTypes "github.com/filecoin-project/lotus/chain/types"
 )
@@ -102,7 +100,7 @@ func processPendingDeletes(ctx context.Context, db *harmonydb.DB, ethClient ethc
 	}
 
 	successErr := processSuccessfulDeletes(ctx, db, ethClient, successes)
-	failureErr := processFailedDeletes(ctx, db, failures)
+	failureErr := processFailedDeletes(ctx, db, ethClient, failures)
 	if successErr != nil || failureErr != nil {
 		return xerrors.Errorf("failed to delete data sets: %w", errors.Join(successErr, failureErr))
 	}
@@ -114,34 +112,68 @@ func processSuccessfulDeletes(ctx context.Context, db *harmonydb.DB, ethClient e
 		return nil
 	}
 
-	pdpAddress := contract.ContractAddresses().PDPVerifier
-
-	verifier, err := contract.NewPDPVerifier(pdpAddress, ethClient)
-	if err != nil {
-		return xerrors.Errorf("failed to instantiate PDPVerifier contract: %w", err)
-	}
-
 	for _, detail := range successes {
-		live, err := verifier.DataSetLive(contract.EthCallOpts(ctx), big.NewInt(detail.ID))
+		state, err := readDataSetCleanupState(ctx, ethClient, detail.ID)
 		if err != nil {
-			return xerrors.Errorf("failed to check if data set is live: %w", err)
+			return xerrors.Errorf("failed to read PDP cleanup state for data set %d: %w", detail.ID, err)
 		}
 
-		if live {
+		if state.Live {
 			return errors.New("data set is still live")
 		}
 
-		if err := cleanupDeletedDataSet(ctx, db, detail.ID, detail.TxHash); err != nil {
-			return err
+		if state.Finalized() {
+			if err := cleanupFinalizedDataSet(ctx, db, detail.ID); err != nil {
+				return err
+			}
+			continue
 		}
+
+		if state.CleanupMode {
+			if err := markDataSetDeleteConfirmed(ctx, db, detail.ID, detail.TxHash); err != nil {
+				return err
+			}
+			log.Infow("PDP data set entered cleanup mode after deleteDataSet",
+				"dataSetId", detail.ID,
+				"txHash", detail.TxHash,
+				"remainingPieceSlots", state.NextPieceID)
+			continue
+		}
+
+		return xerrors.Errorf("data set %d is not live, in cleanup mode, or finalized", detail.ID)
 	}
 
 	return nil
 }
 
-func processFailedDeletes(ctx context.Context, db *harmonydb.DB, failures []pendingDataSetDelete) error {
+func processFailedDeletes(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, failures []pendingDataSetDelete) error {
 	for _, detail := range failures {
-		_, err := db.Exec(ctx, `
+		state, err := readDataSetCleanupState(ctx, ethClient, detail.ID)
+		if err == nil {
+			if state.Finalized() {
+				if err := cleanupFinalizedDataSet(ctx, db, detail.ID); err != nil {
+					return err
+				}
+				continue
+			}
+			if state.CleanupMode {
+				if err := markDataSetDeleteConfirmed(ctx, db, detail.ID, detail.TxHash); err != nil {
+					return err
+				}
+				log.Warnw("data set delete tx failed but PDP state is already in cleanup mode; advanced pipeline",
+					"dataSetId", detail.ID,
+					"txHash", detail.TxHash,
+					"remainingPieceSlots", state.NextPieceID)
+				continue
+			}
+		} else {
+			log.Warnw("failed to read PDP cleanup state after failed data set delete tx",
+				"dataSetId", detail.ID,
+				"txHash", detail.TxHash,
+				"error", err)
+		}
+
+		_, err = db.Exec(ctx, `
 			UPDATE pdp_delete_data_set
 			SET delete_tx_hash = NULL,
 			    after_delete_data_set = FALSE,
@@ -162,10 +194,29 @@ func processFailedDeletes(ctx context.Context, db *harmonydb.DB, failures []pend
 	return nil
 }
 
-func cleanupDeletedDataSet(ctx context.Context, db *harmonydb.DB, dataSetID int64, deleteTxHash string) error {
+func markDataSetDeleteConfirmed(ctx context.Context, db *harmonydb.DB, dataSetID int64, deleteTxHash string) error {
+	n, err := db.Exec(ctx, `
+		UPDATE pdp_delete_data_set
+		SET delete_tx_hash = NULL,
+		    after_delete_data_set = TRUE,
+		    delete_data_set_task_id = NULL
+		WHERE id = $1
+		  AND delete_tx_hash = $2
+		  AND after_delete_data_set = TRUE
+		  AND service_termination_epoch IS NOT NULL
+		  AND terminated = FALSE
+	`, dataSetID, deleteTxHash)
+	if err != nil {
+		return xerrors.Errorf("failed to mark data set delete confirmed for data set %d: %w", dataSetID, err)
+	}
+	if n > 1 {
+		return xerrors.Errorf("expected to update 0 or 1 rows for data set %d, updated %d", dataSetID, n)
+	}
+	return nil
+}
+
+func cleanupFinalizedDataSet(ctx context.Context, db *harmonydb.DB, dataSetID int64) error {
 	comm, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
-		// TODO: When the post-delete cleanup stage lands, route successful
-		// deleteDataSet confirmations there instead of removing local rows here.
 		// Using a transaction as there are foreign key constraints and triggers.
 
 		// Delete all piece refs for this data set
@@ -205,7 +256,7 @@ func cleanupDeletedDataSet(ctx context.Context, db *harmonydb.DB, dataSetID int6
 			return false, xerrors.Errorf("failed to delete data set %d: %w", dataSetID, err)
 		}
 
-		_, err = tx.Exec(`DELETE FROM  pdp_delete_data_set WHERE id = $1 AND delete_tx_hash = $2`, dataSetID, deleteTxHash)
+		_, err = tx.Exec(`DELETE FROM pdp_delete_data_set WHERE id = $1`, dataSetID)
 		if err != nil {
 			return false, xerrors.Errorf("failed to delete row from pdp_delete_data_set: %w", err)
 		}
