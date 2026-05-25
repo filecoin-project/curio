@@ -6,7 +6,6 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/curiostorage/harmonyquery"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/yugabyte/pgx/v5"
@@ -110,7 +109,7 @@ func (t *TerminateFWSSTask) Do(taskID harmonytask.TaskID, stillOwned func() bool
 		}
 		data, err = fwssABi.Pack("terminateService", big.NewInt(dataSet.ID), dataSet.ExtraData)
 	} else {
-		data, err = fwssABi.Pack("terminateService", big.NewInt(dataSet.ID))
+		data, err = fwssABi.Pack("terminateService", big.NewInt(dataSet.ID), []byte{})
 	}
 	if err != nil {
 		return false, xerrors.Errorf("failed to pack data: %w", err)
@@ -130,7 +129,7 @@ func (t *TerminateFWSSTask) Do(taskID harmonytask.TaskID, stillOwned func() bool
 		return false, xerrors.Errorf("failed to send transaction: %w", err)
 	}
 
-	comm, err := t.db.BeginTransaction(ctx, func(tx *harmonyquery.Tx) (commit bool, err error) {
+	comm, err := t.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		n, err := tx.Exec(`UPDATE pdp_delete_data_set 
 									SET terminate_tx_hash = $2, 
 									    after_terminate_service = TRUE,

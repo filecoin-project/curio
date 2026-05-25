@@ -61,6 +61,13 @@ func (t *TaskChainSync) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 	if !stillOwned() {
 		return false, nil
 	}
+	if err := t.syncMissingCleanupPiecesMessageWaits(ctx); err != nil {
+		return false, xerrors.Errorf("syncing missing PDP cleanupPieces message waits: %w", err)
+	}
+
+	if !stillOwned() {
+		return false, nil
+	}
 	if err := t.syncProvenDataSetFailureState(ctx); err != nil {
 		return false, xerrors.Errorf("syncing proven PDP data set failure state: %w", err)
 	}
@@ -71,6 +78,13 @@ func (t *TaskChainSync) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 	err = t.syncFinalizedDataSetDeletionRails(ctx)
 	if err != nil {
 		return false, xerrors.Errorf("syncing finalized PDP deletion rails: %w", err)
+	}
+
+	if !stillOwned() {
+		return false, nil
+	}
+	if err := t.syncPDPVerifierDeletionState(ctx); err != nil {
+		return false, xerrors.Errorf("syncing PDPVerifier deletion state: %w", err)
 	}
 
 	return true, nil
@@ -132,10 +146,24 @@ func (t *TaskChainSync) syncStaleDeletionTaskIDs(ctx context.Context) error {
 			return false, xerrors.Errorf("failed to clear stale delete data set task ids: %w", err)
 		}
 
-		if terminated > 0 || deleted > 0 {
+		cleanup, err := tx.Exec(`UPDATE pdp_delete_data_set pdds
+			SET cleanup_pieces_task_id = NULL
+			WHERE pdds.cleanup_pieces_task_id IS NOT NULL
+			  AND pdds.cleanup_pieces_tx_hash IS NULL
+			  AND NOT EXISTS (
+				SELECT 1
+				FROM harmony_task ht
+				WHERE ht.id = pdds.cleanup_pieces_task_id
+			  )`)
+		if err != nil {
+			return false, xerrors.Errorf("failed to clear stale cleanup pieces task ids: %w", err)
+		}
+
+		if terminated > 0 || deleted > 0 || cleanup > 0 {
 			log.Infow("cleared stale PDP deletion task ids",
 				"terminateServiceTasks", terminated,
-				"deleteDataSetTasks", deleted)
+				"deleteDataSetTasks", deleted,
+				"cleanupPiecesTasks", cleanup)
 		}
 
 		return true, nil
@@ -159,6 +187,11 @@ type missingTerminationMessageWait struct {
 type missingDeleteMessageWait struct {
 	ID     int64  `db:"id"`
 	TxHash string `db:"delete_tx_hash"`
+}
+
+type missingCleanupMessageWait struct {
+	ID     int64  `db:"id"`
+	TxHash string `db:"cleanup_pieces_tx_hash"`
 }
 
 func (t *TaskChainSync) syncMissingDataSetTerminationMessageWaits(ctx context.Context) error {
@@ -293,22 +326,28 @@ func (t *TaskChainSync) syncMissingDataSetDeleteMessageWaits(ctx context.Context
 		return nil
 	}
 
-	verifier, err := contract.NewPDPVerifier(contract.ContractAddresses().PDPVerifier, t.ethClient)
-	if err != nil {
-		return xerrors.Errorf("failed to instantiate PDPVerifier contract: %w", err)
-	}
-
 	for _, detail := range missing {
-		live, err := verifier.DataSetLive(contract.EthCallOpts(ctx), big.NewInt(detail.ID))
+		state, err := readDataSetCleanupState(ctx, t.ethClient, detail.ID)
 		if err != nil {
-			return xerrors.Errorf("failed to check if data set %d is live: %w", detail.ID, err)
+			return xerrors.Errorf("failed to read PDP cleanup state for data set %d: %w", detail.ID, err)
 		}
 
-		if !live {
-			if err := cleanupDeletedDataSet(ctx, t.db, detail.ID, detail.TxHash); err != nil {
+		if state.Finalized() {
+			if err := cleanupFinalizedDataSet(ctx, t.db, detail.ID); err != nil {
 				return xerrors.Errorf("failed to reconcile deleted data set %d: %w", detail.ID, err)
 			}
 			log.Infow("reconciled missing data set delete message wait from chain state", "dataSetId", detail.ID, "txHash", detail.TxHash)
+			continue
+		}
+
+		if state.CleanupMode {
+			if err := markDataSetDeleteConfirmed(ctx, t.db, detail.ID, detail.TxHash); err != nil {
+				return xerrors.Errorf("failed to reconcile cleanup mode for data set %d: %w", detail.ID, err)
+			}
+			log.Infow("reconciled missing data set delete message wait into cleanup mode",
+				"dataSetId", detail.ID,
+				"txHash", detail.TxHash,
+				"remainingPieceSlots", state.NextPieceID)
 			continue
 		}
 
@@ -334,6 +373,70 @@ func (t *TaskChainSync) syncMissingDataSetDeleteMessageWaits(ctx context.Context
 		} else {
 			continue
 		}
+	}
+
+	return nil
+}
+
+func (t *TaskChainSync) syncMissingCleanupPiecesMessageWaits(ctx context.Context) error {
+	var missing []missingCleanupMessageWait
+	if err := t.db.Select(ctx, &missing, `
+		SELECT id, cleanup_pieces_tx_hash
+		FROM pdp_delete_data_set pdds
+		WHERE pdds.service_termination_epoch IS NOT NULL
+		  AND pdds.terminated = FALSE
+		  AND pdds.after_delete_data_set = TRUE
+		  AND pdds.cleanup_pieces_tx_hash IS NOT NULL
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM message_waits_eth mwe
+			WHERE mwe.signed_tx_hash = pdds.cleanup_pieces_tx_hash
+		  )
+		ORDER BY id
+	`); err != nil {
+		return xerrors.Errorf("failed to select cleanupPieces missing message wait rows: %w", err)
+	}
+
+	if len(missing) == 0 {
+		return nil
+	}
+
+	for _, detail := range missing {
+		state, err := readDataSetCleanupState(ctx, t.ethClient, detail.ID)
+		if err != nil {
+			return xerrors.Errorf("failed to read PDP cleanup state for data set %d: %w", detail.ID, err)
+		}
+
+		if state.Finalized() {
+			if err := cleanupFinalizedDataSet(ctx, t.db, detail.ID); err != nil {
+				return xerrors.Errorf("failed to reconcile finalized cleanup for data set %d: %w", detail.ID, err)
+			}
+			log.Infow("reconciled missing cleanupPieces message wait from finalized chain state", "dataSetId", detail.ID, "txHash", detail.TxHash)
+			continue
+		}
+
+		if state.CleanupMode {
+			if err := clearCleanupTxHash(ctx, t.db, detail.ID, detail.TxHash); err != nil {
+				return xerrors.Errorf("failed to clear missing cleanupPieces tx hash for data set %d: %w", detail.ID, err)
+			}
+			log.Infow("reconciled missing cleanupPieces message wait into another cleanup batch",
+				"dataSetId", detail.ID,
+				"txHash", detail.TxHash,
+				"remainingPieceSlots", state.NextPieceID)
+			continue
+		}
+
+		if state.Live {
+			if err := resetCleanupTxToDelete(ctx, t.db, detail.ID, detail.TxHash); err != nil {
+				return xerrors.Errorf("failed to reset cleanupPieces missing message wait for data set %d: %w", detail.ID, err)
+			}
+			log.Warnw("cleanupPieces missing message wait saw live data set; reset to deleteDataSet stage",
+				"dataSetId", detail.ID,
+				"txHash", detail.TxHash)
+			continue
+		}
+
+		return xerrors.Errorf("data set %d is not live, in cleanup mode, or finalized", detail.ID)
 	}
 
 	return nil
@@ -496,6 +599,70 @@ func (t *TaskChainSync) syncFinalizedDataSetDeletionRails(ctx context.Context) e
 				"endEpoch", rail.EndEpoch,
 				"settledUpTo", rail.SettledUpTo)
 		}
+	}
+
+	return nil
+}
+
+// syncPDPVerifierDeletionState reconciles rows whose payment rail is final with
+// PDPVerifier state. This catches externally submitted deleteDataSet and
+// cleanupPieces transactions and keeps local cleanup behind final on-chain
+// PDP cleanup.
+func (t *TaskChainSync) syncPDPVerifierDeletionState(ctx context.Context) error {
+	var pending []struct {
+		ID int64 `db:"id"`
+	}
+	if err := t.db.Select(ctx, &pending, `SELECT id
+		FROM pdp_delete_data_set
+		WHERE deletion_allowed = TRUE
+		  AND service_termination_epoch IS NOT NULL
+		  AND terminated = FALSE
+		ORDER BY id`); err != nil {
+		return xerrors.Errorf("failed to select PDP deletion rows for verifier sync: %w", err)
+	}
+
+	for _, detail := range pending {
+		state, err := readDataSetCleanupState(ctx, t.ethClient, detail.ID)
+		if err != nil {
+			return xerrors.Errorf("failed to read PDP cleanup state for data set %d: %w", detail.ID, err)
+		}
+
+		if state.Live {
+			continue
+		}
+
+		if state.Finalized() {
+			if err := cleanupFinalizedDataSet(ctx, t.db, detail.ID); err != nil {
+				return xerrors.Errorf("failed to reconcile finalized PDP cleanup for data set %d: %w", detail.ID, err)
+			}
+			log.Infow("reconciled finalized PDP cleanup from chain state", "dataSetId", detail.ID)
+			continue
+		}
+
+		if state.CleanupMode {
+			n, err := t.db.Exec(ctx, `UPDATE pdp_delete_data_set
+				SET after_delete_data_set = TRUE,
+				    delete_data_set_task_id = NULL,
+				    delete_tx_hash = NULL
+				WHERE id = $1
+				  AND after_delete_data_set = FALSE
+				  AND service_termination_epoch IS NOT NULL
+				  AND terminated = FALSE`, detail.ID)
+			if err != nil {
+				return xerrors.Errorf("failed to move data set %d into cleanup stage: %w", detail.ID, err)
+			}
+			if n > 1 {
+				return xerrors.Errorf("expected to update 0 or 1 rows for data set %d, updated %d", detail.ID, n)
+			}
+			if n == 1 {
+				log.Infow("reconciled PDP cleanup mode from chain state",
+					"dataSetId", detail.ID,
+					"remainingPieceSlots", state.NextPieceID)
+			}
+			continue
+		}
+
+		return xerrors.Errorf("data set %d is not live, in cleanup mode, or finalized", detail.ID)
 	}
 
 	return nil

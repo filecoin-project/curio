@@ -46,6 +46,27 @@ BEGIN
             ADD COLUMN client_terminate_service_task_id BIGINT;
     END IF;
 
+    IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_name = 'pdp_delete_data_set'
+          AND table_schema = current_schema()
+          AND column_name = 'cleanup_pieces_task_id'
+    ) THEN
+        ALTER TABLE pdp_delete_data_set
+            ADD COLUMN cleanup_pieces_task_id BIGINT;
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_name = 'pdp_delete_data_set'
+          AND table_schema = current_schema()
+          AND column_name = 'cleanup_pieces_tx_hash'
+    ) THEN
+        ALTER TABLE pdp_delete_data_set
+            ADD COLUMN cleanup_pieces_tx_hash TEXT;
+    END IF;
 END
 $$;
 
