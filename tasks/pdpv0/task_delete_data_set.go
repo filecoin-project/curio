@@ -91,6 +91,7 @@ func (t *DeleteDataSetTask) Do(taskID harmonytask.TaskID, stillOwned func() bool
 		return false, xerrors.Errorf("failed to pack data: %w", err)
 	}
 
+	// deleteDataSet is nonpayable; the cleanup deposit was prepaid at creation.
 	txEth := types.NewTransaction(
 		0,
 		pdpAddress,
