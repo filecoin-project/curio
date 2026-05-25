@@ -144,6 +144,7 @@ func (t *CleanupPiecesTask) sendCleanupPieces(ctx context.Context, sender common
 			return common.Hash{}, 0, xerrors.Errorf("failed to pack PDP cleanup data set: %w", err)
 		}
 
+		// cleanupPieces refunds the prepaid cleanup deposit on finalization.
 		txEth := types.NewTransaction(
 			0,
 			pdpAddress,
