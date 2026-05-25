@@ -164,8 +164,14 @@ func (v *EthCallValidator) ValidateAddPieces(ctx context.Context, params *AddPie
 		return fmt.Errorf("failed to pack addPieces call: %w", err)
 	}
 
-	// eth_call to validate — match tx value used for dataset creation (no sybil fee)
+	// eth_call to validate — match tx value used for dataset creation
 	value := big.NewInt(0)
+	if isCreateNew {
+		value, err = contract.FilCleanupDeposit(ctx, v.ethClient)
+		if err != nil {
+			return fmt.Errorf("reading FIL cleanup deposit: %w", err)
+		}
+	}
 	msg := ethereum.CallMsg{
 		From:  v.senderAddr,
 		To:    new(contract.ContractAddresses().PDPVerifier),
