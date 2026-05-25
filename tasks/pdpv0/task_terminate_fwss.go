@@ -6,6 +6,7 @@ import (
 	"math/big"
 	"time"
 
+	"github.com/curiostorage/harmonyquery"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/yugabyte/pgx/v5"
@@ -76,6 +77,7 @@ func (t *TerminateFWSSTask) Do(taskID harmonytask.TaskID, stillOwned func() bool
 		if n != 1 {
 			return false, xerrors.Errorf("expected to update 1 row but got %d", n)
 		}
+		return true, nil
 	}
 
 	sender, err := getPDPOwner(ctx, t.db)
@@ -90,6 +92,8 @@ func (t *TerminateFWSSTask) Do(taskID harmonytask.TaskID, stillOwned func() bool
 		return false, xerrors.Errorf("failed to get FWSS ABI: %w", err)
 	}
 
+	// TODO: Regenerate the FWSS ABI for terminateService(uint256,bytes)
+	// and pass empty extraData here for provider-initiated termination.
 	data, err := fwssABi.Pack("terminateService", big.NewInt(dataSetId))
 	if err != nil {
 		return false, xerrors.Errorf("failed to pack data: %w", err)
@@ -109,17 +113,34 @@ func (t *TerminateFWSSTask) Do(taskID harmonytask.TaskID, stillOwned func() bool
 		return false, xerrors.Errorf("failed to send transaction: %w", err)
 	}
 
-	n, err := t.db.Exec(ctx, `UPDATE pdp_delete_data_set 
+	comm, err := t.db.BeginTransaction(ctx, func(tx *harmonyquery.Tx) (commit bool, err error) {
+		n, err := tx.Exec(`UPDATE pdp_delete_data_set 
 									SET terminate_tx_hash = $2, 
 									    after_terminate_service = TRUE,
 									    terminate_service_task_id = NULL
 									WHERE terminate_service_task_id = $1`, taskID, txHash.Hex())
+		if err != nil {
+			return false, xerrors.Errorf("failed to update pdp_delete_data_set: %w", err)
+		}
+
+		if n != 1 {
+			return false, xerrors.Errorf("expected to update 1 row but got %d", n)
+		}
+
+		_, err = tx.Exec(`INSERT INTO message_waits_eth (signed_tx_hash, tx_status) VALUES ($1, $2)`, txHash.Hex(), "pending")
+		if err != nil {
+			return false, xerrors.Errorf("failed to insert into message_waits_eth: %w", err)
+		}
+
+		return true, nil
+	}, harmonydb.OptionRetry())
+
 	if err != nil {
-		return false, xerrors.Errorf("failed to update pdp_delete_data_set: %w", err)
+		return false, err
 	}
 
-	if n != 1 {
-		return false, xerrors.Errorf("expected to update 1 row but got %d", n)
+	if !comm {
+		return false, xerrors.Errorf("failed to commit transaction")
 	}
 
 	return true, nil
