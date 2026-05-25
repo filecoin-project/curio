@@ -103,20 +103,13 @@ func (t *TerminateFWSSTask) Do(taskID harmonytask.TaskID, stillOwned func() bool
 		return false, xerrors.Errorf("failed to get FWSS ABI: %w", err)
 	}
 
-	// TODO: Regenerate the FWSS ABI for terminateService(uint256,bytes)
-	// and pass empty extraData here for provider-initiated termination.
 	var data []byte
 	if dataSet.ClientRequested {
 		if len(dataSet.ExtraData) == 0 {
 			return false, xerrors.Errorf("client-requested termination for data set %d has empty extraData", dataSet.ID)
 		}
-		// TODO: Regenerate the FWSS ABI for terminateService(uint256,bytes).
-		// Curio intentionally passes client extraData through unchanged; FWSS
-		// remains authoritative for client signature validation.
 		data, err = fwssABi.Pack("terminateService", big.NewInt(dataSet.ID), dataSet.ExtraData)
 	} else {
-		// TODO: After the FWSS ABI update, pass empty extraData for
-		// provider-initiated termination.
 		data, err = fwssABi.Pack("terminateService", big.NewInt(dataSet.ID))
 	}
 	if err != nil {
