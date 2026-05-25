@@ -103,10 +103,10 @@ func processPendingDeletes(ctx context.Context, db *harmonydb.DB, ethClient ethc
 
 	successErr := processSuccessfulDeletes(ctx, db, ethClient, successes)
 	failureErr := processFailedDeletes(ctx, db, failures)
-	if successErr != nil {
-		return successErr
+	if successErr != nil || failureErr != nil {
+		return xerrors.Errorf("failed to delete data sets: %w", errors.Join(successErr, failureErr))
 	}
-	return failureErr
+	return nil
 }
 
 func processSuccessfulDeletes(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, successes []pendingDataSetDelete) error {

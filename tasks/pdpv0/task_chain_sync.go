@@ -44,11 +44,18 @@ func (t *TaskChainSync) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 		return false, xerrors.Errorf("syncing stale PDP deletion task ids: %w", err)
 	}
 
-	if !stillOwned() {
+	if !stillOwned(){
 		return false, nil
 	}
-	if err := t.syncMissingDeletionMessageWaits(ctx); err != nil {
-		return false, xerrors.Errorf("syncing missing PDP deletion message waits: %w", err)
+	if err := t.syncMissingDataSetTerminationMessageWaits(ctx); err != nil {
+		return false, xerrors.Errorf("syncing missing PDP termination message waits: %w", err)
+	}
+
+	if !stillOwned(){
+		return false, nil
+	}
+	if err := t.syncMissingDataSetDeleteMessageWaits(ctx); err != nil {
+		return false, xerrors.Errorf("syncing missing PDP delete message waits: %w", err)
 	}
 
 	if !stillOwned() {
@@ -151,17 +158,7 @@ type missingDeleteMessageWait struct {
 	TxHash string `db:"delete_tx_hash"`
 }
 
-// syncMissingDeletionMessageWaits repairs deletion pipeline rows whose tx hash was recorded
-// without a matching message_waits_eth row. The tx may no longer be available from the
-// connected node, so this reconciles from contract state instead of tx history.
-func (t *TaskChainSync) syncMissingDeletionMessageWaits(ctx context.Context) error {
-	if err := t.syncMissingTerminationMessageWaits(ctx); err != nil {
-		return err
-	}
-	return t.syncMissingDeleteMessageWaits(ctx)
-}
-
-func (t *TaskChainSync) syncMissingTerminationMessageWaits(ctx context.Context) error {
+func (t *TaskChainSync) syncMissingDataSetTerminationMessageWaits(ctx context.Context) error {
 	var missing []missingTerminationMessageWait
 	if err := t.db.Select(ctx, &missing, `
 		SELECT id, terminate_tx_hash
@@ -239,13 +236,15 @@ func (t *TaskChainSync) syncMissingTerminationMessageWaits(ctx context.Context) 
 		}
 		if n == 1 {
 			log.Warnw("reset service termination missing message wait for retry", "dataSetId", detail.ID, "txHash", detail.TxHash)
+		} else {
+			continue
 		}
 	}
 
 	return nil
 }
 
-func (t *TaskChainSync) syncMissingDeleteMessageWaits(ctx context.Context) error {
+func (t *TaskChainSync) syncMissingDataSetDeleteMessageWaits(ctx context.Context) error {
 	var missing []missingDeleteMessageWait
 	if err := t.db.Select(ctx, &missing, `
 		SELECT id, delete_tx_hash
@@ -306,6 +305,8 @@ func (t *TaskChainSync) syncMissingDeleteMessageWaits(ctx context.Context) error
 		}
 		if n == 1 {
 			log.Warnw("reset data set delete missing message wait for retry", "dataSetId", detail.ID, "txHash", detail.TxHash)
+		} else {
+			continue
 		}
 	}
 
