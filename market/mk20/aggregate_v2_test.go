@@ -1,12 +1,12 @@
 package mk20
 
 import (
-	"crypto/sha256"
 	"io"
 	"testing"
 
 	"github.com/ipfs/go-cid"
 	mh "github.com/multiformats/go-multihash"
+	_ "github.com/multiformats/go-multihash/register/blake3"
 	"github.com/stretchr/testify/require"
 
 	"github.com/filecoin-project/go-data-segment/datasegmentv2"
@@ -108,8 +108,7 @@ func TestAssembleAggregateV2_Errors(t *testing.T) {
 
 func contentCID(t *testing.T, data []byte) cid.Cid {
 	t.Helper()
-	h := sha256.Sum256(data)
-	cmh, err := mh.Encode(h[:], mh.SHA2_256)
+	cmh, err := mh.Sum(data, mh.BLAKE3, 32)
 	require.NoError(t, err)
 	return cid.NewCidV1(cid.Raw, cmh)
 }

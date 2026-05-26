@@ -385,4 +385,4 @@ require (
 
 replace github.com/filecoin-project/filecoin-ffi => ./extern/filecoin-ffi
 
-replace github.com/filecoin-project/go-data-segment => github.com/aurorainfra/go-data-segment v0.0.0-20260428133830-111f90b35e64
+replace github.com/filecoin-project/go-data-segment => github.com/aurorainfra/go-data-segment v0.0.0-20260526154147-7f44945e0ce4

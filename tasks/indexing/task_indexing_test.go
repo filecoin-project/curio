@@ -7,6 +7,7 @@ import (
 
 	"github.com/ipfs/go-cid"
 	mh "github.com/multiformats/go-multihash"
+	_ "github.com/multiformats/go-multihash/register/blake3"
 	"github.com/stretchr/testify/require"
 
 	"github.com/filecoin-project/go-data-segment/datasegmentv2"
@@ -26,8 +27,7 @@ func buildV2Piece(t *testing.T, contents [][]byte) ([]byte, int64, []cid.Cid) {
 
 	offset := uint64(0)
 	for i, content := range contents {
-		h := sha256.Sum256(content)
-		cmh, err := mh.Encode(h[:], mh.SHA2_256)
+		cmh, err := mh.Sum(content, mh.BLAKE3, 32)
 		require.NoError(t, err)
 		c := cid.NewCidV1(cid.Raw, cmh)
 		contentCIDs[i] = c
@@ -107,8 +107,7 @@ func TestIndexAggregateV2_HappyPath(t *testing.T) {
 
 func TestIndexAggregateV2_ACLSkipped(t *testing.T) {
 	content1 := []byte("content with ACL sibling")
-	h := sha256.Sum256(content1)
-	cmh, err := mh.Encode(h[:], mh.SHA2_256)
+	cmh, err := mh.Sum(content1, mh.BLAKE3, 32)
 	require.NoError(t, err)
 	contentCID := cid.NewCidV1(cid.Raw, cmh)
 

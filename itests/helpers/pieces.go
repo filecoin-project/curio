@@ -2,7 +2,6 @@ package helpers
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"fmt"
 	"io"
 	"math/bits"
@@ -14,6 +13,7 @@ import (
 	carv2 "github.com/ipld/go-car/v2"
 	"github.com/ipld/go-car/v2/blockstore"
 	mh "github.com/multiformats/go-multihash"
+	_ "github.com/multiformats/go-multihash/register/blake3"
 	"github.com/stretchr/testify/require"
 
 	"github.com/filecoin-project/go-data-segment/datasegment"
@@ -197,7 +197,7 @@ type V2AggregateFixture struct {
 	PieceFixture
 	// SubContents holds the raw byte content of each sub-piece (for retrieval verification).
 	SubContents [][]byte
-	// SubCIDs holds the content CID for each sub-piece (sha256/raw codec).
+	// SubCIDs holds the content CID for each sub-piece (blake3/raw codec).
 	SubCIDs []cid.Cid
 	// SubSources holds the mk20 DataSource metadata for the deal's aggregate format.
 	SubSources []mk20.DataSource
@@ -205,7 +205,7 @@ type V2AggregateFixture struct {
 
 // CreateV2AggregateFixture builds a V2 aggregate piece from raw content blobs.
 // The piece layout is: [content0][content1]...[indexBlob] where indexBlob contains
-// datasegmentv2 entries + sentinel. Each sub-piece gets a sha256/raw CID.
+// datasegmentv2 entries + descriptor. Each sub-piece gets a blake3/raw CID.
 func CreateV2AggregateFixture(t *testing.T, contents [][]byte) V2AggregateFixture {
 	t.Helper()
 	require.GreaterOrEqual(t, len(contents), 1, "V2 aggregate needs at least 1 content blob")
@@ -217,9 +217,8 @@ func CreateV2AggregateFixture(t *testing.T, contents [][]byte) V2AggregateFixtur
 
 	offset := uint64(0)
 	for i, content := range contents {
-		// Build sha256/raw CID for each sub-piece content.
-		h := sha256.Sum256(content)
-		cmh, err := mh.Encode(h[:], mh.SHA2_256)
+		// Build blake3/raw CID for each sub-piece content.
+		cmh, err := mh.Sum(content, mh.BLAKE3, 32)
 		require.NoError(t, err)
 		c := cid.NewCidV1(cid.Raw, cmh)
 		subCIDs[i] = c

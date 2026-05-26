@@ -2,11 +2,11 @@ package mk20
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"io"
 
 	"github.com/ipfs/go-cid"
 	mh "github.com/multiformats/go-multihash"
+	_ "github.com/multiformats/go-multihash/register/blake3"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-data-segment/datasegmentv2"
@@ -17,7 +17,7 @@ import (
 // assembled V2 aggregate piece data and its total raw size.
 //
 // Each reader is consumed up to the corresponding rawSize. The content CID for
-// each sub-piece is computed as sha256/raw over the raw bytes.
+// each sub-piece is computed as blake3/raw over the raw bytes.
 func AssembleAggregateV2(readers []io.Reader, rawSizes []int64) (io.Reader, int64, error) {
 	if len(readers) != len(rawSizes) {
 		return nil, 0, xerrors.Errorf("readers and rawSizes length mismatch: %d vs %d", len(readers), len(rawSizes))
@@ -39,9 +39,8 @@ func AssembleAggregateV2(readers []io.Reader, rawSizes []int64) (io.Reader, int6
 			return nil, 0, xerrors.Errorf("sub-piece %d: expected %d bytes, got %d", i, rawSizes[i], len(content))
 		}
 
-		// Compute sha256/raw content CID.
-		h := sha256.Sum256(content)
-		cmh, err := mh.Encode(h[:], mh.SHA2_256)
+		// Compute blake3/raw content CID.
+		cmh, err := mh.Sum(content, mh.BLAKE3, 32)
 		if err != nil {
 			return nil, 0, xerrors.Errorf("encoding multihash for sub-piece %d: %w", i, err)
 		}
