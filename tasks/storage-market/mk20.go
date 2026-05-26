@@ -1259,7 +1259,7 @@ func (d *CurioStorageDealMarket) migratePcid(ctx context.Context) {
 	// Add PieceCIDv2 to ipni table
 	var pieceInfos []struct {
 		PieceCID string `db:"piece_cid"`
-		Size     int64  `db:"size"`
+		Size     int64  `db:"piece_size"`
 		RawSize  int64  `db:"raw_size"`
 	}
 	err = d.db.Select(ctx, &pieceInfos, `SELECT

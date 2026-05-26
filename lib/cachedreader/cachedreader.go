@@ -180,6 +180,12 @@ func (cpr *CachedPieceReader) getPieceReaderFromMarketPieceDeal(ctx context.Cont
 		}
 		pieceSize = padreader.PaddedSize(rawSize).Padded()
 	} else {
+		// V1 piece CID path: must look up piece size from DB.
+		// This path is taken when Cassandra PayloadToPieces has legacy V1 keys
+		// (indexed before V2 conversion was added to the indexing task).
+		// If market_piece_metadata is missing for this V1 CID, retrieval fails.
+		// Once all indexes are migrated to V2, this V1 path can be removed since
+		// V2 callers derive piece size directly from the CID encoding.
 		var pieceSizeRaw int64
 		err := cpr.db.QueryRow(ctx, `SELECT COALESCE(
 												(SELECT piece_size FROM market_piece_metadata WHERE piece_cid = $1 ORDER BY piece_size DESC LIMIT 1),
@@ -190,7 +196,13 @@ func (cpr *CachedPieceReader) getPieceReaderFromMarketPieceDeal(ctx context.Cont
 			return nil, 0, fmt.Errorf("failed to get piece size for piece cid %s: %w", pieceCid, err)
 		}
 		if pieceSizeRaw <= 0 {
-			return nil, 0, fmt.Errorf("failed to determine piece size for piece cid %s", pieceCid)
+			// Diagnostic: this likely means market_piece_metadata was never populated
+			// for this V1 CID (e.g. process_piece_deal was not called or the piece
+			// was only stored in parked_pieces with a V2 CID).
+			log.Errorw("getPieceReaderFromMarketPieceDeal: cannot determine piece size for V1 CID; "+
+				"check that market_piece_metadata has an entry for this piece_cid",
+				"pieceCid", pieceCid, "originalInput", piece)
+			return nil, 0, fmt.Errorf("failed to determine piece size for piece cid %s (no entry in market_piece_metadata or parked_pieces)", pieceCid)
 		}
 		pieceSize = abi.PaddedPieceSize(pieceSizeRaw)
 		rawSize = uint64(pieceSize.Unpadded())
@@ -227,6 +239,10 @@ func (cpr *CachedPieceReader) getPieceReaderFromMarketPieceDeal(ctx context.Cont
 	}
 
 	if len(deals) == 0 {
+		log.Warnw("getPieceReaderFromMarketPieceDeal: no deals found in market_piece_deal; "+
+			"the piece_cid/piece_length filter may not match if CID version or size is inconsistent",
+			"pieceCid", pieceCid, "pieceSize", pieceSize, "originalInput", piece, "retrieval", retrieval)
+
 		if retrieval {
 			var isPDP bool
 			err = cpr.db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pdp_piecerefs WHERE piece_cid = $1);`, pieceCid.String()).Scan(&isPDP)
@@ -251,6 +267,18 @@ func (cpr *CachedPieceReader) getPieceReaderFromMarketPieceDeal(ctx context.Cont
 		_, err := ulid.Parse(dl.ID)
 		if err != nil {
 			// This is likely a MK12 deal, get from sector
+
+			// Diagnostic: reg_seal_proof=0 means sectors_meta has no row for this
+			// SP+sector (LEFT JOIN returned NULL, COALESCE gave 0). Proof type 0 is
+			// StackedDrg2KiBV1, which is wrong for any production sector and will
+			// cause ReadPiece to fail. This can happen when the Curio node handling
+			// retrievals doesn't manage this SP's sectors.
+			if dl.Proof == 0 {
+				log.Warnw("getPieceReaderFromMarketPieceDeal: reg_seal_proof is 0 (missing sectors_meta entry); "+
+					"sector read will likely fail with wrong proof type",
+					"dealID", dl.ID, "spID", dl.SpID, "sector", dl.Sector, "pieceCid", pieceCid)
+			}
+
 			sr := storiface.SectorRef{
 				ID: abi.SectorID{
 					Miner:  abi.ActorID(dl.SpID),
@@ -261,7 +289,8 @@ func (cpr *CachedPieceReader) getPieceReaderFromMarketPieceDeal(ctx context.Cont
 
 			reader, err := cpr.sectorReader.ReadPiece(ctx, sr, storiface.UnpaddedByteIndex(abi.PaddedPieceSize(dl.Offset.Int64).Unpadded()), dl.Length.Unpadded(), pieceCid)
 			if err != nil {
-				merr = multierror.Append(merr, xerrors.Errorf("failed to read piece from sector: %w", err))
+				merr = multierror.Append(merr, xerrors.Errorf("failed to read piece from sector (sp=%d, sector=%d, proof=%d): %w",
+					dl.SpID, dl.Sector, dl.Proof, err))
 				continue
 			}
 
@@ -447,12 +476,29 @@ func (cpr *CachedPieceReader) getPieceReaderFromAggregate(ctx context.Context, p
 }
 
 func (cpr *CachedPieceReader) GetSharedPieceReader(ctx context.Context, pieceCid cid.Cid, retrieval bool) (storiface.Reader, uint64, error) {
-	// Note: Let's not infer the pieceCID v1 -> v2 for a cache key
-	// The calculation required is basically the same as below func so might as well run it
+	// Normalize cache key: use V1 representation when possible so that both
+	// V1 callers (e.g. /ipfs/ with legacy Cassandra V1 keys) and V2 callers
+	// (e.g. /piece/ with V2 CID) share the same cache entry. V2→V1 conversion
+	// is cheap (just extracts from the V2 CID encoding), unlike V1→V2 which
+	// requires raw_size from the DB.
+	//
+	// NOTE: Only the cache key is normalized. The actual reader creation functions
+	// are called with the ORIGINAL pieceCid to preserve correct behavior
+	// (e.g., getPieceReaderFromAggregate needs V2 for aggregate sub-pieces).
+	//
+	// Once all Cassandra indexes are fully migrated to V2 and there are no more
+	// V1 callers, this normalization can be removed or changed to use V2 as the
+	// canonical key.
+	cacheKey := pieceCid
+	if commcidv2.IsPieceCidV2(pieceCid) {
+		if pcid1, _, err := commcid.PieceCidV1FromV2(pieceCid); err == nil {
+			cacheKey = pcid1
+		}
+	}
 
 	// First check if we have a cached error for this piece
 	cpr.pieceErrorCacheMu.Lock()
-	if errorItem, found := cpr.pieceErrorCache.Get(pieceCid); found {
+	if errorItem, found := cpr.pieceErrorCache.Get(cacheKey); found {
 		cachedErr := errorItem.(*cachedError)
 		cpr.pieceErrorCacheMu.Unlock()
 		log.Debugw("returning cached error", "piececid", pieceCid, "err", cachedErr.err)
@@ -470,7 +516,7 @@ func (cpr *CachedPieceReader) GetSharedPieceReader(ctx context.Context, pieceCid
 
 	// Check if there is already a piece reader in the cache
 	cpr.pieceReaderCacheMu.Lock()
-	rr, found := cpr.pieceReaderCache.Get(pieceCid)
+	rr, found := cpr.pieceReaderCache.Get(cacheKey)
 	if !found {
 		// Cache miss - there is not yet a cached piece reader
 		_ = stats.RecordWithTags(context.Background(), []tag.Mutator{
@@ -480,11 +526,11 @@ func (cpr *CachedPieceReader) GetSharedPieceReader(ctx context.Context, pieceCid
 		// Create a new one and add it to the cache
 		r = &cachedSectionReader{
 			cpr:      cpr,
-			pieceCid: pieceCid,
+			pieceCid: cacheKey, // use normalized key for cache identity / Close() cleanup
 			ready:    make(chan struct{}),
 			refs:     1,
 		}
-		cpr.pieceReaderCache.Set(pieceCid, r)
+		cpr.pieceReaderCache.Set(cacheKey, r)
 
 		// Record cache size
 		_ = stats.RecordWithTags(context.Background(), []tag.Mutator{
@@ -513,9 +559,9 @@ func (cpr *CachedPieceReader) GetSharedPieceReader(ctx context.Context, pieceCid
 					tag.Upsert(reasonKey, "piece_not_found"),
 				}, CachedReaderMeasures.ReaderErrors.M(1))
 
-				// Cache the error in the error cache
+				// Cache the error in the error cache (using normalized key)
 				cpr.pieceErrorCacheMu.Lock()
-				cpr.pieceErrorCache.Set(pieceCid, &cachedError{err: finalErr, pieceCid: pieceCid})
+				cpr.pieceErrorCache.Set(cacheKey, &cachedError{err: finalErr, pieceCid: pieceCid})
 				// Record error cache size
 				_ = stats.RecordWithTags(context.Background(), []tag.Mutator{
 					tag.Upsert(cacheTypeKey, "piece_error"),
@@ -524,7 +570,7 @@ func (cpr *CachedPieceReader) GetSharedPieceReader(ctx context.Context, pieceCid
 
 				// Remove the failed reader from the main cache
 				cpr.pieceReaderCacheMu.Lock()
-				cpr.pieceReaderCache.Remove(pieceCid)
+				cpr.pieceReaderCache.Remove(cacheKey)
 				// Record updated cache size
 				_ = stats.RecordWithTags(context.Background(), []tag.Mutator{
 					tag.Upsert(cacheTypeKey, "piece_reader"),

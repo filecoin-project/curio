@@ -358,16 +358,46 @@ func (i *IndexStore) PiecesContainingMultihash(ctx context.Context, m multihash.
 	return pieces, nil
 }
 
-// GetOffset retrieves the offset of a payload in a piece(v2)
-func (i *IndexStore) GetOffset(ctx context.Context, pieceCidv2 cid.Cid, hash multihash.Multihash) (uint64, error) {
-	var offset uint64
+// GetOffset retrieves the offset of a payload in a piece.
+// The pieceCid can be either V1 or V2. If the lookup fails with the given CID,
+// a best-effort fallback is attempted with the alternate CID version (V2→V1 or V1→V2).
+// This handles the case where Cassandra PayloadToPieces and PieceBlockOffsetSize tables
+// may have been indexed under different CID versions (e.g. legacy V1 indexes that were
+// never migrated, or mixed V1/V2 state from partial UpdatePieceCidV1ToV2 runs).
+//
+// NOTE: Once all indexes have been fully migrated to V2, the V1 fallback paths here
+// can be removed. The V1→V2 fallback (for V1 input) requires a DB lookup in the caller
+// to obtain raw_size, so it is not attempted here; only V2→V1 fallback is done.
+func (i *IndexStore) GetOffset(ctx context.Context, pieceCid cid.Cid, hash multihash.Multihash) (uint64, error) {
 	qryOffset := `SELECT BlockOffset FROM PieceBlockOffsetSize WHERE PieceCid = ? AND PayloadMultihash = ?`
-	err := i.session.Query(qryOffset, pieceCidv2.Bytes(), []byte(hash)).WithContext(ctx).Scan(&offset)
-	if err != nil {
-		return 0, fmt.Errorf("getting offset: %w", err)
+
+	var offset uint64
+	err := i.session.Query(qryOffset, pieceCid.Bytes(), []byte(hash)).WithContext(ctx).Scan(&offset)
+	if err == nil {
+		return offset, nil
 	}
 
-	return offset, nil
+	// Best-effort fallback: try the alternate CID version.
+	// This mirrors the fallback logic in GetPieceHashRange.
+	if commcidv2.IsPieceCidV2(pieceCid) {
+		pcid1, _, convErr := commcid.PieceCidV1FromV2(pieceCid)
+		if convErr == nil {
+			var fallbackOffset uint64
+			fallbackErr := i.session.Query(qryOffset, pcid1.Bytes(), []byte(hash)).WithContext(ctx).Scan(&fallbackOffset)
+			if fallbackErr == nil {
+				log.Warnw("GetOffset: found offset under V1 PieceCid (index not migrated to V2)",
+					"pieceCidV2", pieceCid, "pieceCidV1", pcid1, "multihash", hash)
+				return fallbackOffset, nil
+			}
+		}
+	} else if commcidv2.IsCidV1PieceCid(pieceCid) {
+		// Input is V1 but PieceBlockOffsetSize might have V2 keys.
+		// We can't convert V1→V2 without raw_size, so log a diagnostic hint.
+		log.Warnw("GetOffset: offset not found under V1 PieceCid; index may exist under V2 key but V1→V2 conversion requires raw_size",
+			"pieceCidV1", pieceCid, "multihash", hash)
+	}
+
+	return 0, fmt.Errorf("getting offset for piece %s: %w", pieceCid, err)
 }
 
 func (i *IndexStore) GetPieceHashRange(ctx context.Context, piecev2 cid.Cid, start multihash.Multihash, num int64, strictCheck bool) ([]multihash.Multihash, error) {
