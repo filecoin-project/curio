@@ -1126,8 +1126,7 @@ func (t *PDPPullPieceTask) recordPullSourceFailures(ctx context.Context, group p
 func isTransientPullSourceError(failure pullSourceError) bool {
 	switch failure.stage {
 	case pullSourceStatus:
-		return failure.statusCode == http.StatusTooManyRequests ||
-			(failure.statusCode >= http.StatusInternalServerError && failure.statusCode <= 599)
+		return failure.statusCode == http.StatusTooManyRequests || failure.statusCode == http.StatusInternalServerError
 	case pullSourceRequest:
 		return isTransientPullRequestError(failure.err)
 	case pullSourceWrite:
