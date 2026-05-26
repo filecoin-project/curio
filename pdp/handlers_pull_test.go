@@ -70,6 +70,9 @@ func (m *mockPullStore) GetPullStatus(ctx context.Context, pullID int64) ([]Pull
 type mockValidator struct {
 	shouldPass bool
 	err        error
+	payer      common.Address
+	payerErr   error
+	payerCalls []uint64
 }
 
 func (m *mockValidator) ValidateAddPieces(ctx context.Context, params *AddPiecesValidatorParams) error {
@@ -80,6 +83,17 @@ func (m *mockValidator) ValidateAddPieces(ctx context.Context, params *AddPieces
 		return m.err
 	}
 	return errors.New("validation failed")
+}
+
+func (m *mockValidator) GetDataSetPayer(ctx context.Context, dataSetId uint64) (common.Address, error) {
+	m.payerCalls = append(m.payerCalls, dataSetId)
+	if m.payerErr != nil {
+		return common.Address{}, m.payerErr
+	}
+	if m.payer != (common.Address{}) {
+		return m.payer, nil
+	}
+	return common.HexToAddress("0x1111111111111111111111111111111111111111"), nil
 }
 
 // Valid test PieceCIDv2s
@@ -98,6 +112,12 @@ func testExtraData(t *testing.T) string {
 	extraData, err := makeTestExtraData(common.HexToAddress("0x1111111111111111111111111111111111111111"), 1)
 	require.NoError(t, err)
 	return extraData
+}
+
+func testAddPiecesOnlyExtraData(t *testing.T) string {
+	t.Helper()
+
+	return "0x" + hex.EncodeToString([]byte("add-pieces-only-extra-data"))
 }
 
 func makeTestExtraData(payer common.Address, nonce int64) (string, error) {
@@ -297,6 +317,32 @@ func TestHandlePull_NewRequest_Success(t *testing.T) {
 	}
 	require.True(t, cidSet[testCid1])
 	require.True(t, cidSet[testCid2])
+}
+
+func TestHandlePull_ExistingDataSetUsesFWSSPayer(t *testing.T) {
+	store := &mockPullStore{}
+	payer := common.HexToAddress("0x2222222222222222222222222222222222222222")
+	validator := &mockValidator{shouldPass: true, payer: payer}
+	handler := NewPullHandler(&NullAuth{}, store, validator)
+
+	body := PullRequest{
+		ExtraData: testAddPiecesOnlyExtraData(t),
+		DataSetId: &testDataSetId,
+		Pieces: []PullPieceRequest{
+			{PieceCid: testCid1, SourceURL: "https://example.com/piece/" + testCid1},
+		},
+	}
+	bodyBytes := must.One(json.Marshal(body))
+	req := httptest.NewRequest(http.MethodPost, "/pdp/piece/pull", bytes.NewReader(bodyBytes))
+	rec := httptest.NewRecorder()
+
+	handler.HandlePull(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.True(t, store.createPullCalled)
+	require.NotNil(t, store.createdPull)
+	require.Equal(t, payer.Hex(), store.createdPull.ClientAddress)
+	require.Equal(t, []uint64{testDataSetId}, validator.payerCalls)
 }
 
 func TestHandlePull_CreateNew_MissingRecordKeeper(t *testing.T) {

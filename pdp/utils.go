@@ -83,7 +83,7 @@ func decodeFWSSCreatePayload(extraData []byte) (*fwssCreatePayload, error) {
 }
 
 // FWSSPayerFromExtraData extracts the FilecoinWarmStorageService payer from
-// pull extraData. The expected format is the combined operation payload:
+// create-new pull extraData. The expected format is the combined operation payload:
 //
 //	(bytes createPayload, bytes addPayload)
 //

@@ -15,6 +15,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/pdp/contract"
+	"github.com/filecoin-project/curio/pdp/contract/FWSS"
 )
 
 // getPDPSenderAddress retrieves the PDP key address from the database
@@ -47,6 +48,9 @@ type AddPiecesValidator interface {
 	// ValidateAddPieces performs an eth_call to validate the extraData
 	// Returns nil if validation passes, error otherwise
 	ValidateAddPieces(ctx context.Context, params *AddPiecesValidatorParams) error
+
+	// GetDataSetPayer returns the FWSS payer for an existing data set.
+	GetDataSetPayer(ctx context.Context, dataSetId uint64) (common.Address, error)
 }
 
 // EthCallValidator validates via eth_call to PDPVerifier contract
@@ -105,6 +109,33 @@ func (v *EthCallValidator) ValidateAddPieces(ctx context.Context, params *AddPie
 	}
 
 	return nil
+}
+
+func (v *EthCallValidator) GetDataSetPayer(ctx context.Context, dataSetId uint64) (common.Address, error) {
+	if dataSetId == 0 {
+		return common.Address{}, fmt.Errorf("dataSetId must be greater than 0")
+	}
+
+	serviceAddr := contract.ContractAddresses().AllowedPublicRecordKeepers.FWSService
+	viewAddr, err := contract.ResolveViewAddress(ctx, serviceAddr, v.ethClient)
+	if err != nil {
+		return common.Address{}, fmt.Errorf("resolve FWSS view address: %w", err)
+	}
+
+	fwssView, err := FWSS.NewFilecoinWarmStorageServiceStateView(viewAddr, v.ethClient)
+	if err != nil {
+		return common.Address{}, fmt.Errorf("bind FWSS state view: %w", err)
+	}
+
+	dataSet, err := fwssView.GetDataSet(contract.EthCallOpts(ctx), new(big.Int).SetUint64(dataSetId))
+	if err != nil {
+		return common.Address{}, fmt.Errorf("get FWSS data set %d: %w", dataSetId, err)
+	}
+	if dataSet.Payer == (common.Address{}) {
+		return common.Address{}, fmt.Errorf("data set %d payer is zero address", dataSetId)
+	}
+
+	return dataSet.Payer, nil
 }
 
 // PullHandler handles piece pull requests
@@ -281,11 +312,6 @@ func (h *PullHandler) HandlePull(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	extraDataHash := sha256.Sum256(extraDataBytes)
-	payer, err := FWSSPayerFromExtraData(extraDataBytes)
-	if err != nil {
-		httpServerError(w, http.StatusBadRequest, "Invalid extraData payer: "+err.Error(), err)
-		return
-	}
 
 	// Build idempotency key components
 	var dataSetId uint64
@@ -308,6 +334,17 @@ func (h *PullHandler) HandlePull(w http.ResponseWriter, r *http.Request) {
 	if existingPull != nil {
 		// Return existing status
 		h.respondWithStatus(ctx, w, existingPull.ID)
+		return
+	}
+
+	var payer common.Address
+	if dataSetId == 0 {
+		payer, err = FWSSPayerFromExtraData(extraDataBytes)
+	} else {
+		payer, err = h.validator.GetDataSetPayer(ctx, dataSetId)
+	}
+	if err != nil {
+		httpServerError(w, http.StatusBadRequest, "Invalid pull payer: "+err.Error(), err)
 		return
 	}
 

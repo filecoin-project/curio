@@ -222,7 +222,7 @@ type PullRecord struct {
 	ExtraDataHash []byte
 	DataSetId     uint64 // 0 = create new
 	RecordKeeper  string // address, required when DataSetId is 0
-	ClientAddress string // FWSS payer address from extraData
+	ClientAddress string // FWSS payer address
 }
 
 // PullPiece represents a piece stored in a pull request (v1 CID + raw size for v2 reconstruction)
