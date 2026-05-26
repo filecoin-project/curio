@@ -121,9 +121,9 @@ var (
 // extra trailing bytes, and must compute to the expected CommP.
 //
 // If no URL succeeds in a task pass, per-URL failures are recorded. Permanent
-// failures, such as bad source URLs, 410 responses, size mismatches, and CommP
-// mismatches, fail the affected pull items immediately. Transient failures,
-// including Curio-side 404s, update attempt_count and next_attempt_at; after
+// failures, such as bad source URLs, 404/410 responses, size mismatches, and CommP
+// mismatches, fail the affected pull items immediately. Transient failures
+// update attempt_count and next_attempt_at; after
 // pullItemMaxAttempts they become failed pull items instead of cycling until the
 // wall-clock budget expires.
 //
@@ -989,8 +989,8 @@ func (t *PDPPullPieceTask) tryPullSource(ctx context.Context, sourceURL string, 
 		return fail(pullSourceRequest, err)
 	}
 
-	// HTTP status gets its own stage so 404/429/5xx can be retried without
-	// string matching, while other statuses fail the matching rows.
+	// HTTP status gets its own stage so retryable statuses are classified
+	// without string matching, while other statuses fail the matching rows.
 	if resp.StatusCode != http.StatusOK {
 		return &pullSourceError{
 			sourceURL:  sourceURL,
@@ -1126,8 +1126,7 @@ func (t *PDPPullPieceTask) recordPullSourceFailures(ctx context.Context, group p
 func isTransientPullSourceError(failure pullSourceError) bool {
 	switch failure.stage {
 	case pullSourceStatus:
-		return failure.statusCode == http.StatusNotFound ||
-			failure.statusCode == http.StatusTooManyRequests ||
+		return failure.statusCode == http.StatusTooManyRequests ||
 			(failure.statusCode >= http.StatusInternalServerError && failure.statusCode <= 599)
 	case pullSourceRequest:
 		return isTransientPullRequestError(failure.err)

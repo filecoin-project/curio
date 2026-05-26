@@ -338,9 +338,8 @@ func TestPullSourceErrorClassification(t *testing.T) {
 		transient bool
 	}{
 		{
-			name:      "404 is transient",
-			failure:   pullSourceError{stage: pullSourceStatus, statusCode: 404, err: errors.New("not found")},
-			transient: true,
+			name:    "404 is permanent",
+			failure: pullSourceError{stage: pullSourceStatus, statusCode: 404, err: errors.New("not found")},
 		},
 		{
 			name:    "410 is permanent",
