@@ -280,6 +280,12 @@ description: The default curio configuration
   # type: bool
   #EnablePDP = false
 
+  # PDPPullPieceMaxTasks is the maximum number of PDPv0 pull-piece download tasks that can run simultaneously.
+  # Set 0 for unlimited. (Default: 20)
+  #
+  # type: int
+  #PDPPullPieceMaxTasks = 20
+
   # EnableCommP enables the commP task on te node. CommP is calculated before sending PublishDealMessage for a Mk12 deal
   # Must have EnableDealMarket = True (Default: false)
   #

@@ -180,7 +180,7 @@ func (r *PullRequest) Validate() error {
 
 	// Validate each piece (CID format validation is done later by ParsePieceCidV2).
 	// The same piece may appear more than once with different source URLs so
-	// PullPiece can try all supplied sources. An exact duplicate is not useful
+	// the server can try all supplied sources. An exact duplicate is not useful
 	// and would collide with the pull item primary key.
 	seenPieceSources := make(map[string]struct{}, len(r.Pieces))
 	for i, piece := range r.Pieces {
@@ -387,7 +387,7 @@ func (s *dbPullStore) CreatePullWithPieces(ctx context.Context, pull *PullRecord
 			return false, nil
 		}
 
-		// Insert piece items with raw size and source_url for task to pick up
+		// Insert piece items with raw size and source URL for processing.
 		for _, piece := range pieces {
 			_, err := tx.Exec(`
 				INSERT INTO pdp_piece_pull_items (fetch_id, piece_cid, piece_raw_size, source_url)
@@ -482,12 +482,16 @@ func pullStatusFromItem(complete, failed bool, taskID *int64, taskExists bool, r
 	return PullStatusPending
 }
 
+// enforceBackpressure decides whether a new pull can be admitted without
+// exceeding global or per-client pending-piece limits.
 func (s *dbPullStore) enforceBackpressure(tx *harmonydb.Tx, pull *PullRecord, pieces []PullPiece) (*PullBackpressure, error) {
 	type pieceKey struct {
 		cid     string
 		rawSize uint64
 	}
 
+	// Backpressure is counted by unique piece key, not by URL or pull item.
+	// Multiple URLs for the same piece should not consume multiple slots.
 	seen := make(map[pieceKey]struct{}, len(pieces))
 	pieceCids := make([]string, 0, len(pieces))
 	rawSizes := make([]int64, 0, len(pieces))
@@ -506,6 +510,10 @@ func (s *dbPullStore) enforceBackpressure(tx *harmonydb.Tx, pull *PullRecord, pi
 	}
 
 	var globalPending, clientPending, otherPending int
+	// Count the post-admission state in one query:
+	// - globalPending: all active unique pieces plus this request's unique pieces
+	// - clientPending: this client's active unique pieces plus this request
+	// - otherPending: active unique pieces owned by all other clients
 	err := tx.QueryRow(`
 		WITH incoming AS (
 			SELECT DISTINCT piece_cid, piece_raw_size
@@ -551,11 +559,16 @@ func (s *dbPullStore) enforceBackpressure(tx *harmonydb.Tx, pull *PullRecord, pi
 	if err != nil {
 		return nil, fmt.Errorf("count pull pending pieces: %w", err)
 	}
+	// The global limit is absolute. A request is rejected if accepting it would
+	// push total active unique pieces over the node-wide cap.
 	if globalPending > pullGlobalPendingLimit {
 		return &PullBackpressure{RetryAfter: pullRetryAfter(globalPending, pullGlobalPendingLimit)}, nil
 	}
-	clientLimit := pullEffectiveClientPendingLimit(otherPending)
 
+	// The per-client limit is soft while the node is otherwise empty. A client
+	// can borrow unused slots up to the solo-client ceiling, but other clients'
+	// pending pieces reduce that allowance.
+	clientLimit := pullEffectiveClientPendingLimit(otherPending)
 	if clientPending > clientLimit {
 		return &PullBackpressure{RetryAfter: pullRetryAfter(clientPending, clientLimit)}, nil
 	}
@@ -567,6 +580,8 @@ func pullClientBorrowLimit() int {
 	return pullGlobalPendingLimit * pullSoloClientPendingPercentage / 100
 }
 
+// pullEffectiveClientPendingLimit returns how many unique pending pieces one
+// client may hold after accounting for capacity already used by other clients.
 func pullEffectiveClientPendingLimit(otherPending int) int {
 	limit := pullClientBorrowLimit() - otherPending
 	if limit < pullPerClientPendingLimit {
@@ -575,6 +590,8 @@ func pullEffectiveClientPendingLimit(otherPending int) int {
 	return limit
 }
 
+// pullRetryAfter suggests how long a rejected pull should wait: 1 minute per 10
+// pieces over the limit, clamped to [1, 5] minutes.
 func pullRetryAfter(pending, limit int) time.Duration {
 	over := pending - limit
 	if over <= 0 {

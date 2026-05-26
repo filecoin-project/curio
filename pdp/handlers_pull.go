@@ -177,22 +177,19 @@ func NewPullHandler(auth Auth, store PullStore, validator AddPiecesValidator) *P
 //  1. Client calls POST /pdp/piece/pull with piece CIDs and source URLs
 //  2. Server validates extraData via eth_call (ensures authorization)
 //  3. Server creates pull tracking records; duplicate pieces with different
-//     source URLs are kept so PullPiece can try each supplied source.
-//  4. PDPPullPieceTask groups work by piece, attaches pull refs to the active
-//     long-term parked_pieces row, and downloads directly when it created that row.
-//  5. Client polls the same endpoint to check status (idempotent)
-//  6. Once all pieces are "complete", client calls the contract to add pieces to dataset
+//     source URLs are kept so the server can try each supplied source.
+//  4. Client polls the same endpoint to check status (idempotent)
+//  5. Once all pieces are "complete", client calls the contract to add pieces to dataset
 //
 // # Status Progression
 //
 // Each piece progresses through these statuses:
 //
-//   - pending: Piece is queued or waiting on an existing parked_pieces row
-//   - inProgress: PullPiece task is actively running
-//   - retrying: The current task row has a retry count greater than zero
+//   - pending: Piece has been accepted and is waiting for processing
+//   - inProgress: Server is actively processing the piece
+//   - retrying: Server hit a transient failure and will retry
 //   - complete: Piece successfully downloaded and verified
-//   - failed: Piece permanently failed; the task enforces this through explicit
-//     item state rather than inferring it from parked_pieces.
+//   - failed: Piece cannot be completed from the supplied request data
 //
 // The overall response status reflects the worst-case across all pieces:
 // failed > retrying > inProgress > pending > complete
@@ -346,7 +343,7 @@ func (h *PullHandler) HandlePull(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Build pull pieces for database storage (v1 CID + raw size + source URL for task to pick up)
+	// Build normalized pull pieces for persistence.
 	pullPieces := make([]PullPiece, len(pieceInfos))
 	for i, info := range pieceInfos {
 		pullPieces[i] = PullPiece{
@@ -379,11 +376,7 @@ func (h *PullHandler) HandlePull(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// PDPPullPieceTask will pick up items from pdp_piece_pull_items, group them
-	// by piece, attach refs to parked_pieces, and download when PullPiece owns
-	// the parked row.
-
-	// Return status
+	// The pull has been accepted; return the current status.
 	h.respondWithStatus(ctx, w, pullID)
 }
 

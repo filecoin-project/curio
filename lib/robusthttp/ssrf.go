@@ -52,6 +52,15 @@ func DefaultSSRFPolicy() SSRFPolicy {
 
 var globalSSRFOverride atomic.Pointer[SSRFPolicy]
 
+// NoResolvedAddressError reports a DNS result with no usable IP addresses.
+type NoResolvedAddressError struct {
+	Host string
+}
+
+func (e *NoResolvedAddressError) Error() string {
+	return "host " + strconv.Quote(e.Host) + " resolved to no addresses"
+}
+
 // SetGlobalSSRFOverride installs a fallback SSRFPolicy that is used whenever
 // a caller passes a nil policy. Call with nil to clear the override.
 func SetGlobalSSRFOverride(p *SSRFPolicy) {
@@ -243,7 +252,7 @@ func ssrfSafeDial(ctx context.Context, network, addr string, policy *SSRFPolicy)
 		return nil, err
 	}
 	if len(ips) == 0 {
-		return nil, xerrors.Errorf("host %q resolved to no addresses", host)
+		return nil, &NoResolvedAddressError{Host: host}
 	}
 
 	if !allowed {

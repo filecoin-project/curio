@@ -8,10 +8,22 @@ ALTER TABLE pdp_piece_pull_items
     ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 
 ALTER TABLE pdp_piece_pull_items
+    ADD COLUMN IF NOT EXISTS attempt_count INTEGER NOT NULL DEFAULT 0;
+
+ALTER TABLE pdp_piece_pull_items
+    ADD COLUMN IF NOT EXISTS next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+
+ALTER TABLE pdp_piece_pull_items
     ADD COLUMN IF NOT EXISTS parked_piece_ref BIGINT REFERENCES parked_piece_refs(ref_id) ON DELETE SET NULL;
 
 ALTER TABLE pdp_piece_pull_items
     ADD COLUMN IF NOT EXISTS pull_parked_piece_id BIGINT REFERENCES parked_pieces(id) ON DELETE SET NULL;
+
+COMMENT ON COLUMN pdp_piece_pull_items.parked_piece_ref IS
+    'Per-pull-item parked_piece_refs row; preserves the item source URL and is promoted into pdp_piecerefs on success.';
+
+COMMENT ON COLUMN pdp_piece_pull_items.pull_parked_piece_id IS
+    'Set only when PullPiece created the parked_pieces row; ownership marker for retry/expiry cleanup, distinct from parked_piece_ref.piece_id for refs attached to rows owned by other flows.';
 
 ALTER TABLE pdp_piece_pull_items
     DROP CONSTRAINT IF EXISTS pdp_piece_pull_items_pkey;

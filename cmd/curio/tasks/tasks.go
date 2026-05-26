@@ -355,7 +355,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 			pdpNextProvingPeriodTask := pdpv0.NewNextProvingPeriodTask(db, must.One(dependencies.EthClient.Val()), dependencies.Chain, chainSched, es)
 			pdpInitProvingPeriodTask := pdpv0.NewInitProvingPeriodTask(db, must.One(dependencies.EthClient.Val()), dependencies.Chain, chainSched, es)
 			pdpNotifTask := pdpv0.NewPDPNotifyTask(ctx, db)
-			pdpPullPieceTask := pdpv0.NewPDPPullPieceTask(ctx, db, sc)
+			pdpPullPieceTask := pdpv0.NewPDPPullPieceTask(ctx, db, sc, cfg.Subsystems.PDPPullPieceMaxTasks)
 
 			pdpTerminate := pdpv0.NewTerminateServiceTask(db, must.One(dependencies.EthClient.Val()), senderEth)
 			pdpDelete := pdpv0.NewDeleteDataSetTask(db, must.One(dependencies.EthClient.Val()), senderEth)
