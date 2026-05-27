@@ -351,9 +351,14 @@ func TestPullSourceErrorClassification(t *testing.T) {
 			transient: true,
 		},
 		{
-			name:      "5xx is transient",
-			failure:   pullSourceError{stage: pullSourceStatus, statusCode: 503, err: errors.New("unavailable")},
+			name:      "500 is transient",
+			failure:   pullSourceError{stage: pullSourceStatus, statusCode: 500, err: errors.New("server internal error")},
 			transient: true,
+		},
+		{
+			name:      "5xx is permanent",
+			failure:   pullSourceError{stage: pullSourceStatus, statusCode: 503, err: errors.New("unavailable")},
+			transient: false,
 		},
 		{
 			name:    "validation is permanent",
