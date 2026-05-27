@@ -260,42 +260,53 @@ type PullStore interface {
 	GetPullStatus(ctx context.Context, pullID int64) ([]PullPieceStatus, error)
 }
 
-// ComputeOverallStatus derives the overall status from individual piece statuses.
-// Priority: failed > retrying > inProgress > pending > complete
+// ComputeOverallStatus derives the batch status from individual piece statuses.
+// The batch only reaches a terminal status after every piece is terminal. At
+// that point any successful piece makes the batch complete; failed pieces remain
+// visible in per-piece status.
 func (r *PullResponse) ComputeOverallStatus() {
 	if len(r.Pieces) == 0 {
 		r.Status = PullStatusPending
 		return
 	}
 
-	allComplete := true
-	anyFailed := false
-	anyRetrying := false
-	anyInProgress := false
+	completeCount := 0
+	failedCount := 0
+	hasPending := false
+	hasInProgress := false
+	hasRetrying := false
 
 	for _, p := range r.Pieces {
-		if p.Status != PullStatusComplete {
-			allComplete = false
-		}
 		switch p.Status {
+		case PullStatusComplete:
+			completeCount++
 		case PullStatusFailed:
-			anyFailed = true
+			failedCount++
 		case PullStatusRetrying:
-			anyRetrying = true
+			hasRetrying = true
 		case PullStatusInProgress:
-			anyInProgress = true
+			hasInProgress = true
+		case PullStatusPending:
+			hasPending = true
+		default:
+			hasPending = true
 		}
 	}
 
-	if allComplete {
-		r.Status = PullStatusComplete
-	} else if anyFailed {
-		r.Status = PullStatusFailed
-	} else if anyRetrying {
+	// Non-terminal pieces keep the batch non-terminal. Terminal status is only
+	// chosen after every piece is either complete or failed.
+	switch {
+	case hasRetrying:
 		r.Status = PullStatusRetrying
-	} else if anyInProgress {
+	case hasInProgress:
 		r.Status = PullStatusInProgress
-	} else {
+	case hasPending:
+		r.Status = PullStatusPending
+	case failedCount == len(r.Pieces):
+		r.Status = PullStatusFailed
+	case completeCount > 0:
+		r.Status = PullStatusComplete
+	default:
 		r.Status = PullStatusPending
 	}
 }

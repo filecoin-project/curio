@@ -408,6 +408,46 @@ func TestPullResponse_ComputeOverallStatus(t *testing.T) {
 			expectedStatus: PullStatusPending,
 		},
 		{
+			name: "some complete some failed is complete",
+			pieces: []PullPieceStatus{
+				{PieceCid: "cid1", Status: PullStatusComplete},
+				{PieceCid: "cid2", Status: PullStatusFailed},
+			},
+			expectedStatus: PullStatusComplete,
+		},
+		{
+			name: "failed with inProgress is inProgress",
+			pieces: []PullPieceStatus{
+				{PieceCid: "cid1", Status: PullStatusFailed},
+				{PieceCid: "cid2", Status: PullStatusInProgress},
+			},
+			expectedStatus: PullStatusInProgress,
+		},
+		{
+			name: "failed with pending is pending",
+			pieces: []PullPieceStatus{
+				{PieceCid: "cid1", Status: PullStatusFailed},
+				{PieceCid: "cid2", Status: PullStatusPending},
+			},
+			expectedStatus: PullStatusPending,
+		},
+		{
+			name: "failed with retrying is retrying",
+			pieces: []PullPieceStatus{
+				{PieceCid: "cid1", Status: PullStatusFailed},
+				{PieceCid: "cid2", Status: PullStatusRetrying},
+			},
+			expectedStatus: PullStatusRetrying,
+		},
+		{
+			name: "all failed",
+			pieces: []PullPieceStatus{
+				{PieceCid: "cid1", Status: PullStatusFailed},
+				{PieceCid: "cid2", Status: PullStatusFailed},
+			},
+			expectedStatus: PullStatusFailed,
+		},
+		{
 			name: "single complete",
 			pieces: []PullPieceStatus{
 				{PieceCid: "cid1", Status: PullStatusComplete},

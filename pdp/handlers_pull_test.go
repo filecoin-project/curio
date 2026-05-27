@@ -686,7 +686,8 @@ func TestHandlePull_OrphanedTaskWithoutTerminalStateIsPending(t *testing.T) {
 }
 
 func TestComputeOverallStatus_Priority(t *testing.T) {
-	// Test that status priority is: failed > retrying > inProgress > pending > complete
+	// Failed pieces are terminal per-piece results. The batch only becomes
+	// terminal after every piece is complete or failed.
 	tests := []struct {
 		name           string
 		pieceStatuses  []PullStatus
@@ -713,8 +714,18 @@ func TestComputeOverallStatus_Priority(t *testing.T) {
 			expectedStatus: PullStatusRetrying,
 		},
 		{
-			name:           "failed overrides all",
+			name:           "failed does not override active work",
 			pieceStatuses:  []PullStatus{PullStatusComplete, PullStatusInProgress, PullStatusRetrying, PullStatusFailed},
+			expectedStatus: PullStatusRetrying,
+		},
+		{
+			name:           "partial failure with completed pieces is complete",
+			pieceStatuses:  []PullStatus{PullStatusComplete, PullStatusFailed},
+			expectedStatus: PullStatusComplete,
+		},
+		{
+			name:           "all failed makes batch failed",
+			pieceStatuses:  []PullStatus{PullStatusFailed, PullStatusFailed},
 			expectedStatus: PullStatusFailed,
 		},
 		{
