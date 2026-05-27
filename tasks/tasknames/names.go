@@ -35,5 +35,4 @@ const (
 	PDPv0_TermFWSS   = "PDPv0_TermFWSS"
 	PDPv0_ChainSync  = "PDPv0_ChainSync"
 	Settle           = "Settle"
-	ClientSettle     = "ClientSettle"
 )

@@ -361,9 +361,8 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 			pdpDelete := pdpv0.NewDeleteDataSetTask(db, must.One(dependencies.EthClient.Val()), senderEth)
 			pdpChainDBStateSync := pdpv0.NewTaskChainSync(db, must.One(dependencies.EthClient.Val()), senderEth)
 			payTask := pay.NewSettleTask(db, must.One(dependencies.EthClient.Val()), senderEth) // Move this to a common section once PDP v1 is live
-			pdpClientTerminationSettle := pay.NewImmediateSettleTask(db, must.One(dependencies.EthClient.Val()), senderEth)
 			pdpSaveCacheTask := pdpv0.NewTaskPDPSaveCache(db, dependencies.CachedPieceReader, iStore)
-			activeTasks = append(activeTasks, pdpProveTask, pdpNotifTask, pdpPullPieceTask, pdpNextProvingPeriodTask, pdpInitProvingPeriodTask, pdpTerminate, pdpDelete, pdpChainDBStateSync, payTask, pdpClientTerminationSettle, pdpSaveCacheTask)
+			activeTasks = append(activeTasks, pdpProveTask, pdpNotifTask, pdpPullPieceTask, pdpNextProvingPeriodTask, pdpInitProvingPeriodTask, pdpTerminate, pdpDelete, pdpChainDBStateSync, payTask, pdpSaveCacheTask)
 		}
 
 		idxMax := taskhelp.Max(cfg.Subsystems.IndexingMaxTasks)

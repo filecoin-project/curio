@@ -46,60 +46,6 @@ BEGIN
             ADD COLUMN client_terminate_service_task_id BIGINT;
     END IF;
 
-    IF NOT EXISTS (
-        SELECT 1
-        FROM information_schema.columns
-        WHERE table_name = 'pdp_delete_data_set'
-          AND table_schema = current_schema()
-          AND column_name = 'immediate_settle_task_id'
-    ) THEN
-        ALTER TABLE pdp_delete_data_set
-            ADD COLUMN immediate_settle_task_id BIGINT;
-    END IF;
-
-    IF NOT EXISTS (
-        SELECT 1
-        FROM information_schema.columns
-        WHERE table_name = 'pdp_delete_data_set'
-          AND table_schema = current_schema()
-          AND column_name = 'immediate_settle_tx_hash'
-    ) THEN
-        ALTER TABLE pdp_delete_data_set
-            ADD COLUMN immediate_settle_tx_hash TEXT;
-    END IF;
-
-    IF NOT EXISTS (
-        SELECT 1
-        FROM information_schema.columns
-        WHERE table_name = 'pdp_delete_data_set'
-          AND table_schema = current_schema()
-          AND column_name = 'after_immediate_settle'
-    ) THEN
-        ALTER TABLE pdp_delete_data_set
-            ADD COLUMN after_immediate_settle BOOLEAN NOT NULL DEFAULT FALSE;
-    END IF;
-
-    IF NOT EXISTS (
-        SELECT 1
-        FROM information_schema.columns
-        WHERE table_name = 'pdp_delete_data_set'
-          AND table_schema = current_schema()
-          AND column_name = 'immediate_settle_requested_at'
-    ) THEN
-        ALTER TABLE pdp_delete_data_set
-            ADD COLUMN immediate_settle_requested_at TIMESTAMPTZ;
-    END IF;
-
-    IF NOT EXISTS (
-        SELECT 1
-        FROM information_schema.columns
-        WHERE table_name = 'filecoin_payment_transactions'
-          AND table_schema = current_schema()
-          AND column_name = 'settle_reason'
-    ) THEN
-        ALTER TABLE filecoin_payment_transactions
-            ADD COLUMN settle_reason TEXT NOT NULL DEFAULT 'periodic';
-    END IF;
 END
 $$;
 
@@ -131,20 +77,6 @@ BEGIN
                     AND octet_length(termination_extra_data) > 0
                 )
             );
-    END IF;
-END
-$$;
-
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1
-        FROM pg_constraint
-        WHERE conname = 'filecoin_payment_transactions_settle_reason_check'
-    ) THEN
-        ALTER TABLE filecoin_payment_transactions
-            ADD CONSTRAINT filecoin_payment_transactions_settle_reason_check
-            CHECK (settle_reason IN ('periodic', 'pdpv0_client_termination'));
     END IF;
 END
 $$;

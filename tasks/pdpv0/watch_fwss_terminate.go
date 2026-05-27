@@ -200,96 +200,69 @@ func fwssServiceTerminationEpoch(ds FWSS.FilecoinWarmStorageServiceDataSetInfoVi
 }
 
 func markServiceTerminationConfirmed(ctx context.Context, db *harmonydb.DB, detail pendingServiceTermination, epoch int64) error {
-	committed, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
-		n, err := tx.Exec(`
-			UPDATE pdp_delete_data_set
-			SET service_termination_epoch = $1,
-			    terminate_service_task_id = NULL,
-			    client_terminate_service_task_id = NULL
-			WHERE id = $2
-			  AND terminate_tx_hash = $3
-			  AND after_terminate_service = TRUE
-			  AND service_termination_epoch IS NULL
-		`, epoch, detail.DataSetId, detail.TxHash)
-		if err != nil {
-			return false, err
-		}
-		if n > 1 {
-			return false, xerrors.Errorf("expected to update 0 or 1 rows, updated %d", n)
-		}
-		if n == 0 {
-			log.Warnw("service termination row was already reconciled or removed", "dataSetId", detail.DataSetId, "txHash", detail.TxHash)
-		}
-		return true, nil
-	}, harmonydb.OptionRetry())
+	n, err := db.Exec(ctx, `
+		UPDATE pdp_delete_data_set
+		SET service_termination_epoch = $1,
+		    terminate_service_task_id = NULL,
+		    client_terminate_service_task_id = NULL
+		WHERE id = $2
+		  AND terminate_tx_hash = $3
+		  AND after_terminate_service = TRUE
+		  AND service_termination_epoch IS NULL
+	`, epoch, detail.DataSetId, detail.TxHash)
 	if err != nil {
 		return err
 	}
-	if !committed {
-		return xerrors.Errorf("failed to commit confirmed service termination update")
+	if n > 1 {
+		return xerrors.Errorf("expected to update 0 or 1 rows, updated %d", n)
+	}
+	if n == 0 {
+		log.Warnw("service termination row was already reconciled or removed", "dataSetId", detail.DataSetId, "txHash", detail.TxHash)
 	}
 	return nil
 }
 
 func deleteFailedClientTermination(ctx context.Context, db *harmonydb.DB, detail pendingServiceTermination) error {
-	committed, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
-		n, err := tx.Exec(`
-			DELETE FROM pdp_delete_data_set
-			WHERE id = $1
-			  AND terminate_tx_hash = $2
-			  AND client_requested_termination = TRUE
-			  AND after_terminate_service = TRUE
-			  AND service_termination_epoch IS NULL
-		`, detail.DataSetId, detail.TxHash)
-		if err != nil {
-			return false, err
-		}
-		if n > 1 {
-			return false, xerrors.Errorf("expected to delete 0 or 1 rows, deleted %d", n)
-		}
-		if n == 0 {
-			log.Warnw("failed client service termination row was already reconciled or removed", "dataSetId", detail.DataSetId, "txHash", detail.TxHash)
-		}
-		return true, nil
-	}, harmonydb.OptionRetry())
+	n, err := db.Exec(ctx, `
+		DELETE FROM pdp_delete_data_set
+		WHERE id = $1
+		  AND terminate_tx_hash = $2
+		  AND client_requested_termination = TRUE
+		  AND after_terminate_service = TRUE
+		  AND service_termination_epoch IS NULL
+	`, detail.DataSetId, detail.TxHash)
 	if err != nil {
 		return err
 	}
-	if !committed {
-		return xerrors.Errorf("failed to commit failed client service termination delete")
+	if n > 1 {
+		return xerrors.Errorf("expected to delete 0 or 1 rows, deleted %d", n)
+	}
+	if n == 0 {
+		log.Warnw("failed client service termination row was already reconciled or removed", "dataSetId", detail.DataSetId, "txHash", detail.TxHash)
 	}
 	return nil
 }
 
 func resetFailedProviderTermination(ctx context.Context, db *harmonydb.DB, detail pendingServiceTermination) error {
-	committed, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
-		n, err := tx.Exec(`
-			UPDATE pdp_delete_data_set
-			SET terminate_tx_hash = NULL,
-			    after_terminate_service = FALSE,
-			    terminate_service_task_id = NULL
-			WHERE id = $1
-			  AND terminate_tx_hash = $2
-			  AND client_requested_termination = FALSE
-			  AND after_terminate_service = TRUE
-			  AND service_termination_epoch IS NULL
-		`, detail.DataSetId, detail.TxHash)
-		if err != nil {
-			return false, err
-		}
-		if n > 1 {
-			return false, xerrors.Errorf("expected to update 0 or 1 rows, updated %d", n)
-		}
-		if n == 0 {
-			log.Warnw("failed provider service termination row was already reconciled or removed", "dataSetId", detail.DataSetId, "txHash", detail.TxHash)
-		}
-		return true, nil
-	}, harmonydb.OptionRetry())
+	n, err := db.Exec(ctx, `
+		UPDATE pdp_delete_data_set
+		SET terminate_tx_hash = NULL,
+		    after_terminate_service = FALSE,
+		    terminate_service_task_id = NULL
+		WHERE id = $1
+		  AND terminate_tx_hash = $2
+		  AND client_requested_termination = FALSE
+		  AND after_terminate_service = TRUE
+		  AND service_termination_epoch IS NULL
+	`, detail.DataSetId, detail.TxHash)
 	if err != nil {
 		return err
 	}
-	if !committed {
-		return xerrors.Errorf("failed to commit failed provider service termination reset")
+	if n > 1 {
+		return xerrors.Errorf("expected to update 0 or 1 rows, updated %d", n)
+	}
+	if n == 0 {
+		log.Warnw("failed provider service termination row was already reconciled or removed", "dataSetId", detail.DataSetId, "txHash", detail.TxHash)
 	}
 	return nil
 }

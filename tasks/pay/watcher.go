@@ -29,9 +29,8 @@ const (
 )
 
 type settled struct {
-	Hash   string  `db:"tx_hash"`
-	Rails  []int64 `db:"rail_ids"`
-	Reason string  `db:"settle_reason"`
+	Hash  string  `db:"tx_hash"`
+	Rails []int64 `db:"rail_ids"`
 }
 
 type mwe struct {
@@ -64,7 +63,7 @@ func processPendingTransactions(ctx context.Context, db *harmonydb.DB, ethClient
 	// use JOIN or WHERE EXIST clauses.
 	var settles []settled
 	err := db.Select(ctx, &settles, `
-		SELECT tx_hash, rail_ids, settle_reason
+		SELECT tx_hash, rail_ids
 		FROM filecoin_payment_transactions`)
 	if err != nil {
 		return xerrors.Errorf("failed to get settlements from DB: %w", err)
@@ -89,11 +88,6 @@ func processPendingTransactions(ctx context.Context, db *harmonydb.DB, ethClient
 	}
 
 	for _, mwe := range mwes {
-		settle, ok := goodSettles[mwe.Hash]
-		if !ok {
-			continue
-		}
-
 		// Confirmed rows should always have tx_success set, so the nil check
 		// is defensive. Settlement errors are not expected in any circumstances;
 		// any settlement failure logs should be investigated and prioritize
@@ -102,14 +96,13 @@ func processPendingTransactions(ctx context.Context, db *harmonydb.DB, ethClient
 		if mwe.Status == "failed" || (mwe.Status == "confirmed" && (mwe.Success == nil || !*mwe.Success)) {
 			delete(goodSettles, mwe.Hash)
 			log.Errorw("settlement transaction failed on chain", "txHash", mwe.Hash)
-			if settle.Reason != SettleReasonPDPv0ClientTermination {
-				al.Raise(at, map[string]interface{}{
-					"txHash": mwe.Hash,
-					"error":  "settlement transaction failed on chain",
-				})
-			}
-			if err := processFailedSettlement(ctx, db, settle); err != nil {
-				return err
+			al.Raise(at, map[string]interface{}{
+				"txHash": mwe.Hash,
+				"error":  "settlement transaction failed on chain",
+			})
+			_, err = db.Exec(ctx, `DELETE FROM filecoin_payment_transactions WHERE tx_hash = $1`, mwe.Hash)
+			if err != nil {
+				return xerrors.Errorf("failed to delete failed settlement from DB: %w", err)
 			}
 		}
 
@@ -253,33 +246,6 @@ func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthC
 
 	if !comm {
 		return errors.New("failed to commit the database transaction")
-	}
-
-	return nil
-}
-
-func processFailedSettlement(ctx context.Context, db *harmonydb.DB, settle settled) error {
-	comm, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
-		switch settle.Reason {
-		case SettleReasonPDPv0ClientTermination:
-			log.Warnw("failed immediate client termination settlement; leaving periodic settlement to continue pipeline", "txHash", settle.Hash)
-		case SettleReasonPeriodic:
-		default:
-			log.Warnw("failed settlement has unknown reason", "txHash", settle.Hash, "reason", settle.Reason)
-		}
-
-		_, err := tx.Exec(`DELETE FROM filecoin_payment_transactions WHERE tx_hash = $1`, settle.Hash)
-		if err != nil {
-			return false, xerrors.Errorf("failed to delete failed settlement from DB: %w", err)
-		}
-
-		return true, nil
-	}, harmonydb.OptionRetry())
-	if err != nil {
-		return err
-	}
-	if !comm {
-		return errors.New("failed to commit failed settlement cleanup")
 	}
 
 	return nil
