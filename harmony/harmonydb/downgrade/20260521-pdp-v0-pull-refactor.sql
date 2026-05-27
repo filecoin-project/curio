@@ -1,0 +1,3 @@
+DROP INDEX IF EXISTS idx_pdp_piece_pull_items_pull_parked_piece_id;
+DROP INDEX IF EXISTS idx_pdp_piece_pull_items_parked_piece_ref;
+

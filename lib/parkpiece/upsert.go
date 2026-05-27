@@ -51,9 +51,18 @@ func Upsert(tx *harmonydb.Tx, pieceCID string, paddedSize, rawSize int64, longTe
 // valid-index path and fallback path return the existing id without changing
 // the existing row's skip or raw-size metadata.
 func UpsertSkip(tx *harmonydb.Tx, pieceCID string, paddedSize, rawSize int64, longTerm, skip bool) (int64, error) {
+	id, _, err := UpsertSkipWithInserted(tx, pieceCID, paddedSize, rawSize, longTerm, skip)
+	return id, err
+}
+
+// UpsertSkipWithInserted is UpsertSkip plus a flag reporting whether this call
+// inserted the active parked_pieces row. The flag is useful for callers that may
+// attach refs to an existing row but should only write piece data when they
+// created the row themselves.
+func UpsertSkipWithInserted(tx *harmonydb.Tx, pieceCID string, paddedSize, rawSize int64, longTerm, skip bool) (int64, bool, error) {
 	indexValid, err := ActiveIndexValid(tx)
 	if err != nil {
-		return 0, xerrors.Errorf("checking parked_pieces_active_piece_key: %w", err)
+		return 0, false, xerrors.Errorf("checking parked_pieces_active_piece_key: %w", err)
 	}
 
 	if indexValid {
@@ -62,16 +71,26 @@ func UpsertSkip(tx *harmonydb.Tx, pieceCID string, paddedSize, rawSize int64, lo
 			INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term, skip)
 			VALUES ($1, $2, $3, $4, $5)
 			ON CONFLICT (piece_cid, piece_padded_size, long_term) WHERE cleanup_task_id IS NULL
-			-- no-op SET so RETURNING fires on the conflict path (DO NOTHING returns no rows)
-			DO UPDATE SET piece_cid = parked_pieces.piece_cid
+			DO NOTHING
 			RETURNING id`, pieceCID, paddedSize, rawSize, longTerm, skip).Scan(&id)
-		if err != nil {
-			return 0, xerrors.Errorf("upsert parked_pieces: %w", err)
+		if err == nil {
+			return id, true, nil
 		}
-		return id, nil
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return 0, false, xerrors.Errorf("upsert parked_pieces: %w", err)
+		}
+
+		err = tx.QueryRow(`
+			SELECT id FROM parked_pieces
+			WHERE piece_cid = $1 AND piece_padded_size = $2 AND long_term = $3 AND cleanup_task_id IS NULL
+			ORDER BY id LIMIT 1`, pieceCID, paddedSize, longTerm).Scan(&id)
+		if err != nil {
+			return 0, false, xerrors.Errorf("upsert parked_pieces (select existing): %w", err)
+		}
+		return id, false, nil
 	}
 
-	return upsertFallback(tx, pieceCID, paddedSize, rawSize, longTerm, &skip)
+	return upsertFallbackWithInserted(tx, pieceCID, paddedSize, rawSize, longTerm, &skip)
 }
 
 // upsertFallback is the non-atomic check-then-insert path used while the
@@ -81,16 +100,21 @@ func UpsertSkip(tx *harmonydb.Tx, pieceCID string, paddedSize, rawSize int64, lo
 // duplicate risk that the cleanup task is responsible for repairing. skip is
 // applied only to the inserted row.
 func upsertFallback(tx *harmonydb.Tx, pieceCID string, paddedSize, rawSize int64, longTerm bool, skip *bool) (int64, error) {
+	id, _, err := upsertFallbackWithInserted(tx, pieceCID, paddedSize, rawSize, longTerm, skip)
+	return id, err
+}
+
+func upsertFallbackWithInserted(tx *harmonydb.Tx, pieceCID string, paddedSize, rawSize int64, longTerm bool, skip *bool) (int64, bool, error) {
 	var id int64
 	err := tx.QueryRow(`
 		SELECT id FROM parked_pieces
 		WHERE piece_cid = $1 AND piece_padded_size = $2 AND long_term = $3 AND cleanup_task_id IS NULL
 		ORDER BY id LIMIT 1`, pieceCID, paddedSize, longTerm).Scan(&id)
 	if err == nil {
-		return id, nil
+		return id, false, nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
-		return 0, xerrors.Errorf("upsert parked_pieces (fallback select): %w", err)
+		return 0, false, xerrors.Errorf("upsert parked_pieces (fallback select): %w", err)
 	}
 	if skip != nil {
 		err = tx.QueryRow(`
@@ -104,9 +128,9 @@ func upsertFallback(tx *harmonydb.Tx, pieceCID string, paddedSize, rawSize int64
 			pieceCID, paddedSize, rawSize, longTerm).Scan(&id)
 	}
 	if err != nil {
-		return 0, xerrors.Errorf("upsert parked_pieces (fallback insert): %w", err)
+		return 0, false, xerrors.Errorf("upsert parked_pieces (fallback insert): %w", err)
 	}
-	return id, nil
+	return id, true, nil
 }
 
 // ActiveIndexValid returns whether parked_pieces_active_piece_key is present,
