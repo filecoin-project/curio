@@ -63,8 +63,8 @@ func processPendingTransactions(ctx context.Context, db *harmonydb.DB, ethClient
 	// use JOIN or WHERE EXIST clauses.
 	var settles []settled
 	err := db.Select(ctx, &settles, `
-	SELECT tx_hash, rail_ids
-	FROM filecoin_payment_transactions`)
+		SELECT tx_hash, rail_ids
+		FROM filecoin_payment_transactions`)
 	if err != nil {
 		return xerrors.Errorf("failed to get settlements from DB: %w", err)
 	}
@@ -88,17 +88,12 @@ func processPendingTransactions(ctx context.Context, db *harmonydb.DB, ethClient
 	}
 
 	for _, mwe := range mwes {
-		// wait for message to land
-		if mwe.Status != "confirmed" {
-			delete(goodSettles, mwe.Hash)
-			continue
-		}
 		// Confirmed rows should always have tx_success set, so the nil check
 		// is defensive. Settlement errors are not expected in any circumstances;
 		// any settlement failure logs should be investigated and prioritize
 		// proper settlement handling:
 		// https://github.com/filecoin-project/curio/issues/897
-		if mwe.Success == nil || !*mwe.Success {
+		if mwe.Status == "failed" || (mwe.Status == "confirmed" && (mwe.Success == nil || !*mwe.Success)) {
 			delete(goodSettles, mwe.Hash)
 			log.Errorw("settlement transaction failed on chain", "txHash", mwe.Hash)
 			al.Raise(at, map[string]interface{}{
@@ -109,6 +104,12 @@ func processPendingTransactions(ctx context.Context, db *harmonydb.DB, ethClient
 			if err != nil {
 				return xerrors.Errorf("failed to delete failed settlement from DB: %w", err)
 			}
+		}
+
+		// wait for message to land
+		if mwe.Status != "confirmed" {
+			delete(goodSettles, mwe.Hash)
+			continue
 		}
 
 		// since mwe updated atomically with fpt iterating all mwe should iterate all settles

@@ -8,7 +8,7 @@ import (
 	"math/big"
 	"strings"
 
-	"github.com/ethereum/go-ethereum"
+	ethereum "github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
@@ -43,9 +43,11 @@ type FilecoinWarmStorageServicePlannedUpgrade struct {
 // FilecoinWarmStorageServiceServicePricing is an auto generated low-level Go binding around an user-defined struct.
 type FilecoinWarmStorageServiceServicePricing struct {
 	PricePerTiBPerMonthNoCDN   *big.Int
-	PricePerTiBPerMonthWithCDN *big.Int
+	PricePerTiBCdnEgress       *big.Int
+	PricePerTiBCacheMissEgress *big.Int
 	TokenAddress               common.Address
 	EpochsPerMonth             *big.Int
+	DatasetFeePerMonth         *big.Int
 }
 
 // IValidatorValidationResult is an auto generated low-level Go binding around an user-defined struct.
@@ -57,7 +59,7 @@ type IValidatorValidationResult struct {
 
 // FilecoinWarmStorageServiceMetaData contains all meta data concerning the FilecoinWarmStorageService contract.
 var FilecoinWarmStorageServiceMetaData = &bind.MetaData{
-	ABI: "[{\"type\":\"constructor\",\"inputs\":[{\"name\":\"_pdpVerifierAddress\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"_paymentsContractAddress\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"_usdfc\",\"type\":\"address\",\"internalType\":\"contractIERC20Metadata\"},{\"name\":\"_filBeamBeneficiaryAddress\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"_serviceProviderRegistry\",\"type\":\"address\",\"internalType\":\"contractServiceProviderRegistry\"},{\"name\":\"_sessionKeyRegistry\",\"type\":\"address\",\"internalType\":\"contractSessionKeyRegistry\"}],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"UPGRADE_INTERFACE_VERSION\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"string\",\"internalType\":\"string\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"VERSION\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"string\",\"internalType\":\"string\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"addApprovedProvider\",\"inputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"announcePlannedUpgrade\",\"inputs\":[{\"name\":\"plannedUpgrade\",\"type\":\"tuple\",\"internalType\":\"structFilecoinWarmStorageService.PlannedUpgrade\",\"components\":[{\"name\":\"nextImplementation\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"afterEpoch\",\"type\":\"uint96\",\"internalType\":\"uint96\"}]}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"calculateRatesPerEpoch\",\"inputs\":[{\"name\":\"totalBytes\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"storageRate\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"cacheMissRate\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"cdnRate\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"configureProvingPeriod\",\"inputs\":[{\"name\":\"_maxProvingPeriod\",\"type\":\"uint64\",\"internalType\":\"uint64\"},{\"name\":\"_challengeWindowSize\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"dataSetCreated\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"serviceProvider\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"extraData\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"dataSetDeleted\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"eip712Domain\",\"inputs\":[],\"outputs\":[{\"name\":\"fields\",\"type\":\"bytes1\",\"internalType\":\"bytes1\"},{\"name\":\"name\",\"type\":\"string\",\"internalType\":\"string\"},{\"name\":\"version\",\"type\":\"string\",\"internalType\":\"string\"},{\"name\":\"chainId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"verifyingContract\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"salt\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"},{\"name\":\"extensions\",\"type\":\"uint256[]\",\"internalType\":\"uint256[]\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"extsload\",\"inputs\":[{\"name\":\"slot\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"}],\"outputs\":[{\"name\":\"\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"extsloadStruct\",\"inputs\":[{\"name\":\"slot\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"},{\"name\":\"size\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"bytes32[]\",\"internalType\":\"bytes32[]\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"filBeamBeneficiaryAddress\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getEffectiveRates\",\"inputs\":[],\"outputs\":[{\"name\":\"serviceFee\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"spPayment\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getProvingPeriodForEpoch\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"epoch\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getServicePrice\",\"inputs\":[],\"outputs\":[{\"name\":\"pricing\",\"type\":\"tuple\",\"internalType\":\"structFilecoinWarmStorageService.ServicePricing\",\"components\":[{\"name\":\"pricePerTiBPerMonthNoCDN\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"pricePerTiBPerMonthWithCDN\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"tokenAddress\",\"type\":\"address\",\"internalType\":\"contractIERC20\"},{\"name\":\"epochsPerMonth\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"initialize\",\"inputs\":[{\"name\":\"_maxProvingPeriod\",\"type\":\"uint64\",\"internalType\":\"uint64\"},{\"name\":\"_challengeWindowSize\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"_filBeamControllerAddress\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"_name\",\"type\":\"string\",\"internalType\":\"string\"},{\"name\":\"_description\",\"type\":\"string\",\"internalType\":\"string\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"migrate\",\"inputs\":[{\"name\":\"_viewContract\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"nextProvingPeriod\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"challengeEpoch\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"leafCount\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"owner\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"paymentsContractAddress\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"pdpVerifierAddress\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"piecesAdded\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"firstAdded\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"pieceData\",\"type\":\"tuple[]\",\"internalType\":\"structCids.Cid[]\",\"components\":[{\"name\":\"data\",\"type\":\"bytes\",\"internalType\":\"bytes\"}]},{\"name\":\"extraData\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"piecesScheduledRemove\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"pieceIds\",\"type\":\"uint256[]\",\"internalType\":\"uint256[]\"},{\"name\":\"extraData\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"possessionProven\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"challengeCount\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"proxiableUUID\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"railTerminated\",\"inputs\":[{\"name\":\"railId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"terminator\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"endEpoch\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"removeApprovedProvider\",\"inputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"index\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"renounceOwnership\",\"inputs\":[],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"serviceProviderRegistry\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"contractServiceProviderRegistry\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"sessionKeyRegistry\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"contractSessionKeyRegistry\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"setViewContract\",\"inputs\":[{\"name\":\"_viewContract\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"settleFilBeamPaymentRails\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"cdnAmount\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"cacheMissAmount\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"storageProviderChanged\",\"inputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"terminateCDNService\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"terminateService\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"topUpCDNPaymentRails\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"cdnAmountToAdd\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"cacheMissAmountToAdd\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"transferFilBeamController\",\"inputs\":[{\"name\":\"newController\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"transferOwnership\",\"inputs\":[{\"name\":\"newOwner\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"updateServiceCommission\",\"inputs\":[{\"name\":\"newCommissionBps\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"upgradeToAndCall\",\"inputs\":[{\"name\":\"newImplementation\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"data\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[],\"stateMutability\":\"payable\"},{\"type\":\"function\",\"name\":\"usdfcTokenAddress\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"contractIERC20Metadata\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"validatePayment\",\"inputs\":[{\"name\":\"railId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"proposedAmount\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"fromEpoch\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"toEpoch\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"result\",\"type\":\"tuple\",\"internalType\":\"structIValidator.ValidationResult\",\"components\":[{\"name\":\"modifiedAmount\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"settleUpto\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"note\",\"type\":\"string\",\"internalType\":\"string\"}]}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"viewContractAddress\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"event\",\"name\":\"CDNPaymentRailsToppedUp\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"cdnAmountAdded\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"},{\"name\":\"totalCdnLockup\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"},{\"name\":\"cacheMissAmountAdded\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"},{\"name\":\"totalCacheMissLockup\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"CDNPaymentTerminated\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"endEpoch\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"},{\"name\":\"cacheMissRailId\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"},{\"name\":\"cdnRailId\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"CDNServiceTerminated\",\"inputs\":[{\"name\":\"caller\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"},{\"name\":\"dataSetId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"cacheMissRailId\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"},{\"name\":\"cdnRailId\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"ContractUpgraded\",\"inputs\":[{\"name\":\"version\",\"type\":\"string\",\"indexed\":false,\"internalType\":\"string\"},{\"name\":\"implementation\",\"type\":\"address\",\"indexed\":false,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"DataSetCreated\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"providerId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"pdpRailId\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"},{\"name\":\"cacheMissRailId\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"},{\"name\":\"cdnRailId\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"},{\"name\":\"payer\",\"type\":\"address\",\"indexed\":false,\"internalType\":\"address\"},{\"name\":\"serviceProvider\",\"type\":\"address\",\"indexed\":false,\"internalType\":\"address\"},{\"name\":\"payee\",\"type\":\"address\",\"indexed\":false,\"internalType\":\"address\"},{\"name\":\"metadataKeys\",\"type\":\"string[]\",\"indexed\":false,\"internalType\":\"string[]\"},{\"name\":\"metadataValues\",\"type\":\"string[]\",\"indexed\":false,\"internalType\":\"string[]\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"DataSetServiceProviderChanged\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"oldServiceProvider\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"},{\"name\":\"newServiceProvider\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"EIP712DomainChanged\",\"inputs\":[],\"anonymous\":false},{\"type\":\"event\",\"name\":\"FaultRecord\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"periodsFaulted\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"},{\"name\":\"deadline\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"FilBeamControllerChanged\",\"inputs\":[{\"name\":\"oldController\",\"type\":\"address\",\"indexed\":false,\"internalType\":\"address\"},{\"name\":\"newController\",\"type\":\"address\",\"indexed\":false,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"FilecoinServiceDeployed\",\"inputs\":[{\"name\":\"name\",\"type\":\"string\",\"indexed\":false,\"internalType\":\"string\"},{\"name\":\"description\",\"type\":\"string\",\"indexed\":false,\"internalType\":\"string\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"Initialized\",\"inputs\":[{\"name\":\"version\",\"type\":\"uint64\",\"indexed\":false,\"internalType\":\"uint64\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"OwnershipTransferred\",\"inputs\":[{\"name\":\"previousOwner\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"},{\"name\":\"newOwner\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"PDPPaymentTerminated\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"endEpoch\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"},{\"name\":\"pdpRailId\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"PieceAdded\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"pieceId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"pieceCid\",\"type\":\"tuple\",\"indexed\":false,\"internalType\":\"structCids.Cid\",\"components\":[{\"name\":\"data\",\"type\":\"bytes\",\"internalType\":\"bytes\"}]},{\"name\":\"keys\",\"type\":\"string[]\",\"indexed\":false,\"internalType\":\"string[]\"},{\"name\":\"values\",\"type\":\"string[]\",\"indexed\":false,\"internalType\":\"string[]\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"ProviderApproved\",\"inputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"ProviderUnapproved\",\"inputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"RailRateUpdated\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"railId\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"},{\"name\":\"newRate\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"ServiceTerminated\",\"inputs\":[{\"name\":\"caller\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"},{\"name\":\"dataSetId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"pdpRailId\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"},{\"name\":\"cacheMissRailId\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"},{\"name\":\"cdnRailId\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"UpgradeAnnounced\",\"inputs\":[{\"name\":\"plannedUpgrade\",\"type\":\"tuple\",\"indexed\":false,\"internalType\":\"structFilecoinWarmStorageService.PlannedUpgrade\",\"components\":[{\"name\":\"nextImplementation\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"afterEpoch\",\"type\":\"uint96\",\"internalType\":\"uint96\"}]}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"Upgraded\",\"inputs\":[{\"name\":\"implementation\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"ViewContractSet\",\"inputs\":[{\"name\":\"viewContract\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"error\",\"name\":\"AddressEmptyCode\",\"inputs\":[{\"name\":\"target\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"CDNPaymentAlreadyTerminated\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"CacheMissPaymentAlreadyTerminated\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"CallerNotPayer\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"expectedPayer\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"caller\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"CallerNotPayerOrPayee\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"expectedPayer\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"expectedPayee\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"caller\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"CallerNotPayments\",\"inputs\":[{\"name\":\"expected\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"actual\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"ChallengeWindowTooEarly\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"windowStart\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"nowBlock\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"ClientDataSetAlreadyRegistered\",\"inputs\":[{\"name\":\"clientDataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"CommissionExceedsMaximum\",\"inputs\":[{\"name\":\"commissionType\",\"type\":\"uint8\",\"internalType\":\"enumErrors.CommissionType\"},{\"name\":\"max\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"actual\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"DataSetNotFoundForRail\",\"inputs\":[{\"name\":\"railId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"DataSetNotRegistered\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"DataSetPaymentAlreadyTerminated\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"DataSetPaymentBeyondEndEpoch\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"pdpEndEpoch\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"currentBlock\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"DivisionByZero\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"DuplicateMetadataKey\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"key\",\"type\":\"string\",\"internalType\":\"string\"}]},{\"type\":\"error\",\"name\":\"ERC1967InvalidImplementation\",\"inputs\":[{\"name\":\"implementation\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"ERC1967NonPayable\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"ExtraDataRequired\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"FailedCall\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"FilBeamServiceNotConfigured\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"InvalidChallengeCount\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"minExpected\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"actual\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"InvalidChallengeEpoch\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"minAllowed\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"maxAllowed\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"actual\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"InvalidChallengeWindowSize\",\"inputs\":[{\"name\":\"maxProvingPeriod\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"challengeWindowSize\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"InvalidDataSetId\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"InvalidEpochRange\",\"inputs\":[{\"name\":\"fromEpoch\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"toEpoch\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"InvalidInitialization\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"InvalidServiceDescriptionLength\",\"inputs\":[{\"name\":\"length\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"InvalidServiceNameLength\",\"inputs\":[{\"name\":\"length\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"InvalidTopUpAmount\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"MaxProvingPeriodZero\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"MetadataArrayCountMismatch\",\"inputs\":[{\"name\":\"metadataArrayCount\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"pieceCount\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"MetadataKeyAndValueLengthMismatch\",\"inputs\":[{\"name\":\"keysLength\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"valuesLength\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"MetadataKeyExceedsMaxLength\",\"inputs\":[{\"name\":\"index\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"maxAllowed\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"length\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"MetadataValueExceedsMaxLength\",\"inputs\":[{\"name\":\"index\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"maxAllowed\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"length\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"NextProvingPeriodAlreadyCalled\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"periodDeadline\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"nowBlock\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"NoPDPPaymentRail\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"NotInitializing\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"OnlyFilBeamControllerAllowed\",\"inputs\":[{\"name\":\"expected\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"actual\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"OnlyPDPVerifierAllowed\",\"inputs\":[{\"name\":\"expected\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"actual\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"OwnableInvalidOwner\",\"inputs\":[{\"name\":\"owner\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"OwnableUnauthorizedAccount\",\"inputs\":[{\"name\":\"account\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"PaymentRailsNotFinalized\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"pdpEndEpoch\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"ProofAlreadySubmitted\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"ProviderAlreadyApproved\",\"inputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"ProviderNotInApprovedList\",\"inputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"ProviderNotRegistered\",\"inputs\":[{\"name\":\"provider\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"ProvingNotStarted\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"ProvingPeriodPassed\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"deadline\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"nowBlock\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"RailNotAssociated\",\"inputs\":[{\"name\":\"railId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"ServiceContractMustTerminateRail\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"TooManyMetadataKeys\",\"inputs\":[{\"name\":\"maxAllowed\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"keysLength\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"UUPSUnauthorizedCallContext\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"UUPSUnsupportedProxiableUUID\",\"inputs\":[{\"name\":\"slot\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"}]},{\"type\":\"error\",\"name\":\"ZeroAddress\",\"inputs\":[{\"name\":\"field\",\"type\":\"uint8\",\"internalType\":\"enumErrors.AddressField\"}]}]",
+	ABI: "[{\"type\":\"constructor\",\"inputs\":[{\"name\":\"_pdpVerifierAddress\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"_paymentsContractAddress\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"_usdfc\",\"type\":\"address\",\"internalType\":\"contractIERC20Metadata\"},{\"name\":\"_filBeamBeneficiaryAddress\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"_serviceProviderRegistry\",\"type\":\"address\",\"internalType\":\"contractServiceProviderRegistry\"},{\"name\":\"_sessionKeyRegistry\",\"type\":\"address\",\"internalType\":\"contractSessionKeyRegistry\"},{\"name\":\"_reinitializer_version\",\"type\":\"uint64\",\"internalType\":\"uint64\"}],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"UPGRADE_INTERFACE_VERSION\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"string\",\"internalType\":\"string\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"VERSION\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"string\",\"internalType\":\"string\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"addApprovedProvider\",\"inputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"announcePlannedUpgrade\",\"inputs\":[{\"name\":\"plannedUpgrade\",\"type\":\"tuple\",\"internalType\":\"structFilecoinWarmStorageService.PlannedUpgrade\",\"components\":[{\"name\":\"nextImplementation\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"afterEpoch\",\"type\":\"uint96\",\"internalType\":\"uint96\"}]}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"configureProvingPeriod\",\"inputs\":[{\"name\":\"_maxProvingPeriod\",\"type\":\"uint64\",\"internalType\":\"uint64\"},{\"name\":\"_challengeWindowSize\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"dataSetCreated\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"serviceProvider\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"extraData\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"dataSetDeleted\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"eip712Domain\",\"inputs\":[],\"outputs\":[{\"name\":\"fields\",\"type\":\"bytes1\",\"internalType\":\"bytes1\"},{\"name\":\"name\",\"type\":\"string\",\"internalType\":\"string\"},{\"name\":\"version\",\"type\":\"string\",\"internalType\":\"string\"},{\"name\":\"chainId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"verifyingContract\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"salt\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"},{\"name\":\"extensions\",\"type\":\"uint256[]\",\"internalType\":\"uint256[]\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"extsload\",\"inputs\":[{\"name\":\"slot\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"}],\"outputs\":[{\"name\":\"\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"extsloadStruct\",\"inputs\":[{\"name\":\"slot\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"},{\"name\":\"size\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"bytes32[]\",\"internalType\":\"bytes32[]\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"filBeamBeneficiaryAddress\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getEffectiveRates\",\"inputs\":[],\"outputs\":[{\"name\":\"serviceFee\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"spPayment\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"pure\"},{\"type\":\"function\",\"name\":\"getProvingPeriodForEpoch\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"epoch\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getServicePrice\",\"inputs\":[],\"outputs\":[{\"name\":\"pricing\",\"type\":\"tuple\",\"internalType\":\"structFilecoinWarmStorageService.ServicePricing\",\"components\":[{\"name\":\"pricePerTiBPerMonthNoCDN\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"pricePerTiBCdnEgress\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"pricePerTiBCacheMissEgress\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"tokenAddress\",\"type\":\"address\",\"internalType\":\"contractIERC20\"},{\"name\":\"epochsPerMonth\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"datasetFeePerMonth\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"initialize\",\"inputs\":[{\"name\":\"_maxProvingPeriod\",\"type\":\"uint64\",\"internalType\":\"uint64\"},{\"name\":\"_challengeWindowSize\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"_filBeamControllerAddress\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"_name\",\"type\":\"string\",\"internalType\":\"string\"},{\"name\":\"_description\",\"type\":\"string\",\"internalType\":\"string\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"migrate\",\"inputs\":[{\"name\":\"_viewContract\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"nextProvingPeriod\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"challengeEpoch\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"leafCount\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"owner\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"paymentsContractAddress\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"pdpVerifierAddress\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"piecesAdded\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"firstAdded\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"pieceData\",\"type\":\"tuple[]\",\"internalType\":\"structCids.Cid[]\",\"components\":[{\"name\":\"data\",\"type\":\"bytes\",\"internalType\":\"bytes\"}]},{\"name\":\"extraData\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"piecesScheduledRemove\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"pieceIds\",\"type\":\"uint256[]\",\"internalType\":\"uint256[]\"},{\"name\":\"extraData\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"possessionProven\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"challengeCount\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"proxiableUUID\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"railTerminated\",\"inputs\":[{\"name\":\"railId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"terminator\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"endEpoch\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"removeApprovedProvider\",\"inputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"index\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"renounceOwnership\",\"inputs\":[],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"serviceProviderRegistry\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"contractServiceProviderRegistry\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"sessionKeyRegistry\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"contractSessionKeyRegistry\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"setViewContract\",\"inputs\":[{\"name\":\"_viewContract\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"settleFilBeamPaymentRails\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"cdnAmount\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"cacheMissAmount\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"storageProviderChanged\",\"inputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"terminateCDNService\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"terminateService\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"extraData\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"topUpCDNPaymentRails\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"cdnAmountToAdd\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"cacheMissAmountToAdd\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"transferFilBeamController\",\"inputs\":[{\"name\":\"newController\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"transferOwnership\",\"inputs\":[{\"name\":\"newOwner\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"upgradeToAndCall\",\"inputs\":[{\"name\":\"newImplementation\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"data\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[],\"stateMutability\":\"payable\"},{\"type\":\"function\",\"name\":\"usdfcTokenAddress\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"contractIERC20Metadata\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"validatePayment\",\"inputs\":[{\"name\":\"railId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"proposedAmount\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"fromEpoch\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"toEpoch\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"result\",\"type\":\"tuple\",\"internalType\":\"structIValidator.ValidationResult\",\"components\":[{\"name\":\"modifiedAmount\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"settleUpto\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"note\",\"type\":\"string\",\"internalType\":\"string\"}]}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"viewContractAddress\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"event\",\"name\":\"CDNPaymentTerminated\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"endEpoch\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"},{\"name\":\"cacheMissRailId\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"},{\"name\":\"cdnRailId\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"ContractUpgraded\",\"inputs\":[{\"name\":\"version\",\"type\":\"string\",\"indexed\":false,\"internalType\":\"string\"},{\"name\":\"implementation\",\"type\":\"address\",\"indexed\":false,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"DataSetCreated\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"providerId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"pdpRailId\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"},{\"name\":\"cacheMissRailId\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"},{\"name\":\"cdnRailId\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"},{\"name\":\"payer\",\"type\":\"address\",\"indexed\":false,\"internalType\":\"address\"},{\"name\":\"serviceProvider\",\"type\":\"address\",\"indexed\":false,\"internalType\":\"address\"},{\"name\":\"payee\",\"type\":\"address\",\"indexed\":false,\"internalType\":\"address\"},{\"name\":\"metadataKeys\",\"type\":\"string[]\",\"indexed\":false,\"internalType\":\"string[]\"},{\"name\":\"metadataValues\",\"type\":\"string[]\",\"indexed\":false,\"internalType\":\"string[]\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"DataSetServiceProviderChanged\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"oldServiceProvider\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"},{\"name\":\"newServiceProvider\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"EIP712DomainChanged\",\"inputs\":[],\"anonymous\":false},{\"type\":\"event\",\"name\":\"FaultRecord\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"periodsFaulted\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"},{\"name\":\"deadline\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"FilBeamControllerChanged\",\"inputs\":[{\"name\":\"oldController\",\"type\":\"address\",\"indexed\":false,\"internalType\":\"address\"},{\"name\":\"newController\",\"type\":\"address\",\"indexed\":false,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"FilecoinServiceDeployed\",\"inputs\":[{\"name\":\"name\",\"type\":\"string\",\"indexed\":false,\"internalType\":\"string\"},{\"name\":\"description\",\"type\":\"string\",\"indexed\":false,\"internalType\":\"string\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"Initialized\",\"inputs\":[{\"name\":\"version\",\"type\":\"uint64\",\"indexed\":false,\"internalType\":\"uint64\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"OwnershipTransferred\",\"inputs\":[{\"name\":\"previousOwner\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"},{\"name\":\"newOwner\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"PDPPaymentTerminated\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"endEpoch\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"},{\"name\":\"pdpRailId\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"PieceAdded\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"pieceId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"pieceCid\",\"type\":\"tuple\",\"indexed\":false,\"internalType\":\"structCids.Cid\",\"components\":[{\"name\":\"data\",\"type\":\"bytes\",\"internalType\":\"bytes\"}]},{\"name\":\"keys\",\"type\":\"string[]\",\"indexed\":false,\"internalType\":\"string[]\"},{\"name\":\"values\",\"type\":\"string[]\",\"indexed\":false,\"internalType\":\"string[]\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"ProviderApproved\",\"inputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"ProviderUnapproved\",\"inputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"ServiceTerminated\",\"inputs\":[{\"name\":\"approver\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"},{\"name\":\"dataSetId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"pdpRailId\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"},{\"name\":\"cacheMissRailId\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"},{\"name\":\"cdnRailId\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"UpgradeAnnounced\",\"inputs\":[{\"name\":\"plannedUpgrade\",\"type\":\"tuple\",\"indexed\":false,\"internalType\":\"structFilecoinWarmStorageService.PlannedUpgrade\",\"components\":[{\"name\":\"nextImplementation\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"afterEpoch\",\"type\":\"uint96\",\"internalType\":\"uint96\"}]}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"Upgraded\",\"inputs\":[{\"name\":\"implementation\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"ViewContractSet\",\"inputs\":[{\"name\":\"viewContract\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"error\",\"name\":\"AddressEmptyCode\",\"inputs\":[{\"name\":\"target\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"CallerNotPayer\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"expectedPayer\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"caller\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"CallerNotPayerOrPayee\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"expectedPayer\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"expectedPayee\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"caller\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"CallerNotPayments\",\"inputs\":[{\"name\":\"expected\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"actual\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"ChallengeWindowTooEarly\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"windowStart\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"nowBlock\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"ClientDataSetAlreadyRegistered\",\"inputs\":[{\"name\":\"clientDataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"DataSetNotFoundForRail\",\"inputs\":[{\"name\":\"railId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"DataSetNotRegistered\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"DataSetPaymentAlreadyTerminated\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"DataSetPaymentBeyondEndEpoch\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"pdpEndEpoch\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"currentBlock\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"DuplicateMetadataKey\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"key\",\"type\":\"string\",\"internalType\":\"string\"}]},{\"type\":\"error\",\"name\":\"ERC1967InvalidImplementation\",\"inputs\":[{\"name\":\"implementation\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"ERC1967NonPayable\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"ExtraDataRequired\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"ExtraDataTooLarge\",\"inputs\":[{\"name\":\"actualSize\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"maxAllowedSize\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"FailedCall\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"FilBeamServiceNotConfigured\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"InvalidChallengeCount\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"minExpected\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"actual\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"InvalidChallengeEpoch\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"minAllowed\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"maxAllowed\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"actual\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"InvalidChallengeWindowSize\",\"inputs\":[{\"name\":\"maxProvingPeriod\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"challengeWindowSize\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"InvalidDataSetId\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"InvalidEpochRange\",\"inputs\":[{\"name\":\"fromEpoch\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"toEpoch\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"InvalidInitialization\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"InvalidServiceDescriptionLength\",\"inputs\":[{\"name\":\"length\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"InvalidServiceNameLength\",\"inputs\":[{\"name\":\"length\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"MaxProvingPeriodZero\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"MetadataArrayCountMismatch\",\"inputs\":[{\"name\":\"metadataArrayCount\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"pieceCount\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"MetadataKeyAndValueLengthMismatch\",\"inputs\":[{\"name\":\"keysLength\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"valuesLength\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"MetadataKeyExceedsMaxLength\",\"inputs\":[{\"name\":\"index\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"maxAllowed\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"length\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"MetadataValueExceedsMaxLength\",\"inputs\":[{\"name\":\"index\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"maxAllowed\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"length\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"NextProvingPeriodAlreadyCalled\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"periodDeadline\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"nowBlock\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"NoPDPPaymentRail\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"NotInitializing\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"OnlyFilBeamControllerAllowed\",\"inputs\":[{\"name\":\"expected\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"actual\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"OnlyPDPVerifierAllowed\",\"inputs\":[{\"name\":\"expected\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"actual\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"OwnableInvalidOwner\",\"inputs\":[{\"name\":\"owner\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"OwnableUnauthorizedAccount\",\"inputs\":[{\"name\":\"account\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"PaymentRailsNotFinalized\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"pdpEndEpoch\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"ProofAlreadySubmitted\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"ProviderAlreadyApproved\",\"inputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"ProviderIdMismatchAtIndex\",\"inputs\":[{\"name\":\"index\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"ProviderNotInApprovedList\",\"inputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"ProviderNotRegistered\",\"inputs\":[{\"name\":\"provider\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"ProvingNotStarted\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"ProvingPeriodPassed\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"deadline\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"nowBlock\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"RailNotAssociated\",\"inputs\":[{\"name\":\"railId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"RailNotFullySettled\",\"inputs\":[{\"name\":\"railId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"settledUpTo\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"endEpoch\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"ServiceContractMustTerminateRail\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"StorageProviderChangesNotSupported\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"TooManyMetadataKeys\",\"inputs\":[{\"name\":\"maxAllowed\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"keysLength\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"type\":\"error\",\"name\":\"UUPSUnauthorizedCallContext\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"UUPSUnsupportedProxiableUUID\",\"inputs\":[{\"name\":\"slot\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"}]},{\"type\":\"error\",\"name\":\"ZeroAddress\",\"inputs\":[{\"name\":\"field\",\"type\":\"uint8\",\"internalType\":\"enumErrors.AddressField\"}]}]",
 }
 
 // FilecoinWarmStorageServiceABI is the input ABI used to generate the binding from.
@@ -268,56 +270,6 @@ func (_FilecoinWarmStorageService *FilecoinWarmStorageServiceCallerSession) VERS
 	return _FilecoinWarmStorageService.Contract.VERSION(&_FilecoinWarmStorageService.CallOpts)
 }
 
-// CalculateRatesPerEpoch is a free data retrieval call binding the contract method 0x4425b3a2.
-//
-// Solidity: function calculateRatesPerEpoch(uint256 totalBytes) view returns(uint256 storageRate, uint256 cacheMissRate, uint256 cdnRate)
-func (_FilecoinWarmStorageService *FilecoinWarmStorageServiceCaller) CalculateRatesPerEpoch(opts *bind.CallOpts, totalBytes *big.Int) (struct {
-	StorageRate   *big.Int
-	CacheMissRate *big.Int
-	CdnRate       *big.Int
-}, error) {
-	var out []interface{}
-	err := _FilecoinWarmStorageService.contract.Call(opts, &out, "calculateRatesPerEpoch", totalBytes)
-
-	outstruct := new(struct {
-		StorageRate   *big.Int
-		CacheMissRate *big.Int
-		CdnRate       *big.Int
-	})
-	if err != nil {
-		return *outstruct, err
-	}
-
-	outstruct.StorageRate = *abi.ConvertType(out[0], new(*big.Int)).(**big.Int)
-	outstruct.CacheMissRate = *abi.ConvertType(out[1], new(*big.Int)).(**big.Int)
-	outstruct.CdnRate = *abi.ConvertType(out[2], new(*big.Int)).(**big.Int)
-
-	return *outstruct, err
-
-}
-
-// CalculateRatesPerEpoch is a free data retrieval call binding the contract method 0x4425b3a2.
-//
-// Solidity: function calculateRatesPerEpoch(uint256 totalBytes) view returns(uint256 storageRate, uint256 cacheMissRate, uint256 cdnRate)
-func (_FilecoinWarmStorageService *FilecoinWarmStorageServiceSession) CalculateRatesPerEpoch(totalBytes *big.Int) (struct {
-	StorageRate   *big.Int
-	CacheMissRate *big.Int
-	CdnRate       *big.Int
-}, error) {
-	return _FilecoinWarmStorageService.Contract.CalculateRatesPerEpoch(&_FilecoinWarmStorageService.CallOpts, totalBytes)
-}
-
-// CalculateRatesPerEpoch is a free data retrieval call binding the contract method 0x4425b3a2.
-//
-// Solidity: function calculateRatesPerEpoch(uint256 totalBytes) view returns(uint256 storageRate, uint256 cacheMissRate, uint256 cdnRate)
-func (_FilecoinWarmStorageService *FilecoinWarmStorageServiceCallerSession) CalculateRatesPerEpoch(totalBytes *big.Int) (struct {
-	StorageRate   *big.Int
-	CacheMissRate *big.Int
-	CdnRate       *big.Int
-}, error) {
-	return _FilecoinWarmStorageService.Contract.CalculateRatesPerEpoch(&_FilecoinWarmStorageService.CallOpts, totalBytes)
-}
-
 // Eip712Domain is a free data retrieval call binding the contract method 0x84b0196e.
 //
 // Solidity: function eip712Domain() view returns(bytes1 fields, string name, string version, uint256 chainId, address verifyingContract, bytes32 salt, uint256[] extensions)
@@ -483,7 +435,7 @@ func (_FilecoinWarmStorageService *FilecoinWarmStorageServiceCallerSession) FilB
 
 // GetEffectiveRates is a free data retrieval call binding the contract method 0x93124a79.
 //
-// Solidity: function getEffectiveRates() view returns(uint256 serviceFee, uint256 spPayment)
+// Solidity: function getEffectiveRates() pure returns(uint256 serviceFee, uint256 spPayment)
 func (_FilecoinWarmStorageService *FilecoinWarmStorageServiceCaller) GetEffectiveRates(opts *bind.CallOpts) (struct {
 	ServiceFee *big.Int
 	SpPayment  *big.Int
@@ -508,7 +460,7 @@ func (_FilecoinWarmStorageService *FilecoinWarmStorageServiceCaller) GetEffectiv
 
 // GetEffectiveRates is a free data retrieval call binding the contract method 0x93124a79.
 //
-// Solidity: function getEffectiveRates() view returns(uint256 serviceFee, uint256 spPayment)
+// Solidity: function getEffectiveRates() pure returns(uint256 serviceFee, uint256 spPayment)
 func (_FilecoinWarmStorageService *FilecoinWarmStorageServiceSession) GetEffectiveRates() (struct {
 	ServiceFee *big.Int
 	SpPayment  *big.Int
@@ -518,7 +470,7 @@ func (_FilecoinWarmStorageService *FilecoinWarmStorageServiceSession) GetEffecti
 
 // GetEffectiveRates is a free data retrieval call binding the contract method 0x93124a79.
 //
-// Solidity: function getEffectiveRates() view returns(uint256 serviceFee, uint256 spPayment)
+// Solidity: function getEffectiveRates() pure returns(uint256 serviceFee, uint256 spPayment)
 func (_FilecoinWarmStorageService *FilecoinWarmStorageServiceCallerSession) GetEffectiveRates() (struct {
 	ServiceFee *big.Int
 	SpPayment  *big.Int
@@ -559,7 +511,7 @@ func (_FilecoinWarmStorageService *FilecoinWarmStorageServiceCallerSession) GetP
 
 // GetServicePrice is a free data retrieval call binding the contract method 0x5482bdf9.
 //
-// Solidity: function getServicePrice() view returns((uint256,uint256,address,uint256) pricing)
+// Solidity: function getServicePrice() view returns((uint256,uint256,uint256,address,uint256,uint256) pricing)
 func (_FilecoinWarmStorageService *FilecoinWarmStorageServiceCaller) GetServicePrice(opts *bind.CallOpts) (FilecoinWarmStorageServiceServicePricing, error) {
 	var out []interface{}
 	err := _FilecoinWarmStorageService.contract.Call(opts, &out, "getServicePrice")
@@ -576,14 +528,14 @@ func (_FilecoinWarmStorageService *FilecoinWarmStorageServiceCaller) GetServiceP
 
 // GetServicePrice is a free data retrieval call binding the contract method 0x5482bdf9.
 //
-// Solidity: function getServicePrice() view returns((uint256,uint256,address,uint256) pricing)
+// Solidity: function getServicePrice() view returns((uint256,uint256,uint256,address,uint256,uint256) pricing)
 func (_FilecoinWarmStorageService *FilecoinWarmStorageServiceSession) GetServicePrice() (FilecoinWarmStorageServiceServicePricing, error) {
 	return _FilecoinWarmStorageService.Contract.GetServicePrice(&_FilecoinWarmStorageService.CallOpts)
 }
 
 // GetServicePrice is a free data retrieval call binding the contract method 0x5482bdf9.
 //
-// Solidity: function getServicePrice() view returns((uint256,uint256,address,uint256) pricing)
+// Solidity: function getServicePrice() view returns((uint256,uint256,uint256,address,uint256,uint256) pricing)
 func (_FilecoinWarmStorageService *FilecoinWarmStorageServiceCallerSession) GetServicePrice() (FilecoinWarmStorageServiceServicePricing, error) {
 	return _FilecoinWarmStorageService.Contract.GetServicePrice(&_FilecoinWarmStorageService.CallOpts)
 }
@@ -1245,25 +1197,25 @@ func (_FilecoinWarmStorageService *FilecoinWarmStorageServiceTransactorSession) 
 	return _FilecoinWarmStorageService.Contract.TerminateCDNService(&_FilecoinWarmStorageService.TransactOpts, dataSetId)
 }
 
-// TerminateService is a paid mutator transaction binding the contract method 0xb997a71e.
+// TerminateService is a paid mutator transaction binding the contract method 0xd0e3c954.
 //
-// Solidity: function terminateService(uint256 dataSetId) returns()
-func (_FilecoinWarmStorageService *FilecoinWarmStorageServiceTransactor) TerminateService(opts *bind.TransactOpts, dataSetId *big.Int) (*types.Transaction, error) {
-	return _FilecoinWarmStorageService.contract.Transact(opts, "terminateService", dataSetId)
+// Solidity: function terminateService(uint256 dataSetId, bytes extraData) returns()
+func (_FilecoinWarmStorageService *FilecoinWarmStorageServiceTransactor) TerminateService(opts *bind.TransactOpts, dataSetId *big.Int, extraData []byte) (*types.Transaction, error) {
+	return _FilecoinWarmStorageService.contract.Transact(opts, "terminateService", dataSetId, extraData)
 }
 
-// TerminateService is a paid mutator transaction binding the contract method 0xb997a71e.
+// TerminateService is a paid mutator transaction binding the contract method 0xd0e3c954.
 //
-// Solidity: function terminateService(uint256 dataSetId) returns()
-func (_FilecoinWarmStorageService *FilecoinWarmStorageServiceSession) TerminateService(dataSetId *big.Int) (*types.Transaction, error) {
-	return _FilecoinWarmStorageService.Contract.TerminateService(&_FilecoinWarmStorageService.TransactOpts, dataSetId)
+// Solidity: function terminateService(uint256 dataSetId, bytes extraData) returns()
+func (_FilecoinWarmStorageService *FilecoinWarmStorageServiceSession) TerminateService(dataSetId *big.Int, extraData []byte) (*types.Transaction, error) {
+	return _FilecoinWarmStorageService.Contract.TerminateService(&_FilecoinWarmStorageService.TransactOpts, dataSetId, extraData)
 }
 
-// TerminateService is a paid mutator transaction binding the contract method 0xb997a71e.
+// TerminateService is a paid mutator transaction binding the contract method 0xd0e3c954.
 //
-// Solidity: function terminateService(uint256 dataSetId) returns()
-func (_FilecoinWarmStorageService *FilecoinWarmStorageServiceTransactorSession) TerminateService(dataSetId *big.Int) (*types.Transaction, error) {
-	return _FilecoinWarmStorageService.Contract.TerminateService(&_FilecoinWarmStorageService.TransactOpts, dataSetId)
+// Solidity: function terminateService(uint256 dataSetId, bytes extraData) returns()
+func (_FilecoinWarmStorageService *FilecoinWarmStorageServiceTransactorSession) TerminateService(dataSetId *big.Int, extraData []byte) (*types.Transaction, error) {
+	return _FilecoinWarmStorageService.Contract.TerminateService(&_FilecoinWarmStorageService.TransactOpts, dataSetId, extraData)
 }
 
 // TopUpCDNPaymentRails is a paid mutator transaction binding the contract method 0xeb561d9c.
@@ -1329,27 +1281,6 @@ func (_FilecoinWarmStorageService *FilecoinWarmStorageServiceTransactorSession) 
 	return _FilecoinWarmStorageService.Contract.TransferOwnership(&_FilecoinWarmStorageService.TransactOpts, newOwner)
 }
 
-// UpdateServiceCommission is a paid mutator transaction binding the contract method 0x662ed4b6.
-//
-// Solidity: function updateServiceCommission(uint256 newCommissionBps) returns()
-func (_FilecoinWarmStorageService *FilecoinWarmStorageServiceTransactor) UpdateServiceCommission(opts *bind.TransactOpts, newCommissionBps *big.Int) (*types.Transaction, error) {
-	return _FilecoinWarmStorageService.contract.Transact(opts, "updateServiceCommission", newCommissionBps)
-}
-
-// UpdateServiceCommission is a paid mutator transaction binding the contract method 0x662ed4b6.
-//
-// Solidity: function updateServiceCommission(uint256 newCommissionBps) returns()
-func (_FilecoinWarmStorageService *FilecoinWarmStorageServiceSession) UpdateServiceCommission(newCommissionBps *big.Int) (*types.Transaction, error) {
-	return _FilecoinWarmStorageService.Contract.UpdateServiceCommission(&_FilecoinWarmStorageService.TransactOpts, newCommissionBps)
-}
-
-// UpdateServiceCommission is a paid mutator transaction binding the contract method 0x662ed4b6.
-//
-// Solidity: function updateServiceCommission(uint256 newCommissionBps) returns()
-func (_FilecoinWarmStorageService *FilecoinWarmStorageServiceTransactorSession) UpdateServiceCommission(newCommissionBps *big.Int) (*types.Transaction, error) {
-	return _FilecoinWarmStorageService.Contract.UpdateServiceCommission(&_FilecoinWarmStorageService.TransactOpts, newCommissionBps)
-}
-
 // UpgradeToAndCall is a paid mutator transaction binding the contract method 0x4f1ef286.
 //
 // Solidity: function upgradeToAndCall(address newImplementation, bytes data) payable returns()
@@ -1369,154 +1300,6 @@ func (_FilecoinWarmStorageService *FilecoinWarmStorageServiceSession) UpgradeToA
 // Solidity: function upgradeToAndCall(address newImplementation, bytes data) payable returns()
 func (_FilecoinWarmStorageService *FilecoinWarmStorageServiceTransactorSession) UpgradeToAndCall(newImplementation common.Address, data []byte) (*types.Transaction, error) {
 	return _FilecoinWarmStorageService.Contract.UpgradeToAndCall(&_FilecoinWarmStorageService.TransactOpts, newImplementation, data)
-}
-
-// FilecoinWarmStorageServiceCDNPaymentRailsToppedUpIterator is returned from FilterCDNPaymentRailsToppedUp and is used to iterate over the raw logs and unpacked data for CDNPaymentRailsToppedUp events raised by the FilecoinWarmStorageService contract.
-type FilecoinWarmStorageServiceCDNPaymentRailsToppedUpIterator struct {
-	Event *FilecoinWarmStorageServiceCDNPaymentRailsToppedUp // Event containing the contract specifics and raw log
-
-	contract *bind.BoundContract // Generic contract to use for unpacking event data
-	event    string              // Event name to use for unpacking event data
-
-	logs chan types.Log        // Log channel receiving the found contract events
-	sub  ethereum.Subscription // Subscription for errors, completion and termination
-	done bool                  // Whether the subscription completed delivering logs
-	fail error                 // Occurred error to stop iteration
-}
-
-// Next advances the iterator to the subsequent event, returning whether there
-// are any more events found. In case of a retrieval or parsing error, false is
-// returned and Error() can be queried for the exact failure.
-func (it *FilecoinWarmStorageServiceCDNPaymentRailsToppedUpIterator) Next() bool {
-	// If the iterator failed, stop iterating
-	if it.fail != nil {
-		return false
-	}
-	// If the iterator completed, deliver directly whatever's available
-	if it.done {
-		select {
-		case log := <-it.logs:
-			it.Event = new(FilecoinWarmStorageServiceCDNPaymentRailsToppedUp)
-			if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
-				it.fail = err
-				return false
-			}
-			it.Event.Raw = log
-			return true
-
-		default:
-			return false
-		}
-	}
-	// Iterator still in progress, wait for either a data or an error event
-	select {
-	case log := <-it.logs:
-		it.Event = new(FilecoinWarmStorageServiceCDNPaymentRailsToppedUp)
-		if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
-			it.fail = err
-			return false
-		}
-		it.Event.Raw = log
-		return true
-
-	case err := <-it.sub.Err():
-		it.done = true
-		it.fail = err
-		return it.Next()
-	}
-}
-
-// Error returns any retrieval or parsing error occurred during filtering.
-func (it *FilecoinWarmStorageServiceCDNPaymentRailsToppedUpIterator) Error() error {
-	return it.fail
-}
-
-// Close terminates the iteration process, releasing any pending underlying
-// resources.
-func (it *FilecoinWarmStorageServiceCDNPaymentRailsToppedUpIterator) Close() error {
-	it.sub.Unsubscribe()
-	return nil
-}
-
-// FilecoinWarmStorageServiceCDNPaymentRailsToppedUp represents a CDNPaymentRailsToppedUp event raised by the FilecoinWarmStorageService contract.
-type FilecoinWarmStorageServiceCDNPaymentRailsToppedUp struct {
-	DataSetId            *big.Int
-	CdnAmountAdded       *big.Int
-	TotalCdnLockup       *big.Int
-	CacheMissAmountAdded *big.Int
-	TotalCacheMissLockup *big.Int
-	Raw                  types.Log // Blockchain specific contextual infos
-}
-
-// FilterCDNPaymentRailsToppedUp is a free log retrieval operation binding the contract event 0x6b6e3adced39b19ee0a9f68ef785f7275ed75801e5f126964678fdf0f0552711.
-//
-// Solidity: event CDNPaymentRailsToppedUp(uint256 indexed dataSetId, uint256 cdnAmountAdded, uint256 totalCdnLockup, uint256 cacheMissAmountAdded, uint256 totalCacheMissLockup)
-func (_FilecoinWarmStorageService *FilecoinWarmStorageServiceFilterer) FilterCDNPaymentRailsToppedUp(opts *bind.FilterOpts, dataSetId []*big.Int) (*FilecoinWarmStorageServiceCDNPaymentRailsToppedUpIterator, error) {
-
-	var dataSetIdRule []interface{}
-	for _, dataSetIdItem := range dataSetId {
-		dataSetIdRule = append(dataSetIdRule, dataSetIdItem)
-	}
-
-	logs, sub, err := _FilecoinWarmStorageService.contract.FilterLogs(opts, "CDNPaymentRailsToppedUp", dataSetIdRule)
-	if err != nil {
-		return nil, err
-	}
-	return &FilecoinWarmStorageServiceCDNPaymentRailsToppedUpIterator{contract: _FilecoinWarmStorageService.contract, event: "CDNPaymentRailsToppedUp", logs: logs, sub: sub}, nil
-}
-
-// WatchCDNPaymentRailsToppedUp is a free log subscription operation binding the contract event 0x6b6e3adced39b19ee0a9f68ef785f7275ed75801e5f126964678fdf0f0552711.
-//
-// Solidity: event CDNPaymentRailsToppedUp(uint256 indexed dataSetId, uint256 cdnAmountAdded, uint256 totalCdnLockup, uint256 cacheMissAmountAdded, uint256 totalCacheMissLockup)
-func (_FilecoinWarmStorageService *FilecoinWarmStorageServiceFilterer) WatchCDNPaymentRailsToppedUp(opts *bind.WatchOpts, sink chan<- *FilecoinWarmStorageServiceCDNPaymentRailsToppedUp, dataSetId []*big.Int) (event.Subscription, error) {
-
-	var dataSetIdRule []interface{}
-	for _, dataSetIdItem := range dataSetId {
-		dataSetIdRule = append(dataSetIdRule, dataSetIdItem)
-	}
-
-	logs, sub, err := _FilecoinWarmStorageService.contract.WatchLogs(opts, "CDNPaymentRailsToppedUp", dataSetIdRule)
-	if err != nil {
-		return nil, err
-	}
-	return event.NewSubscription(func(quit <-chan struct{}) error {
-		defer sub.Unsubscribe()
-		for {
-			select {
-			case log := <-logs:
-				// New log arrived, parse the event and forward to the user
-				event := new(FilecoinWarmStorageServiceCDNPaymentRailsToppedUp)
-				if err := _FilecoinWarmStorageService.contract.UnpackLog(event, "CDNPaymentRailsToppedUp", log); err != nil {
-					return err
-				}
-				event.Raw = log
-
-				select {
-				case sink <- event:
-				case err := <-sub.Err():
-					return err
-				case <-quit:
-					return nil
-				}
-			case err := <-sub.Err():
-				return err
-			case <-quit:
-				return nil
-			}
-		}
-	}), nil
-}
-
-// ParseCDNPaymentRailsToppedUp is a log parse operation binding the contract event 0x6b6e3adced39b19ee0a9f68ef785f7275ed75801e5f126964678fdf0f0552711.
-//
-// Solidity: event CDNPaymentRailsToppedUp(uint256 indexed dataSetId, uint256 cdnAmountAdded, uint256 totalCdnLockup, uint256 cacheMissAmountAdded, uint256 totalCacheMissLockup)
-func (_FilecoinWarmStorageService *FilecoinWarmStorageServiceFilterer) ParseCDNPaymentRailsToppedUp(log types.Log) (*FilecoinWarmStorageServiceCDNPaymentRailsToppedUp, error) {
-	event := new(FilecoinWarmStorageServiceCDNPaymentRailsToppedUp)
-	if err := _FilecoinWarmStorageService.contract.UnpackLog(event, "CDNPaymentRailsToppedUp", log); err != nil {
-		return nil, err
-	}
-	event.Raw = log
-	return event, nil
 }
 
 // FilecoinWarmStorageServiceCDNPaymentTerminatedIterator is returned from FilterCDNPaymentTerminated and is used to iterate over the raw logs and unpacked data for CDNPaymentTerminated events raised by the FilecoinWarmStorageService contract.
@@ -1660,161 +1443,6 @@ func (_FilecoinWarmStorageService *FilecoinWarmStorageServiceFilterer) WatchCDNP
 func (_FilecoinWarmStorageService *FilecoinWarmStorageServiceFilterer) ParseCDNPaymentTerminated(log types.Log) (*FilecoinWarmStorageServiceCDNPaymentTerminated, error) {
 	event := new(FilecoinWarmStorageServiceCDNPaymentTerminated)
 	if err := _FilecoinWarmStorageService.contract.UnpackLog(event, "CDNPaymentTerminated", log); err != nil {
-		return nil, err
-	}
-	event.Raw = log
-	return event, nil
-}
-
-// FilecoinWarmStorageServiceCDNServiceTerminatedIterator is returned from FilterCDNServiceTerminated and is used to iterate over the raw logs and unpacked data for CDNServiceTerminated events raised by the FilecoinWarmStorageService contract.
-type FilecoinWarmStorageServiceCDNServiceTerminatedIterator struct {
-	Event *FilecoinWarmStorageServiceCDNServiceTerminated // Event containing the contract specifics and raw log
-
-	contract *bind.BoundContract // Generic contract to use for unpacking event data
-	event    string              // Event name to use for unpacking event data
-
-	logs chan types.Log        // Log channel receiving the found contract events
-	sub  ethereum.Subscription // Subscription for errors, completion and termination
-	done bool                  // Whether the subscription completed delivering logs
-	fail error                 // Occurred error to stop iteration
-}
-
-// Next advances the iterator to the subsequent event, returning whether there
-// are any more events found. In case of a retrieval or parsing error, false is
-// returned and Error() can be queried for the exact failure.
-func (it *FilecoinWarmStorageServiceCDNServiceTerminatedIterator) Next() bool {
-	// If the iterator failed, stop iterating
-	if it.fail != nil {
-		return false
-	}
-	// If the iterator completed, deliver directly whatever's available
-	if it.done {
-		select {
-		case log := <-it.logs:
-			it.Event = new(FilecoinWarmStorageServiceCDNServiceTerminated)
-			if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
-				it.fail = err
-				return false
-			}
-			it.Event.Raw = log
-			return true
-
-		default:
-			return false
-		}
-	}
-	// Iterator still in progress, wait for either a data or an error event
-	select {
-	case log := <-it.logs:
-		it.Event = new(FilecoinWarmStorageServiceCDNServiceTerminated)
-		if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
-			it.fail = err
-			return false
-		}
-		it.Event.Raw = log
-		return true
-
-	case err := <-it.sub.Err():
-		it.done = true
-		it.fail = err
-		return it.Next()
-	}
-}
-
-// Error returns any retrieval or parsing error occurred during filtering.
-func (it *FilecoinWarmStorageServiceCDNServiceTerminatedIterator) Error() error {
-	return it.fail
-}
-
-// Close terminates the iteration process, releasing any pending underlying
-// resources.
-func (it *FilecoinWarmStorageServiceCDNServiceTerminatedIterator) Close() error {
-	it.sub.Unsubscribe()
-	return nil
-}
-
-// FilecoinWarmStorageServiceCDNServiceTerminated represents a CDNServiceTerminated event raised by the FilecoinWarmStorageService contract.
-type FilecoinWarmStorageServiceCDNServiceTerminated struct {
-	Caller          common.Address
-	DataSetId       *big.Int
-	CacheMissRailId *big.Int
-	CdnRailId       *big.Int
-	Raw             types.Log // Blockchain specific contextual infos
-}
-
-// FilterCDNServiceTerminated is a free log retrieval operation binding the contract event 0xe050575f2f51273412c3b1a9a74ce3a2abc98172b48f6d19442de80a3744367d.
-//
-// Solidity: event CDNServiceTerminated(address indexed caller, uint256 indexed dataSetId, uint256 cacheMissRailId, uint256 cdnRailId)
-func (_FilecoinWarmStorageService *FilecoinWarmStorageServiceFilterer) FilterCDNServiceTerminated(opts *bind.FilterOpts, caller []common.Address, dataSetId []*big.Int) (*FilecoinWarmStorageServiceCDNServiceTerminatedIterator, error) {
-
-	var callerRule []interface{}
-	for _, callerItem := range caller {
-		callerRule = append(callerRule, callerItem)
-	}
-	var dataSetIdRule []interface{}
-	for _, dataSetIdItem := range dataSetId {
-		dataSetIdRule = append(dataSetIdRule, dataSetIdItem)
-	}
-
-	logs, sub, err := _FilecoinWarmStorageService.contract.FilterLogs(opts, "CDNServiceTerminated", callerRule, dataSetIdRule)
-	if err != nil {
-		return nil, err
-	}
-	return &FilecoinWarmStorageServiceCDNServiceTerminatedIterator{contract: _FilecoinWarmStorageService.contract, event: "CDNServiceTerminated", logs: logs, sub: sub}, nil
-}
-
-// WatchCDNServiceTerminated is a free log subscription operation binding the contract event 0xe050575f2f51273412c3b1a9a74ce3a2abc98172b48f6d19442de80a3744367d.
-//
-// Solidity: event CDNServiceTerminated(address indexed caller, uint256 indexed dataSetId, uint256 cacheMissRailId, uint256 cdnRailId)
-func (_FilecoinWarmStorageService *FilecoinWarmStorageServiceFilterer) WatchCDNServiceTerminated(opts *bind.WatchOpts, sink chan<- *FilecoinWarmStorageServiceCDNServiceTerminated, caller []common.Address, dataSetId []*big.Int) (event.Subscription, error) {
-
-	var callerRule []interface{}
-	for _, callerItem := range caller {
-		callerRule = append(callerRule, callerItem)
-	}
-	var dataSetIdRule []interface{}
-	for _, dataSetIdItem := range dataSetId {
-		dataSetIdRule = append(dataSetIdRule, dataSetIdItem)
-	}
-
-	logs, sub, err := _FilecoinWarmStorageService.contract.WatchLogs(opts, "CDNServiceTerminated", callerRule, dataSetIdRule)
-	if err != nil {
-		return nil, err
-	}
-	return event.NewSubscription(func(quit <-chan struct{}) error {
-		defer sub.Unsubscribe()
-		for {
-			select {
-			case log := <-logs:
-				// New log arrived, parse the event and forward to the user
-				event := new(FilecoinWarmStorageServiceCDNServiceTerminated)
-				if err := _FilecoinWarmStorageService.contract.UnpackLog(event, "CDNServiceTerminated", log); err != nil {
-					return err
-				}
-				event.Raw = log
-
-				select {
-				case sink <- event:
-				case err := <-sub.Err():
-					return err
-				case <-quit:
-					return nil
-				}
-			case err := <-sub.Err():
-				return err
-			case <-quit:
-				return nil
-			}
-		}
-	}), nil
-}
-
-// ParseCDNServiceTerminated is a log parse operation binding the contract event 0xe050575f2f51273412c3b1a9a74ce3a2abc98172b48f6d19442de80a3744367d.
-//
-// Solidity: event CDNServiceTerminated(address indexed caller, uint256 indexed dataSetId, uint256 cacheMissRailId, uint256 cdnRailId)
-func (_FilecoinWarmStorageService *FilecoinWarmStorageServiceFilterer) ParseCDNServiceTerminated(log types.Log) (*FilecoinWarmStorageServiceCDNServiceTerminated, error) {
-	event := new(FilecoinWarmStorageServiceCDNServiceTerminated)
-	if err := _FilecoinWarmStorageService.contract.UnpackLog(event, "CDNServiceTerminated", log); err != nil {
 		return nil, err
 	}
 	event.Raw = log
@@ -3705,152 +3333,6 @@ func (_FilecoinWarmStorageService *FilecoinWarmStorageServiceFilterer) ParseProv
 	return event, nil
 }
 
-// FilecoinWarmStorageServiceRailRateUpdatedIterator is returned from FilterRailRateUpdated and is used to iterate over the raw logs and unpacked data for RailRateUpdated events raised by the FilecoinWarmStorageService contract.
-type FilecoinWarmStorageServiceRailRateUpdatedIterator struct {
-	Event *FilecoinWarmStorageServiceRailRateUpdated // Event containing the contract specifics and raw log
-
-	contract *bind.BoundContract // Generic contract to use for unpacking event data
-	event    string              // Event name to use for unpacking event data
-
-	logs chan types.Log        // Log channel receiving the found contract events
-	sub  ethereum.Subscription // Subscription for errors, completion and termination
-	done bool                  // Whether the subscription completed delivering logs
-	fail error                 // Occurred error to stop iteration
-}
-
-// Next advances the iterator to the subsequent event, returning whether there
-// are any more events found. In case of a retrieval or parsing error, false is
-// returned and Error() can be queried for the exact failure.
-func (it *FilecoinWarmStorageServiceRailRateUpdatedIterator) Next() bool {
-	// If the iterator failed, stop iterating
-	if it.fail != nil {
-		return false
-	}
-	// If the iterator completed, deliver directly whatever's available
-	if it.done {
-		select {
-		case log := <-it.logs:
-			it.Event = new(FilecoinWarmStorageServiceRailRateUpdated)
-			if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
-				it.fail = err
-				return false
-			}
-			it.Event.Raw = log
-			return true
-
-		default:
-			return false
-		}
-	}
-	// Iterator still in progress, wait for either a data or an error event
-	select {
-	case log := <-it.logs:
-		it.Event = new(FilecoinWarmStorageServiceRailRateUpdated)
-		if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
-			it.fail = err
-			return false
-		}
-		it.Event.Raw = log
-		return true
-
-	case err := <-it.sub.Err():
-		it.done = true
-		it.fail = err
-		return it.Next()
-	}
-}
-
-// Error returns any retrieval or parsing error occurred during filtering.
-func (it *FilecoinWarmStorageServiceRailRateUpdatedIterator) Error() error {
-	return it.fail
-}
-
-// Close terminates the iteration process, releasing any pending underlying
-// resources.
-func (it *FilecoinWarmStorageServiceRailRateUpdatedIterator) Close() error {
-	it.sub.Unsubscribe()
-	return nil
-}
-
-// FilecoinWarmStorageServiceRailRateUpdated represents a RailRateUpdated event raised by the FilecoinWarmStorageService contract.
-type FilecoinWarmStorageServiceRailRateUpdated struct {
-	DataSetId *big.Int
-	RailId    *big.Int
-	NewRate   *big.Int
-	Raw       types.Log // Blockchain specific contextual infos
-}
-
-// FilterRailRateUpdated is a free log retrieval operation binding the contract event 0xe48d2ac923afa407ac53fd133176c8ba21d06ab27a0a79391ce837609fe19a63.
-//
-// Solidity: event RailRateUpdated(uint256 indexed dataSetId, uint256 railId, uint256 newRate)
-func (_FilecoinWarmStorageService *FilecoinWarmStorageServiceFilterer) FilterRailRateUpdated(opts *bind.FilterOpts, dataSetId []*big.Int) (*FilecoinWarmStorageServiceRailRateUpdatedIterator, error) {
-
-	var dataSetIdRule []interface{}
-	for _, dataSetIdItem := range dataSetId {
-		dataSetIdRule = append(dataSetIdRule, dataSetIdItem)
-	}
-
-	logs, sub, err := _FilecoinWarmStorageService.contract.FilterLogs(opts, "RailRateUpdated", dataSetIdRule)
-	if err != nil {
-		return nil, err
-	}
-	return &FilecoinWarmStorageServiceRailRateUpdatedIterator{contract: _FilecoinWarmStorageService.contract, event: "RailRateUpdated", logs: logs, sub: sub}, nil
-}
-
-// WatchRailRateUpdated is a free log subscription operation binding the contract event 0xe48d2ac923afa407ac53fd133176c8ba21d06ab27a0a79391ce837609fe19a63.
-//
-// Solidity: event RailRateUpdated(uint256 indexed dataSetId, uint256 railId, uint256 newRate)
-func (_FilecoinWarmStorageService *FilecoinWarmStorageServiceFilterer) WatchRailRateUpdated(opts *bind.WatchOpts, sink chan<- *FilecoinWarmStorageServiceRailRateUpdated, dataSetId []*big.Int) (event.Subscription, error) {
-
-	var dataSetIdRule []interface{}
-	for _, dataSetIdItem := range dataSetId {
-		dataSetIdRule = append(dataSetIdRule, dataSetIdItem)
-	}
-
-	logs, sub, err := _FilecoinWarmStorageService.contract.WatchLogs(opts, "RailRateUpdated", dataSetIdRule)
-	if err != nil {
-		return nil, err
-	}
-	return event.NewSubscription(func(quit <-chan struct{}) error {
-		defer sub.Unsubscribe()
-		for {
-			select {
-			case log := <-logs:
-				// New log arrived, parse the event and forward to the user
-				event := new(FilecoinWarmStorageServiceRailRateUpdated)
-				if err := _FilecoinWarmStorageService.contract.UnpackLog(event, "RailRateUpdated", log); err != nil {
-					return err
-				}
-				event.Raw = log
-
-				select {
-				case sink <- event:
-				case err := <-sub.Err():
-					return err
-				case <-quit:
-					return nil
-				}
-			case err := <-sub.Err():
-				return err
-			case <-quit:
-				return nil
-			}
-		}
-	}), nil
-}
-
-// ParseRailRateUpdated is a log parse operation binding the contract event 0xe48d2ac923afa407ac53fd133176c8ba21d06ab27a0a79391ce837609fe19a63.
-//
-// Solidity: event RailRateUpdated(uint256 indexed dataSetId, uint256 railId, uint256 newRate)
-func (_FilecoinWarmStorageService *FilecoinWarmStorageServiceFilterer) ParseRailRateUpdated(log types.Log) (*FilecoinWarmStorageServiceRailRateUpdated, error) {
-	event := new(FilecoinWarmStorageServiceRailRateUpdated)
-	if err := _FilecoinWarmStorageService.contract.UnpackLog(event, "RailRateUpdated", log); err != nil {
-		return nil, err
-	}
-	event.Raw = log
-	return event, nil
-}
-
 // FilecoinWarmStorageServiceServiceTerminatedIterator is returned from FilterServiceTerminated and is used to iterate over the raw logs and unpacked data for ServiceTerminated events raised by the FilecoinWarmStorageService contract.
 type FilecoinWarmStorageServiceServiceTerminatedIterator struct {
 	Event *FilecoinWarmStorageServiceServiceTerminated // Event containing the contract specifics and raw log
@@ -3920,7 +3402,7 @@ func (it *FilecoinWarmStorageServiceServiceTerminatedIterator) Close() error {
 
 // FilecoinWarmStorageServiceServiceTerminated represents a ServiceTerminated event raised by the FilecoinWarmStorageService contract.
 type FilecoinWarmStorageServiceServiceTerminated struct {
-	Caller          common.Address
+	Approver        common.Address
 	DataSetId       *big.Int
 	PdpRailId       *big.Int
 	CacheMissRailId *big.Int
@@ -3930,19 +3412,19 @@ type FilecoinWarmStorageServiceServiceTerminated struct {
 
 // FilterServiceTerminated is a free log retrieval operation binding the contract event 0x10c867634d8e51bbfd5ddd2e06b4f4a97a91274488ee3afbe1e146aa79e85293.
 //
-// Solidity: event ServiceTerminated(address indexed caller, uint256 indexed dataSetId, uint256 pdpRailId, uint256 cacheMissRailId, uint256 cdnRailId)
-func (_FilecoinWarmStorageService *FilecoinWarmStorageServiceFilterer) FilterServiceTerminated(opts *bind.FilterOpts, caller []common.Address, dataSetId []*big.Int) (*FilecoinWarmStorageServiceServiceTerminatedIterator, error) {
+// Solidity: event ServiceTerminated(address indexed approver, uint256 indexed dataSetId, uint256 pdpRailId, uint256 cacheMissRailId, uint256 cdnRailId)
+func (_FilecoinWarmStorageService *FilecoinWarmStorageServiceFilterer) FilterServiceTerminated(opts *bind.FilterOpts, approver []common.Address, dataSetId []*big.Int) (*FilecoinWarmStorageServiceServiceTerminatedIterator, error) {
 
-	var callerRule []interface{}
-	for _, callerItem := range caller {
-		callerRule = append(callerRule, callerItem)
+	var approverRule []interface{}
+	for _, approverItem := range approver {
+		approverRule = append(approverRule, approverItem)
 	}
 	var dataSetIdRule []interface{}
 	for _, dataSetIdItem := range dataSetId {
 		dataSetIdRule = append(dataSetIdRule, dataSetIdItem)
 	}
 
-	logs, sub, err := _FilecoinWarmStorageService.contract.FilterLogs(opts, "ServiceTerminated", callerRule, dataSetIdRule)
+	logs, sub, err := _FilecoinWarmStorageService.contract.FilterLogs(opts, "ServiceTerminated", approverRule, dataSetIdRule)
 	if err != nil {
 		return nil, err
 	}
@@ -3951,19 +3433,19 @@ func (_FilecoinWarmStorageService *FilecoinWarmStorageServiceFilterer) FilterSer
 
 // WatchServiceTerminated is a free log subscription operation binding the contract event 0x10c867634d8e51bbfd5ddd2e06b4f4a97a91274488ee3afbe1e146aa79e85293.
 //
-// Solidity: event ServiceTerminated(address indexed caller, uint256 indexed dataSetId, uint256 pdpRailId, uint256 cacheMissRailId, uint256 cdnRailId)
-func (_FilecoinWarmStorageService *FilecoinWarmStorageServiceFilterer) WatchServiceTerminated(opts *bind.WatchOpts, sink chan<- *FilecoinWarmStorageServiceServiceTerminated, caller []common.Address, dataSetId []*big.Int) (event.Subscription, error) {
+// Solidity: event ServiceTerminated(address indexed approver, uint256 indexed dataSetId, uint256 pdpRailId, uint256 cacheMissRailId, uint256 cdnRailId)
+func (_FilecoinWarmStorageService *FilecoinWarmStorageServiceFilterer) WatchServiceTerminated(opts *bind.WatchOpts, sink chan<- *FilecoinWarmStorageServiceServiceTerminated, approver []common.Address, dataSetId []*big.Int) (event.Subscription, error) {
 
-	var callerRule []interface{}
-	for _, callerItem := range caller {
-		callerRule = append(callerRule, callerItem)
+	var approverRule []interface{}
+	for _, approverItem := range approver {
+		approverRule = append(approverRule, approverItem)
 	}
 	var dataSetIdRule []interface{}
 	for _, dataSetIdItem := range dataSetId {
 		dataSetIdRule = append(dataSetIdRule, dataSetIdItem)
 	}
 
-	logs, sub, err := _FilecoinWarmStorageService.contract.WatchLogs(opts, "ServiceTerminated", callerRule, dataSetIdRule)
+	logs, sub, err := _FilecoinWarmStorageService.contract.WatchLogs(opts, "ServiceTerminated", approverRule, dataSetIdRule)
 	if err != nil {
 		return nil, err
 	}
@@ -3997,7 +3479,7 @@ func (_FilecoinWarmStorageService *FilecoinWarmStorageServiceFilterer) WatchServ
 
 // ParseServiceTerminated is a log parse operation binding the contract event 0x10c867634d8e51bbfd5ddd2e06b4f4a97a91274488ee3afbe1e146aa79e85293.
 //
-// Solidity: event ServiceTerminated(address indexed caller, uint256 indexed dataSetId, uint256 pdpRailId, uint256 cacheMissRailId, uint256 cdnRailId)
+// Solidity: event ServiceTerminated(address indexed approver, uint256 indexed dataSetId, uint256 pdpRailId, uint256 cacheMissRailId, uint256 cdnRailId)
 func (_FilecoinWarmStorageService *FilecoinWarmStorageServiceFilterer) ParseServiceTerminated(log types.Log) (*FilecoinWarmStorageServiceServiceTerminated, error) {
 	event := new(FilecoinWarmStorageServiceServiceTerminated)
 	if err := _FilecoinWarmStorageService.contract.UnpackLog(event, "ServiceTerminated", log); err != nil {
