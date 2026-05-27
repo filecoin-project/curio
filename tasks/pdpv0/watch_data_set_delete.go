@@ -77,10 +77,7 @@ func processPendingDeletes(ctx context.Context, db *harmonydb.DB, ethClient ethc
 	var failures []pendingDataSetDelete
 	for _, wait := range waits {
 		seen[wait.TxHash] = struct{}{}
-		detail, ok := byHash[wait.TxHash]
-		if !ok {
-			continue
-		}
+		detail := byHash[wait.TxHash]
 
 		if wait.Status == "confirmed" && wait.Success.Valid && wait.Success.Bool {
 			successes = append(successes, detail)

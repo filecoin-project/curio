@@ -1387,6 +1387,11 @@
   },
   {
     "type": "error",
+    "name": "DataSetNotFound",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "DataSetNotInCleanupMode",
     "inputs": []
   },

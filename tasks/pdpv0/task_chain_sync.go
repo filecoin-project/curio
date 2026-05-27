@@ -40,13 +40,6 @@ func (t *TaskChainSync) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 	if !stillOwned() {
 		return false, nil
 	}
-	if err := t.syncStaleDeletionTaskIDs(ctx); err != nil {
-		return false, xerrors.Errorf("syncing stale PDP deletion task ids: %w", err)
-	}
-
-	if !stillOwned() {
-		return false, nil
-	}
 	if err := t.syncMissingDataSetTerminationMessageWaits(ctx); err != nil {
 		return false, xerrors.Errorf("syncing missing PDP termination message waits: %w", err)
 	}
@@ -112,71 +105,6 @@ func (t *TaskChainSync) Adder(taskFunc harmonytask.AddTaskFunc) {}
 
 var _ = harmonytask.Reg(&TaskChainSync{})
 var _ harmonytask.TaskInterface = &TaskChainSync{}
-
-// syncStaleDeletionTaskIDs clears deletion task ids that point at Harmony tasks which no longer exist.
-// It does not advance any deletion state; it only unpins rows whose
-// terminate/delete task exhausted retries so the normal schedulers can
-// pick them up again.
-func (t *TaskChainSync) syncStaleDeletionTaskIDs(ctx context.Context) error {
-	comm, err := t.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
-		terminated, err := tx.Exec(`UPDATE pdp_delete_data_set pdds
-			SET terminate_service_task_id = NULL
-			WHERE pdds.terminate_service_task_id IS NOT NULL
-			  AND pdds.client_requested_termination = FALSE
-			  AND pdds.after_terminate_service = FALSE
-			  AND NOT EXISTS (
-				SELECT 1
-				FROM harmony_task ht
-				WHERE ht.id = pdds.terminate_service_task_id
-			  )`)
-		if err != nil {
-			return false, xerrors.Errorf("failed to clear stale terminate service task ids: %w", err)
-		}
-
-		deleted, err := tx.Exec(`UPDATE pdp_delete_data_set pdds
-			SET delete_data_set_task_id = NULL
-			WHERE pdds.delete_data_set_task_id IS NOT NULL
-			  AND pdds.after_delete_data_set = FALSE
-			  AND NOT EXISTS (
-				SELECT 1
-				FROM harmony_task ht
-				WHERE ht.id = pdds.delete_data_set_task_id
-			  )`)
-		if err != nil {
-			return false, xerrors.Errorf("failed to clear stale delete data set task ids: %w", err)
-		}
-
-		cleanup, err := tx.Exec(`UPDATE pdp_delete_data_set pdds
-			SET cleanup_pieces_task_id = NULL
-			WHERE pdds.cleanup_pieces_task_id IS NOT NULL
-			  AND pdds.cleanup_pieces_tx_hash IS NULL
-			  AND NOT EXISTS (
-				SELECT 1
-				FROM harmony_task ht
-				WHERE ht.id = pdds.cleanup_pieces_task_id
-			  )`)
-		if err != nil {
-			return false, xerrors.Errorf("failed to clear stale cleanup pieces task ids: %w", err)
-		}
-
-		if terminated > 0 || deleted > 0 || cleanup > 0 {
-			log.Infow("cleared stale PDP deletion task ids",
-				"terminateServiceTasks", terminated,
-				"deleteDataSetTasks", deleted,
-				"cleanupPiecesTasks", cleanup)
-		}
-
-		return true, nil
-	}, harmonydb.OptionRetry())
-	if err != nil {
-		return xerrors.Errorf("failed to commit stale task id cleanup: %w", err)
-	}
-	if !comm {
-		return xerrors.Errorf("failed to commit stale task id cleanup")
-	}
-
-	return nil
-}
 
 type missingTerminationMessageWait struct {
 	ID              int64  `db:"id"`

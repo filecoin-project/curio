@@ -62,6 +62,7 @@ func (t *CleanupPiecesTask) Do(taskID harmonytask.TaskID, stillOwned func() bool
 		return false, xerrors.Errorf("failed to read PDP cleanup state for data set %d: %w", dataSetID, err)
 	}
 
+	// Contract state is authoritative after retries or externally-submitted txs.
 	if state.Finalized() {
 		if err := cleanupFinalizedDataSet(ctx, t.db, dataSetID); err != nil {
 			return false, err
@@ -69,7 +70,7 @@ func (t *CleanupPiecesTask) Do(taskID harmonytask.TaskID, stillOwned func() bool
 		return true, nil
 	}
 
-	// TODO: Should we just error out instead of resetting state? Could be the result of chain fork/re-org?
+	// A live set needs deleteDataSet again before cleanupPieces can safely run.
 	if state.Live {
 		if err := resetCleanupToDelete(ctx, t.db, dataSetID, taskID); err != nil {
 			return false, err
@@ -129,6 +130,8 @@ func (t *CleanupPiecesTask) Do(taskID harmonytask.TaskID, stillOwned func() bool
 	return true, nil
 }
 
+// sendCleanupPieces submits one cleanupPieces batch. PDPVerifier consumes piece
+// slots from nextPieceId downward, so Curio does not keep a local cursor.
 func (t *CleanupPiecesTask) sendCleanupPieces(ctx context.Context, sender common.Address, pdpAddress common.Address, pdpABI *abi.ABI, dataSetID int64, remainingPieces *big.Int) (common.Hash, uint64, error) {
 	batchSize := uint64(cleanupPiecesBatchSize)
 	if remainingPieces.IsUint64() && remainingPieces.Uint64() < batchSize {
@@ -162,6 +165,9 @@ func (t *CleanupPiecesTask) sendCleanupPieces(ctx context.Context, sender common
 		if !strings.Contains(err.Error(), "call ran out of gas") {
 			return common.Hash{}, 0, err
 		}
+
+		// SenderETH estimates gas before submission. This error means the batch was not sent,
+		// so retrying with a smaller batch cannot duplicate cleanup work.
 		if batchSize == 1 {
 			return common.Hash{}, 0, xerrors.Errorf("cleanupPieces gas estimate failed with batch size 1: %w", err)
 		}
@@ -256,6 +262,8 @@ func (t *CleanupPiecesTask) TypeDetails() harmonytask.TaskTypeDetails {
 
 func (t *CleanupPiecesTask) Adder(taskFunc harmonytask.AddTaskFunc) {}
 
+// resetCleanupToDelete repairs unexpected live state by moving back to
+// deleteDataSet; cleanupPieces is only valid after PDPVerifier cleanup mode.
 func resetCleanupToDelete(ctx context.Context, db *harmonydb.DB, dataSetID int64, taskID harmonytask.TaskID) error {
 	n, err := db.Exec(ctx, `UPDATE pdp_delete_data_set
 		SET cleanup_pieces_task_id = NULL,
@@ -289,6 +297,8 @@ func (s dataSetCleanupState) Finalized() bool {
 	return !s.Live && !s.CleanupMode && s.NextPieceID.Sign() == 0
 }
 
+// readDataSetCleanupState reduces PDPVerifier state to the deletion states
+// Curio cares about: live, cleanup mode, and finalized cleanup.
 func readDataSetCleanupState(ctx context.Context, ethClient ethchain.EthClient, dataSetID int64) (dataSetCleanupState, error) {
 	verifier, err := contract.NewPDPVerifier(contract.ContractAddresses().PDPVerifier, ethClient)
 	if err != nil {
@@ -301,7 +311,6 @@ func readDataSetCleanupState(ctx context.Context, ethClient ethchain.EthClient, 
 		return dataSetCleanupState{}, xerrors.Errorf("failed to check if data set %d is live: %w", dataSetID, err)
 	}
 
-	// TODO: This is gated right now. Fix based on reply to https://github.com/filecoin-project/curio/issues/1236#issuecomment-4535463297
 	nextPieceID, err := verifier.GetNextPieceId(contract.EthCallOpts(ctx), setID)
 	if err != nil {
 		return dataSetCleanupState{}, xerrors.Errorf("failed to get next piece id for data set %d: %w", dataSetID, err)
@@ -309,7 +318,6 @@ func readDataSetCleanupState(ctx context.Context, ethClient ethchain.EthClient, 
 
 	cleanupMode := false
 	if !live && nextPieceID.Sign() > 0 {
-		// TODO: This is gated right now. Fix based on reply to https://github.com/filecoin-project/curio/issues/1236#issuecomment-4535463297
 		nextChallengeEpoch, err := verifier.GetNextChallengeEpoch(contract.EthCallOpts(ctx), setID)
 		if err != nil {
 			return dataSetCleanupState{}, xerrors.Errorf("failed to get next challenge epoch for data set %d: %w", dataSetID, err)

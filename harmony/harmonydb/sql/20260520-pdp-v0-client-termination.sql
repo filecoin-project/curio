@@ -87,6 +87,42 @@ BEGIN
     IF NOT EXISTS (
         SELECT 1
         FROM pg_constraint
+        WHERE conname = 'pdp_delete_data_set_terminate_task_fk'
+    ) THEN
+        ALTER TABLE pdp_delete_data_set
+            ADD CONSTRAINT pdp_delete_data_set_terminate_task_fk
+            FOREIGN KEY (terminate_service_task_id)
+            REFERENCES harmony_task(id)
+            ON DELETE SET NULL;
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'pdp_delete_data_set_delete_task_fk'
+    ) THEN
+        ALTER TABLE pdp_delete_data_set
+            ADD CONSTRAINT pdp_delete_data_set_delete_task_fk
+            FOREIGN KEY (delete_data_set_task_id)
+            REFERENCES harmony_task(id)
+            ON DELETE SET NULL;
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'pdp_delete_data_set_cleanup_task_fk'
+    ) THEN
+        ALTER TABLE pdp_delete_data_set
+            ADD CONSTRAINT pdp_delete_data_set_cleanup_task_fk
+            FOREIGN KEY (cleanup_pieces_task_id)
+            REFERENCES harmony_task(id)
+            ON DELETE SET NULL;
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
         WHERE conname = 'pdp_delete_data_set_client_extra_data_check'
     ) THEN
         ALTER TABLE pdp_delete_data_set
@@ -101,6 +137,20 @@ BEGIN
     END IF;
 END
 $$;
+
+-- Support harmony_task ON DELETE actions without scanning all PDP deletion rows
+-- for each completed or exhausted task.
+CREATE INDEX IF NOT EXISTS idx_pdp_dds_client_term_task
+    ON pdp_delete_data_set (client_terminate_service_task_id);
+
+CREATE INDEX IF NOT EXISTS idx_pdp_dds_term_task
+    ON pdp_delete_data_set (terminate_service_task_id);
+
+CREATE INDEX IF NOT EXISTS idx_pdp_dds_delete_task
+    ON pdp_delete_data_set (delete_data_set_task_id);
+
+CREATE INDEX IF NOT EXISTS idx_pdp_dds_cleanup_task
+    ON pdp_delete_data_set (cleanup_pieces_task_id);
 
 -- Indexes for PDPv0 piece GC and pdp_pieceref deletion paths.
 CREATE INDEX IF NOT EXISTS idx_pdp_data_set_piece_adds_pdp_pieceref
