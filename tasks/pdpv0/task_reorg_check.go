@@ -120,34 +120,49 @@ func (t *ReorgCheckTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 	}
 
 	var candidates []reorgCheckCandidate
+	// reorgCheckCandidatesSQL selects sends to verify for canonical inclusion.
+	// Split into UNION ALL branches so each side can use indexes (avoids a wide
+	// LEFT JOIN + OR that hash-joins the full send/wait tables). Branch 2 uses
+	// anti-joins (LEFT JOIN ... IS NULL) instead of NOT EXISTS.
 	err = t.db.Select(ctx, &candidates, `
 		SELECT LOWER(TRIM(BOTH FROM mse.signed_hash)) AS signed_tx_hash,
-		       mse.send_reason,
-		       mse.send_time,
-		       mwe.confirmed_block_number,
-		       COALESCE(mwe.tx_receipt->>'blockHash', '') AS stored_block_hash
+					mse.send_reason,
+					mse.send_time,
+					mwe.confirmed_block_number,
+					COALESCE(mwe.tx_receipt->>'blockHash', '') AS stored_block_hash
+		FROM message_waits_eth mwe
+		INNER JOIN message_sends_eth mse
+			ON LOWER(TRIM(BOTH FROM mse.signed_hash)) = mwe.signed_tx_hash
+		WHERE mwe.tx_status = 'confirmed'
+			AND mwe.tx_success = TRUE
+			AND mwe.confirmed_block_number IS NOT NULL
+			AND ($4 - mwe.confirmed_block_number) >= $5
+			AND mse.send_success = TRUE
+			AND mse.send_time IS NOT NULL
+			AND mse.send_time >= $1
+			AND mse.send_time <= $2
+			AND mse.send_reason = ANY($3)
+
+		UNION ALL
+		
+		SELECT LOWER(TRIM(BOTH FROM mse.signed_hash)) AS signed_tx_hash,
+					mse.send_reason,
+					mse.send_time,
+					NULL::bigint AS confirmed_block_number,
+					'' AS stored_block_hash
 		FROM message_sends_eth mse
 		LEFT JOIN message_waits_eth mwe
-		  ON LOWER(TRIM(BOTH FROM mse.signed_hash)) = LOWER(TRIM(BOTH FROM mwe.signed_tx_hash))
+			ON mwe.signed_tx_hash = LOWER(TRIM(BOTH FROM mse.signed_hash))
+		LEFT JOIN pdpv0_reorg_events re
+			ON re.tx_hash = LOWER(TRIM(BOTH FROM mse.signed_hash))
 		WHERE mse.send_success = TRUE
-		  AND mse.send_time IS NOT NULL
-		  AND mse.send_time >= $1
-		  AND mse.send_time <= $2
-		  AND mse.send_reason = ANY($3)
-		  AND (
-		    (mwe.tx_status = 'confirmed'
-		     AND mwe.tx_success = TRUE
-		     AND mwe.confirmed_block_number IS NOT NULL
-		     AND ($4 - mwe.confirmed_block_number) >= $5)
-		    OR (
-		      mwe.signed_tx_hash IS NULL
-		      AND NOT EXISTS (
-		        SELECT 1 FROM pdpv0_reorg_events re
-		        WHERE LOWER(re.tx_hash) = LOWER(TRIM(BOTH FROM mse.signed_hash))
-		      )
-		    )
-		  )
-	`, since, until, pdpv0SendReasons, headEpoch, int64(policy.ChainFinality))
+			AND mse.send_time IS NOT NULL
+			AND mse.send_time >= $1
+			AND mse.send_time <= $2
+			AND mse.send_reason = ANY($3)
+			AND mwe.signed_tx_hash IS NULL
+			AND re.tx_hash IS NULL
+		`, since, until, pdpv0SendReasons, headEpoch, int64(policy.ChainFinality))
 	if err != nil {
 		return false, xerrors.Errorf("select candidates: %w", err)
 	}
@@ -279,15 +294,14 @@ func (t *ReorgCheckTask) reorgCheckTimeWindow(ctx context.Context, head *chainTy
 		err = t.db.QueryRow(ctx, `
 			SELECT COUNT(*)
 			FROM message_sends_eth mse
+			LEFT JOIN pdpv0_reorg_events re
+			  ON re.tx_hash = LOWER(TRIM(BOTH FROM mse.signed_hash))
 			WHERE mse.send_success = TRUE
 			  AND mse.send_time IS NOT NULL
 			  AND mse.send_time >= $1
 			  AND mse.send_time < $2
 			  AND mse.send_reason = ANY($3)
-			  AND NOT EXISTS (
-			    SELECT 1 FROM pdpv0_reorg_events re
-			    WHERE LOWER(re.tx_hash) = LOWER(TRIM(BOTH FROM mse.signed_hash))
-			  )
+			  AND re.tx_hash IS NULL
 		`, lastEnd, since, pdpv0SendReasons).Scan(&skipped)
 		if err != nil {
 			return time.Time{}, time.Time{}, 0, xerrors.Errorf("count skipped reorg check sends: %w", err)
