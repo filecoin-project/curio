@@ -13,10 +13,10 @@ import (
 	"github.com/urfave/cli/v2"
 	"golang.org/x/xerrors"
 
+	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/filecoin-project/go-padreader"
 	"github.com/filecoin-project/go-state-types/abi"
 
-	"github.com/filecoin-project/curio/cmd/curio/internal/translations"
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/parkpiece"
@@ -34,8 +34,8 @@ type importPiecesOutput struct {
 }
 
 type storachaImportResult struct {
-	Imported bool
-	PieceCID string
+	Imported   bool
+	PieceCIDV2 string
 }
 
 type storachaParkedPieceState struct {
@@ -53,7 +53,7 @@ type storachaFinalRecoveryRow struct {
 
 var importPiecesCmd = &cli.Command{
 	Name:  "import-pieces",
-	Usage: translations.T("Imports already existing pieces from storage to piece park system"),
+	Usage: "Imports already existing pieces from storage to piece park system",
 	Flags: []cli.Flag{
 		&cli.StringFlag{
 			Name:  "source",
@@ -183,7 +183,7 @@ func runImportPieces(ctx context.Context, dep *deps.Deps, sourcePath, targetPath
 				return out, err
 			}
 			if result.Imported {
-				out.Pieces = append(out.Pieces, result.PieceCID)
+				out.Pieces = append(out.Pieces, result.PieceCIDV2)
 				out.Count++
 			}
 		}
@@ -242,7 +242,7 @@ func runImportPieces(ctx context.Context, dep *deps.Deps, sourcePath, targetPath
 			return out, err
 		}
 		if result.Imported {
-			out.Pieces = append(out.Pieces, result.PieceCID)
+			out.Pieces = append(out.Pieces, result.PieceCIDV2)
 			out.Count++
 		}
 	}
@@ -398,7 +398,7 @@ func importStagedStorachaPiece(ctx context.Context, dep *deps.Deps, storageID st
 		}
 	}
 
-	return storachaImportResult{Imported: true, PieceCID: pi.PieceCIDV1.String()}, nil
+	return storachaImportResult{Imported: true, PieceCIDV2: strings.TrimSuffix(filepath.Base(stagingPath), ".car")}, nil
 }
 
 // recoverFinalStorachaPieces scans incomplete storacha-migration rows where the
@@ -441,12 +441,30 @@ func recoverFinalStorachaPieces(ctx context.Context, dep *deps.Deps, storageID s
 			return err
 		}
 		if imported {
-			out.Pieces = append(out.Pieces, row.PieceCID)
+			pcidV2, err := storachaPieceCIDV2FromRow(row)
+			if err != nil {
+				return err
+			}
+			out.Pieces = append(out.Pieces, pcidV2)
 			out.Count++
 		}
 	}
 
 	return nil
+}
+
+func storachaPieceCIDV2FromRow(row storachaFinalRecoveryRow) (string, error) {
+	pcidV1, err := cid.Parse(row.PieceCID)
+	if err != nil {
+		return "", xerrors.Errorf("parsing piece cid %s: %w", row.PieceCID, err)
+	}
+
+	pcidV2, err := commcid.PieceCidV2FromV1(pcidV1, uint64(row.RawSize))
+	if err != nil {
+		return "", xerrors.Errorf("getting piece cid v2: %w", err)
+	}
+
+	return pcidV2.String(), nil
 }
 
 // recoverFinalStorachaPiece handles the post-rename crash window for one DB row.

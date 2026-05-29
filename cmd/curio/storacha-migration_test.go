@@ -33,6 +33,7 @@ type storachaMigrationTestEnv struct {
 }
 
 type storachaPieceFixture struct {
+	cidV2    string
 	fileName string
 	info     *mk20.PieceInfo
 	data     []byte
@@ -97,7 +98,8 @@ func TestStorachaMigrationFreshImport(t *testing.T) {
 	out, err := runImportPieces(env.ctx, env.dep, env.sourceDir, env.targetDir, 20)
 	require.NoError(t, err)
 	require.Equal(t, 1, out.Count)
-	require.Equal(t, []string{fx.info.PieceCIDV1.String()}, out.Pieces)
+	require.Equal(t, []string{fx.cidV2}, out.Pieces)
+	require.NotEqual(t, []string{fx.info.PieceCIDV1.String()}, out.Pieces)
 
 	pp := parkedPieceByCID(t, env, fx)
 	require.True(t, pp.complete)
@@ -375,7 +377,7 @@ func TestStorachaMigrationBatchProcessesStagingBeforeSource(t *testing.T) {
 	out, err := runImportPieces(env.ctx, env.dep, env.sourceDir, env.targetDir, 1)
 	require.NoError(t, err)
 	require.Equal(t, 1, out.Count)
-	require.Equal(t, []string{staged.info.PieceCIDV1.String()}, out.Pieces)
+	require.Equal(t, []string{staged.cidV2}, out.Pieces)
 
 	stagedPP := parkedPieceByCID(t, env, staged)
 	assertFileBytes(t, storachaFinalPiecePath(env.targetDir, stagedPP.id), staged.data)
@@ -397,7 +399,7 @@ func TestStorachaMigrationBatchProcessesFinalRecoveryBeforeSource(t *testing.T) 
 	out, err := runImportPieces(env.ctx, env.dep, env.sourceDir, env.targetDir, 1)
 	require.NoError(t, err)
 	require.Equal(t, 1, out.Count)
-	require.Equal(t, []string{recovered.info.PieceCIDV1.String()}, out.Pieces)
+	require.Equal(t, []string{recovered.cidV2}, out.Pieces)
 
 	pp := parkedPieceByID(t, env, pieceID)
 	require.True(t, pp.complete)
@@ -415,7 +417,7 @@ func TestStorachaMigrationInvalidStagedFileDoesNotConsumeBatch(t *testing.T) {
 	out, err := runImportPieces(env.ctx, env.dep, env.sourceDir, env.targetDir, 1)
 	require.NoError(t, err)
 	require.Equal(t, 1, out.Count)
-	require.Equal(t, []string{source.info.PieceCIDV1.String()}, out.Pieces)
+	require.Equal(t, []string{source.cidV2}, out.Pieces)
 
 	pp := parkedPieceByCID(t, env, source)
 	assertFileBytes(t, storachaFinalPiecePath(env.targetDir, pp.id), source.data)
@@ -527,6 +529,7 @@ func newStorachaPieceFixture(t *testing.T, seed uint64) storachaPieceFixture {
 	require.NoError(t, err)
 
 	return storachaPieceFixture{
+		cidV2:    pcidV2.String(),
 		fileName: pcidV2.String() + ".car",
 		info:     info,
 		data:     bytes.Repeat([]byte{byte(seed % 251)}, int(rawSize)),
