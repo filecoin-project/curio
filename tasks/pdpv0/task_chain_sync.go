@@ -250,10 +250,6 @@ func (t *TaskChainSync) syncMissingDataSetDeleteMessageWaits(ctx context.Context
 		return xerrors.Errorf("failed to select data set deletes missing message wait rows: %w", err)
 	}
 
-	if len(missing) == 0 {
-		return nil
-	}
-
 	for _, detail := range missing {
 		state, err := readDataSetCleanupState(ctx, t.ethClient, detail.ID)
 		if err != nil {
@@ -323,10 +319,6 @@ func (t *TaskChainSync) syncMissingCleanupPiecesMessageWaits(ctx context.Context
 		ORDER BY id
 	`); err != nil {
 		return xerrors.Errorf("failed to select cleanupPieces missing message wait rows: %w", err)
-	}
-
-	if len(missing) == 0 {
-		return nil
 	}
 
 	for _, detail := range missing {
