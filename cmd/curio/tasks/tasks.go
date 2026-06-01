@@ -284,7 +284,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 
 			sdeps.DealMarket = dm
 
-			if cfg.Subsystems.EnableCommP || cfg.Subsystems.EnableDealMarket {
+			if cfg.Subsystems.EnableCommP {
 				commpTask := storage_market.NewCommpTask(dm, db, must.One(slrLazy.Val()), full, cfg.Subsystems.CommPMaxTasks, cfg.Subsystems.BindCommPToData)
 				activeTasks = append(activeTasks, commpTask)
 			}
@@ -453,8 +453,8 @@ func addSealingTasks(
 	var slotMgr *slotmgr.SlotMgr
 	var addFinalize bool
 
-	// Auto-enable lightweight pipeline steps alongside their upstream work.
-	// Manual flags remain for cleanup-only nodes.
+	// Auto-enable CPU:0 pipeline steps alongside their upstream work.
+	// Manual flags remain for cleanup-only nodes and for CPU-heavy companions (CommP, StorePiece, etc.).
 	enableSendPrecommitMsg := cfg.Subsystems.EnableSendPrecommitMsg || cfg.Subsystems.EnableSealSDRTrees
 	enableSendCommitMsg := cfg.Subsystems.EnableSendCommitMsg || cfg.Subsystems.EnablePoRepProof
 	enableMoveStorage := cfg.Subsystems.EnableMoveStorage || cfg.Subsystems.EnablePoRepProof || cfg.Subsystems.EnableSendCommitMsg
@@ -462,7 +462,7 @@ func addSealingTasks(
 	enableSnapMoveStorage := cfg.Subsystems.EnableMoveStorage || cfg.Subsystems.EnableUpdateEncode || cfg.Subsystems.EnableUpdateProve
 
 	// NOTE: Tasks with the LEAST priority are at the top
-	if cfg.Subsystems.EnableCommP || cfg.Subsystems.EnableSealSDRTrees {
+	if cfg.Subsystems.EnableCommP {
 		scrubUnsealedTask := scrub.NewCommDCheckTask(db, slr)
 		activeTasks = append(activeTasks, scrubUnsealedTask)
 	}
@@ -515,13 +515,15 @@ func addSealingTasks(
 	}
 	if enableMoveStorage {
 		moveStorageTask := seal.NewMoveStorageTask(sp, slr, db, cfg.Subsystems.MoveStorageMaxTasks)
-
+		activeTasks = append(activeTasks, moveStorageTask)
+	}
+	if cfg.Subsystems.EnableMoveStorage {
 		storePieceTask, err := piece2.NewStorePieceTask(db, must.One(slrLazy.Val()), stor, cfg.Subsystems.MoveStorageMaxTasks)
 		if err != nil {
 			return nil, nil, err
 		}
 
-		activeTasks = append(activeTasks, moveStorageTask, storePieceTask)
+		activeTasks = append(activeTasks, storePieceTask)
 		if !cfg.Subsystems.EnableParkPiece {
 			// add cleanup if it's not added above with park piece
 			cleanupPieceTask := piece2.NewCleanupPieceTask(db, must.One(slrLazy.Val()), 0)
