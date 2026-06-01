@@ -34,21 +34,27 @@ func NewCleanupPieceTask(db *harmonydb.DB, sc *ffi.SealCalls, max int) *CleanupP
 	return pt
 }
 
+// cleanupCandidateBatch caps how many candidate pieces the poller pulls per
+// iteration. The bounded SELECT plus the partial index on
+// (id) WHERE cleanup_task_id IS NULL AND ref_count = 0 keeps each poll cheap
+// regardless of total parked_pieces size.
+const cleanupCandidateBatch = 256
+
 func (c *CleanupPieceTask) pollCleanupTasks(ctx context.Context) {
 	for {
-		// select pieces with no refs and null cleanup_task_id
+		// ref_count is maintained by triggers on parked_piece_refs, so this
+		// query is served by idx_parked_pieces_cleanup_eligible without
+		// scanning parked_piece_refs at all.
 		var pieceIDs []struct {
 			ID storiface.PieceNumber `db:"id"`
 		}
 
-		err := c.db.Select(ctx, &pieceIDs, `SELECT pp.id
-			FROM parked_pieces pp
-			WHERE pp.cleanup_task_id IS NULL
-			  AND NOT EXISTS (
-				  SELECT 1
-				  FROM parked_piece_refs ppr
-				  WHERE ppr.piece_id = pp.id
-			  )`)
+		err := c.db.Select(ctx, &pieceIDs, `SELECT id
+			FROM parked_pieces
+			WHERE cleanup_task_id IS NULL
+			  AND ref_count = 0
+			ORDER BY id
+			LIMIT $1`, cleanupCandidateBatch)
 		if err != nil {
 			log.Errorf("failed to get parked pieces: %s", err)
 			time.Sleep(PieceParkPollInterval)
@@ -64,16 +70,14 @@ func (c *CleanupPieceTask) pollCleanupTasks(ctx context.Context) {
 
 			// create a task for each piece
 			c.TF.Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, err error) {
-				// update
-				n, err := tx.Exec(`UPDATE parked_pieces pp
+				// Atomically claim the piece. ref_count = 0 must still hold;
+				// if a ref was added since the SELECT, the trigger bumped
+				// ref_count and this UPDATE becomes a no-op.
+				n, err := tx.Exec(`UPDATE parked_pieces
 						SET cleanup_task_id = $1
-						WHERE pp.cleanup_task_id IS NULL
-						  AND pp.id = $2
-						  AND NOT EXISTS (
-							  SELECT 1
-							  FROM parked_piece_refs ppr
-							  WHERE ppr.piece_id = pp.id
-						  )`, id, pieceID.ID)
+						WHERE cleanup_task_id IS NULL
+						  AND id = $2
+						  AND ref_count = 0`, id, pieceID.ID)
 				if err != nil {
 					return false, xerrors.Errorf("updating parked piece: %w", err)
 				}
