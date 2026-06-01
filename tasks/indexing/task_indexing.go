@@ -743,7 +743,7 @@ func (i *IndexingTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Name: "Indexing",
 		Cost: resources.Resources{
-			Cpu: 1,
+			Cpu: 0,
 			Ram: uint64(i.insertBatchSize * i.insertConcurrency * 56 * 2),
 		},
 		Max:         i.max,

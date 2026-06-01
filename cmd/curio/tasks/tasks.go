@@ -284,7 +284,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 
 			sdeps.DealMarket = dm
 
-			if cfg.Subsystems.EnableCommP {
+			if cfg.Subsystems.EnableCommP || cfg.Subsystems.EnableDealMarket {
 				commpTask := storage_market.NewCommpTask(dm, db, must.One(slrLazy.Val()), full, cfg.Subsystems.CommPMaxTasks, cfg.Subsystems.BindCommPToData)
 				activeTasks = append(activeTasks, commpTask)
 			}
@@ -453,8 +453,16 @@ func addSealingTasks(
 	var slotMgr *slotmgr.SlotMgr
 	var addFinalize bool
 
+	// Auto-enable lightweight pipeline steps alongside their upstream work.
+	// Manual flags remain for cleanup-only nodes.
+	enableSendPrecommitMsg := cfg.Subsystems.EnableSendPrecommitMsg || cfg.Subsystems.EnableSealSDRTrees
+	enableSendCommitMsg := cfg.Subsystems.EnableSendCommitMsg || cfg.Subsystems.EnablePoRepProof
+	enableMoveStorage := cfg.Subsystems.EnableMoveStorage || cfg.Subsystems.EnablePoRepProof || cfg.Subsystems.EnableSendCommitMsg
+	enableUpdateSubmit := cfg.Subsystems.EnableUpdateSubmit || cfg.Subsystems.EnableUpdateProve
+	enableSnapMoveStorage := cfg.Subsystems.EnableMoveStorage || cfg.Subsystems.EnableUpdateEncode || cfg.Subsystems.EnableUpdateProve
+
 	// NOTE: Tasks with the LEAST priority are at the top
-	if cfg.Subsystems.EnableCommP {
+	if cfg.Subsystems.EnableCommP || cfg.Subsystems.EnableSealSDRTrees {
 		scrubUnsealedTask := scrub.NewCommDCheckTask(db, slr)
 		activeTasks = append(activeTasks, scrubUnsealedTask)
 	}
@@ -497,7 +505,7 @@ func addSealingTasks(
 		activeTasks = append(activeTasks, finalizeTask)
 	}
 
-	if cfg.Subsystems.EnableSendPrecommitMsg {
+	if enableSendPrecommitMsg {
 		precommitTask := seal.NewSubmitPrecommitTask(sp, db, full, sender, as, cfg)
 		activeTasks = append(activeTasks, precommitTask)
 	}
@@ -505,16 +513,15 @@ func addSealingTasks(
 		porepTask := seal.NewPoRepTask(db, full, sp, slr, asyncParams(), cfg.Subsystems.EnablePoRepProof, cfg.Subsystems.PoRepProofMaxTasks, cuzkClient)
 		activeTasks = append(activeTasks, porepTask)
 	}
-	if cfg.Subsystems.EnableMoveStorage {
+	if enableMoveStorage {
 		moveStorageTask := seal.NewMoveStorageTask(sp, slr, db, cfg.Subsystems.MoveStorageMaxTasks)
-		moveStorageSnapTask := snap.NewMoveStorageTask(slr, db, cfg.Subsystems.MoveStorageMaxTasks)
 
 		storePieceTask, err := piece2.NewStorePieceTask(db, must.One(slrLazy.Val()), stor, cfg.Subsystems.MoveStorageMaxTasks)
 		if err != nil {
 			return nil, nil, err
 		}
 
-		activeTasks = append(activeTasks, moveStorageTask, moveStorageSnapTask, storePieceTask)
+		activeTasks = append(activeTasks, moveStorageTask, storePieceTask)
 		if !cfg.Subsystems.EnableParkPiece {
 			// add cleanup if it's not added above with park piece
 			cleanupPieceTask := piece2.NewCleanupPieceTask(db, must.One(slrLazy.Val()), 0)
@@ -526,7 +533,11 @@ func addSealingTasks(
 			activeTasks = append(activeTasks, unsealTask)
 		}
 	}
-	if cfg.Subsystems.EnableSendCommitMsg {
+	if enableSnapMoveStorage {
+		moveStorageSnapTask := snap.NewMoveStorageTask(slr, db, cfg.Subsystems.MoveStorageMaxTasks)
+		activeTasks = append(activeTasks, moveStorageSnapTask)
+	}
+	if enableSendCommitMsg {
 		commitTask := seal.NewSubmitCommitTask(sp, db, full, sender, as, cfg, prover)
 		activeTasks = append(activeTasks, commitTask)
 	}
@@ -546,7 +557,7 @@ func addSealingTasks(
 		proveTask := snap.NewProveTask(slr, db, asyncParams(), cfg.Subsystems.EnableRemoteProofs, cfg.Subsystems.UpdateProveMaxTasks, cuzkClient)
 		activeTasks = append(activeTasks, proveTask)
 	}
-	if cfg.Subsystems.EnableUpdateSubmit {
+	if enableUpdateSubmit {
 		submitTask := snap.NewSubmitTask(db, full, bstore, sender, as, cfg)
 		activeTasks = append(activeTasks, submitTask)
 	}

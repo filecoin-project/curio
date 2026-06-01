@@ -297,7 +297,7 @@ func (P *PDPIndexingTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Name: "PDPIndexing",
 		Cost: resources.Resources{
-			Cpu: 1,
+			Cpu: 0,
 			Ram: uint64(P.insertBatchSize * P.insertConcurrency * 56 * 2),
 		},
 		Max:         P.max,

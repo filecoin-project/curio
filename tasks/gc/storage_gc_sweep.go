@@ -113,7 +113,7 @@ func (s *StorageGCSweep) TypeDetails() harmonytask.TaskTypeDetails {
 		Max:  taskhelp.Max(1),
 		Name: "StorageGCSweep",
 		Cost: resources.Resources{
-			Cpu: 1,
+			Cpu: 0,
 			Ram: 64 << 20,
 			Gpu: 0,
 		},
