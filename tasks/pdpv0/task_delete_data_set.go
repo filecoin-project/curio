@@ -142,7 +142,7 @@ func (t *DeleteDataSetTask) CanAccept(ids []harmonytask.TaskID, engine *harmonyt
 func (t *DeleteDataSetTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Name:      tasknames.PDPv0_DelDataSet,
-		MayFollow: []string{tasknames.PDPv0_Prove},
+		MayFollow: []string{tasknames.PDPv0_Prove, tasknames.PDPv0_ProvPeriod},
 		Max:       taskhelp.Max(10),
 		Cost: resources.Resources{
 			Cpu: 0,

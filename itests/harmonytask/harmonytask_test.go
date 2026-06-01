@@ -590,6 +590,44 @@ func TestSchedulerRetry(t *testing.T) {
 	}
 }
 
+func TestSchedulerRetryWaitBackoff(t *testing.T) {
+	db := getDB(t)
+
+	const retryWait = 150 * time.Millisecond
+	var attempts []time.Time
+	var attemptsMu sync.Mutex
+
+	tR := newTestTask("RetryBackoffT", 5)
+	tR.maxFail = 5
+	tR.retryWait = func(int) time.Duration { return retryWait }
+	tR.doFunc = func(ctx context.Context, id harmonytask.TaskID, so func() bool) (bool, error) {
+		attemptsMu.Lock()
+		attempts = append(attempts, time.Now())
+		n := len(attempts)
+		attemptsMu.Unlock()
+		if n < 3 {
+			return false, fmt.Errorf("intentional failure #%d", n)
+		}
+		tR.doneCh <- id
+		return true, nil
+	}
+	t.Cleanup(cleanupTasks(tR))
+
+	e := makeEngine(t, db, []harmonytask.TaskInterface{tR}, "rb:1000")
+	speedUpPolling(e)
+	e.AddTaskByName("RetryBackoffT", func(id harmonytask.TaskID, tx *harmonydb.Tx) (bool, error) { return true, nil })
+
+	_ = waitForTask(t, tR.doneCh, 30*time.Second)
+
+	attemptsMu.Lock()
+	defer attemptsMu.Unlock()
+	require.GreaterOrEqual(t, len(attempts), 3)
+	require.GreaterOrEqual(t, attempts[1].Sub(attempts[0]), retryWait,
+		"second attempt should not start before RetryWait elapses")
+	require.GreaterOrEqual(t, attempts[2].Sub(attempts[1]), retryWait,
+		"third attempt should not start before RetryWait elapses")
+}
+
 func TestSchedulerMultiTaskNode(t *testing.T) {
 	db := getDB(t)
 

@@ -23,6 +23,7 @@ type schedulerEvent struct {
 	PeerID     int64 // set for peer-originated events; used for resource-reservation tie-breaking
 	Retries    int
 	PostedTime time.Time // for new-task events; FIFO within a task type
+	UpdateTime time.Time // for retries; zero means time.Now() at handle time
 
 	Success bool // for schedulerSourceTaskCompleted: true = done, false = cancelled/failed
 
@@ -51,6 +52,18 @@ const (
 	schedulerSourceInitialPoll
 	schedulerSourceStartTimeSensitive
 )
+
+func taskFromSchedulerEvent(event schedulerEvent) task {
+	pt := event.PostedTime
+	if pt.IsZero() {
+		pt = time.Now().UTC()
+	}
+	ut := event.UpdateTime
+	if ut.IsZero() {
+		ut = time.Now()
+	}
+	return task{ID: event.TaskID, UpdateTime: ut, PostedTime: pt, Retries: event.Retries}
+}
 
 // chokePoint caps the number of task IDs held in memory per task type.
 // Beyond this limit, the scheduler enters "choked" mode: it works with
@@ -225,11 +238,7 @@ func (e *TaskEngine) startScheduler() {
 					// TimeSensitive tasks (e.g., WindowPost) skip bundling for
 					// immediate scheduling.
 					if _, ok := availableTasks[event.TaskType]; ok {
-						pt := event.PostedTime
-						if pt.IsZero() {
-							pt = time.Now().UTC()
-						}
-						availableTasks[event.TaskType].hasID[event.TaskID] = task{ID: event.TaskID, UpdateTime: time.Now(), PostedTime: pt, Retries: event.Retries}
+						availableTasks[event.TaskType].hasID[event.TaskID] = taskFromSchedulerEvent(event)
 						if h := e.taskMap[event.TaskType]; h != nil && h.TimeSensitive {
 							if err := e.tryStartTask(event.TaskType, ts, ee); err != nil {
 								log.Errorw("failed tryAllWork", "error", err)
@@ -255,11 +264,7 @@ func (e *TaskEngine) startScheduler() {
 						t.choked = true
 						continue
 					}
-					pt := event.PostedTime
-					if pt.IsZero() {
-						pt = time.Now().UTC()
-					}
-					t.hasID[event.TaskID] = task{ID: event.TaskID, UpdateTime: time.Now(), PostedTime: pt, Retries: event.Retries}
+					t.hasID[event.TaskID] = taskFromSchedulerEvent(event)
 					if h := e.taskMap[event.TaskType]; h != nil && h.TimeSensitive {
 						if err := e.tryStartTask(event.TaskType, ts, ee); err != nil {
 							log.Errorw("failed tryAllWork", "error", err)
@@ -333,19 +338,20 @@ type taskSource interface {
 func (e *TaskEngine) tryStartTask(taskName string, taskSource taskSource, eventEmitter eventEmitter) error {
 	h := e.taskMap[taskName]
 	if h != nil && h.TimeSensitive {
-		if _, capErr := h.AssertMachineHasCapacity(); capErr != nil {
+		cap, capErr := h.AssertMachineHasCapacity()
+		if cap == 0 || capErr != nil {
 			if tasks := taskSource.GetTasks(taskName); len(tasks) > 0 {
 				for _, t := range tasks {
 					go e.preemptForTimeSensitive(h, t.ID)
 				}
 			}
 		}
-	} else {
-		err := e.pollerTryAllWork(taskSource, eventEmitter)
-		if err != nil {
-			log.Errorw("failed to try waterfall", "error", err)
-			return err
-		}
+		return nil
+	}
+	err := e.pollerTryAllWork(taskSource, eventEmitter)
+	if err != nil {
+		log.Errorw("failed to try waterfall", "error", err)
+		return err
 	}
 
 	return nil
@@ -396,10 +402,12 @@ func (ee eventEmitter) EmitTaskStarted(taskName string, taskID TaskID) {
 
 func (ee eventEmitter) EmitTaskNew(taskName string, task task) {
 	ee.schedulerChannel <- schedulerEvent{
-		TaskID:   task.ID,
-		TaskType: taskName,
-		Source:   schedulerSourceAdded,
-		Retries:  task.Retries,
+		TaskID:     task.ID,
+		TaskType:   taskName,
+		Source:     schedulerSourceAdded,
+		Retries:    task.Retries,
+		PostedTime: task.PostedTime,
+		UpdateTime: task.UpdateTime,
 	}
 }
 func (ee eventEmitter) EmitTaskCompleted(taskName string, success bool) {

@@ -416,10 +416,6 @@ type task struct {
 // DB writes from speculative work creation.
 func (e *TaskEngine) pollerTryAllWork(taskSource taskSource, eventEmitter eventEmitter) error {
 	schedulable := !e.atomics.yieldBackground.Load()
-	if e.atomics.yieldBackground.Load() {
-		return nil
-	}
-
 	defer func() {
 		availableResources := e.ResourcesAvailable()
 		totalResources := e.Resources()

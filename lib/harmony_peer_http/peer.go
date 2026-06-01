@@ -103,23 +103,19 @@ func (p *PeerHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	log.Debugw("received peer message", "peer", peerAddr, "size", len(body))
 
 	p.connMu.Lock()
-	conn, exists := p.connections[peerAddr]
-	if !exists {
-		conn = &peerHTTPConnection{
-			parent:   p,
-			peerAddr: peerAddr,
-			incoming: make(chan []byte, 100),
-		}
-		p.connections[peerAddr] = conn
-		p.connMu.Unlock()
 
-		log.Infow("new peer connection via HTTP", "peer", peerAddr)
+	conn := &peerHTTPConnection{
+		parent:   p,
+		peerAddr: peerAddr,
+		incoming: make(chan []byte, 100),
+	}
+	p.connections[peerAddr] = conn
+	p.connMu.Unlock()
 
-		if p.onConnect != nil {
-			go p.onConnect(peerAddr, conn)
-		}
-	} else {
-		p.connMu.Unlock()
+	log.Infow("new peer connection via HTTP", "peer", peerAddr)
+
+	if p.onConnect != nil {
+		go p.onConnect(peerAddr, conn)
 	}
 
 	select {

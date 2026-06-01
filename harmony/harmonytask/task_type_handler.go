@@ -297,7 +297,8 @@ func (h *taskTypeHandler) considerWork(from string, tasks []task, eventEmitter e
 				if !done {
 					for _, t := range tasks {
 						if t.ID == tID {
-							eventEmitter.EmitTaskNew(h.Name, t)
+							h.emitRetryTask(eventEmitter, t, preempted)
+							break
 						}
 					}
 				}
@@ -332,6 +333,38 @@ func (h *taskTypeHandler) considerWork(from string, tasks []task, eventEmitter e
 		i++
 	}
 	return true
+}
+
+// emitRetryTask re-adds a failed or preempted task to the scheduler after
+// recordCompletion. Failed tasks sleep RetryWait before emitting so the task is
+// not visible to scheduling (or peers) until the backoff elapses. Tasks dropped
+// after MaxFailures are not re-emitted.
+func (h *taskTypeHandler) emitRetryTask(eventEmitter eventEmitter, base task, preempted bool) {
+	if base.ID == 0 {
+		return
+	}
+
+	if preempted {
+		eventEmitter.EmitTaskNew(h.Name, base)
+		return
+	}
+
+	if h.MaxFailures > 0 && base.Retries >= int(h.MaxFailures)-1 {
+		return
+	}
+
+	retry := base
+	retry.Retries++
+	retry.UpdateTime = time.Now().UTC()
+
+	var wait time.Duration
+	if h.RetryWait != nil && retry.Retries > 0 {
+		wait = h.RetryWait(retry.Retries)
+	}
+	go func() {
+		time.Sleep(wait)
+		eventEmitter.EmitTaskNew(h.Name, retry)
+	}()
 }
 
 // recordCompletion persists the task outcome to the DB. This MUST complete
