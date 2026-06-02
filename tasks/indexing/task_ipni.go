@@ -438,7 +438,7 @@ func (I *IPNITask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Name: "IPNI",
 		Cost: resources.Resources{
-			Cpu: 1,
+			Cpu: 0,
 			Ram: 1 << 30,
 		},
 		MaxFailures: 3,

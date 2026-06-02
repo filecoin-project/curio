@@ -123,16 +123,11 @@ func (m *MoveStorageTask) TypeDetails() harmonytask.TaskTypeDetails {
 		ssize = abi.SectorSize(2 << 20)
 	}
 
-	cpu := 1
-	if m.max > 0 {
-		cpu = 0
-	}
-
 	return harmonytask.TaskTypeDetails{
 		Max:  taskhelp.Max(m.max),
 		Name: "UpdateStore",
 		Cost: resources.Resources{
-			Cpu:     cpu,
+			Cpu:     0,
 			Ram:     128 << 20,
 			Storage: m.sc.Storage(m.taskToSector, storiface.FTNone, storiface.FTUpdate|storiface.FTUpdateCache|storiface.FTUnsealed, ssize, storiface.PathStorage, paths.MinFreeStoragePercentage),
 		},

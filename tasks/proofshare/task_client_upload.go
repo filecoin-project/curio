@@ -135,7 +135,7 @@ func (t *TaskClientUpload) TypeDetails() harmonytask.TaskTypeDetails {
 		Max:  taskhelp.Max(t.max),
 		Name: "PSPutVanilla",
 		Cost: resources.Resources{
-			Cpu: 1,
+			Cpu: 0,
 			Ram: 128 << 20,
 			Gpu: 0,
 		},

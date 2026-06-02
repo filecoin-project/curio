@@ -71,7 +71,7 @@ func (t *TaskChainSync) TypeDetails() harmonytask.TaskTypeDetails {
 		Max:  taskhelp.Max(1),
 		Name: tasknames.PDPv0_ChainSync,
 		Cost: resources.Resources{
-			Cpu: 1,
+			Cpu: 0,
 			Gpu: 0,
 			Ram: 64 << 20,
 		},

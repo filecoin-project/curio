@@ -436,7 +436,7 @@ func (P *PDPIPNITask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Name: "PDPIpni",
 		Cost: resources.Resources{
-			Cpu: 1,
+			Cpu: 0,
 			Ram: 1 << 30,
 		},
 		MaxFailures: 3,

@@ -583,7 +583,7 @@ func (t *TaskClientSend) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Name: taskhelp.BackgroundTask("PSClientSend"),
 		Cost: resources.Resources{
-			Cpu: 1,
+			Cpu: 0,
 			Ram: 128 << 20,
 			Gpu: 0,
 		},

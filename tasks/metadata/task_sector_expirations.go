@@ -764,7 +764,7 @@ func (s *SectorMetadata) TypeDetails() harmonytask.TaskTypeDetails {
 		Max:  taskhelp.Max(1),
 		Name: "SectorMetadata",
 		Cost: resources.Resources{
-			Cpu: 1,
+			Cpu: 0,
 			Ram: 64 << 20,
 			Gpu: 0,
 		},

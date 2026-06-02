@@ -642,7 +642,7 @@ func (t *ReorgCheckTask) TypeDetails() harmonytask.TaskTypeDetails {
 		Name: tasknames.PDPv0_ReorgChk,
 		Max:  taskhelp.Max(1),
 		Cost: resources.Resources{
-			Cpu: 1,
+			Cpu: 0,
 			Ram: 256 << 20,
 			Gpu: 0,
 		},
