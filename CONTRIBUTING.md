@@ -22,3 +22,13 @@ Configuration should:
 - Enable SPs the choice to fit the tool to their unique business
 - Offer a way to enable what an SP can allow, afford, and participate in.
 - Enable conveniences that benefit that business' workflow.
+
+__User Experience__
+People speak many languages and we support them best via browser auto-translate.
+Any report should prefer to be a browser page. CLI tools are limited to setup
+and pointed adjustments. 
+
+__Automation__
+The best thing for SPs should be automatic. Scheduled tasks can handle clean-ups,
+checks (alerting), and all phases of process machinery. Only when it's unclear
+the best direction for "all" SPs should it be expressed as a configuration. 

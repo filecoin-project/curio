@@ -3,10 +3,14 @@ package itests
 import (
 	"context"
 	"io"
+	"math/big"
 	"math/rand"
 	"os"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/common"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/trie"
 	"github.com/stretchr/testify/require"
 
 	commcid "github.com/filecoin-project/go-fil-commcid"
@@ -20,6 +24,7 @@ import (
 	"github.com/filecoin-project/curio/lib/testutils"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/pdp/contract"
+	"github.com/filecoin-project/curio/tasks/pdpv0"
 
 	"github.com/filecoin-project/lotus/storage/pipeline/lib/nullreader"
 )
@@ -201,6 +206,48 @@ func TestPDPProving(t *testing.T) {
 	verified := proof.VerifyProof(out.Leaf, out.Proof, rd, uint64(challenge))
 	require.True(t, verified)
 
+	// --- Reorg check: happy path (no reorg) ---
+	// Simulate a confirmed tx at height 100 with a known canonical block.
+	confirmHeight := int64(100)
+	confirmTx := ethtypes.NewTx(&ethtypes.LegacyTx{Nonce: 42, Gas: 21_000})
+	canonicalHdr := &ethtypes.Header{Number: big.NewInt(confirmHeight), GasLimit: 30_000_000}
+	canonicalBlk := ethtypes.NewBlock(canonicalHdr, &ethtypes.Body{Transactions: ethtypes.Transactions{confirmTx}}, nil, trie.NewStackTrie(nil))
+
+	rt := pdpv0.NewReorgCheckTask(nil, &staticBlockEth{blk: canonicalBlk}, nil)
+
+	notIncluded, err := rt.TxNotIncludedInChain(ctx, confirmTx.Hash(), confirmHeight)
+	require.NoError(t, err)
+	require.False(t, notIncluded, "included tx must not be rolled back")
+
+	has, layerIdxAfter, err := idxStore.GetPDPLayerIndex(ctx, pcid2)
+	require.NoError(t, err)
+	require.True(t, has, "PDP layer must still exist after non-reorg check")
+	require.Equal(t, layerIdx, layerIdxAfter)
+
+	// --- Reorg check: not included ---
+	// Tx is absent from the canonical chain walk (empty block at head).
+	orphanTx := ethtypes.NewTx(&ethtypes.LegacyTx{Nonce: 99, Gas: 21_000})
+	notIncluded, err = rt.TxNotIncludedInChain(ctx, orphanTx.Hash(), confirmHeight)
+	require.NoError(t, err)
+	require.True(t, notIncluded, "tx absent from canonical chain must be rolled back")
+
 	err = idxStore.DeletePDPLayer(ctx, pcid2)
 	require.NoError(t, err)
+}
+
+// staticBlockEth implements pdpv0.ReorgCheckEthAPI, always returning the same block.
+type staticBlockEth struct {
+	blk *ethtypes.Block
+}
+
+func (s *staticBlockEth) BlockByNumber(_ context.Context, _ *big.Int) (*ethtypes.Block, error) {
+	return s.blk, nil
+}
+
+func (s *staticBlockEth) BlockByHash(_ context.Context, _ common.Hash) (*ethtypes.Block, error) {
+	return s.blk, nil
+}
+
+func (s *staticBlockEth) TransactionReceipt(_ context.Context, _ common.Hash) (*ethtypes.Receipt, error) {
+	return nil, nil
 }

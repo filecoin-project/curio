@@ -16,6 +16,7 @@ func DefaultCurioConfig() *CurioConfig {
 			GuiAddress:                     "0.0.0.0:4701",
 			RequireActivationSuccess:       true,
 			RequireNotificationSuccess:     true,
+			PDPPullPieceMaxTasks:           20,
 			IndexingMaxTasks:               8,
 			RemoteProofMaxUploads:          15,
 			ParkPieceMinFreeStoragePercent: 5,
@@ -411,6 +412,10 @@ type CurioSubsystemsConfig struct {
 	// PDP deals allow the node to directly store and prove unsealed data with "PDP Services" like Storacha.
 	// This feature is BETA and should only be enabled on nodes which are part of a PDP network.
 	EnablePDP bool
+
+	// PDPPullPieceMaxTasks is the maximum number of PDPv0 pull-piece download tasks that can run simultaneously.
+	// Set 0 for unlimited. (Default: 20)
+	PDPPullPieceMaxTasks int
 
 	// EnableCommP enables the commP task on te node. CommP is calculated before sending PublishDealMessage for a Mk12 deal
 	// Must have EnableDealMarket = True (Default: false)

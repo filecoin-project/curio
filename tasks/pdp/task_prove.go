@@ -481,7 +481,7 @@ func (p *ProveTask) proveRoot(ctx context.Context, dataSetID int64, pieceID int6
 		}
 
 		if padreader.PaddedSize(rawSize).Padded() != pi.Size {
-			return contract.IPDPTypesProof{}, xerrors.Errorf("piece size mismatch: expected %d, got %d", pi.Size, padreader.PaddedSize(rawSize))
+			return contract.IPDPTypesProof{}, xerrors.Errorf("piece size mismatch: expected %d, got %d", pi.Size, padreader.PaddedSize(rawSize).Padded())
 		}
 
 		var r io.Reader = reader

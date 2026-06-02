@@ -53,6 +53,36 @@ func (FFI) SealPreCommitPhase2(
 	}, nil
 }
 
+func (FFI) CheckSealCommitPhase1(
+	proofType abi.RegisteredSealProof,
+	sealedCID cid.Cid,
+	unsealedCID cid.Cid,
+	cacheDirPath string,
+	sealedSectorPath string,
+	sectorNum abi.SectorNumber,
+	minerID abi.ActorID,
+	ticket abi.SealRandomness,
+	seed abi.InteractiveSealRandomness,
+	pieces []abi.PieceInfo,
+) error {
+	_, err := ffi.SealCommitPhase1(proofType, sealedCID, unsealedCID, cacheDirPath, sealedSectorPath, sectorNum, minerID, ticket, seed, pieces)
+	return err
+}
+
+func (FFI) GenerateSynthProofs(
+	proofType abi.RegisteredSealProof,
+	sealedCID cid.Cid,
+	unsealedCID cid.Cid,
+	cacheDirPath string,
+	sealedSectorPath string,
+	sectorNum abi.SectorNumber,
+	minerID abi.ActorID,
+	ticket abi.SealRandomness,
+	pieces []abi.PieceInfo,
+) error {
+	return ffi.GenerateSynthProofs(proofType, sealedCID, unsealedCID, cacheDirPath, sealedSectorPath, sectorNum, minerID, ticket, pieces)
+}
+
 func (FFI) SealCommitPhase2(
 	phase1Output []byte,
 	sectorNum abi.SectorNumber,

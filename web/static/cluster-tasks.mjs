@@ -1,5 +1,6 @@
 import {LitElement, html, css} from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs';
+import { pollRPC } from '/lib/poll.mjs';
 
 class ClusterTasks extends LitElement {
   static get properties() {
@@ -55,13 +56,9 @@ class ClusterTasks extends LitElement {
     this.data = [];
     this.showBackgroundTasks = false;
     this.coalesceEntries = true; // Default-enabled coalesce checkbox
-    this.loadData();
-  }
-
-  async loadData() {
-    this.data = (await RPCCall('ClusterTaskSummary')) || [];
-    setTimeout(() => this.loadData(), 1000);
-    this.requestUpdate();
+    pollRPC(async () => {
+      this.data = (await RPCCall('ClusterTaskSummary')) || [];
+    }, 1000);
   }
 
   toggleShowBackgroundTasks(e) {

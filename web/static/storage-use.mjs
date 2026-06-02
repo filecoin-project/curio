@@ -1,7 +1,12 @@
 import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs';
+import { pollRPC } from '/lib/poll.mjs';
 
 customElements.define('storage-use', class StorageUse extends LitElement {
+    static properties = {
+        data: { type: Array },
+    };
+
     static styles = css`
     /* Style for sub-rows: indented and with slightly smaller text/background tint */
     .sub-row td {
@@ -16,34 +21,25 @@ customElements.define('storage-use', class StorageUse extends LitElement {
         this.data = [];
     }
 
-    async loadData() {
-        // Load summary storage use stats.
-        const summary = await RPCCall('StorageUseStats');
-        // Load breakdown stats by file type.
-        const storeBreakdown = await RPCCall('StorageStoreTypeStats');
-
-        // Determine if we have a detailed breakdown:
-        // if there is more than one entry, or the single entry is not "Other"
-        const hasDetailedBreakdown = storeBreakdown.length > 1 ||
-            (storeBreakdown.length === 1 && storeBreakdown[0].type !== 'Other');
-
-        // If we have a detailed breakdown, merge it into the summary data by
-        // attaching the store breakdown as subEntries to the "Store" row.
-        if (hasDetailedBreakdown) {
-            summary.forEach(row => {
-                if (row.Type === "Store") {
-                    row.subEntries = storeBreakdown;
-                }
-            });
-        }
-
-        this.data = summary;
-        this.requestUpdate();
-    }
-
     connectedCallback() {
         super.connectedCallback();
-        this.loadData();
+        pollRPC(async () => {
+            const summary = await RPCCall('StorageUseStats');
+            const storeBreakdown = await RPCCall('StorageStoreTypeStats');
+
+            const hasDetailedBreakdown = storeBreakdown.length > 1 ||
+                (storeBreakdown.length === 1 && storeBreakdown[0].type !== 'Other');
+
+            if (hasDetailedBreakdown) {
+                summary.forEach(row => {
+                    if (row.Type === "Store") {
+                        row.subEntries = storeBreakdown;
+                    }
+                });
+            }
+
+            this.data = summary;
+        }, 10000);
     }
 
     render() {

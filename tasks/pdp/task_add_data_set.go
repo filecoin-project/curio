@@ -3,7 +3,6 @@ package pdp
 import (
 	"context"
 	"errors"
-	"math/big"
 	"strings"
 	"time"
 
@@ -87,11 +86,16 @@ func (p *PDPTaskAddDataSet) Do(taskID harmonytask.TaskID, stillOwned func() bool
 		return false, xerrors.Errorf("packing data: %w", err)
 	}
 
+	cleanupDeposit, err := contract.FilCleanupDeposit(ctx, p.ethClient)
+	if err != nil {
+		return false, xerrors.Errorf("reading FIL cleanup deposit: %w", err)
+	}
+
 	// Prepare the transaction (nonce will be set to 0, SenderETH will assign it)
 	tx := types.NewTransaction(
 		0,
 		contract.ContractAddresses().PDPVerifier,
-		big.NewInt(0),
+		cleanupDeposit,
 		0,
 		nil,
 		data,

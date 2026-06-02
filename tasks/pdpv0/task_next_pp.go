@@ -224,14 +224,23 @@ func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() 
 
 	// Send the transaction
 	reason := "pdp-proving-period"
-	txHash, err := n.sender.Send(ctx, fromAddress, txEth, reason)
-	if err != nil {
+	txHash, sendErr := n.sender.Send(ctx, fromAddress, txEth, reason)
+	if sendErr != nil {
 		currentHeight := int64(ts.Height())
-		done, handleErr := HandleProvingSendError(ctx, n.db, dataSetId, currentHeight, err)
-		if done {
+		comm, err := n.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+			handleErr := HandleProvingSendError(tx, dataSetId, currentHeight, sendErr)
+			if handleErr != nil {
+				return false, xerrors.Errorf("failed to handle proving send error: %w", handleErr)
+			}
 			return true, nil
+		}, harmonydb.OptionRetry())
+		if err != nil {
+			return false, xerrors.Errorf("failed to send transaction: %w", err)
 		}
-		return false, xerrors.Errorf("failed to send transaction: %w", handleErr)
+		if !comm {
+			return false, xerrors.Errorf("failed to commit transaction")
+		}
+		return true, nil
 	}
 
 	// Update the database in a transaction

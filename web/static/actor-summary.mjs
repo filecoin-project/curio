@@ -1,5 +1,6 @@
 import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs';
+import { pollRPC } from '/lib/poll.mjs';
 import '/lib/clipboard-copy.mjs';
 
 class ActorSummary extends LitElement {
@@ -139,17 +140,8 @@ class ActorSummary extends LitElement {
         super();
         this.data = [];
         this._hoverState = null;
-        this.loadData();
-    }
-
-    async loadData() {
-        this.data = await RPCCall('ActorSummary');
-        this.requestUpdate();
-
-        // Poll for updates
-        setInterval(async () => {
+        pollRPC(async () => {
             this.data = await RPCCall('ActorSummary');
-            this.requestUpdate();
         }, 30000);
     }
 

@@ -7,7 +7,7 @@ import (
 )
 
 var (
-	pre = "curio_cachedreader_"
+	pre = "cachedreader_"
 
 	// Tag keys
 	cacheTypeKey, _ = tag.NewKey("cache_type") // "piece_reader" or "piece_error"

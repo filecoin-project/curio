@@ -99,6 +99,7 @@ func (p *PDPService) transformAddPiecesRequest(ctx context.Context, serviceLabel
             JOIN parked_piece_refs pprf ON pprf.ref_id = ppr.piece_ref
             JOIN parked_pieces pp ON pp.id = pprf.piece_id
             WHERE ppr.service = $1 AND ppr.piece_cid = ANY($2)
+            ORDER BY ppr.created_at ASC, ppr.id ASC
         `, serviceLabel, subPieceCidList)
 		if err != nil {
 			return false, err
@@ -115,6 +116,9 @@ func (p *PDPService) transformAddPiecesRequest(ctx context.Context, serviceLabel
 			err := rows.Scan(&pieceCIDStr, &pdpPieceRefID, &pieceRefID, &piecePaddedSize, &pieceRawSize)
 			if err != nil {
 				return false, err
+			}
+			if _, found := foundSubPieces[pieceCIDStr]; found {
+				continue
 			}
 
 			// Parse the piece CID

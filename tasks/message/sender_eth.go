@@ -94,7 +94,7 @@ func (s *SendTaskETH) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 		}
 
 		// Wait and retry
-		log.Infow("waiting for send lock", "task_id", taskID, "from", dbTx.FromAddress)
+		log.Debugw("waiting for send lock", "task_id", taskID, "from", dbTx.FromAddress)
 		time.Sleep(SendLockedWait)
 	}
 

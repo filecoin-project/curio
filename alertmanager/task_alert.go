@@ -45,7 +45,6 @@ type AlertAPI interface {
 	ChainHasObj(context.Context, cid.Cid) (bool, error)
 	ChainPutObj(context.Context, blocks.Block) error
 	ChainHead(context.Context) (*types.TipSet, error)
-	ChainGetTipSet(context.Context, types.TipSetKey) (*types.TipSet, error)
 	StateMinerInfo(ctx context.Context, actor address.Address, tsk types.TipSetKey) (api.MinerInfo, error)
 	StateMinerProvingDeadline(context.Context, address.Address, types.TipSetKey) (*dline.Info, error)
 	StateMinerPartitions(context.Context, address.Address, uint64, types.TipSetKey) ([]api.Partition, error)
@@ -100,6 +99,20 @@ const (
 	Name_PendingMessages       AlertName = "PendingMessages"
 	Name_IPNISync              AlertName = "IPNISync"
 )
+
+var AlertNames = []string{
+	string(Name_BalanceCheck),
+	string(Name_TaskFailures),
+	string(Name_PDPTaskFailures),
+	string(Name_PermanentStorageSpace),
+	string(Name_WindowPost),
+	string(Name_WinningPost),
+	string(Name_NowCheck),
+	string(Name_ChainSync),
+	string(Name_MissingSectors),
+	string(Name_PendingMessages),
+	string(Name_IPNISync),
+}
 
 var AlertFuncs = map[AlertName]AlertFunc{
 	Name_BalanceCheck:          balanceCheck,

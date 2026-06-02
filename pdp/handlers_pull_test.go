@@ -3,13 +3,18 @@ package pdp
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
+	"time"
 
-	"github.com/ipfs/go-cid"
+	"github.com/ethereum/go-ethereum/accounts/abi"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/snadrus/must"
 	"github.com/stretchr/testify/require"
 )
@@ -17,87 +22,57 @@ import (
 // mockPullStore implements PullStore for testing
 type mockPullStore struct {
 	// Configuration for mock behavior
-	existingPull     *PullRecord
-	pieceStatuses    map[string]*PieceStatus    // keyed by v1 CID string (from parked_pieces)
-	pullItemStatuses map[string]*PullItemStatus // keyed by v1 CID string (from pdp_piece_pull_items)
-	pullPieces       []PullPiece                // v1 CID + raw size + source_url
-	createError      error
-
-	// Failure tracking configuration
-	exhaustedTasks map[int64]string // taskID -> error reason (for CheckTaskExhaustedRetries)
+	existingPull *PullRecord
+	pullPieces   []PullPieceStatus
+	createError  error
+	backpressure *PullBackpressure
 
 	// Tracking calls
-	createPullCalled          bool
-	createdPull               *PullRecord
-	createdPieces             []PullPiece // v1 CID + raw size + source_url
-	getStatusesCalled         bool
-	getPullItemStatusesCalled bool
-	getPullPiecesCalled       bool
-	lastCreatedID             int64
-	markedFailed              map[string]string // v1 CID -> reason
+	createPullCalled    bool
+	createdPull         *PullRecord
+	createdPieces       []PullPiece // v1 CID + raw size + source_url
+	getPullPiecesCalled bool
+	lastCreatedID       int64
 }
 
 func (m *mockPullStore) GetPullByKey(ctx context.Context, service string, hash []byte, dataSetId uint64, recordKeeper string) (*PullRecord, error) {
 	return m.existingPull, nil
 }
 
-func (m *mockPullStore) CreatePullWithPieces(ctx context.Context, pull *PullRecord, pieces []PullPiece) (int64, error) {
+func (m *mockPullStore) CreatePullWithPieces(ctx context.Context, pull *PullRecord, pieces []PullPiece) (int64, *PullBackpressure, error) {
 	m.createPullCalled = true
 	m.createdPull = pull
 	m.createdPieces = pieces
 	if m.createError != nil {
-		return 0, m.createError
+		return 0, nil, m.createError
 	}
 	m.lastCreatedID++
-	return m.lastCreatedID, nil
+	return m.lastCreatedID, m.backpressure, nil
 }
 
-func (m *mockPullStore) GetPieceStatuses(ctx context.Context, pieceCids []cid.Cid) (map[string]*PieceStatus, error) {
-	m.getStatusesCalled = true
-	if m.pieceStatuses == nil {
-		return make(map[string]*PieceStatus), nil
-	}
-	return m.pieceStatuses, nil
-}
-
-func (m *mockPullStore) GetPullItemStatuses(ctx context.Context, pullID int64, pieceCids []cid.Cid) (map[string]*PullItemStatus, error) {
-	m.getPullItemStatusesCalled = true
-	if m.pullItemStatuses == nil {
-		return make(map[string]*PullItemStatus), nil
-	}
-	return m.pullItemStatuses, nil
-}
-
-func (m *mockPullStore) GetPullPieces(ctx context.Context, pullID int64) ([]PullPiece, error) {
+func (m *mockPullStore) GetPullStatus(ctx context.Context, pullID int64) ([]PullPieceStatus, error) {
 	m.getPullPiecesCalled = true
 	if m.pullPieces != nil {
 		return m.pullPieces, nil
 	}
-	// Return the pieces that were created
-	return m.createdPieces, nil
-}
-
-func (m *mockPullStore) MarkPieceFailed(ctx context.Context, pullID int64, pieceCid string, reason string) error {
-	if m.markedFailed == nil {
-		m.markedFailed = make(map[string]string)
-	}
-	m.markedFailed[pieceCid] = reason
-	return nil
-}
-
-func (m *mockPullStore) CheckTaskExhaustedRetries(ctx context.Context, taskID int64) (bool, string, error) {
-	if m.exhaustedTasks != nil {
-		if reason, ok := m.exhaustedTasks[taskID]; ok {
-			return true, reason, nil
+	pieces := make([]PullPieceStatus, len(m.createdPieces))
+	for i, piece := range m.createdPieces {
+		info, err := PieceCidV2FromV1(piece.CidV1, piece.RawSize)
+		if err != nil {
+			return nil, err
 		}
+		pieces[i] = PullPieceStatus{PieceCid: info.CidV2.String(), Status: PullStatusPending}
 	}
-	return false, "", nil
+	return pieces, nil
 }
 
 // mockValidator implements AddPiecesValidator for testing
 type mockValidator struct {
 	shouldPass bool
 	err        error
+	payer      common.Address
+	payerErr   error
+	payerCalls []uint64
 }
 
 func (m *mockValidator) ValidateAddPieces(ctx context.Context, params *AddPiecesValidatorParams) error {
@@ -110,6 +85,17 @@ func (m *mockValidator) ValidateAddPieces(ctx context.Context, params *AddPieces
 	return errors.New("validation failed")
 }
 
+func (m *mockValidator) GetDataSetPayer(ctx context.Context, dataSetId uint64) (common.Address, error) {
+	m.payerCalls = append(m.payerCalls, dataSetId)
+	if m.payerErr != nil {
+		return common.Address{}, m.payerErr
+	}
+	if m.payer != (common.Address{}) {
+		return m.payer, nil
+	}
+	return common.HexToAddress("0x1111111111111111111111111111111111111111"), nil
+}
+
 // Valid test PieceCIDv2s
 const (
 	testCid1 = "bafkzcibf6x7poaqtr2pqm6qki6sgetps74xutpclzrwbux5ow6rw4nsfu6tbf2zfnmnq"
@@ -120,12 +106,67 @@ const (
 // Test dataSetId for "add to existing dataset" case (avoids recordKeeper requirement)
 var testDataSetId = uint64(1)
 
-// testParsePieceCidV2 is a test helper that parses a v2 CID and returns PullPiece (v1 + raw size)
-func testParsePieceCidV2(t *testing.T, cidV2Str string) PullPiece {
+func testExtraData(t *testing.T) string {
 	t.Helper()
-	info, err := ParsePieceCidV2(cidV2Str)
+
+	extraData, err := makeTestExtraData(common.HexToAddress("0x1111111111111111111111111111111111111111"), 1)
 	require.NoError(t, err)
-	return PullPiece{CidV1: info.CidV1, RawSize: info.RawSize}
+	return extraData
+}
+
+func testAddPiecesOnlyExtraData(t *testing.T) string {
+	t.Helper()
+
+	return "0x" + hex.EncodeToString([]byte("add-pieces-only-extra-data"))
+}
+
+func makeTestExtraData(payer common.Address, nonce int64) (string, error) {
+	bytesType, err := abi.NewType("bytes", "", nil)
+	if err != nil {
+		return "", err
+	}
+	addressType, err := abi.NewType("address", "", nil)
+	if err != nil {
+		return "", err
+	}
+	uint256Type, err := abi.NewType("uint256", "", nil)
+	if err != nil {
+		return "", err
+	}
+	stringArrayType, err := abi.NewType("string[]", "", nil)
+	if err != nil {
+		return "", err
+	}
+
+	createArgs := abi.Arguments{
+		{Type: addressType},
+		{Type: uint256Type},
+		{Type: stringArrayType},
+		{Type: stringArrayType},
+		{Type: bytesType},
+	}
+	createPayload, err := createArgs.Pack(
+		payer,
+		big.NewInt(nonce),
+		[]string{},
+		[]string{},
+		[]byte("signature-"+strconv.FormatInt(nonce, 10)),
+	)
+	if err != nil {
+		return "", err
+	}
+
+	outerArgs := abi.Arguments{{Type: bytesType}, {Type: bytesType}}
+	extraData, err := outerArgs.Pack(createPayload, []byte{})
+	if err != nil {
+		return "", err
+	}
+
+	return "0x" + hex.EncodeToString(extraData), nil
+}
+
+func testPullPieceStatus(cidV2Str string, status PullStatus) PullPieceStatus {
+	return PullPieceStatus{PieceCid: cidV2Str, Status: status}
 }
 
 func TestHandlePull_MethodNotAllowed(t *testing.T) {
@@ -174,7 +215,7 @@ func TestHandlePull_NoPieces(t *testing.T) {
 	handler := NewPullHandler(&NullAuth{}, &mockPullStore{}, &mockValidator{shouldPass: true})
 
 	body := PullRequest{
-		ExtraData: "0x1234",
+		ExtraData: testExtraData(t),
 		DataSetId: &testDataSetId,
 		Pieces:    []PullPieceRequest{},
 	}
@@ -192,7 +233,7 @@ func TestHandlePull_InvalidSourceURL(t *testing.T) {
 	handler := NewPullHandler(&NullAuth{}, &mockPullStore{}, &mockValidator{shouldPass: true})
 
 	body := PullRequest{
-		ExtraData: "0x1234",
+		ExtraData: testExtraData(t),
 		DataSetId: &testDataSetId,
 		Pieces: []PullPieceRequest{
 			{PieceCid: testCid1, SourceURL: "http://example.com/piece/" + testCid1}, // HTTP not HTTPS
@@ -214,7 +255,7 @@ func TestHandlePull_ValidatorFails(t *testing.T) {
 	handler := NewPullHandler(&NullAuth{}, store, validator)
 
 	body := PullRequest{
-		ExtraData: "0x1234",
+		ExtraData: testExtraData(t),
 		DataSetId: &testDataSetId,
 		Pieces: []PullPieceRequest{
 			{PieceCid: testCid1, SourceURL: "https://example.com/piece/" + testCid1},
@@ -238,7 +279,7 @@ func TestHandlePull_NewRequest_Success(t *testing.T) {
 	handler := NewPullHandler(&NullAuth{}, store, validator)
 
 	body := PullRequest{
-		ExtraData: "0x1234",
+		ExtraData: testExtraData(t),
 		DataSetId: &testDataSetId,
 		Pieces: []PullPieceRequest{
 			{PieceCid: testCid1, SourceURL: "https://example.com/piece/" + testCid1},
@@ -278,12 +319,38 @@ func TestHandlePull_NewRequest_Success(t *testing.T) {
 	require.True(t, cidSet[testCid2])
 }
 
+func TestHandlePull_ExistingDataSetUsesFWSSPayer(t *testing.T) {
+	store := &mockPullStore{}
+	payer := common.HexToAddress("0x2222222222222222222222222222222222222222")
+	validator := &mockValidator{shouldPass: true, payer: payer}
+	handler := NewPullHandler(&NullAuth{}, store, validator)
+
+	body := PullRequest{
+		ExtraData: testAddPiecesOnlyExtraData(t),
+		DataSetId: &testDataSetId,
+		Pieces: []PullPieceRequest{
+			{PieceCid: testCid1, SourceURL: "https://example.com/piece/" + testCid1},
+		},
+	}
+	bodyBytes := must.One(json.Marshal(body))
+	req := httptest.NewRequest(http.MethodPost, "/pdp/piece/pull", bytes.NewReader(bodyBytes))
+	rec := httptest.NewRecorder()
+
+	handler.HandlePull(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.True(t, store.createPullCalled)
+	require.NotNil(t, store.createdPull)
+	require.Equal(t, payer.Hex(), store.createdPull.ClientAddress)
+	require.Equal(t, []uint64{testDataSetId}, validator.payerCalls)
+}
+
 func TestHandlePull_CreateNew_MissingRecordKeeper(t *testing.T) {
 	handler := NewPullHandler(&NullAuth{}, &mockPullStore{}, &mockValidator{shouldPass: true})
 
 	// dataSetId omitted (nil) requires recordKeeper
 	body := PullRequest{
-		ExtraData: "0x1234",
+		ExtraData: testExtraData(t),
 		// DataSetId: nil (omitted = create new)
 		// RecordKeeper: nil (missing - should fail)
 		Pieces: []PullPieceRequest{
@@ -318,7 +385,7 @@ func TestHandlePull_CreateNew_Success(t *testing.T) {
 
 	// dataSetId omitted (nil) with recordKeeper = create new dataset
 	body := PullRequest{
-		ExtraData:    "0x1234",
+		ExtraData:    testExtraData(t),
 		RecordKeeper: &testRecordKeeper,
 		Pieces: []PullPieceRequest{
 			{PieceCid: testCid1, SourceURL: "https://example.com/piece/" + testCid1},
@@ -340,26 +407,19 @@ func TestHandlePull_CreateNew_Success(t *testing.T) {
 }
 
 func TestHandlePull_Idempotent(t *testing.T) {
-	// Get v1 CID info for test setup
-	piece1 := testParsePieceCidV2(t, testCid1)
-	v1Str1 := piece1.CidV1.String()
-
 	store := &mockPullStore{
 		existingPull: &PullRecord{
 			ID:            123,
 			Service:       "public",
 			ExtraDataHash: []byte("hash"),
 		},
-		pullPieces: []PullPiece{piece1},
-		pieceStatuses: map[string]*PieceStatus{
-			v1Str1: {PieceCid: v1Str1, Complete: true},
-		},
+		pullPieces: []PullPieceStatus{testPullPieceStatus(testCid1, PullStatusComplete)},
 	}
 	validator := &mockValidator{shouldPass: true}
 	handler := NewPullHandler(&NullAuth{}, store, validator)
 
 	body := PullRequest{
-		ExtraData: "0x1234",
+		ExtraData: testExtraData(t),
 		DataSetId: &testDataSetId,
 		Pieces: []PullPieceRequest{
 			{PieceCid: testCid1, SourceURL: "https://example.com/piece/" + testCid1},
@@ -387,26 +447,18 @@ func TestHandlePull_Idempotent(t *testing.T) {
 }
 
 func TestHandlePull_MixedStatuses(t *testing.T) {
-	// Get v1 CID info for test setup
-	piece1 := testParsePieceCidV2(t, testCid1)
-	piece2 := testParsePieceCidV2(t, testCid2)
-	piece3 := testParsePieceCidV2(t, testCid3)
-	v1Str1 := piece1.CidV1.String()
-	v1Str2 := piece2.CidV1.String()
-
 	store := &mockPullStore{
-		pullPieces: []PullPiece{piece1, piece2, piece3},
-		pieceStatuses: map[string]*PieceStatus{
-			v1Str1: {PieceCid: v1Str1, Complete: true},
-			v1Str2: {PieceCid: v1Str2, Complete: false, TaskID: new(int64(123)), TaskExists: true}, // inProgress
-			// piece3 not in map - should be pending
+		pullPieces: []PullPieceStatus{
+			testPullPieceStatus(testCid1, PullStatusComplete),
+			testPullPieceStatus(testCid2, PullStatusInProgress),
+			testPullPieceStatus(testCid3, PullStatusPending),
 		},
 	}
 	validator := &mockValidator{shouldPass: true}
 	handler := NewPullHandler(&NullAuth{}, store, validator)
 
 	body := PullRequest{
-		ExtraData: "0x1234",
+		ExtraData: testExtraData(t),
 		DataSetId: &testDataSetId,
 		Pieces: []PullPieceRequest{
 			{PieceCid: testCid1, SourceURL: "https://example.com/piece/" + testCid1},
@@ -446,7 +498,7 @@ func TestHandlePull_CreateError(t *testing.T) {
 	handler := NewPullHandler(&NullAuth{}, store, validator)
 
 	body := PullRequest{
-		ExtraData: "0x1234",
+		ExtraData: testExtraData(t),
 		DataSetId: &testDataSetId,
 		Pieces: []PullPieceRequest{
 			{PieceCid: testCid1, SourceURL: "https://example.com/piece/" + testCid1},
@@ -459,6 +511,32 @@ func TestHandlePull_CreateError(t *testing.T) {
 	handler.HandlePull(rec, req)
 
 	require.Equal(t, http.StatusInternalServerError, rec.Code)
+}
+
+func TestHandlePull_Backpressure(t *testing.T) {
+	store := &mockPullStore{
+		backpressure: &PullBackpressure{RetryAfter: 2 * time.Minute},
+	}
+	validator := &mockValidator{shouldPass: true}
+	handler := NewPullHandler(&NullAuth{}, store, validator)
+
+	body := PullRequest{
+		ExtraData: testExtraData(t),
+		DataSetId: &testDataSetId,
+		Pieces: []PullPieceRequest{
+			{PieceCid: testCid1, SourceURL: "https://example.com/piece/" + testCid1},
+		},
+	}
+	bodyBytes := must.One(json.Marshal(body))
+	req := httptest.NewRequest(http.MethodPost, "/pdp/piece/pull", bytes.NewReader(bodyBytes))
+	rec := httptest.NewRecorder()
+
+	handler.HandlePull(rec, req)
+
+	require.Equal(t, http.StatusTooManyRequests, rec.Code)
+	require.Equal(t, "120", rec.Header().Get("Retry-After"))
+	require.True(t, store.createPullCalled)
+	require.False(t, store.getPullPiecesCalled)
 }
 
 func TestPadPieceSize(t *testing.T) {
@@ -500,30 +578,19 @@ func TestPadPieceSize(t *testing.T) {
 
 func TestHandlePull_RetryingStatus(t *testing.T) {
 	// Piece with task that has retries > 0 should show "retrying" status
-	piece1 := testParsePieceCidV2(t, testCid1)
-	v1Str1 := piece1.CidV1.String()
 	store := &mockPullStore{
 		existingPull: &PullRecord{
 			ID:            123,
 			Service:       "public",
 			ExtraDataHash: []byte("hash"),
 		},
-		pullPieces: []PullPiece{piece1},
-		pieceStatuses: map[string]*PieceStatus{
-			v1Str1: {
-				PieceCid:   v1Str1,
-				Complete:   false,
-				TaskID:     new(int64(999)),
-				TaskExists: true,
-				Retries:    2, // Has been retried twice
-			},
-		},
+		pullPieces: []PullPieceStatus{testPullPieceStatus(testCid1, PullStatusRetrying)},
 	}
 	validator := &mockValidator{shouldPass: true}
 	handler := NewPullHandler(&NullAuth{}, store, validator)
 
 	body := PullRequest{
-		ExtraData: "0x1234",
+		ExtraData: testExtraData(t),
 		DataSetId: &testDataSetId,
 		Pieces: []PullPieceRequest{
 			{PieceCid: testCid1, SourceURL: "https://example.com/piece/" + testCid1},
@@ -547,30 +614,19 @@ func TestHandlePull_RetryingStatus(t *testing.T) {
 
 func TestHandlePull_FailedFromPullItems(t *testing.T) {
 	// Piece already marked as failed in pull_items should show "failed" status
-	piece1 := testParsePieceCidV2(t, testCid1)
-
 	store := &mockPullStore{
 		existingPull: &PullRecord{
 			ID:            123,
 			Service:       "public",
 			ExtraDataHash: []byte("hash"),
 		},
-		pullPieces: []PullPiece{
-			{
-				CidV1:      piece1.CidV1,
-				RawSize:    piece1.RawSize,
-				Failed:     true,
-				FailReason: "CommP mismatch: expected X, got Y",
-			},
-		},
-		// No piece status needed - Failed flag in PullPiece takes priority
-		pieceStatuses: map[string]*PieceStatus{},
+		pullPieces: []PullPieceStatus{testPullPieceStatus(testCid1, PullStatusFailed)},
 	}
 	validator := &mockValidator{shouldPass: true}
 	handler := NewPullHandler(&NullAuth{}, store, validator)
 
 	body := PullRequest{
-		ExtraData: "0x1234",
+		ExtraData: testExtraData(t),
 		DataSetId: &testDataSetId,
 		Pieces: []PullPieceRequest{
 			{PieceCid: testCid1, SourceURL: "https://example.com/piece/" + testCid1},
@@ -592,38 +648,22 @@ func TestHandlePull_FailedFromPullItems(t *testing.T) {
 	require.Equal(t, PullStatusFailed, resp.Pieces[0].Status)
 }
 
-func TestHandlePull_OrphanedTaskExhausted(t *testing.T) {
-	// Piece with orphaned task (task deleted, exhausted retries) should show "failed"
-	// and trigger MarkPieceFailed call
-	piece1 := testParsePieceCidV2(t, testCid1)
-	v1Str1 := piece1.CidV1.String()
-	taskID := int64(888)
-
+func TestHandlePull_OrphanedTaskWithoutTerminalStateIsPending(t *testing.T) {
+	// Terminal state is explicit in pdp_piece_pull_items. A missing harmony task
+	// is not inferred as failure by the status endpoint.
 	store := &mockPullStore{
 		existingPull: &PullRecord{
 			ID:            123,
 			Service:       "public",
 			ExtraDataHash: []byte("hash"),
 		},
-		pullPieces: []PullPiece{piece1},
-		pieceStatuses: map[string]*PieceStatus{
-			v1Str1: {
-				PieceCid:   v1Str1,
-				Complete:   false,
-				TaskID:     &taskID,
-				TaskExists: false, // Task was deleted
-				Retries:    0,
-			},
-		},
-		exhaustedTasks: map[int64]string{
-			taskID: "size mismatch: expected 1000, got 500", // Task failed permanently
-		},
+		pullPieces: []PullPieceStatus{testPullPieceStatus(testCid1, PullStatusPending)},
 	}
 	validator := &mockValidator{shouldPass: true}
 	handler := NewPullHandler(&NullAuth{}, store, validator)
 
 	body := PullRequest{
-		ExtraData: "0x1234",
+		ExtraData: testExtraData(t),
 		DataSetId: &testDataSetId,
 		Pieces: []PullPieceRequest{
 			{PieceCid: testCid1, SourceURL: "https://example.com/piece/" + testCid1},
@@ -640,70 +680,14 @@ func TestHandlePull_OrphanedTaskExhausted(t *testing.T) {
 	var resp PullResponse
 	err := json.Unmarshal(rec.Body.Bytes(), &resp)
 	require.NoError(t, err)
-	require.Equal(t, PullStatusFailed, resp.Status)
+	require.Equal(t, PullStatusPending, resp.Status)
 	require.Len(t, resp.Pieces, 1)
-	require.Equal(t, PullStatusFailed, resp.Pieces[0].Status)
-
-	// Verify MarkPieceFailed was called with the error reason (prefixed with StorePiece:)
-	require.NotNil(t, store.markedFailed)
-	require.Equal(t, "StorePiece: size mismatch: expected 1000, got 500", store.markedFailed[v1Str1])
-}
-
-func TestHandlePull_OrphanedTaskNotExhausted(t *testing.T) {
-	// Piece with orphaned task but no exhaustion record - should show "failed"
-	// because the piece is stuck (poller won't pick it up with task_id still set)
-	piece1 := testParsePieceCidV2(t, testCid1)
-	v1Str1 := piece1.CidV1.String()
-	store := &mockPullStore{
-		existingPull: &PullRecord{
-			ID:            123,
-			Service:       "public",
-			ExtraDataHash: []byte("hash"),
-		},
-		pullPieces: []PullPiece{piece1},
-		pieceStatuses: map[string]*PieceStatus{
-			v1Str1: {
-				PieceCid:   v1Str1,
-				Complete:   false,
-				TaskID:     new(int64(777)),
-				TaskExists: false, // Task was deleted
-				Retries:    0,
-			},
-		},
-		// exhaustedTasks is nil - no history found (purged or never ran)
-	}
-	validator := &mockValidator{shouldPass: true}
-	handler := NewPullHandler(&NullAuth{}, store, validator)
-
-	body := PullRequest{
-		ExtraData: "0x1234",
-		DataSetId: &testDataSetId,
-		Pieces: []PullPieceRequest{
-			{PieceCid: testCid1, SourceURL: "https://example.com/piece/" + testCid1},
-		},
-	}
-	bodyBytes := must.One(json.Marshal(body))
-	req := httptest.NewRequest(http.MethodPost, "/pdp/piece/pull", bytes.NewReader(bodyBytes))
-	rec := httptest.NewRecorder()
-
-	handler.HandlePull(rec, req)
-
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var resp PullResponse
-	err := json.Unmarshal(rec.Body.Bytes(), &resp)
-	require.NoError(t, err)
-	require.Equal(t, PullStatusFailed, resp.Status)
-	require.Len(t, resp.Pieces, 1)
-	require.Equal(t, PullStatusFailed, resp.Pieces[0].Status)
-
-	// Verify MarkPieceFailed was called with orphan message (for StorePiece task)
-	require.NotNil(t, store.markedFailed)
-	require.Equal(t, "StorePiece task orphaned without failure record", store.markedFailed[v1Str1])
+	require.Equal(t, PullStatusPending, resp.Pieces[0].Status)
 }
 
 func TestComputeOverallStatus_Priority(t *testing.T) {
-	// Test that status priority is: failed > retrying > inProgress > pending > complete
+	// Failed pieces are terminal per-piece results. The batch only becomes
+	// terminal after every piece is complete or failed.
 	tests := []struct {
 		name           string
 		pieceStatuses  []PullStatus
@@ -730,8 +714,18 @@ func TestComputeOverallStatus_Priority(t *testing.T) {
 			expectedStatus: PullStatusRetrying,
 		},
 		{
-			name:           "failed overrides all",
+			name:           "failed does not override active work",
 			pieceStatuses:  []PullStatus{PullStatusComplete, PullStatusInProgress, PullStatusRetrying, PullStatusFailed},
+			expectedStatus: PullStatusRetrying,
+		},
+		{
+			name:           "partial failure with completed pieces is complete",
+			pieceStatuses:  []PullStatus{PullStatusComplete, PullStatusFailed},
+			expectedStatus: PullStatusComplete,
+		},
+		{
+			name:           "all failed makes batch failed",
+			pieceStatuses:  []PullStatus{PullStatusFailed, PullStatusFailed},
 			expectedStatus: PullStatusFailed,
 		},
 		{

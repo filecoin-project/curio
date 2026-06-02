@@ -138,7 +138,7 @@ func (s *SendTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 		}
 
 		// we didn't get the lock, wait a bit and try again
-		log.Infow("waiting for send lock", "task_id", taskID, "from", dbMsg.FromKey)
+		log.Debugw("waiting for send lock", "task_id", taskID, "from", dbMsg.FromKey)
 		time.Sleep(SendLockedWait)
 	}
 

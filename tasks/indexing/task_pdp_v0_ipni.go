@@ -284,8 +284,8 @@ func (P *PDPV0IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 }
 
 func (P *PDPV0IPNITask) recordCompletion(tx *harmonydb.Tx, taskID harmonytask.TaskID, id int64) error {
-	n, err := tx.Exec(`UPDATE pdp_piecerefs SET needs_ipni = FALSE, ipni_task_id = NULL
-									WHERE id = $1 AND ipni_task_id = $2`, id, taskID)
+	n, err := tx.Exec(`UPDATE pdp_piecerefs SET needs_ipni = FALSE, ipni_task_id = NULL, advertisement_created_at = NOW() 
+									WHERE id = $1 AND ipni_task_id = $2`, id, taskID) // We don't care that ad already existed, let's mark created_at as now() for new ref
 	if err != nil {
 		return xerrors.Errorf("store indexing success: updating pipeline: %w", err)
 	}

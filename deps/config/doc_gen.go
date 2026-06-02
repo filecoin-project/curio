@@ -860,6 +860,13 @@ PDP deals allow the node to directly store and prove unsealed data with "PDP Ser
 This feature is BETA and should only be enabled on nodes which are part of a PDP network.`,
 		},
 		{
+			Name: "PDPPullPieceMaxTasks",
+			Type: "int",
+
+			Comment: `PDPPullPieceMaxTasks is the maximum number of PDPv0 pull-piece download tasks that can run simultaneously.
+Set 0 for unlimited. (Default: 20)`,
+		},
+		{
 			Name: "EnableCommP",
 			Type: "bool",
 
