@@ -8,7 +8,7 @@ import (
 	"math/big"
 	"strings"
 
-	"github.com/ethereum/go-ethereum"
+	ethereum "github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
@@ -46,7 +46,7 @@ type FilecoinWarmStorageServiceDataSetInfoView struct {
 
 // FilecoinWarmStorageServiceStateViewMetaData contains all meta data concerning the FilecoinWarmStorageServiceStateView contract.
 var FilecoinWarmStorageServiceStateViewMetaData = &bind.MetaData{
-	ABI: "[{\"type\":\"constructor\",\"inputs\":[{\"name\":\"_service\",\"type\":\"address\",\"internalType\":\"contractFilecoinWarmStorageService\"}],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"challengeWindow\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"clientDataSets\",\"inputs\":[{\"name\":\"payer\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[{\"name\":\"dataSetIds\",\"type\":\"uint256[]\",\"internalType\":\"uint256[]\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"clientNonces\",\"inputs\":[{\"name\":\"payer\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"nonce\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"filBeamControllerAddress\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getAllDataSetMetadata\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"keys\",\"type\":\"string[]\",\"internalType\":\"string[]\"},{\"name\":\"values\",\"type\":\"string[]\",\"internalType\":\"string[]\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getAllPieceMetadata\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"pieceId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"keys\",\"type\":\"string[]\",\"internalType\":\"string[]\"},{\"name\":\"values\",\"type\":\"string[]\",\"internalType\":\"string[]\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getApprovedProviders\",\"inputs\":[{\"name\":\"offset\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"limit\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"providerIds\",\"type\":\"uint256[]\",\"internalType\":\"uint256[]\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getApprovedProvidersLength\",\"inputs\":[],\"outputs\":[{\"name\":\"count\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getChallengesPerProof\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint64\",\"internalType\":\"uint64\"}],\"stateMutability\":\"pure\"},{\"type\":\"function\",\"name\":\"getClientDataSets\",\"inputs\":[{\"name\":\"client\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[{\"name\":\"infos\",\"type\":\"tuple[]\",\"internalType\":\"structFilecoinWarmStorageService.DataSetInfoView[]\",\"components\":[{\"name\":\"pdpRailId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"cacheMissRailId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"cdnRailId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"payer\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"payee\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"serviceProvider\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"commissionBps\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"clientDataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"pdpEndEpoch\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getDataSet\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"info\",\"type\":\"tuple\",\"internalType\":\"structFilecoinWarmStorageService.DataSetInfoView\",\"components\":[{\"name\":\"pdpRailId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"cacheMissRailId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"cdnRailId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"payer\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"payee\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"serviceProvider\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"commissionBps\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"clientDataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"pdpEndEpoch\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getDataSetMetadata\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"key\",\"type\":\"string\",\"internalType\":\"string\"}],\"outputs\":[{\"name\":\"exists\",\"type\":\"bool\",\"internalType\":\"bool\"},{\"name\":\"value\",\"type\":\"string\",\"internalType\":\"string\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getDataSetSizeInBytes\",\"inputs\":[{\"name\":\"leafCount\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"pure\"},{\"type\":\"function\",\"name\":\"getDataSetStatus\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"status\",\"type\":\"uint8\",\"internalType\":\"enumFilecoinWarmStorageService.DataSetStatus\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getMaxProvingPeriod\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint64\",\"internalType\":\"uint64\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getPDPConfig\",\"inputs\":[],\"outputs\":[{\"name\":\"maxProvingPeriod\",\"type\":\"uint64\",\"internalType\":\"uint64\"},{\"name\":\"challengeWindowSize\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"challengesPerProof\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"initChallengeWindowStart\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getPieceMetadata\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"pieceId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"key\",\"type\":\"string\",\"internalType\":\"string\"}],\"outputs\":[{\"name\":\"exists\",\"type\":\"bool\",\"internalType\":\"bool\"},{\"name\":\"value\",\"type\":\"string\",\"internalType\":\"string\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"isProviderApproved\",\"inputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"nextPDPChallengeWindowStart\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"nextUpgrade\",\"inputs\":[],\"outputs\":[{\"name\":\"nextImplementation\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"afterEpoch\",\"type\":\"uint96\",\"internalType\":\"uint96\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"provenPeriods\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"periodId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"provenThisPeriod\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"provingActivationEpoch\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"provingDeadline\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"railToDataSet\",\"inputs\":[{\"name\":\"railId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"service\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"contractFilecoinWarmStorageService\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"serviceCommissionBps\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"error\",\"name\":\"ProvingPeriodNotInitialized\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]}]",
+	ABI: "[{\"type\":\"constructor\",\"inputs\":[{\"name\":\"_service\",\"type\":\"address\",\"internalType\":\"contractFilecoinWarmStorageService\"}],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"clientDataSets\",\"inputs\":[{\"name\":\"payer\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"offset\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"limit\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"dataSetIds\",\"type\":\"uint256[]\",\"internalType\":\"uint256[]\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"clientDataSets\",\"inputs\":[{\"name\":\"payer\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[{\"name\":\"dataSetIds\",\"type\":\"uint256[]\",\"internalType\":\"uint256[]\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"clientNonces\",\"inputs\":[{\"name\":\"payer\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"nonce\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"filBeamControllerAddress\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getAllDataSetMetadata\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"keys\",\"type\":\"string[]\",\"internalType\":\"string[]\"},{\"name\":\"values\",\"type\":\"string[]\",\"internalType\":\"string[]\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getAllPieceMetadata\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"pieceId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"keys\",\"type\":\"string[]\",\"internalType\":\"string[]\"},{\"name\":\"values\",\"type\":\"string[]\",\"internalType\":\"string[]\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getApprovedProviders\",\"inputs\":[{\"name\":\"offset\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"limit\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"providerIds\",\"type\":\"uint256[]\",\"internalType\":\"uint256[]\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getApprovedProvidersLength\",\"inputs\":[],\"outputs\":[{\"name\":\"count\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getClientDataSets\",\"inputs\":[{\"name\":\"client\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"offset\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"limit\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"infos\",\"type\":\"tuple[]\",\"internalType\":\"structFilecoinWarmStorageService.DataSetInfoView[]\",\"components\":[{\"name\":\"pdpRailId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"cacheMissRailId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"cdnRailId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"payer\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"payee\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"serviceProvider\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"commissionBps\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"clientDataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"pdpEndEpoch\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getClientDataSets\",\"inputs\":[{\"name\":\"client\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[{\"name\":\"infos\",\"type\":\"tuple[]\",\"internalType\":\"structFilecoinWarmStorageService.DataSetInfoView[]\",\"components\":[{\"name\":\"pdpRailId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"cacheMissRailId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"cdnRailId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"payer\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"payee\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"serviceProvider\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"commissionBps\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"clientDataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"pdpEndEpoch\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getClientDataSetsLength\",\"inputs\":[{\"name\":\"payer\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getCurrentPricingRates\",\"inputs\":[],\"outputs\":[{\"name\":\"storagePrice\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"datasetFee\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getDataSet\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"info\",\"type\":\"tuple\",\"internalType\":\"structFilecoinWarmStorageService.DataSetInfoView\",\"components\":[{\"name\":\"pdpRailId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"cacheMissRailId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"cdnRailId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"payer\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"payee\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"serviceProvider\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"commissionBps\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"clientDataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"pdpEndEpoch\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getDataSetMetadata\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"key\",\"type\":\"string\",\"internalType\":\"string\"}],\"outputs\":[{\"name\":\"exists\",\"type\":\"bool\",\"internalType\":\"bool\"},{\"name\":\"value\",\"type\":\"string\",\"internalType\":\"string\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getDataSetSizeInBytes\",\"inputs\":[{\"name\":\"leafCount\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"pure\"},{\"type\":\"function\",\"name\":\"getDataSetStatus\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"status\",\"type\":\"uint8\",\"internalType\":\"enumFilecoinWarmStorageService.DataSetStatus\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getPDPConfig\",\"inputs\":[],\"outputs\":[{\"name\":\"maxProvingPeriod\",\"type\":\"uint64\",\"internalType\":\"uint64\"},{\"name\":\"challengeWindowSize\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"challengesPerProof\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"initChallengeWindowStart\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getPieceMetadata\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"pieceId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"key\",\"type\":\"string\",\"internalType\":\"string\"}],\"outputs\":[{\"name\":\"exists\",\"type\":\"bool\",\"internalType\":\"bool\"},{\"name\":\"value\",\"type\":\"string\",\"internalType\":\"string\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"isProviderApproved\",\"inputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"nextPDPChallengeWindowStart\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"nextUpgrade\",\"inputs\":[],\"outputs\":[{\"name\":\"nextImplementation\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"afterEpoch\",\"type\":\"uint96\",\"internalType\":\"uint96\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"provenPeriods\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"periodId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"provenThisPeriod\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"provingActivationEpoch\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"provingDeadline\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"railToDataSet\",\"inputs\":[{\"name\":\"railId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"service\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"contractFilecoinWarmStorageService\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"serviceCommissionBps\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"error\",\"name\":\"ProvingPeriodNotInitialized\",\"inputs\":[{\"name\":\"dataSetId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]}]",
 }
 
 // FilecoinWarmStorageServiceStateViewABI is the input ABI used to generate the binding from.
@@ -195,43 +195,12 @@ func (_FilecoinWarmStorageServiceStateView *FilecoinWarmStorageServiceStateViewT
 	return _FilecoinWarmStorageServiceStateView.Contract.contract.Transact(opts, method, params...)
 }
 
-// ChallengeWindow is a free data retrieval call binding the contract method 0x861a1412.
+// ClientDataSets is a free data retrieval call binding the contract method 0x1047717c.
 //
-// Solidity: function challengeWindow() view returns(uint256)
-func (_FilecoinWarmStorageServiceStateView *FilecoinWarmStorageServiceStateViewCaller) ChallengeWindow(opts *bind.CallOpts) (*big.Int, error) {
+// Solidity: function clientDataSets(address payer, uint256 offset, uint256 limit) view returns(uint256[] dataSetIds)
+func (_FilecoinWarmStorageServiceStateView *FilecoinWarmStorageServiceStateViewCaller) ClientDataSets(opts *bind.CallOpts, payer common.Address, offset *big.Int, limit *big.Int) ([]*big.Int, error) {
 	var out []interface{}
-	err := _FilecoinWarmStorageServiceStateView.contract.Call(opts, &out, "challengeWindow")
-
-	if err != nil {
-		return *new(*big.Int), err
-	}
-
-	out0 := *abi.ConvertType(out[0], new(*big.Int)).(**big.Int)
-
-	return out0, err
-
-}
-
-// ChallengeWindow is a free data retrieval call binding the contract method 0x861a1412.
-//
-// Solidity: function challengeWindow() view returns(uint256)
-func (_FilecoinWarmStorageServiceStateView *FilecoinWarmStorageServiceStateViewSession) ChallengeWindow() (*big.Int, error) {
-	return _FilecoinWarmStorageServiceStateView.Contract.ChallengeWindow(&_FilecoinWarmStorageServiceStateView.CallOpts)
-}
-
-// ChallengeWindow is a free data retrieval call binding the contract method 0x861a1412.
-//
-// Solidity: function challengeWindow() view returns(uint256)
-func (_FilecoinWarmStorageServiceStateView *FilecoinWarmStorageServiceStateViewCallerSession) ChallengeWindow() (*big.Int, error) {
-	return _FilecoinWarmStorageServiceStateView.Contract.ChallengeWindow(&_FilecoinWarmStorageServiceStateView.CallOpts)
-}
-
-// ClientDataSets is a free data retrieval call binding the contract method 0x7dab7c40.
-//
-// Solidity: function clientDataSets(address payer) view returns(uint256[] dataSetIds)
-func (_FilecoinWarmStorageServiceStateView *FilecoinWarmStorageServiceStateViewCaller) ClientDataSets(opts *bind.CallOpts, payer common.Address) ([]*big.Int, error) {
-	var out []interface{}
-	err := _FilecoinWarmStorageServiceStateView.contract.Call(opts, &out, "clientDataSets", payer)
+	err := _FilecoinWarmStorageServiceStateView.contract.Call(opts, &out, "clientDataSets", payer, offset, limit)
 
 	if err != nil {
 		return *new([]*big.Int), err
@@ -243,18 +212,49 @@ func (_FilecoinWarmStorageServiceStateView *FilecoinWarmStorageServiceStateViewC
 
 }
 
-// ClientDataSets is a free data retrieval call binding the contract method 0x7dab7c40.
+// ClientDataSets is a free data retrieval call binding the contract method 0x1047717c.
 //
-// Solidity: function clientDataSets(address payer) view returns(uint256[] dataSetIds)
-func (_FilecoinWarmStorageServiceStateView *FilecoinWarmStorageServiceStateViewSession) ClientDataSets(payer common.Address) ([]*big.Int, error) {
-	return _FilecoinWarmStorageServiceStateView.Contract.ClientDataSets(&_FilecoinWarmStorageServiceStateView.CallOpts, payer)
+// Solidity: function clientDataSets(address payer, uint256 offset, uint256 limit) view returns(uint256[] dataSetIds)
+func (_FilecoinWarmStorageServiceStateView *FilecoinWarmStorageServiceStateViewSession) ClientDataSets(payer common.Address, offset *big.Int, limit *big.Int) ([]*big.Int, error) {
+	return _FilecoinWarmStorageServiceStateView.Contract.ClientDataSets(&_FilecoinWarmStorageServiceStateView.CallOpts, payer, offset, limit)
 }
 
-// ClientDataSets is a free data retrieval call binding the contract method 0x7dab7c40.
+// ClientDataSets is a free data retrieval call binding the contract method 0x1047717c.
+//
+// Solidity: function clientDataSets(address payer, uint256 offset, uint256 limit) view returns(uint256[] dataSetIds)
+func (_FilecoinWarmStorageServiceStateView *FilecoinWarmStorageServiceStateViewCallerSession) ClientDataSets(payer common.Address, offset *big.Int, limit *big.Int) ([]*big.Int, error) {
+	return _FilecoinWarmStorageServiceStateView.Contract.ClientDataSets(&_FilecoinWarmStorageServiceStateView.CallOpts, payer, offset, limit)
+}
+
+// ClientDataSets0 is a free data retrieval call binding the contract method 0x7dab7c40.
 //
 // Solidity: function clientDataSets(address payer) view returns(uint256[] dataSetIds)
-func (_FilecoinWarmStorageServiceStateView *FilecoinWarmStorageServiceStateViewCallerSession) ClientDataSets(payer common.Address) ([]*big.Int, error) {
-	return _FilecoinWarmStorageServiceStateView.Contract.ClientDataSets(&_FilecoinWarmStorageServiceStateView.CallOpts, payer)
+func (_FilecoinWarmStorageServiceStateView *FilecoinWarmStorageServiceStateViewCaller) ClientDataSets0(opts *bind.CallOpts, payer common.Address) ([]*big.Int, error) {
+	var out []interface{}
+	err := _FilecoinWarmStorageServiceStateView.contract.Call(opts, &out, "clientDataSets0", payer)
+
+	if err != nil {
+		return *new([]*big.Int), err
+	}
+
+	out0 := *abi.ConvertType(out[0], new([]*big.Int)).(*[]*big.Int)
+
+	return out0, err
+
+}
+
+// ClientDataSets0 is a free data retrieval call binding the contract method 0x7dab7c40.
+//
+// Solidity: function clientDataSets(address payer) view returns(uint256[] dataSetIds)
+func (_FilecoinWarmStorageServiceStateView *FilecoinWarmStorageServiceStateViewSession) ClientDataSets0(payer common.Address) ([]*big.Int, error) {
+	return _FilecoinWarmStorageServiceStateView.Contract.ClientDataSets0(&_FilecoinWarmStorageServiceStateView.CallOpts, payer)
+}
+
+// ClientDataSets0 is a free data retrieval call binding the contract method 0x7dab7c40.
+//
+// Solidity: function clientDataSets(address payer) view returns(uint256[] dataSetIds)
+func (_FilecoinWarmStorageServiceStateView *FilecoinWarmStorageServiceStateViewCallerSession) ClientDataSets0(payer common.Address) ([]*big.Int, error) {
+	return _FilecoinWarmStorageServiceStateView.Contract.ClientDataSets0(&_FilecoinWarmStorageServiceStateView.CallOpts, payer)
 }
 
 // ClientNonces is a free data retrieval call binding the contract method 0x35b0e3f4.
@@ -471,43 +471,12 @@ func (_FilecoinWarmStorageServiceStateView *FilecoinWarmStorageServiceStateViewC
 	return _FilecoinWarmStorageServiceStateView.Contract.GetApprovedProvidersLength(&_FilecoinWarmStorageServiceStateView.CallOpts)
 }
 
-// GetChallengesPerProof is a free data retrieval call binding the contract method 0x47d3dfe7.
+// GetClientDataSets is a free data retrieval call binding the contract method 0x3208aa1f.
 //
-// Solidity: function getChallengesPerProof() pure returns(uint64)
-func (_FilecoinWarmStorageServiceStateView *FilecoinWarmStorageServiceStateViewCaller) GetChallengesPerProof(opts *bind.CallOpts) (uint64, error) {
+// Solidity: function getClientDataSets(address client, uint256 offset, uint256 limit) view returns((uint256,uint256,uint256,address,address,address,uint256,uint256,uint256,uint256,uint256)[] infos)
+func (_FilecoinWarmStorageServiceStateView *FilecoinWarmStorageServiceStateViewCaller) GetClientDataSets(opts *bind.CallOpts, client common.Address, offset *big.Int, limit *big.Int) ([]FilecoinWarmStorageServiceDataSetInfoView, error) {
 	var out []interface{}
-	err := _FilecoinWarmStorageServiceStateView.contract.Call(opts, &out, "getChallengesPerProof")
-
-	if err != nil {
-		return *new(uint64), err
-	}
-
-	out0 := *abi.ConvertType(out[0], new(uint64)).(*uint64)
-
-	return out0, err
-
-}
-
-// GetChallengesPerProof is a free data retrieval call binding the contract method 0x47d3dfe7.
-//
-// Solidity: function getChallengesPerProof() pure returns(uint64)
-func (_FilecoinWarmStorageServiceStateView *FilecoinWarmStorageServiceStateViewSession) GetChallengesPerProof() (uint64, error) {
-	return _FilecoinWarmStorageServiceStateView.Contract.GetChallengesPerProof(&_FilecoinWarmStorageServiceStateView.CallOpts)
-}
-
-// GetChallengesPerProof is a free data retrieval call binding the contract method 0x47d3dfe7.
-//
-// Solidity: function getChallengesPerProof() pure returns(uint64)
-func (_FilecoinWarmStorageServiceStateView *FilecoinWarmStorageServiceStateViewCallerSession) GetChallengesPerProof() (uint64, error) {
-	return _FilecoinWarmStorageServiceStateView.Contract.GetChallengesPerProof(&_FilecoinWarmStorageServiceStateView.CallOpts)
-}
-
-// GetClientDataSets is a free data retrieval call binding the contract method 0x967c6f21.
-//
-// Solidity: function getClientDataSets(address client) view returns((uint256,uint256,uint256,address,address,address,uint256,uint256,uint256,uint256,uint256)[] infos)
-func (_FilecoinWarmStorageServiceStateView *FilecoinWarmStorageServiceStateViewCaller) GetClientDataSets(opts *bind.CallOpts, client common.Address) ([]FilecoinWarmStorageServiceDataSetInfoView, error) {
-	var out []interface{}
-	err := _FilecoinWarmStorageServiceStateView.contract.Call(opts, &out, "getClientDataSets", client)
+	err := _FilecoinWarmStorageServiceStateView.contract.Call(opts, &out, "getClientDataSets", client, offset, limit)
 
 	if err != nil {
 		return *new([]FilecoinWarmStorageServiceDataSetInfoView), err
@@ -519,18 +488,125 @@ func (_FilecoinWarmStorageServiceStateView *FilecoinWarmStorageServiceStateViewC
 
 }
 
-// GetClientDataSets is a free data retrieval call binding the contract method 0x967c6f21.
+// GetClientDataSets is a free data retrieval call binding the contract method 0x3208aa1f.
 //
-// Solidity: function getClientDataSets(address client) view returns((uint256,uint256,uint256,address,address,address,uint256,uint256,uint256,uint256,uint256)[] infos)
-func (_FilecoinWarmStorageServiceStateView *FilecoinWarmStorageServiceStateViewSession) GetClientDataSets(client common.Address) ([]FilecoinWarmStorageServiceDataSetInfoView, error) {
-	return _FilecoinWarmStorageServiceStateView.Contract.GetClientDataSets(&_FilecoinWarmStorageServiceStateView.CallOpts, client)
+// Solidity: function getClientDataSets(address client, uint256 offset, uint256 limit) view returns((uint256,uint256,uint256,address,address,address,uint256,uint256,uint256,uint256,uint256)[] infos)
+func (_FilecoinWarmStorageServiceStateView *FilecoinWarmStorageServiceStateViewSession) GetClientDataSets(client common.Address, offset *big.Int, limit *big.Int) ([]FilecoinWarmStorageServiceDataSetInfoView, error) {
+	return _FilecoinWarmStorageServiceStateView.Contract.GetClientDataSets(&_FilecoinWarmStorageServiceStateView.CallOpts, client, offset, limit)
 }
 
-// GetClientDataSets is a free data retrieval call binding the contract method 0x967c6f21.
+// GetClientDataSets is a free data retrieval call binding the contract method 0x3208aa1f.
+//
+// Solidity: function getClientDataSets(address client, uint256 offset, uint256 limit) view returns((uint256,uint256,uint256,address,address,address,uint256,uint256,uint256,uint256,uint256)[] infos)
+func (_FilecoinWarmStorageServiceStateView *FilecoinWarmStorageServiceStateViewCallerSession) GetClientDataSets(client common.Address, offset *big.Int, limit *big.Int) ([]FilecoinWarmStorageServiceDataSetInfoView, error) {
+	return _FilecoinWarmStorageServiceStateView.Contract.GetClientDataSets(&_FilecoinWarmStorageServiceStateView.CallOpts, client, offset, limit)
+}
+
+// GetClientDataSets0 is a free data retrieval call binding the contract method 0x967c6f21.
 //
 // Solidity: function getClientDataSets(address client) view returns((uint256,uint256,uint256,address,address,address,uint256,uint256,uint256,uint256,uint256)[] infos)
-func (_FilecoinWarmStorageServiceStateView *FilecoinWarmStorageServiceStateViewCallerSession) GetClientDataSets(client common.Address) ([]FilecoinWarmStorageServiceDataSetInfoView, error) {
-	return _FilecoinWarmStorageServiceStateView.Contract.GetClientDataSets(&_FilecoinWarmStorageServiceStateView.CallOpts, client)
+func (_FilecoinWarmStorageServiceStateView *FilecoinWarmStorageServiceStateViewCaller) GetClientDataSets0(opts *bind.CallOpts, client common.Address) ([]FilecoinWarmStorageServiceDataSetInfoView, error) {
+	var out []interface{}
+	err := _FilecoinWarmStorageServiceStateView.contract.Call(opts, &out, "getClientDataSets0", client)
+
+	if err != nil {
+		return *new([]FilecoinWarmStorageServiceDataSetInfoView), err
+	}
+
+	out0 := *abi.ConvertType(out[0], new([]FilecoinWarmStorageServiceDataSetInfoView)).(*[]FilecoinWarmStorageServiceDataSetInfoView)
+
+	return out0, err
+
+}
+
+// GetClientDataSets0 is a free data retrieval call binding the contract method 0x967c6f21.
+//
+// Solidity: function getClientDataSets(address client) view returns((uint256,uint256,uint256,address,address,address,uint256,uint256,uint256,uint256,uint256)[] infos)
+func (_FilecoinWarmStorageServiceStateView *FilecoinWarmStorageServiceStateViewSession) GetClientDataSets0(client common.Address) ([]FilecoinWarmStorageServiceDataSetInfoView, error) {
+	return _FilecoinWarmStorageServiceStateView.Contract.GetClientDataSets0(&_FilecoinWarmStorageServiceStateView.CallOpts, client)
+}
+
+// GetClientDataSets0 is a free data retrieval call binding the contract method 0x967c6f21.
+//
+// Solidity: function getClientDataSets(address client) view returns((uint256,uint256,uint256,address,address,address,uint256,uint256,uint256,uint256,uint256)[] infos)
+func (_FilecoinWarmStorageServiceStateView *FilecoinWarmStorageServiceStateViewCallerSession) GetClientDataSets0(client common.Address) ([]FilecoinWarmStorageServiceDataSetInfoView, error) {
+	return _FilecoinWarmStorageServiceStateView.Contract.GetClientDataSets0(&_FilecoinWarmStorageServiceStateView.CallOpts, client)
+}
+
+// GetClientDataSetsLength is a free data retrieval call binding the contract method 0x98a0b04e.
+//
+// Solidity: function getClientDataSetsLength(address payer) view returns(uint256)
+func (_FilecoinWarmStorageServiceStateView *FilecoinWarmStorageServiceStateViewCaller) GetClientDataSetsLength(opts *bind.CallOpts, payer common.Address) (*big.Int, error) {
+	var out []interface{}
+	err := _FilecoinWarmStorageServiceStateView.contract.Call(opts, &out, "getClientDataSetsLength", payer)
+
+	if err != nil {
+		return *new(*big.Int), err
+	}
+
+	out0 := *abi.ConvertType(out[0], new(*big.Int)).(**big.Int)
+
+	return out0, err
+
+}
+
+// GetClientDataSetsLength is a free data retrieval call binding the contract method 0x98a0b04e.
+//
+// Solidity: function getClientDataSetsLength(address payer) view returns(uint256)
+func (_FilecoinWarmStorageServiceStateView *FilecoinWarmStorageServiceStateViewSession) GetClientDataSetsLength(payer common.Address) (*big.Int, error) {
+	return _FilecoinWarmStorageServiceStateView.Contract.GetClientDataSetsLength(&_FilecoinWarmStorageServiceStateView.CallOpts, payer)
+}
+
+// GetClientDataSetsLength is a free data retrieval call binding the contract method 0x98a0b04e.
+//
+// Solidity: function getClientDataSetsLength(address payer) view returns(uint256)
+func (_FilecoinWarmStorageServiceStateView *FilecoinWarmStorageServiceStateViewCallerSession) GetClientDataSetsLength(payer common.Address) (*big.Int, error) {
+	return _FilecoinWarmStorageServiceStateView.Contract.GetClientDataSetsLength(&_FilecoinWarmStorageServiceStateView.CallOpts, payer)
+}
+
+// GetCurrentPricingRates is a free data retrieval call binding the contract method 0xb5a578fc.
+//
+// Solidity: function getCurrentPricingRates() view returns(uint256 storagePrice, uint256 datasetFee)
+func (_FilecoinWarmStorageServiceStateView *FilecoinWarmStorageServiceStateViewCaller) GetCurrentPricingRates(opts *bind.CallOpts) (struct {
+	StoragePrice *big.Int
+	DatasetFee   *big.Int
+}, error) {
+	var out []interface{}
+	err := _FilecoinWarmStorageServiceStateView.contract.Call(opts, &out, "getCurrentPricingRates")
+
+	outstruct := new(struct {
+		StoragePrice *big.Int
+		DatasetFee   *big.Int
+	})
+	if err != nil {
+		return *outstruct, err
+	}
+
+	outstruct.StoragePrice = *abi.ConvertType(out[0], new(*big.Int)).(**big.Int)
+	outstruct.DatasetFee = *abi.ConvertType(out[1], new(*big.Int)).(**big.Int)
+
+	return *outstruct, err
+
+}
+
+// GetCurrentPricingRates is a free data retrieval call binding the contract method 0xb5a578fc.
+//
+// Solidity: function getCurrentPricingRates() view returns(uint256 storagePrice, uint256 datasetFee)
+func (_FilecoinWarmStorageServiceStateView *FilecoinWarmStorageServiceStateViewSession) GetCurrentPricingRates() (struct {
+	StoragePrice *big.Int
+	DatasetFee   *big.Int
+}, error) {
+	return _FilecoinWarmStorageServiceStateView.Contract.GetCurrentPricingRates(&_FilecoinWarmStorageServiceStateView.CallOpts)
+}
+
+// GetCurrentPricingRates is a free data retrieval call binding the contract method 0xb5a578fc.
+//
+// Solidity: function getCurrentPricingRates() view returns(uint256 storagePrice, uint256 datasetFee)
+func (_FilecoinWarmStorageServiceStateView *FilecoinWarmStorageServiceStateViewCallerSession) GetCurrentPricingRates() (struct {
+	StoragePrice *big.Int
+	DatasetFee   *big.Int
+}, error) {
+	return _FilecoinWarmStorageServiceStateView.Contract.GetCurrentPricingRates(&_FilecoinWarmStorageServiceStateView.CallOpts)
 }
 
 // GetDataSet is a free data retrieval call binding the contract method 0xbdaac056.
@@ -669,37 +745,6 @@ func (_FilecoinWarmStorageServiceStateView *FilecoinWarmStorageServiceStateViewS
 // Solidity: function getDataSetStatus(uint256 dataSetId) view returns(uint8 status)
 func (_FilecoinWarmStorageServiceStateView *FilecoinWarmStorageServiceStateViewCallerSession) GetDataSetStatus(dataSetId *big.Int) (uint8, error) {
 	return _FilecoinWarmStorageServiceStateView.Contract.GetDataSetStatus(&_FilecoinWarmStorageServiceStateView.CallOpts, dataSetId)
-}
-
-// GetMaxProvingPeriod is a free data retrieval call binding the contract method 0xf2f12333.
-//
-// Solidity: function getMaxProvingPeriod() view returns(uint64)
-func (_FilecoinWarmStorageServiceStateView *FilecoinWarmStorageServiceStateViewCaller) GetMaxProvingPeriod(opts *bind.CallOpts) (uint64, error) {
-	var out []interface{}
-	err := _FilecoinWarmStorageServiceStateView.contract.Call(opts, &out, "getMaxProvingPeriod")
-
-	if err != nil {
-		return *new(uint64), err
-	}
-
-	out0 := *abi.ConvertType(out[0], new(uint64)).(*uint64)
-
-	return out0, err
-
-}
-
-// GetMaxProvingPeriod is a free data retrieval call binding the contract method 0xf2f12333.
-//
-// Solidity: function getMaxProvingPeriod() view returns(uint64)
-func (_FilecoinWarmStorageServiceStateView *FilecoinWarmStorageServiceStateViewSession) GetMaxProvingPeriod() (uint64, error) {
-	return _FilecoinWarmStorageServiceStateView.Contract.GetMaxProvingPeriod(&_FilecoinWarmStorageServiceStateView.CallOpts)
-}
-
-// GetMaxProvingPeriod is a free data retrieval call binding the contract method 0xf2f12333.
-//
-// Solidity: function getMaxProvingPeriod() view returns(uint64)
-func (_FilecoinWarmStorageServiceStateView *FilecoinWarmStorageServiceStateViewCallerSession) GetMaxProvingPeriod() (uint64, error) {
-	return _FilecoinWarmStorageServiceStateView.Contract.GetMaxProvingPeriod(&_FilecoinWarmStorageServiceStateView.CallOpts)
 }
 
 // GetPDPConfig is a free data retrieval call binding the contract method 0xea0f9354.

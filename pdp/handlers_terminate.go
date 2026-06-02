@@ -102,6 +102,34 @@ func (p *PDPService) handleTerminateDataSet(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	var terminationQueued bool
+	err = p.db.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM pdp_delete_data_set
+			WHERE id = $1
+		)
+	`, dataSetID).Scan(&terminationQueued)
+	if err != nil {
+		httpServerError(w, http.StatusInternalServerError, "Failed to check termination request state", err)
+		return
+	}
+	if terminationQueued {
+		http.Error(w, "Data set termination is already pending or complete", http.StatusConflict)
+		return
+	}
+
+	fwssAddr := contract.ContractAddresses().AllowedPublicRecordKeepers.FWSService
+	supported, err := FWSS.SupportsClientTermination(contract.EthCallOpts(ctx), fwssAddr, p.ethClient)
+	if err != nil {
+		httpServerError(w, http.StatusInternalServerError, "Failed to check FWSS version", err)
+		return
+	}
+	if !supported {
+		http.Error(w, "FWSS contract does not support client-requested termination", http.StatusServiceUnavailable)
+		return
+	}
+
 	n, err := p.db.Exec(ctx, `
 		INSERT INTO pdp_delete_data_set (
 			id,

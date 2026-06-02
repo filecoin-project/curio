@@ -6,7 +6,6 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/curiostorage/harmonyquery"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/yugabyte/pgx/v5"
@@ -108,7 +107,14 @@ func (t *TerminateFWSSTask) Do(taskID harmonytask.TaskID, stillOwned func() bool
 		if len(dataSet.ExtraData) == 0 {
 			return false, xerrors.Errorf("client-requested termination for data set %d has empty extraData", dataSet.ID)
 		}
-		data, err = fwssABi.Pack("terminateService", big.NewInt(dataSet.ID), dataSet.ExtraData)
+		supported, versionErr := FWSS.SupportsClientTermination(contract.EthCallOpts(ctx), address, t.ethClient)
+		if versionErr != nil {
+			return false, xerrors.Errorf("failed to check FWSS version: %w", versionErr)
+		}
+		if !supported {
+			return false, xerrors.Errorf("FWSS contract does not support client-requested termination")
+		}
+		data, err = fwssABi.Pack("terminateService0", big.NewInt(dataSet.ID), dataSet.ExtraData)
 	} else {
 		data, err = fwssABi.Pack("terminateService", big.NewInt(dataSet.ID))
 	}
@@ -130,7 +136,7 @@ func (t *TerminateFWSSTask) Do(taskID harmonytask.TaskID, stillOwned func() bool
 		return false, xerrors.Errorf("failed to send transaction: %w", err)
 	}
 
-	comm, err := t.db.BeginTransaction(ctx, func(tx *harmonyquery.Tx) (commit bool, err error) {
+	comm, err := t.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		n, err := tx.Exec(`UPDATE pdp_delete_data_set 
 									SET terminate_tx_hash = $2, 
 									    after_terminate_service = TRUE,
