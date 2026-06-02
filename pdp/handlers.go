@@ -146,8 +146,11 @@ func Routes(r *chi.Mux, p *PDPService) {
 			// GET /pdp/data-sets/{set-id}
 			r.Get("/", p.handleGetDataSet)
 
-			// DEL /pdp/data-sets/{set-id}
-			r.Delete("/", instrument("dataSetDelete", p.handleDeleteDataSet, kvDataSetID))
+			// POST /pdp/data-sets/{set-id}/terminate
+			r.Post("/terminate", instrument("dataSetTerminate", p.handleTerminateDataSet, kvDataSetID))
+
+			// GET /pdp/data-sets/{set-id}/terminate
+			r.Get("/terminate", p.handleGetDataSetTerminationStatus)
 
 			// Routes for pieces within a data set
 			r.Route("/pieces", func(r chi.Router) {
@@ -755,13 +758,6 @@ type PieceEntry struct {
 	PieceCID       string `json:"pieceCid"`
 	SubPieceCID    string `json:"subPieceCid"`
 	SubPieceOffset int64  `json:"subPieceOffset"`
-}
-
-func (p *PDPService) handleDeleteDataSet(w http.ResponseWriter, r *http.Request) {
-	// ### DEL /data-sets/{set id}
-	// Remove the specified data set entirely
-
-	http.Error(w, "dataset deletion not yet implemented", http.StatusNotImplemented)
 }
 
 // handleGetPieceAdditionStatus handles GET /pdp/data-sets/{dataSetId}/pieces/added/{txHash}
