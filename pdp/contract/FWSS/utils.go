@@ -1,9 +1,13 @@
 package FWSS
 
 import (
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
+	"github.com/ethereum/go-ethereum/common"
+	"golang.org/x/mod/semver"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/ethchain"
 )
 
 func EnsureServiceTermination(tx *harmonydb.Tx, dataSetID int64) error {
@@ -15,4 +19,22 @@ func EnsureServiceTermination(tx *harmonydb.Tx, dataSetID int64) error {
 		return xerrors.Errorf("expected to insert 0 or 1 rows, inserted %d", n)
 	}
 	return nil
+}
+
+const clientTerminationNotSupportedVersion = "1.2.1"
+
+// SupportsClientTermination reports whether FWSS supports
+// terminateService(uint256,bytes) for client-authorized termination.
+func SupportsClientTermination(opts *bind.CallOpts, serviceAddr common.Address, ethClient ethchain.EthClient) (bool, error) {
+	fwss, err := NewFilecoinWarmStorageServiceCaller(serviceAddr, ethClient)
+	if err != nil {
+		return false, xerrors.Errorf("failed to bind FWSS contract: %w", err)
+	}
+
+	version, err := fwss.VERSION(opts)
+	if err != nil {
+		return false, xerrors.Errorf("failed to get version: %w", err)
+	}
+
+	return semver.Compare(version, clientTerminationNotSupportedVersion) > 1, nil
 }

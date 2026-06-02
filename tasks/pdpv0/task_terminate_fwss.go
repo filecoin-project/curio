@@ -107,9 +107,16 @@ func (t *TerminateFWSSTask) Do(taskID harmonytask.TaskID, stillOwned func() bool
 		if len(dataSet.ExtraData) == 0 {
 			return false, xerrors.Errorf("client-requested termination for data set %d has empty extraData", dataSet.ID)
 		}
-		data, err = fwssABi.Pack("terminateService", big.NewInt(dataSet.ID), dataSet.ExtraData)
+		supported, versionErr := FWSS.SupportsClientTermination(contract.EthCallOpts(ctx), address, t.ethClient)
+		if versionErr != nil {
+			return false, xerrors.Errorf("failed to check FWSS version: %w", versionErr)
+		}
+		if !supported {
+			return false, xerrors.Errorf("FWSS contract does not support client-requested termination")
+		}
+		data, err = fwssABi.Pack("terminateService0", big.NewInt(dataSet.ID), dataSet.ExtraData)
 	} else {
-		data, err = fwssABi.Pack("terminateService", big.NewInt(dataSet.ID), []byte{})
+		data, err = fwssABi.Pack("terminateService", big.NewInt(dataSet.ID))
 	}
 	if err != nil {
 		return false, xerrors.Errorf("failed to pack data: %w", err)
