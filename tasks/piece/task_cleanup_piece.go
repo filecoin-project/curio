@@ -45,7 +45,7 @@ func (c *CleanupPieceTask) pollCleanupTasks(ctx context.Context) {
 		// ref_count is maintained by triggers on parked_piece_refs, so this
 		// query is served by idx_parked_pieces_cleanup_eligible without
 		// scanning parked_piece_refs at all.
-		var pieceIDs [] storiface.PieceNumber
+		var pieceIDs []storiface.PieceNumber
 
 		err := c.db.Select(ctx, &pieceIDs, `SELECT id
 			FROM parked_pieces
