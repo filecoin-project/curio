@@ -45,9 +45,7 @@ func (c *CleanupPieceTask) pollCleanupTasks(ctx context.Context) {
 		// ref_count is maintained by triggers on parked_piece_refs, so this
 		// query is served by idx_parked_pieces_cleanup_eligible without
 		// scanning parked_piece_refs at all.
-		var pieceIDs []struct {
-			ID storiface.PieceNumber `db:"id"`
-		}
+		var pieceIDs [] storiface.PieceNumber
 
 		err := c.db.Select(ctx, &pieceIDs, `SELECT id
 			FROM parked_pieces
@@ -77,7 +75,7 @@ func (c *CleanupPieceTask) pollCleanupTasks(ctx context.Context) {
 						SET cleanup_task_id = $1
 						WHERE cleanup_task_id IS NULL
 						  AND id = $2
-						  AND ref_count = 0`, id, pieceID.ID)
+						  AND ref_count = 0`, id, pieceID)
 				if err != nil {
 					return false, xerrors.Errorf("updating parked piece: %w", err)
 				}
@@ -132,10 +130,45 @@ func (c *CleanupPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 	return true, nil
 }
 
-func (c *CleanupPieceTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
-	// the remove call runs on paths.Remote storage, so it doesn't really matter where it runs
+func (c *CleanupPieceTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
+	if storiface.FTPiece != 32 {
+		panic("storiface.FTPiece != 32")
+	}
 
-	return ids, nil
+	ctx := context.Background()
+
+	ls, err := c.sc.LocalStorage(ctx)
+	if err != nil {
+		return nil, xerrors.Errorf("getting local storage: %w", err)
+	}
+	if len(ls) == 0 {
+		return nil, nil
+	}
+
+	storageIDs := make([]string, 0, len(ls))
+	for _, l := range ls {
+		storageIDs = append(storageIDs, string(l.ID))
+	}
+
+	indIDs := make([]int64, len(ids))
+	for i, id := range ids {
+		indIDs[i] = int64(id)
+	}
+
+	var acceptedIDs []harmonytask.TaskID
+	err = c.db.QueryRow(ctx, `SELECT COALESCE(array_agg(cleanup_task_id), '{}')::bigint[] AS cleanup_task_ids FROM 
+										(
+										    SELECT pp.cleanup_task_id FROM parked_pieces pp
+											INNER JOIN sector_location l ON l.miner_id = 0 AND l.sector_num = pp.id AND l.sector_filetype = 32
+											WHERE cleanup_task_id = ANY ($1) 
+											  AND l.storage_id = ANY ($2)
+											  LIMIT 100
+										) s`, indIDs, storageIDs).Scan(&acceptedIDs)
+	if err != nil {
+		return nil, xerrors.Errorf("getting tasks from DB: %w", err)
+	}
+
+	return acceptedIDs, nil
 }
 
 func (c *CleanupPieceTask) TypeDetails() harmonytask.TaskTypeDetails {

@@ -12,15 +12,16 @@
 ALTER TABLE parked_pieces ADD COLUMN IF NOT EXISTS ref_count INTEGER NOT NULL DEFAULT 0;
 
 -- Backfill ref_count from existing parked_piece_refs rows.
-UPDATE parked_pieces pp
-SET ref_count = sub.cnt
-FROM (
+WITH ref_counts AS (
     SELECT piece_id, COUNT(*)::int AS cnt
     FROM parked_piece_refs
     GROUP BY piece_id
-) sub
-WHERE pp.id = sub.piece_id
-  AND pp.ref_count <> sub.cnt;
+)
+UPDATE parked_pieces pp
+SET ref_count = ref_counts.cnt
+FROM ref_counts
+WHERE pp.id = ref_counts.piece_id
+  AND pp.ref_count <> ref_counts.cnt;
 
 CREATE OR REPLACE FUNCTION increment_parked_piece_ref_count()
     RETURNS TRIGGER AS $$
