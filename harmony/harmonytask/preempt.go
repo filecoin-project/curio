@@ -4,6 +4,8 @@ import (
 	"sort"
 	"time"
 
+	"github.com/samber/lo"
+
 	"github.com/filecoin-project/curio/harmony/harmonytask/internal/runregistry"
 	"github.com/filecoin-project/curio/harmony/resources"
 )
@@ -133,6 +135,16 @@ func (e *TaskEngine) executePreemption(plan *preemptionPlan) {
 // sub-packages), or channel-based. After preemption, it signals the
 // scheduler to re-run waterfall.
 func (e *TaskEngine) preemptForTimeSensitive(h *taskTypeHandler, tID TaskID) {
+	accepted, err := h.CanAccept([]TaskID{tID}, e)
+	if err != nil {
+		log.Errorw("CanAccept failed before preemption", "task", h.Name, "taskID", tID, "error", err)
+		return
+	}
+	if !lo.Contains(accepted, tID) {
+		log.Debugw("CanAccept refused, skipping preemption", "task", h.Name, "taskID", tID)
+		return
+	}
+
 	plan := e.computePreemptionPlan(h.Cost)
 	if plan == nil {
 		log.Debugw("no viable preemption plan", "task", h.Name, "taskID", tID)

@@ -1017,6 +1017,78 @@ func TestPreemptionFreesResourcesForTimeSensitive(t *testing.T) {
 	}
 }
 
+// TestPreemptionSkippedWhenCanAcceptRefuses verifies that a TimeSensitive task
+// does not trigger preemption when CanAccept refuses it on this node.
+func TestPreemptionSkippedWhenCanAcceptRefuses(t *testing.T) {
+	db := getDB(t)
+
+	const machineCPU = 2
+
+	running := make(chan harmonytask.TaskID, machineCPU)
+	preempted := make(chan harmonytask.TaskID, machineCPU)
+
+	blockUntilPreempt := func(onPreempt chan<- harmonytask.TaskID) func(context.Context, harmonytask.TaskID, func() bool) (bool, error) {
+		return func(ctx context.Context, id harmonytask.TaskID, so func() bool) (bool, error) {
+			select {
+			case running <- id:
+			default:
+			}
+			select {
+			case <-ctx.Done():
+				if onPreempt != nil {
+					onPreempt <- id
+				}
+				return false, ctx.Err()
+			case <-time.After(30 * time.Second):
+				return false, fmt.Errorf("victim %d did not finish", id)
+			}
+		}
+	}
+
+	victim := newTestTaskWithOpts("TSNoPreemptVictim", machineCPU, resources.Resources{Cpu: 1, Ram: 1 << 20}, false)
+	victim.doFunc = blockUntilPreempt(preempted)
+
+	ts := newTestTaskWithOpts("TSNoPreemptTS", 1, resources.Resources{Cpu: 1, Ram: 1 << 20}, true)
+	ts.canAcceptFunc = func([]harmonytask.TaskID, *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
+		return nil, nil
+	}
+	ts.doFunc = func(ctx context.Context, id harmonytask.TaskID, so func() bool) (bool, error) {
+		ts.doneCh <- id
+		return true, nil
+	}
+
+	t.Cleanup(cleanupTasks(victim, ts))
+
+	e := makeEngineWithResources(t, db, []harmonytask.TaskInterface{victim, ts}, "tsnopreempt:1000",
+		resources.Resources{Cpu: machineCPU, Ram: 1 << 30, Gpu: 0})
+	speedUpPolling(e)
+	e.TestONLY_SetPollDuration(time.Hour)
+
+	for i := 0; i < machineCPU; i++ {
+		e.AddTaskByName("TSNoPreemptVictim", func(id harmonytask.TaskID, tx *harmonydb.Tx) (bool, error) { return true, nil })
+	}
+	waitForTasks(t, running, machineCPU, taskTimeout)
+
+	e.AddTaskByName("TSNoPreemptTS", func(id harmonytask.TaskID, tx *harmonydb.Tx) (bool, error) { return true, nil })
+
+	time.Sleep(2 * time.Second)
+
+	require.Equal(t, uint64(0), e.TestONLY_TimeSensitiveSchedulerStarts(),
+		"preemption should not run when CanAccept refuses the task")
+
+	select {
+	case vID := <-preempted:
+		t.Fatalf("unexpected preemption of victim %d", vID)
+	default:
+	}
+
+	select {
+	case id := <-ts.doneCh:
+		t.Fatalf("time-sensitive task %d should not have started", id)
+	default:
+	}
+}
+
 // TestPreemptedTaskReclaimable verifies that after preemption, the victim task
 // row has owner_id=NULL and can be re-claimed and completed.
 func TestPreemptedTaskReclaimable(t *testing.T) {
