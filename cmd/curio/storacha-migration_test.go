@@ -94,7 +94,7 @@ func TestStorachaMigrationFreshImport(t *testing.T) {
 	fx := pieces.next()
 	writeSourcePiece(t, env, fx)
 
-	out, err := runImportPieces(env.ctx, env.db, env.si, env.sourceDir, env.targetDir, 20)
+	out, err := runImportPieces(env.ctx, env.db, env.si, env.storageID, env.sourceDir, env.targetDir, 20)
 	require.NoError(t, err)
 	require.Equal(t, 1, out.Count)
 	require.Equal(t, []string{fx.cidV2}, out.Pieces)
@@ -121,7 +121,7 @@ func TestStorachaMigrationExistingCompleteMovesStagedWhenFinalMissing(t *testing
 	pieceID := insertParkedPiece(t, env, fx, true, false, nil)
 	writeStagedPiece(t, env, fx)
 
-	out, err := runImportPieces(env.ctx, env.db, env.si, env.sourceDir, env.targetDir, 20)
+	out, err := runImportPieces(env.ctx, env.db, env.si, env.storageID, env.sourceDir, env.targetDir, 20)
 	require.NoError(t, err)
 	require.Equal(t, 1, out.Count)
 
@@ -144,7 +144,7 @@ func TestStorachaMigrationExistingCompleteRemovesStagedDuplicateWhenFinalExists(
 	writeStagedPiece(t, env, fx)
 	writeFinalPiece(t, env, pieceID, finalBytes)
 
-	out, err := runImportPieces(env.ctx, env.db, env.si, env.sourceDir, env.targetDir, 20)
+	out, err := runImportPieces(env.ctx, env.db, env.si, env.storageID, env.sourceDir, env.targetDir, 20)
 	require.NoError(t, err)
 	require.Equal(t, 1, out.Count)
 
@@ -162,7 +162,7 @@ func TestStorachaMigrationClaimsIncompleteParkedPieceWithNoTask(t *testing.T) {
 	pieceID := insertParkedPiece(t, env, fx, false, false, nil)
 	writeStagedPiece(t, env, fx)
 
-	out, err := runImportPieces(env.ctx, env.db, env.si, env.sourceDir, env.targetDir, 20)
+	out, err := runImportPieces(env.ctx, env.db, env.si, env.storageID, env.sourceDir, env.targetDir, 20)
 	require.NoError(t, err)
 	require.Equal(t, 1, out.Count)
 
@@ -184,7 +184,7 @@ func TestStorachaMigrationClaimsIncompleteParkedPieceWithStaleTask(t *testing.T)
 	pieceID := insertParkedPiece(t, env, fx, false, false, &staleTaskID)
 	writeStagedPiece(t, env, fx)
 
-	out, err := runImportPieces(env.ctx, env.db, env.si, env.sourceDir, env.targetDir, 20)
+	out, err := runImportPieces(env.ctx, env.db, env.si, env.storageID, env.sourceDir, env.targetDir, 20)
 	require.NoError(t, err)
 	require.Equal(t, 1, out.Count)
 
@@ -204,7 +204,7 @@ func TestStorachaMigrationLeavesLiveTaskPieceAlone(t *testing.T) {
 	pieceID := insertParkedPiece(t, env, fx, false, false, &taskID)
 	writeStagedPiece(t, env, fx)
 
-	out, err := runImportPieces(env.ctx, env.db, env.si, env.sourceDir, env.targetDir, 20)
+	out, err := runImportPieces(env.ctx, env.db, env.si, env.storageID, env.sourceDir, env.targetDir, 20)
 	require.NoError(t, err)
 	require.Equal(t, 0, out.Count)
 
@@ -227,7 +227,7 @@ func TestStorachaMigrationReusesExistingRefs(t *testing.T) {
 	pdpID := insertPDPRef(t, env, refID, serviceName, fx.info.PieceCIDV1.String())
 	writeStagedPiece(t, env, fx)
 
-	out, err := runImportPieces(env.ctx, env.db, env.si, env.sourceDir, env.targetDir, 20)
+	out, err := runImportPieces(env.ctx, env.db, env.si, env.storageID, env.sourceDir, env.targetDir, 20)
 	require.NoError(t, err)
 	require.Equal(t, 1, out.Count)
 
@@ -246,7 +246,7 @@ func TestStorachaMigrationInsertsMissingPDPRefForExistingParkedRef(t *testing.T)
 	refID := insertStorachaParkedRef(t, env, pieceID)
 	writeStagedPiece(t, env, fx)
 
-	out, err := runImportPieces(env.ctx, env.db, env.si, env.sourceDir, env.targetDir, 20)
+	out, err := runImportPieces(env.ctx, env.db, env.si, env.storageID, env.sourceDir, env.targetDir, 20)
 	require.NoError(t, err)
 	require.Equal(t, 1, out.Count)
 	require.Equal(t, []int64{refID}, storachaRefIDs(t, env, pieceID))
@@ -262,7 +262,7 @@ func TestStorachaMigrationDuplicateStorachaRefsErrors(t *testing.T) {
 	insertStorachaParkedRef(t, env, pieceID)
 	writeStagedPiece(t, env, fx)
 
-	_, err := runImportPieces(env.ctx, env.db, env.si, env.sourceDir, env.targetDir, 20)
+	_, err := runImportPieces(env.ctx, env.db, env.si, env.storageID, env.sourceDir, env.targetDir, 20)
 	require.ErrorContains(t, err, "expected at most 1")
 
 	pp := parkedPieceByID(t, env, pieceID)
@@ -280,7 +280,7 @@ func TestStorachaMigrationMismatchedPDPRefErrors(t *testing.T) {
 	insertPDPRef(t, env, refID, serviceName, "wrong-piece-cid")
 	writeStagedPiece(t, env, fx)
 
-	_, err := runImportPieces(env.ctx, env.db, env.si, env.sourceDir, env.targetDir, 20)
+	_, err := runImportPieces(env.ctx, env.db, env.si, env.storageID, env.sourceDir, env.targetDir, 20)
 	require.ErrorContains(t, err, "does not match storacha migration piece")
 
 	pp := parkedPieceByID(t, env, pieceID)
@@ -298,7 +298,7 @@ func TestStorachaMigrationRecoversFinalFile(t *testing.T) {
 	insertPDPRef(t, env, refID, serviceName, fx.info.PieceCIDV1.String())
 	writeFinalPiece(t, env, pieceID, fx.data)
 
-	out, err := runImportPieces(env.ctx, env.db, env.si, env.sourceDir, env.targetDir, 20)
+	out, err := runImportPieces(env.ctx, env.db, env.si, env.storageID, env.sourceDir, env.targetDir, 20)
 	require.NoError(t, err)
 	require.Equal(t, 1, out.Count)
 
@@ -318,7 +318,7 @@ func TestStorachaMigrationFinalRecoveryMissingFileNoops(t *testing.T) {
 	refID := insertStorachaParkedRef(t, env, pieceID)
 	insertPDPRef(t, env, refID, serviceName, fx.info.PieceCIDV1.String())
 
-	out, err := runImportPieces(env.ctx, env.db, env.si, env.sourceDir, env.targetDir, 20)
+	out, err := runImportPieces(env.ctx, env.db, env.si, env.storageID, env.sourceDir, env.targetDir, 20)
 	require.NoError(t, err)
 	require.Equal(t, 0, out.Count)
 
@@ -336,7 +336,7 @@ func TestStorachaMigrationFinalRecoveryDirectoryErrors(t *testing.T) {
 	insertPDPRef(t, env, refID, serviceName, fx.info.PieceCIDV1.String())
 	require.NoError(t, os.MkdirAll(storachaFinalPiecePath(env.targetDir, pieceID), 0755))
 
-	_, err := runImportPieces(env.ctx, env.db, env.si, env.sourceDir, env.targetDir, 20)
+	_, err := runImportPieces(env.ctx, env.db, env.si, env.storageID, env.sourceDir, env.targetDir, 20)
 	require.ErrorContains(t, err, "final piece path is a directory")
 
 	pp := parkedPieceByID(t, env, pieceID)
@@ -354,7 +354,7 @@ func TestStorachaMigrationFinalRecoveryLeavesLiveTaskPieceAlone(t *testing.T) {
 	insertPDPRef(t, env, refID, serviceName, fx.info.PieceCIDV1.String())
 	writeFinalPiece(t, env, pieceID, fx.data)
 
-	out, err := runImportPieces(env.ctx, env.db, env.si, env.sourceDir, env.targetDir, 20)
+	out, err := runImportPieces(env.ctx, env.db, env.si, env.storageID, env.sourceDir, env.targetDir, 20)
 	require.NoError(t, err)
 	require.Equal(t, 0, out.Count)
 
@@ -373,7 +373,7 @@ func TestStorachaMigrationBatchProcessesStagingBeforeSource(t *testing.T) {
 	writeStagedPiece(t, env, staged)
 	writeSourcePiece(t, env, source)
 
-	out, err := runImportPieces(env.ctx, env.db, env.si, env.sourceDir, env.targetDir, 1)
+	out, err := runImportPieces(env.ctx, env.db, env.si, env.storageID, env.sourceDir, env.targetDir, 1)
 	require.NoError(t, err)
 	require.Equal(t, 1, out.Count)
 	require.Equal(t, []string{staged.cidV2}, out.Pieces)
@@ -395,7 +395,7 @@ func TestStorachaMigrationBatchProcessesFinalRecoveryBeforeSource(t *testing.T) 
 	writeFinalPiece(t, env, pieceID, recovered.data)
 	writeSourcePiece(t, env, source)
 
-	out, err := runImportPieces(env.ctx, env.db, env.si, env.sourceDir, env.targetDir, 1)
+	out, err := runImportPieces(env.ctx, env.db, env.si, env.storageID, env.sourceDir, env.targetDir, 1)
 	require.NoError(t, err)
 	require.Equal(t, 1, out.Count)
 	require.Equal(t, []string{recovered.cidV2}, out.Pieces)
@@ -413,7 +413,7 @@ func TestStorachaMigrationInvalidStagedFileDoesNotConsumeBatch(t *testing.T) {
 	writeFile(t, invalidStagedPath, []byte("invalid staged input"))
 	writeSourcePiece(t, env, source)
 
-	out, err := runImportPieces(env.ctx, env.db, env.si, env.sourceDir, env.targetDir, 1)
+	out, err := runImportPieces(env.ctx, env.db, env.si, env.storageID, env.sourceDir, env.targetDir, 1)
 	require.NoError(t, err)
 	require.Equal(t, 1, out.Count)
 	require.Equal(t, []string{source.cidV2}, out.Pieces)
@@ -427,7 +427,7 @@ func TestStorachaMigrationMissingSourcePathErrors(t *testing.T) {
 	env := setupStorachaMigrationTest(t)
 	missingSource := filepath.Join(filepath.Dir(env.sourceDir), "missing-source")
 
-	_, err := runImportPieces(env.ctx, env.db, env.si, missingSource, env.targetDir, 20)
+	_, err := runImportPieces(env.ctx, env.db, env.si, env.storageID, missingSource, env.targetDir, 20)
 	require.ErrorContains(t, err, "reading directory")
 }
 
@@ -438,7 +438,7 @@ func TestStorachaMigrationSourceImportErrorsWhenStagingPathExists(t *testing.T) 
 	writeSourcePiece(t, env, source)
 	require.NoError(t, os.MkdirAll(filepath.Join(env.stagingDir, source.fileName), 0755))
 
-	_, err := runImportPieces(env.ctx, env.db, env.si, env.sourceDir, env.targetDir, 20)
+	_, err := runImportPieces(env.ctx, env.db, env.si, env.storageID, env.sourceDir, env.targetDir, 20)
 	require.ErrorContains(t, err, "staging file already exists")
 	assertFileBytes(t, filepath.Join(env.sourceDir, source.fileName), source.data)
 }
@@ -451,7 +451,7 @@ func TestStorachaMigrationStagedImportFinalDirectoryErrors(t *testing.T) {
 	writeStagedPiece(t, env, fx)
 	require.NoError(t, os.MkdirAll(storachaFinalPiecePath(env.targetDir, pieceID), 0755))
 
-	_, err := runImportPieces(env.ctx, env.db, env.si, env.sourceDir, env.targetDir, 20)
+	_, err := runImportPieces(env.ctx, env.db, env.si, env.storageID, env.sourceDir, env.targetDir, 20)
 	require.ErrorContains(t, err, "final piece path is a directory")
 
 	pp := parkedPieceByID(t, env, pieceID)

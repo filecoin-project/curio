@@ -126,6 +126,11 @@ var importPiecesCmd = &cli.Command{
 			return xerrors.Errorf("resolving target path: %w", err)
 		}
 
+		storageID, err := pieceStorageID(targetPath)
+		if err != nil {
+			return xerrors.Errorf("getting storage ID: %w", err)
+		}
+
 		db, err := deps.MakeDB(cctx)
 		if err != nil {
 			return err
@@ -133,7 +138,7 @@ var importPiecesCmd = &cli.Command{
 
 		si := paths.NewDBIndex(curioalerting.NewAlertingSystem(), db)
 
-		out, err := runImportPieces(ctx, db, si, sourcePath, targetPath, cctx.Int("batch-size"))
+		out, err := runImportPieces(ctx, db, si, storageID, sourcePath, targetPath, cctx.Int("batch-size"))
 		if err != nil {
 			return err
 		}
@@ -147,13 +152,8 @@ var importPiecesCmd = &cli.Command{
 	},
 }
 
-func runImportPieces(ctx context.Context, db *harmonydb.DB, si paths.SectorIndex, sourcePath, targetPath string, batchSize int) (importPiecesOutput, error) {
+func runImportPieces(ctx context.Context, db *harmonydb.DB, si paths.SectorIndex, storageID storiface.ID, sourcePath, targetPath string, batchSize int) (importPiecesOutput, error) {
 	var out importPiecesOutput
-
-	storageID, err := pieceStorageID(targetPath)
-	if err != nil {
-		return out, err
-	}
 
 	staging := filepath.Join(targetPath, "storacha-staging")
 	existing, err := os.ReadDir(staging)
