@@ -211,6 +211,10 @@ type taskEngineAtomics struct {
 	yieldBackground atomic.Bool
 
 	lastCleanup atomic.Value
+
+	// Count_TimeSensitivePreempt counts schedulerSourceStartTimeSensitive
+	// handlers that ran preemption and considerWork (integration tests only).
+	Count_TimeSensitivePreempt atomic.Uint64
 }
 
 // taskEngineState groups pointers to internal/* registries. Each one
@@ -569,6 +573,12 @@ func (e *TaskEngine) OwnerID() int { return e.cfg.ownerID }
 
 // TestONLY_SetPollDuration overrides the DB polling interval (useful for tests).
 func (e *TaskEngine) TestONLY_SetPollDuration(d time.Duration) { e.atomics.pollDuration.Store(d) }
+
+// TestONLY_TimeSensitiveSchedulerStarts returns how often the scheduler handled
+// schedulerSourceStartTimeSensitive (preempt + claim) for integration tests.
+func (e *TaskEngine) TestONLY_TimeSensitiveSchedulerStarts() uint64 {
+	return e.atomics.Count_TimeSensitivePreempt.Load()
+}
 
 // checkNodeFlags reads the cordon (unschedulable) and restart_request flags
 // from the DB. This runs on the background poller goroutine — not the scheduler

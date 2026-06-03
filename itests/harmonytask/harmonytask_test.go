@@ -808,6 +808,78 @@ func TestPeeringThreeNodeRouting(t *testing.T) {
 
 // ===== Preemption / Interrupt Tests =====
 
+// TestTimeSensitivePathWhenResourcesOccupied verifies that on a running engine with
+// no free CPU, AddTaskByName for a TimeSensitive task triggers preemptForTimeSensitive
+// and schedulerSourceStartTimeSensitive (not the DB poller waterfall).
+func TestTimeSensitivePathWhenResourcesOccupied(t *testing.T) {
+	db := getDB(t)
+
+	const machineCPU = 2
+
+	running := make(chan harmonytask.TaskID, machineCPU)
+	preempted := make(chan harmonytask.TaskID, machineCPU)
+
+	blockUntilPreempt := func(onPreempt chan<- harmonytask.TaskID) func(context.Context, harmonytask.TaskID, func() bool) (bool, error) {
+		return func(ctx context.Context, id harmonytask.TaskID, so func() bool) (bool, error) {
+			select {
+			case running <- id:
+			default:
+			}
+			select {
+			case <-ctx.Done():
+				if onPreempt != nil {
+					onPreempt <- id
+				}
+				return false, ctx.Err()
+			case <-time.After(30 * time.Second):
+				return false, fmt.Errorf("victim %d did not finish", id)
+			}
+		}
+	}
+
+	victim := newTestTaskWithOpts("TSPathVictim", machineCPU, resources.Resources{Cpu: 1, Ram: 1 << 20}, false)
+	victim.doFunc = blockUntilPreempt(preempted)
+
+	ts := newTestTaskWithOpts("TSPathTS", 1, resources.Resources{Cpu: 1, Ram: 1 << 20}, true)
+	ts.doFunc = func(ctx context.Context, id harmonytask.TaskID, so func() bool) (bool, error) {
+		ts.doneCh <- id
+		return true, nil
+	}
+
+	t.Cleanup(cleanupTasks(victim, ts))
+
+	e := makeEngineWithResources(t, db, []harmonytask.TaskInterface{victim, ts}, "tspath:1000",
+		resources.Resources{Cpu: machineCPU, Ram: 1 << 30, Gpu: 0})
+	speedUpPolling(e)
+	e.TestONLY_SetPollDuration(time.Hour) // only event-driven scheduling (AddTask / preempt path)
+
+	for i := 0; i < machineCPU; i++ {
+		e.AddTaskByName("TSPathVictim", func(id harmonytask.TaskID, tx *harmonydb.Tx) (bool, error) { return true, nil })
+	}
+	waitForTasks(t, running, machineCPU, taskTimeout)
+
+	tsStart := time.Now()
+	e.AddTaskByName("TSPathTS", func(id harmonytask.TaskID, tx *harmonydb.Tx) (bool, error) { return true, nil })
+
+	tsID := waitForTask(t, ts.doneCh, taskTimeout)
+	require.Less(t, time.Since(tsStart), 5*time.Second,
+		"TimeSensitive task should start via preempt path, not DB poll")
+	require.GreaterOrEqual(t, e.TestONLY_TimeSensitiveSchedulerStarts(), uint64(1),
+		"expected schedulerSourceStartTimeSensitive handling")
+
+	host := waitForHistory(t, db, tsID, taskTimeout)
+	require.Equal(t, "tspath:1000", host)
+
+	select {
+	case vID := <-preempted:
+		require.Greater(t, int(vID), 0)
+	default:
+		t.Fatal("machine was full; TimeSensitive start should have preempted a victim")
+	}
+
+	waitForNamedSuccessCount(t, db, "TSPathTS", 1, taskTimeout)
+}
+
 // noopTestStorage exercises the storage Claim path in task_type_handler without I/O.
 type noopTestStorage struct{}
 

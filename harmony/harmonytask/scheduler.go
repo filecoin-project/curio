@@ -308,6 +308,7 @@ func (e *TaskEngine) startScheduler() {
 					tasks := taskSourceLocal{availableTasks}.GetTasks(event.TaskType)
 					if len(tasks) > 0 {
 						h.considerWork(workSourcePreempt, tasks, eventEmitter{e.schedulerChannel})
+						e.atomics.Count_TimeSensitivePreempt.Add(1)
 					}
 				case schedulerSourceInitialPoll:
 					if err := e.pollerTryAllWork(ts, ee); err != nil {
