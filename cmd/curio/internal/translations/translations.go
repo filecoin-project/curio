@@ -63,7 +63,11 @@ func SetupLanguage() (func(key message.Reference, a ...any) string, func(style l
 	if err != nil {
 		lang = language.English
 		problem = true
-		os.Stderr.WriteString("Error parsing language\n")
+		_, err = os.Stderr.WriteString("Error parsing language\n")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error writing to stderr: %v\n", err)
+			os.Exit(1)
+		}
 	}
 
 	langs := message.DefaultCatalog.Languages()
