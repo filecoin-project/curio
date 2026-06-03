@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -17,9 +18,11 @@ import (
 	"github.com/filecoin-project/go-padreader"
 	"github.com/filecoin-project/go-state-types/abi"
 
+	"github.com/filecoin-project/curio/alertmanager/curioalerting"
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/parkpiece"
+	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/mk20"
 )
@@ -61,7 +64,7 @@ var importPiecesCmd = &cli.Command{
 		},
 		&cli.StringFlag{
 			Name:  "target",
-			Usage: "path to piece storage directory in Curio's attached permanent storage",
+			Usage: "path to storage directory in Curio's attached permanent storage",
 		},
 		&cli.IntFlag{
 			Name:  "batch-size",
@@ -77,9 +80,9 @@ var importPiecesCmd = &cli.Command{
 
 			The source directory has Storacha CAR files named by piece CID v2. Curio's
 			piece park stores the same bytes under a parked_pieces id, so the final
-			filename becomes s-t00-<parked_piece_id>. That means the migration must
-			first learn or create the parked_pieces row before it knows the final
-			filename.
+			file under the target storage root becomes piece/s-t00-<parked_piece_id>.
+			That means the migration must first learn or create the parked_pieces
+			row before it knows the final filename.
 
 			Every fresh source file is moved to target/storacha-staging first. That
 			staging move is the first retry boundary: once the file leaves source, a
@@ -93,12 +96,13 @@ var importPiecesCmd = &cli.Command{
 			   file alone because that task owns the normal download/write path.
 			4. Otherwise, ensure exactly one storacha-migration parked_piece_refs row
 			   and exactly one pdp_piecerefs row for that parked ref.
-			5. After the transaction commits, move the staged file to s-t00-<id>,
-			   declare it in sector_location, then mark parked_pieces.complete=true.
+			5. After the transaction commits, move the staged file to
+			   target/piece/s-t00-<id>, declare it in sector_location, then mark
+			   parked_pieces.complete=true.
 
 			recoverFinalStorachaPieces exists for the one point where staging can no
-			longer help: if a previous run already renamed the file to s-t00-<id> and
-			then crashed before declaring the file or marking the parked piece
+			longer help: if a previous run already renamed the file into target/piece
+			and then crashed before declaring the file or marking the parked piece
 			complete. At that point there is no staged filename left to process, so
 			recovery starts from the DB row/ref and checks whether the final file is
 			already present.
@@ -122,12 +126,14 @@ var importPiecesCmd = &cli.Command{
 			return xerrors.Errorf("resolving target path: %w", err)
 		}
 
-		dep, err := deps.GetDepsCLI(ctx, cctx)
+		db, err := deps.MakeDB(cctx)
 		if err != nil {
 			return err
 		}
 
-		out, err := runImportPieces(ctx, dep, sourcePath, targetPath, cctx.Int("batch-size"))
+		si := paths.NewDBIndex(curioalerting.NewAlertingSystem(), db)
+
+		out, err := runImportPieces(ctx, db, si, sourcePath, targetPath, cctx.Int("batch-size"))
 		if err != nil {
 			return err
 		}
@@ -141,15 +147,10 @@ var importPiecesCmd = &cli.Command{
 	},
 }
 
-func runImportPieces(ctx context.Context, dep *deps.Deps, sourcePath, targetPath string, batchSize int) (importPiecesOutput, error) {
+func runImportPieces(ctx context.Context, db *harmonydb.DB, si paths.SectorIndex, sourcePath, targetPath string, batchSize int) (importPiecesOutput, error) {
 	var out importPiecesOutput
 
-	targetPath, err := filepath.Abs(filepath.Clean(targetPath))
-	if err != nil {
-		return out, xerrors.Errorf("resolving target path: %w", err)
-	}
-
-	storageID, err := pieceStorageID(ctx, dep, targetPath)
+	storageID, err := pieceStorageID(targetPath)
 	if err != nil {
 		return out, err
 	}
@@ -178,7 +179,7 @@ func runImportPieces(ctx context.Context, dep *deps.Deps, sourcePath, targetPath
 				continue
 			}
 
-			result, err := importStagedStorachaPiece(ctx, dep, storageID, targetPath, filepath.Join(staging, entry.Name()))
+			result, err := importStagedStorachaPiece(ctx, db, si, storageID, targetPath, filepath.Join(staging, entry.Name()))
 			if err != nil {
 				return out, err
 			}
@@ -191,7 +192,7 @@ func runImportPieces(ctx context.Context, dep *deps.Deps, sourcePath, targetPath
 
 	// This covers the crash point after staging was renamed to the final
 	// piece path, but before sector_location/parked_pieces was finalized.
-	err = recoverFinalStorachaPieces(ctx, dep, storageID, targetPath, &out, batchSize)
+	err = recoverFinalStorachaPieces(ctx, db, si, storageID, targetPath, &out, batchSize)
 	if err != nil {
 		return out, err
 	}
@@ -237,7 +238,7 @@ func runImportPieces(ctx context.Context, dep *deps.Deps, sourcePath, targetPath
 			return out, xerrors.Errorf("renaming old path: %w", err)
 		}
 
-		result, err := importStagedStorachaPiece(ctx, dep, storageID, targetPath, stagingPath)
+		result, err := importStagedStorachaPiece(ctx, db, si, storageID, targetPath, stagingPath)
 		if err != nil {
 			return out, err
 		}
@@ -251,27 +252,24 @@ func runImportPieces(ctx context.Context, dep *deps.Deps, sourcePath, targetPath
 }
 
 // pieceStorageID maps the user-provided target directory back to Curio's
-// storage id. The target flag is expected to point at an attached storage
-// path's "piece" directory, because StorageDeclareSector needs the parent
-// storage id when it writes sector_location.
-func pieceStorageID(ctx context.Context, dep *deps.Deps, targetPath string) (storiface.ID, error) {
-	localPaths, err := dep.LocalStore.Local(ctx)
+// storage id. The target flag is expected to point at the storage root that
+// contains sectorstore.json; final piece files are stored under target/piece.
+func pieceStorageID(targetPath string) (storiface.ID, error) {
+	mb, err := os.ReadFile(filepath.Join(targetPath, paths.MetaFile))
 	if err != nil {
-		return "", xerrors.Errorf("listing local storage paths: %w", err)
+		return "", xerrors.Errorf("reading storage metadata for %s: %w", targetPath, err)
 	}
 
-	for _, localPath := range localPaths {
-		piecePath := filepath.Join(localPath.LocalPath, storiface.FTPiece.String())
-		piecePath, err = filepath.Abs(filepath.Clean(piecePath))
-		if err != nil {
-			return "", xerrors.Errorf("resolving piece path %s: %w", piecePath, err)
-		}
-		if piecePath == targetPath {
-			return localPath.ID, nil
-		}
+	var meta storiface.LocalStorageMeta
+	if err := json.Unmarshal(mb, &meta); err != nil {
+		return "", xerrors.Errorf("unmarshalling storage metadata for %s: %w", targetPath, err)
 	}
 
-	return "", xerrors.Errorf("target %s is not the piece directory of an attached local storage path", targetPath)
+	if meta.ID != ("") {
+		return meta.ID, nil
+	}
+
+	return "", xerrors.Errorf("no storage ID found for %s", targetPath)
 }
 
 // storachaPieceInfoFromFileName accepts only Storacha migration inputs named
@@ -300,10 +298,11 @@ func storachaPieceInfoFromFileName(name string) (*mk20.PieceInfo, bool, error) {
 // It first creates or reuses parked_pieces/refs in a committed DB transaction.
 // If an existing incomplete parked_piece still has a live task, it returns
 // Imported=false and leaves the staged file untouched for a later retry.
-// Otherwise it consumes the staged file: remove it if the final s-t00-<id>
-// already exists, or rename it to that final path. It then declares the piece
-// location and marks parked_pieces.complete unless the row was already complete.
-func importStagedStorachaPiece(ctx context.Context, dep *deps.Deps, storageID storiface.ID, targetPath, stagingPath string) (storachaImportResult, error) {
+// Otherwise it consumes the staged file: remove it if the final
+// target/piece/s-t00-<id> already exists, or rename it to that final path. It
+// then declares the piece location and marks parked_pieces.complete unless the
+// row was already complete.
+func importStagedStorachaPiece(ctx context.Context, db *harmonydb.DB, si paths.SectorIndex, storageID storiface.ID, targetPath, stagingPath string) (storachaImportResult, error) {
 	info, err := os.Stat(stagingPath)
 	if err != nil {
 		return storachaImportResult{}, xerrors.Errorf("checking staging file: %w", err)
@@ -324,7 +323,7 @@ func importStagedStorachaPiece(ctx context.Context, dep *deps.Deps, storageID st
 	// The transaction only decides ownership and DB references. It deliberately
 	// does not move the file to s-t00-<id>; the id must be committed before the
 	// filename depends on it.
-	comm, err := dep.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+	comm, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		parkedPieceID, createdParkedPiece, err := parkpiece.UpsertSkipWithInserted(tx, pi.PieceCIDV1.String(), int64(pi.Size), int64(pi.RawSize), true, true)
 		if err != nil {
 			return false, xerrors.Errorf("upsert parked piece: %w", err)
@@ -386,14 +385,14 @@ func importStagedStorachaPiece(ctx context.Context, dep *deps.Deps, storageID st
 		return storachaImportResult{}, xerrors.Errorf("checking final piece file: %w", err)
 	}
 
-	if err := declareStorachaPiece(ctx, dep, storageID, state.ID); err != nil {
+	if err := declareStorachaPiece(ctx, si, storageID, state.ID); err != nil {
 		return storachaImportResult{}, err
 	}
 
 	if !state.AlreadyComplete {
 		// complete is last. If we crash before this, final-file recovery will see
 		// s-t00-<id>, declare it again idempotently, and mark the row complete.
-		if err := markParkedPieceComplete(ctx, dep.DB, state.ID); err != nil {
+		if err := markParkedPieceComplete(ctx, db, state.ID); err != nil {
 			return storachaImportResult{}, err
 		}
 	}
@@ -403,16 +402,17 @@ func importStagedStorachaPiece(ctx context.Context, dep *deps.Deps, storageID st
 
 // recoverFinalStorachaPieces scans incomplete storacha-migration rows where the
 // DB/ref side already exists. For each row it checks whether the file has
-// already reached its final s-t00-<id> path. If yes, it finishes declaration and
-// complete=true. If no final file exists, it leaves the row alone; there is
-// nothing safe to do without either the staged file or the final file.
-func recoverFinalStorachaPieces(ctx context.Context, dep *deps.Deps, storageID storiface.ID, targetPath string, out *importPiecesOutput, batchSize int) error {
+// already reached its final target/piece/s-t00-<id> path. If yes, it finishes
+// declaration and complete=true. If no final file exists, it leaves the row
+// alone; there is nothing safe to do without either the staged file or the final
+// file.
+func recoverFinalStorachaPieces(ctx context.Context, db *harmonydb.DB, si paths.SectorIndex, storageID storiface.ID, targetPath string, out *importPiecesOutput, batchSize int) error {
 	if out.Count >= batchSize {
 		return nil
 	}
 
 	var rows []storachaFinalRecoveryRow
-	err := dep.DB.Select(ctx, &rows, `
+	err := db.Select(ctx, &rows, `
 		SELECT pp.id, pp.piece_cid, pp.piece_padded_size, pp.piece_raw_size
 		FROM parked_pieces pp
 		WHERE pp.complete = FALSE
@@ -436,7 +436,7 @@ func recoverFinalStorachaPieces(ctx context.Context, dep *deps.Deps, storageID s
 			break
 		}
 
-		imported, err := recoverFinalStorachaPiece(ctx, dep, storageID, targetPath, row)
+		imported, err := recoverFinalStorachaPiece(ctx, db, si, storageID, targetPath, row)
 		if err != nil {
 			return err
 		}
@@ -468,11 +468,11 @@ func storachaPieceCIDV2FromRow(row storachaFinalRecoveryRow) (string, error) {
 }
 
 // recoverFinalStorachaPiece handles the post-rename crash window for one DB row.
-// It requires target/s-t00-<id> to exist, rebuilds the piece info from the DB
-// row, reuses the same claim/ref checks as staged import, then declares the
+// It requires target/piece/s-t00-<id> to exist, rebuilds the piece info from the
+// DB row, reuses the same claim/ref checks as staged import, then declares the
 // final file and marks the parked piece complete. It returns false when the
 // final file is missing or a live task still owns the parked_piece.
-func recoverFinalStorachaPiece(ctx context.Context, dep *deps.Deps, storageID storiface.ID, targetPath string, row storachaFinalRecoveryRow) (bool, error) {
+func recoverFinalStorachaPiece(ctx context.Context, db *harmonydb.DB, si paths.SectorIndex, storageID storiface.ID, targetPath string, row storachaFinalRecoveryRow) (bool, error) {
 	finalPath := storachaFinalPiecePath(targetPath, row.ID)
 	info, err := os.Stat(finalPath)
 	if os.IsNotExist(err) {
@@ -496,7 +496,7 @@ func recoverFinalStorachaPiece(ctx context.Context, dep *deps.Deps, storageID st
 	}
 
 	var state storachaParkedPieceState
-	comm, err := dep.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+	comm, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		state, err = claimExistingStorachaPieceTx(tx, row.ID)
 		if err != nil {
 			return false, err
@@ -519,11 +519,11 @@ func recoverFinalStorachaPiece(ctx context.Context, dep *deps.Deps, storageID st
 		return false, nil
 	}
 
-	if err := declareStorachaPiece(ctx, dep, storageID, row.ID); err != nil {
+	if err := declareStorachaPiece(ctx, si, storageID, row.ID); err != nil {
 		return false, err
 	}
 	if !state.AlreadyComplete {
-		if err := markParkedPieceComplete(ctx, dep.DB, row.ID); err != nil {
+		if err := markParkedPieceComplete(ctx, db, row.ID); err != nil {
 			return false, err
 		}
 	}
@@ -654,18 +654,18 @@ func ensureStorachaRefsTx(tx *harmonydb.Tx, parkedPieceID int64, pi *mk20.PieceI
 }
 
 // storachaFinalPiecePath mirrors Curio's piece-park sector naming: parked piece
-// id N is stored as miner-zero piece sector s-t00-N under the target piece dir.
+// id N is stored as miner-zero piece sector s-t00-N under target/piece.
 func storachaFinalPiecePath(targetPath string, parkedPieceID int64) string {
 	pieceNumber := storiface.PieceNumber(parkedPieceID)
-	return filepath.Join(targetPath, storiface.SectorName(pieceNumber.Ref().ID))
+	return filepath.Join(targetPath, "piece", storiface.SectorName(pieceNumber.Ref().ID))
 }
 
 // declareStorachaPiece records the final piece file in sector_location. The
 // storage index upsert is idempotent, so recovery can call this again after a
 // crash between rename and complete=true.
-func declareStorachaPiece(ctx context.Context, dep *deps.Deps, storageID storiface.ID, parkedPieceID int64) error {
+func declareStorachaPiece(ctx context.Context, si paths.SectorIndex, storageID storiface.ID, parkedPieceID int64) error {
 	pieceNumber := storiface.PieceNumber(parkedPieceID)
-	err := dep.Si.StorageDeclareSector(ctx, storageID, pieceNumber.Ref().ID, storiface.FTPiece, true)
+	err := si.StorageDeclareSector(ctx, storageID, pieceNumber.Ref().ID, storiface.FTPiece, true)
 	if err != nil {
 		return xerrors.Errorf("declaring storacha piece: %w", err)
 	}
