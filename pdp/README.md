@@ -369,8 +369,8 @@ When you initiate an upload with the `notify` field specified, the PDP Service w
 
 - **Fields:**
     - `recordKeeper`: The Ethereum address of the record keeper (required).
-    - `pieces`: An array of piece entries (same format as `POST /pdp/data-sets/{dataSetId}/pieces`).
-    - `extraData`: *(Optional)* Hex-encoded additional data (max 8192 bytes decoded). If it contains `withIPFSIndexing` metadata, pieces will be marked for IPFS indexing.
+    - `pieces`: An array of piece entries (same format as `POST /pdp/data-sets/{dataSetId}/pieces`). At most 40 pieces per call (larger batches would exceed on-chain event-size limits and are rejected with `400 Bad Request`).
+    - `extraData`: *(Optional)* Hex-encoded additional data. If it contains `withIPFSIndexing` metadata, pieces will be marked for IPFS indexing.
 
 #### Response
 
@@ -380,7 +380,7 @@ When you initiate an upload with the `notify` field specified, the PDP Service w
 
 #### Errors
 
-- `400 Bad Request`: Invalid request body, validation errors, or size limit exceeded.
+- `400 Bad Request`: Invalid request body, validation errors, or more than 40 pieces in the batch.
 - `401 Unauthorized`: Missing or invalid JWT token.
 - `403 Forbidden`: `recordKeeper` address not allowed for this service.
 - `500 Internal Server Error`: Failed to process the request.
@@ -521,10 +521,11 @@ When you initiate an upload with the `notify` field specified, the PDP Service w
             - `subPieces`: An array of subPiece entries.
                 - Each subPiece entry contains:
                     - `subPieceCid`: The CID of the subPiece (v1 or v2). Must be previously uploaded.
-    - `extraData`: (Optional) Additional hex-encoded data for the transaction (max 8192 bytes decoded).
+    - `extraData`: (Optional) Additional hex-encoded data for the transaction.
 
 #### Constraints and Requirements
 
+- **Batch Size:** At most 40 pieces may be added per call (larger batches would exceed on-chain event-size limits and are rejected with `400 Bad Request`).
 - **SubPieces Ordering:** The `subPieces` must be provided in order **from largest to smallest size** (by padded size). This ensures correct Merkle tree computation.
 - **SubPieces Ownership:** All subPieces must belong to the service making the request and have been previously uploaded.
 - **SubPiece Sizes:** Each subPiece size must be at least 128 bytes.
@@ -539,7 +540,7 @@ When you initiate an upload with the `notify` field specified, the PDP Service w
 
 #### Errors
 
-- `400 Bad Request`: Invalid request body, missing fields, validation errors, subPieces not ordered correctly, or raw size mismatch.
+- `400 Bad Request`: Invalid request body, missing fields, validation errors, more than 40 pieces in the batch, subPieces not ordered correctly, or raw size mismatch.
 - `401 Unauthorized`: Missing or invalid JWT token.
 - `404 Not Found`: Data set not found or subPieces not found.
 - `409 Conflict`: Data set has been terminated due to unrecoverable proving failure.
