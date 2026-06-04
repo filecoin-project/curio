@@ -47,29 +47,6 @@ func startPeerHTTP(t *testing.T, name string) (*PeerHTTP, string) {
 	return p, addr
 }
 
-// collectMessages drains a PeerConnection into a slice, stopping after timeout
-// with no new messages.
-func collectMessages(conn harmonytask.PeerConnection, count int, timeout time.Duration) [][]byte {
-	var msgs [][]byte
-	for i := 0; i < count; i++ {
-		done := make(chan []byte, 1)
-		go func() {
-			msg, err := conn.ReceiveMessage()
-			if err != nil {
-				return
-			}
-			done <- msg
-		}()
-		select {
-		case msg := <-done:
-			msgs = append(msgs, msg)
-		case <-time.After(timeout):
-			return msgs
-		}
-	}
-	return msgs
-}
-
 // ===== Tests =====
 
 // TestPeerHTTPSendReceive verifies basic message passing between two HTTP peers.
