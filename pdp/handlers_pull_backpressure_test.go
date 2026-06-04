@@ -221,10 +221,9 @@ func TestHandlePull_BackpressureSoloClientCanUseNinetyPercent(t *testing.T) {
 	}
 
 	payer := common.HexToAddress("0x1111111111111111111111111111111111111111")
-	rec := submitPullStressRequest(t, handler, payer, 1, dataSetID, pullPiecesFromCIDs(piecePool[:pullStressSoloClientLimit]))
-	require.Equal(t, http.StatusOK, rec.Code)
+	nonce := submitPullStressRequestChunked(t, handler, payer, 1, dataSetID, piecePool[:pullStressSoloClientLimit])
 
-	rec = submitPullStressRequest(t, handler, payer, 2, dataSetID, pullPiecesFromCIDs(piecePool[pullStressSoloClientLimit:]))
+	rec := submitPullStressRequest(t, handler, payer, nonce, dataSetID, pullPiecesFromCIDs(piecePool[pullStressSoloClientLimit:]))
 	require.Equal(t, http.StatusTooManyRequests, rec.Code)
 	require.Equal(t, "60", rec.Header().Get("Retry-After"))
 }
@@ -264,10 +263,9 @@ func TestHandlePull_BackpressureClientLimitAppliesNearGlobalReserve(t *testing.T
 
 	firstClient := common.HexToAddress("0x1111111111111111111111111111111111111111")
 	secondClient := common.HexToAddress("0x2222222222222222222222222222222222222222")
-	rec := submitPullStressRequest(t, handler, firstClient, 1, dataSetID, pullPiecesFromCIDs(piecePool[:pullStressSoloClientLimit-pullStressPerClientLimit]))
-	require.Equal(t, http.StatusOK, rec.Code)
+	nonce := submitPullStressRequestChunked(t, handler, firstClient, 1, dataSetID, piecePool[:pullStressSoloClientLimit-pullStressPerClientLimit])
 
-	rec = submitPullStressRequest(t, handler, secondClient, 2, dataSetID, pullPiecesFromCIDs(piecePool[pullStressSoloClientLimit-pullStressPerClientLimit:]))
+	rec := submitPullStressRequest(t, handler, secondClient, nonce, dataSetID, pullPiecesFromCIDs(piecePool[pullStressSoloClientLimit-pullStressPerClientLimit:]))
 	require.Equal(t, http.StatusTooManyRequests, rec.Code)
 	require.Equal(t, "60", rec.Header().Get("Retry-After"))
 }
@@ -407,6 +405,23 @@ func submitPullStressRequest(t *testing.T, handler *PullHandler, payer common.Ad
 	rec := httptest.NewRecorder()
 	handler.HandlePull(rec, req)
 	return rec
+}
+
+// submitPullStressRequestChunked submits cids in MaxAddPiecesBatchSize chunks
+// (each with its own nonce), requiring 200 OK for each, and returns the next
+// unused nonce. Pending state accumulates across chunks just as it would for a
+// client streaming batches at the request size limit.
+func submitPullStressRequestChunked(t *testing.T, handler *PullHandler, payer common.Address, nonce int64, dataSetID uint64, cids []string) int64 {
+	t.Helper()
+
+	for len(cids) > 0 {
+		batch := min(len(cids), MaxAddPiecesBatchSize)
+		rec := submitPullStressRequest(t, handler, payer, nonce, dataSetID, pullPiecesFromCIDs(cids[:batch]))
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		cids = cids[batch:]
+		nonce++
+	}
+	return nonce
 }
 
 func (s *pdpPullStressStats) snapshot() pdpPullStressStats {
