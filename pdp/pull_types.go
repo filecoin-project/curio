@@ -177,6 +177,9 @@ func (r *PullRequest) Validate() error {
 	if len(r.Pieces) == 0 {
 		return fmt.Errorf("at least one piece is required")
 	}
+	if len(r.Pieces) > MaxAddPiecesBatchSize {
+		return fmt.Errorf("piece count (%d) exceeds the maximum allowed per pull (%d)", len(r.Pieces), MaxAddPiecesBatchSize)
+	}
 
 	// Validate each piece (CID format validation is done later by ParsePieceCidV2).
 	// The same piece may appear more than once with different source URLs so

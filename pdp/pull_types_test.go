@@ -1,6 +1,7 @@
 package pdp
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -323,6 +324,26 @@ func TestPullRequest_Validate(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestPullRequest_ValidateBatchLimit(t *testing.T) {
+	const validCid = "bafkzcibf6x7poaqtr2pqm6qki6sgetps74xutpclzrwbux5ow6rw4nsfu6tbf2zfnmnq"
+	dataSetId := uint64(1)
+
+	// Distinct source URLs so the batch-size check is isolated from the
+	// duplicate and per-piece checks that run afterwards.
+	pieces := make([]PullPieceRequest, MaxAddPiecesBatchSize+1)
+	for i := range pieces {
+		pieces[i] = PullPieceRequest{
+			PieceCid:  validCid,
+			SourceURL: fmt.Sprintf("https://sp.example.com/piece/%s?n=%d", validCid, i),
+		}
+	}
+	req := PullRequest{ExtraData: "0x1234", DataSetId: &dataSetId, Pieces: pieces}
+
+	err := req.Validate()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "exceeds the maximum allowed per pull")
 }
 
 func TestPullRetryAfter(t *testing.T) {

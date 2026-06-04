@@ -333,15 +333,15 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 		httpServerError(w, http.StatusBadRequest, "At least one piece must be provided", err)
 		return
 	}
+	if len(payload.Pieces) > MaxAddPiecesBatchSize {
+		errMsg := fmt.Sprintf("piece count (%d) exceeds the maximum allowed per AddPieces call (%d)", len(payload.Pieces), MaxAddPiecesBatchSize)
+		httpServerError(w, http.StatusBadRequest, errMsg, err)
+		return
+	}
 
 	extraDataBytes, err := decodeExtraData(payload.ExtraData)
 	if err != nil {
 		httpServerError(w, http.StatusBadRequest, "Invalid extraData format (must be hex encoded): "+err.Error(), err)
-		return
-	}
-	if len(extraDataBytes) > MaxAddPiecesExtraDataSize {
-		errMsg := fmt.Sprintf("extraData size (%d bytes) exceeds the maximum allowed limit for AddPieces (%d bytes)", len(extraDataBytes), MaxAddPiecesExtraDataSize)
-		httpServerError(w, http.StatusBadRequest, errMsg, err)
 		return
 	}
 
