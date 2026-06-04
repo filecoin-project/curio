@@ -112,10 +112,16 @@ func (p *PDPService) handleCreateDataSetAndAddPieces(w http.ResponseWriter, r *h
 		return
 	}
 
+	cleanupDeposit, err := contract.FilCleanupDeposit(workCtx, p.ethClient)
+	if err != nil {
+		httpServerError(w, http.StatusInternalServerError, "Failed to read FIL cleanup deposit: "+err.Error(), err)
+		return
+	}
+
 	tx := types.NewTransaction(
 		0,
 		contract.ContractAddresses().PDPVerifier,
-		big.NewInt(0),
+		cleanupDeposit,
 		0,
 		nil,
 		data,
@@ -277,11 +283,17 @@ func (p *PDPService) handleCreateDataSet(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	cleanupDeposit, err := contract.FilCleanupDeposit(workCtx, p.ethClient)
+	if err != nil {
+		httpServerError(w, http.StatusInternalServerError, "Failed to read FIL cleanup deposit: "+err.Error(), err)
+		return
+	}
+
 	// Prepare the transaction (nonce will be set to 0, SenderETH will assign it)
 	tx := types.NewTransaction(
 		0,
 		contract.ContractAddresses().PDPVerifier,
-		big.NewInt(0),
+		cleanupDeposit,
 		0,
 		nil,
 		data,

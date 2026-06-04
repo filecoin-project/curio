@@ -48,6 +48,12 @@ func (c *CleanupPieceTask) WakePoll() {
 	}
 }
 
+// cleanupCandidateBatch caps how many candidate pieces the poller pulls per
+// iteration. The bounded SELECT plus the partial index on
+// (id) WHERE cleanup_task_id IS NULL AND ref_count = 0 keeps each poll cheap
+// regardless of total parked_pieces size.
+const cleanupCandidateBatch = 256
+
 func (c *CleanupPieceTask) pollCleanupTasks(ctx context.Context) {
 	ticker := time.NewTicker(PieceParkPollInterval)
 	defer ticker.Stop()
@@ -59,19 +65,17 @@ func (c *CleanupPieceTask) pollCleanupTasks(ctx context.Context) {
 		case <-ticker.C:
 		}
 
-		// select pieces with no refs and null cleanup_task_id
-		var pieceIDs []struct {
-			ID storiface.PieceNumber `db:"id"`
-		}
+		// ref_count is maintained by triggers on parked_piece_refs, so this
+		// query is served by idx_parked_pieces_cleanup_eligible without
+		// scanning parked_piece_refs at all.
+		var pieceIDs []storiface.PieceNumber
 
-		err := c.db.Select(ctx, &pieceIDs, `SELECT pp.id
-			FROM parked_pieces pp
-			WHERE pp.cleanup_task_id IS NULL
-			  AND NOT EXISTS (
-				  SELECT 1
-				  FROM parked_piece_refs ppr
-				  WHERE ppr.piece_id = pp.id
-			  )`)
+		err := c.db.Select(ctx, &pieceIDs, `SELECT id
+			FROM parked_pieces
+			WHERE cleanup_task_id IS NULL
+			  AND ref_count = 0
+			ORDER BY id
+			LIMIT $1`, cleanupCandidateBatch)
 		if err != nil {
 			log.Errorf("failed to get parked pieces: %s", err)
 			continue
@@ -85,16 +89,14 @@ func (c *CleanupPieceTask) pollCleanupTasks(ctx context.Context) {
 
 			// create a task for each piece
 			c.TF.Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, err error) {
-				// update
-				n, err := tx.Exec(`UPDATE parked_pieces pp
+				// Atomically claim the piece. ref_count = 0 must still hold;
+				// if a ref was added since the SELECT, the trigger bumped
+				// ref_count and this UPDATE becomes a no-op.
+				n, err := tx.Exec(`UPDATE parked_pieces
 						SET cleanup_task_id = $1
-						WHERE pp.cleanup_task_id IS NULL
-						  AND pp.id = $2
-						  AND NOT EXISTS (
-							  SELECT 1
-							  FROM parked_piece_refs ppr
-							  WHERE ppr.piece_id = pp.id
-						  )`, id, pieceID.ID)
+						WHERE cleanup_task_id IS NULL
+						  AND id = $2
+						  AND ref_count = 0`, id, pieceID)
 				if err != nil {
 					return false, xerrors.Errorf("updating parked piece: %w", err)
 				}
@@ -148,10 +150,45 @@ func (c *CleanupPieceTask) Do(ctx context.Context, taskID harmonytask.TaskID, st
 	return true, nil
 }
 
-func (c *CleanupPieceTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
-	// the remove call runs on paths.Remote storage, so it doesn't really matter where it runs
+func (c *CleanupPieceTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
+	if storiface.FTPiece != 32 {
+		panic("storiface.FTPiece != 32")
+	}
 
-	return ids, nil
+	ctx := context.Background()
+
+	ls, err := c.sc.LocalStorage(ctx)
+	if err != nil {
+		return nil, xerrors.Errorf("getting local storage: %w", err)
+	}
+	if len(ls) == 0 {
+		return nil, nil
+	}
+
+	storageIDs := make([]string, 0, len(ls))
+	for _, l := range ls {
+		storageIDs = append(storageIDs, string(l.ID))
+	}
+
+	indIDs := make([]int64, len(ids))
+	for i, id := range ids {
+		indIDs[i] = int64(id)
+	}
+
+	var acceptedIDs []harmonytask.TaskID
+	err = c.db.QueryRow(ctx, `SELECT COALESCE(array_agg(cleanup_task_id), '{}')::bigint[] AS cleanup_task_ids FROM 
+										(
+										    SELECT pp.cleanup_task_id FROM parked_pieces pp
+											INNER JOIN sector_location l ON l.miner_id = 0 AND l.sector_num = pp.id AND l.sector_filetype = 32
+											WHERE cleanup_task_id = ANY ($1) 
+											  AND l.storage_id = ANY ($2)
+											  LIMIT 100
+										) s`, indIDs, storageIDs).Scan(&acceptedIDs)
+	if err != nil {
+		return nil, xerrors.Errorf("getting tasks from DB: %w", err)
+	}
+
+	return acceptedIDs, nil
 }
 
 func (c *CleanupPieceTask) TypeDetails() harmonytask.TaskTypeDetails {
@@ -160,7 +197,7 @@ func (c *CleanupPieceTask) TypeDetails() harmonytask.TaskTypeDetails {
 		Name:      tasknames.DropPiece,
 		MayFollow: []string{tasknames.MoveStorage, tasknames.UpdateStore},
 		Cost: resources.Resources{
-			Cpu:     1,
+			Cpu:     0,
 			Gpu:     0,
 			Ram:     64 << 20,
 			Storage: nil,

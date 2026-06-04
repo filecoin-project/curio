@@ -1,0 +1,7 @@
+{
+  "defaultBranch": "main",
+  "alwaysRunOnPushToDefaultBranch": true,
+  "workflows": [".github/workflows/ci.yml"],
+  "walkSkipDirs": [".git", "extern", "node_modules", "vendor"],
+  "ciInvoke": "go run github.com/curiostorage/shouldtest/cmd/shouldtest"
+}

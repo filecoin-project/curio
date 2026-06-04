@@ -5,6 +5,7 @@ import (
 	"errors"
 	"math/big"
 	"strings"
+	"time"
 
 	"github.com/ipfs/go-cid"
 	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
@@ -18,47 +19,75 @@ import (
 
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/curio/lib/chainsched"
+	"github.com/filecoin-project/curio/harmony/harmonytask"
+	"github.com/filecoin-project/curio/harmony/resources"
+	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/lib/urlhelper"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/ipni/ipniculib"
 	"github.com/filecoin-project/curio/pdp/contract"
-
-	chainTypes "github.com/filecoin-project/lotus/chain/types"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
-func NewPieceDeleteWatcher(cfg *config.HTTPConfig, db *harmonydb.DB, ethClient ethchain.EthClient, pcs *chainsched.CurioChainSched, idx *indexstore.IndexStore) {
-	if err := pcs.AddHandler(func(ctx context.Context, revert, apply *chainTypes.TipSet) error {
-		// Zen: processPendingCleanup is currently disabled because we want to debug an observation
-		// that removed pieces cause unexpected proving failures. Rather than just comment out the
-		// DB delete we comment out the whole function call because otherwise the PDPVerifier liveness
-		// checks have been observed to cripple the curio lotus ETH RPC connection
+type PieceGCTask struct {
+	cfg *config.HTTPConfig
+	db  *harmonydb.DB
+	idx *indexstore.IndexStore
+}
 
-		// err := processPendingCleanup(ctx, db, ethClient)
-		// if err != nil {
-		// 	log.Warnf("Failed to process pending piece cleanup: %s", err)
-		// }
-
-		err := processIndexingAndIPNICleanup(ctx, db, cfg, idx)
-		if err != nil {
-			log.Warnf("Failed to process indexing and IPNI cleanup: %s", err)
-		}
-
-		return nil
-	}); err != nil {
-		panic(err)
+func NewPieceGCTask(cfg *config.HTTPConfig, db *harmonydb.DB, idx *indexstore.IndexStore) *PieceGCTask {
+	return &PieceGCTask{
+		cfg: cfg,
+		db:  db,
+		idx: idx,
 	}
 }
+
+func (t *PieceGCTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
+	if !stillOwned() {
+		return false, nil
+	}
+	if err := processIndexingAndIPNICleanup(ctx, t.db, t.cfg, t.idx); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (t *PieceGCTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
+	return ids, nil
+}
+
+func (t *PieceGCTask) TypeDetails() harmonytask.TaskTypeDetails {
+	return harmonytask.TaskTypeDetails{
+		Max:  taskhelp.Max(1),
+		Name: tasknames.PDPv0_PieceGC,
+		Cost: resources.Resources{
+			Cpu: 1,
+			Gpu: 0,
+			Ram: 64 << 20,
+		},
+		MaxFailures: 3,
+		IAmBored:    harmonytask.SingletonTaskAdder(6*time.Hour, t),
+	}
+}
+
+func (t *PieceGCTask) Adder(taskFunc harmonytask.AddTaskFunc) {}
+
+var _ = harmonytask.Reg(&PieceGCTask{})
+var _ harmonytask.TaskInterface = &PieceGCTask{}
 
 //nolint:unused // TODO: reinstate after debugging
 func _processPendingCleanup(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient) error {
 	var pieces []struct {
-		DataSetID int64 `db:"data_set"`
-		PieceID   int64 `db:"piece_id"`
+		DataSetID int64  `db:"data_set"`
+		PieceID   int64  `db:"piece_id"`
+		RmTxHash  string `db:"rm_message_hash"`
 	}
 
-	err := db.Select(ctx, &pieces, `SELECT data_set, piece_id FROM pdp_data_set_pieces WHERE removed = TRUE`)
+	err := db.Select(ctx, &pieces, `SELECT data_set, piece_id, rm_message_hash
+		FROM pdp_data_set_pieces
+		WHERE removed = TRUE AND rm_message_hash IS NOT NULL`)
 	if err != nil {
 		return xerrors.Errorf("failed to select pending piece deletes: %w", err)
 	}

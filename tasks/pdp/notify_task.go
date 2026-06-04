@@ -123,7 +123,7 @@ func (t *PDPNotifyTask) TypeDetails() harmonytask.TaskTypeDetails {
 		Name:      tasknames.PDPNotify,
 		MayFollow: []string{tasknames.PDPAddPiece},
 		Cost: resources.Resources{
-			Cpu: 1,
+			Cpu: 0,
 			Ram: 128 << 20, // 128MB
 		},
 		MaxFailures: 14,

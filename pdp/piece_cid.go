@@ -2,12 +2,12 @@ package pdp
 
 import (
 	"fmt"
-	"math/bits"
 
 	"github.com/ipfs/go-cid"
 	"github.com/multiformats/go-multicodec"
 
 	commcid "github.com/filecoin-project/go-fil-commcid"
+	"github.com/filecoin-project/go-padreader"
 )
 
 // PieceCidInfo holds all derived information from a piece CID.
@@ -126,12 +126,5 @@ func PadPieceSize(rawSize int64) int64 {
 	if rawSize == 0 {
 		return 0
 	}
-	// Apply FR32 ratio: ceil(rawSize * 128 / 127)
-	fr32Padded := (uint64(rawSize)*128 + 126) / 127
-	// Round up to next power of 2
-	if fr32Padded == 0 {
-		return 1
-	}
-	fr32Padded--
-	return int64(1 << bits.Len64(fr32Padded))
+	return int64(padreader.PaddedSize(uint64(rawSize)).Padded())
 }

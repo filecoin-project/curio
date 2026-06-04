@@ -749,7 +749,7 @@ func (i *IndexingTask) TypeDetails() harmonytask.TaskTypeDetails {
 		Name:      tasknames.Indexing,
 		MayFollow: []string{tasknames.CommitBatch, tasknames.UpdateBatch},
 		Cost: resources.Resources{
-			Cpu: 1,
+			Cpu: 0,
 			Ram: uint64(i.insertBatchSize * i.insertConcurrency * 56 * 2),
 		},
 		Max:         i.max,

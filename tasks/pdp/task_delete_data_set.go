@@ -97,6 +97,7 @@ func (p *PDPTaskDeleteDataSet) Do(ctx context.Context, taskID harmonytask.TaskID
 	}
 
 	// Prepare the transaction (nonce will be set to 0, SenderETH will assign it)
+	// deleteDataSet refunds the cleanup deposit prepaid at creation.
 	tx := types.NewTransaction(
 		0,
 		contract.ContractAddresses().PDPVerifier,
@@ -153,7 +154,7 @@ func (p *PDPTaskDeleteDataSet) TypeDetails() harmonytask.TaskTypeDetails {
 		Name:      tasknames.PDPDelDataSet,
 		MayFollow: []string{tasknames.PDPAddDataSet},
 		Cost: resources.Resources{
-			Cpu: 1,
+			Cpu: 0,
 			Ram: 64 << 20,
 		},
 		MaxFailures: 3,

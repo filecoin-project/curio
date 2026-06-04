@@ -1,8 +1,58 @@
 [
   {
     "type": "constructor",
-    "inputs": [],
+    "inputs": [
+      {
+        "name": "_initializerVersion",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "_challengeFinality",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "FIL_CLEANUP_DEPOSIT",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "pure"
+  },
+  {
+    "type": "function",
+    "name": "INACTIVITY_WINDOW",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "LEGACY_ACTIVITY_EPOCH",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -20,32 +70,6 @@
   {
     "type": "function",
     "name": "MAX_PIECE_SIZE_LOG2",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "NO_CHALLENGE_SCHEDULED",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "NO_PROVEN_EPOCH",
     "inputs": [],
     "outputs": [
       {
@@ -125,6 +149,31 @@
   },
   {
     "type": "function",
+    "name": "announcePlannedUpgrade",
+    "inputs": [
+      {
+        "name": "plannedUpgrade",
+        "type": "tuple",
+        "internalType": "struct PDPVerifier.PlannedUpgrade",
+        "components": [
+          {
+            "name": "nextImplementation",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "afterEpoch",
+            "type": "uint96",
+            "internalType": "uint96"
+          }
+        ]
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "calculateProofFee",
     "inputs": [
       {
@@ -177,6 +226,30 @@
       }
     ],
     "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "cleanupPieces",
+    "inputs": [
+      {
+        "name": "setId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "maxPieces",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "done",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
     "stateMutability": "nonpayable"
   },
   {
@@ -304,6 +377,47 @@
   },
   {
     "type": "function",
+    "name": "findPieceIdsByCid",
+    "inputs": [
+      {
+        "name": "setId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "pieceCid",
+        "type": "tuple",
+        "internalType": "struct Cids.Cid",
+        "components": [
+          {
+            "name": "data",
+            "type": "bytes",
+            "internalType": "bytes"
+          }
+        ]
+      },
+      {
+        "name": "startPieceId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "limit",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "pieceIds",
+        "type": "uint256[]",
+        "internalType": "uint256[]"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "getActivePieceCount",
     "inputs": [
       {
@@ -332,6 +446,52 @@
       },
       {
         "name": "offset",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "limit",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "pieces",
+        "type": "tuple[]",
+        "internalType": "struct Cids.Cid[]",
+        "components": [
+          {
+            "name": "data",
+            "type": "bytes",
+            "internalType": "bytes"
+          }
+        ]
+      },
+      {
+        "name": "pieceIds",
+        "type": "uint256[]",
+        "internalType": "uint256[]"
+      },
+      {
+        "name": "hasMore",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getActivePiecesByCursor",
+    "inputs": [
+      {
+        "name": "setId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "startPieceId",
         "type": "uint256",
         "internalType": "uint256"
       },
@@ -627,13 +787,7 @@
   {
     "type": "function",
     "name": "initialize",
-    "inputs": [
-      {
-        "name": "_challengeFinality",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
+    "inputs": [],
     "outputs": [],
     "stateMutability": "nonpayable"
   },
@@ -666,6 +820,24 @@
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "nextUpgrade",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "nextImplementation",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "afterEpoch",
+        "type": "uint96",
+        "internalType": "uint96"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -1156,6 +1328,31 @@
   },
   {
     "type": "event",
+    "name": "UpgradeAnnounced",
+    "inputs": [
+      {
+        "name": "plannedUpgrade",
+        "type": "tuple",
+        "indexed": false,
+        "internalType": "struct PDPVerifier.PlannedUpgrade",
+        "components": [
+          {
+            "name": "nextImplementation",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "afterEpoch",
+            "type": "uint96",
+            "internalType": "uint96"
+          }
+        ]
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "Upgraded",
     "inputs": [
       {
@@ -1180,6 +1377,36 @@
   },
   {
     "type": "error",
+    "name": "CleanupDepositRequired",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "DataSetAlreadyInCleanup",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "DataSetNotFound",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "DataSetNotInCleanupMode",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "DataSetNotLive",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "DepositTransferFailed",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "ERC1967InvalidImplementation",
     "inputs": [
       {
@@ -1193,6 +1420,22 @@
     "type": "error",
     "name": "ERC1967NonPayable",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ExcessiveChallengeDelay",
+    "inputs": [
+      {
+        "name": "epochs",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "maxDelay",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
   },
   {
     "type": "error",
@@ -1217,12 +1460,43 @@
   },
   {
     "type": "error",
+    "name": "InsufficientChallengeDelay",
+    "inputs": [
+      {
+        "name": "epochs",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "minDelay",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "InvalidInitialization",
     "inputs": []
   },
   {
     "type": "error",
+    "name": "MaxPiecesMustBePositive",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "NotInitializing",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "OnlyStorageProviderCanCleanupPieces",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "OnlyStorageProviderCanDelete",
     "inputs": []
   },
   {
@@ -1246,6 +1520,11 @@
         "internalType": "address"
       }
     ]
+  },
+  {
+    "type": "error",
+    "name": "TransferFailed",
+    "inputs": []
   },
   {
     "type": "error",

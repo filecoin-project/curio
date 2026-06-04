@@ -66,14 +66,29 @@ func parseCustomAuth(header string) (keyType string, pubKey, sig []byte, err err
 }
 
 func verifySignature(db *harmonydb.DB, keyType string, pubKey, signature []byte, requestMethod string, requestPath string, cfg *config.CurioConfig) (bool, string, error) {
-	msg := authMessage(pubKey, requestMethod, requestPath, time.Now().UTC().Truncate(time.Minute))
+	now := time.Now().UTC().Truncate(time.Minute)
 
-	switch keyType {
-	case "secp256k1", "bls", "delegated":
-		return verifyFilSignature(db, pubKey, signature, msg, cfg)
-	default:
-		return false, "", fmt.Errorf("unsupported key type: %s", keyType)
+	// Check current, previous, and next minute to tolerate
+	// clock drift at minute boundaries (similar to TOTP).
+	var lastErr error
+	for _, offset := range []time.Duration{0, -time.Minute, time.Minute} {
+		msg := authMessage(pubKey, requestMethod, requestPath, now.Add(offset))
+
+		var ok bool
+		var addr string
+		switch keyType {
+		case "secp256k1", "bls", "delegated":
+			ok, addr, lastErr = verifyFilSignature(db, pubKey, signature, msg, cfg)
+		default:
+			return false, "", fmt.Errorf("unsupported key type: %s", keyType)
+		}
+
+		if ok || lastErr == nil {
+			return ok, addr, lastErr
+		}
 	}
+
+	return false, "", lastErr
 }
 
 func authMessage(pubKey []byte, requestMethod string, requestPath string, timestamp time.Time) [32]byte {

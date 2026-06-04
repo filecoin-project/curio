@@ -109,7 +109,7 @@ func (i *InclusionCheckTask) TypeDetails() harmonytask.TaskTypeDetails {
 		Name:      tasknames.WinInclCheck,
 		MayFollow: []string{tasknames.WinPost},
 		Cost: resources.Resources{
-			Cpu: 1,
+			Cpu: 0,
 			Ram: 64 << 20,
 			Gpu: 0,
 		},

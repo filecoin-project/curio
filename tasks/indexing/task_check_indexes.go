@@ -791,7 +791,7 @@ func (c *CheckIndexesTask) TypeDetails() harmonytask.TaskTypeDetails {
 		Name:      tasknames.CheckIndex,
 		MayFollow: []string{tasknames.Indexing, tasknames.IPNI},
 		Cost: resources.Resources{
-			Cpu: 1,
+			Cpu: 0,
 			Gpu: 0,
 			Ram: 32 << 20,
 		},

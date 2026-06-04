@@ -94,7 +94,7 @@ func (s *SettleTask) TypeDetails() harmonytask.TaskTypeDetails {
 		Name:      tasknames.Settle,
 		MayFollow: []string{tasknames.SendTransaction},
 		Cost: resources.Resources{
-			Cpu: 1,
+			Cpu: 0,
 			Gpu: 0,
 			Ram: 64 << 20,
 		},

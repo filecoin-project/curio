@@ -487,7 +487,7 @@ func (s *StorageGCMark) TypeDetails() harmonytask.TaskTypeDetails {
 		Name:      tasknames.StorageGCMark,
 		MayFollow: []string{tasknames.MoveStorage, tasknames.UpdateStore},
 		Cost: resources.Resources{
-			Cpu: 1,
+			Cpu: 0,
 			Ram: 64 << 20,
 			Gpu: 0,
 		},

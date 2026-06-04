@@ -219,7 +219,7 @@ func (f *FinalizeTask) TypeDetails() harmonytask.TaskTypeDetails {
 		Name:      tasknames.Finalize,
 		MayFollow: []string{tasknames.PoRep},
 		Cost: resources.Resources{
-			Cpu: 1,
+			Cpu: 0,
 			Gpu: 0,
 			Ram: 100 << 20,
 		},

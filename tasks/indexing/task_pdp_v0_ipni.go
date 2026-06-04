@@ -303,7 +303,7 @@ func (P *PDPV0IPNITask) TypeDetails() harmonytask.TaskTypeDetails {
 		Name:      tasknames.PDPv0_IPNI,
 		MayFollow: []string{tasknames.PDPv0_Indexing},
 		Cost: resources.Resources{
-			Cpu: 1,
+			Cpu: 0,
 			Ram: 1 << 30,
 		},
 		MaxFailures: 3,

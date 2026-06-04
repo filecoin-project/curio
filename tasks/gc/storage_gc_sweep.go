@@ -114,7 +114,7 @@ func (s *StorageGCSweep) TypeDetails() harmonytask.TaskTypeDetails {
 		Name:      tasknames.StorageGCSweep,
 		MayFollow: []string{tasknames.StorageGCMark},
 		Cost: resources.Resources{
-			Cpu: 1,
+			Cpu: 0,
 			Ram: 64 << 20,
 			Gpu: 0,
 		},

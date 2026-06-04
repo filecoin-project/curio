@@ -347,7 +347,7 @@ func (a *AlertTask) TypeDetails() harmonytask.TaskTypeDetails {
 		Max:  taskhelp.Max(1),
 		Name: "AlertManager",
 		Cost: resources.Resources{
-			Cpu: 1,
+			Cpu: 0,
 			Ram: 64 << 20,
 			Gpu: 0,
 		},

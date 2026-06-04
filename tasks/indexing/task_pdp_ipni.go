@@ -437,7 +437,7 @@ func (P *PDPIPNITask) TypeDetails() harmonytask.TaskTypeDetails {
 		Name:      tasknames.PDPIpni,
 		MayFollow: []string{tasknames.PDPIndexing},
 		Cost: resources.Resources{
-			Cpu: 1,
+			Cpu: 0,
 			Ram: 1 << 30,
 		},
 		MaxFailures: 3,

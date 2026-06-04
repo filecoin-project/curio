@@ -252,6 +252,19 @@ var FFISelect struct {
 		pieces []abi.PieceInfo,
 	) error
 
+	GenerateSynthProofs func(
+		ctx context.Context,
+		proofType abi.RegisteredSealProof,
+		sealedCID cid.Cid,
+		unsealedCID cid.Cid,
+		cacheDirPath string,
+		sealedSectorPath string,
+		sectorNum abi.SectorNumber,
+		minerID abi.ActorID,
+		ticket abi.SealRandomness,
+		pieces []abi.PieceInfo,
+	) error
+
 	SealCommitPhase2 func(
 		ctx context.Context,
 		phase1Output []byte,

@@ -1,7 +1,7 @@
 -- PDP piece pull tables for SP-to-SP transfer
 --
 -- Provides idempotency and piece tracking for pull requests.
--- Status is derived dynamically from parked_pieces, not stored here.
+-- Later migrations add explicit pull item terminal state.
 CREATE TABLE IF NOT EXISTS pdp_piece_pulls (
     id BIGSERIAL PRIMARY KEY,
     service TEXT NOT NULL REFERENCES pdp_services(service_label) ON DELETE CASCADE,
@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS pdp_piece_pull_items (
     failed BOOLEAN NOT NULL DEFAULT FALSE,  -- true if piece permanently failed
     fail_reason TEXT,               -- error message when failed
 
-    PRIMARY KEY (fetch_id, piece_cid)
+    PRIMARY KEY (fetch_id, piece_cid) -- later changed to (fetch_id, piece_cid, source_url)
 );
 
 -- Index for cleanup queries

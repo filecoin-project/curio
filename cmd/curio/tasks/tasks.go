@@ -366,21 +366,25 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 
 			pay.NewSettleWatcher(db, must.One(dependencies.EthClient.Val()), chainSched, dependencies.Al)
 			pdpv0.NewDataSetDeleteWatcher(db, must.One(dependencies.EthClient.Val()), chainSched)
+			pdpv0.NewCleanupPiecesWatcher(db, must.One(dependencies.EthClient.Val()), chainSched)
 			pdpv0.NewTerminateServiceWatcher(db, must.One(dependencies.EthClient.Val()), chainSched)
-			pdpv0.NewPieceDeleteWatcher(&cfg.HTTP, db, must.One(dependencies.EthClient.Val()), chainSched, iStore)
 
 			pdpProveTask := pdpv0.NewProveTask(chainSched, db, must.One(dependencies.EthClient.Val()), dependencies.Chain, es, dependencies.CachedPieceReader, iStore)
 			pdpNextProvingPeriodTask := pdpv0.NewNextProvingPeriodTask(db, must.One(dependencies.EthClient.Val()), dependencies.Chain, chainSched, es)
 			pdpInitProvingPeriodTask := pdpv0.NewInitProvingPeriodTask(db, must.One(dependencies.EthClient.Val()), dependencies.Chain, chainSched, es)
 			pdpNotifTask := pdpv0.NewPDPNotifyTask(ctx, db)
-			pdpPullPieceTask := pdpv0.NewPDPPullPieceTask(ctx, db, lstor, 4)
+			pdpPullPieceTask := pdpv0.NewPDPPullPieceTask(ctx, db, sc, cfg.Subsystems.PDPPullPieceMaxTasks)
 
 			pdpTerminate := pdpv0.NewTerminateServiceTask(db, must.One(dependencies.EthClient.Val()), senderEth)
 			pdpDelete := pdpv0.NewDeleteDataSetTask(db, must.One(dependencies.EthClient.Val()), senderEth)
+			pdpCleanup := pdpv0.NewCleanupPiecesTask(db, must.One(dependencies.EthClient.Val()), senderEth)
 			pdpChainDBStateSync := pdpv0.NewTaskChainSync(db, must.One(dependencies.EthClient.Val()), senderEth)
 			payTask := pay.NewSettleTask(db, must.One(dependencies.EthClient.Val()), senderEth) // Move this to a common section once PDP v1 is live
 			pdpSaveCacheTask := pdpv0.NewTaskPDPSaveCache(db, dependencies.CachedPieceReader, iStore)
-			activeTasks = append(activeTasks, pdpProveTask, pdpNotifTask, pdpPullPieceTask, pdpNextProvingPeriodTask, pdpInitProvingPeriodTask, pdpTerminate, pdpDelete, pdpChainDBStateSync, payTask, pdpSaveCacheTask)
+			pdpPieceGC := pdpv0.NewPieceGCTask(&cfg.HTTP, db, iStore)
+			pdpReorgChk := pdpv0.NewReorgCheckTask(db, must.One(dependencies.EthClient.Val()), dependencies.Chain)
+			activeTasks = append(activeTasks, pdpProveTask, pdpNotifTask, pdpPullPieceTask, pdpNextProvingPeriodTask, pdpInitProvingPeriodTask, pdpTerminate, pdpDelete, pdpCleanup, pdpChainDBStateSync, payTask, pdpSaveCacheTask, pdpPieceGC, pdpReorgChk)
+
 		}
 
 		idxMax := taskhelp.Max(cfg.Subsystems.IndexingMaxTasks)
@@ -612,6 +616,14 @@ func addSealingTasks(
 	var slotMgr *slotmgr.SlotMgr
 	var addFinalize bool
 
+	// Auto-enable CPU:0 pipeline steps alongside their upstream work.
+	// Manual flags remain for cleanup-only nodes and for CPU-heavy companions (CommP, StorePiece, etc.).
+	enableSendPrecommitMsg := cfg.Subsystems.EnableSendPrecommitMsg || cfg.Subsystems.EnableSealSDRTrees
+	enableSendCommitMsg := cfg.Subsystems.EnableSendCommitMsg || cfg.Subsystems.EnablePoRepProof
+	enableMoveStorage := cfg.Subsystems.EnableMoveStorage || cfg.Subsystems.EnablePoRepProof || cfg.Subsystems.EnableSendCommitMsg
+	enableUpdateSubmit := cfg.Subsystems.EnableUpdateSubmit || cfg.Subsystems.EnableUpdateProve
+	enableSnapMoveStorage := cfg.Subsystems.EnableMoveStorage || cfg.Subsystems.EnableUpdateEncode || cfg.Subsystems.EnableUpdateProve
+
 	// NOTE: Tasks with the LEAST priority are at the top
 	if cfg.Subsystems.EnableCommP {
 		scrubUnsealedTask := scrub.NewCommDCheckTask(db, slr)
@@ -656,7 +668,7 @@ func addSealingTasks(
 		activeTasks = append(activeTasks, finalizeTask)
 	}
 
-	if cfg.Subsystems.EnableSendPrecommitMsg {
+	if enableSendPrecommitMsg {
 		precommitTask := seal.NewSubmitPrecommitTask(sp, db, full, sender, as, cfg)
 		activeTasks = append(activeTasks, precommitTask)
 	}
@@ -664,19 +676,19 @@ func addSealingTasks(
 		porepTask := seal.NewPoRepTask(db, full, sp, slr, asyncParams(), cfg.Subsystems.EnablePoRepProof, cfg.Subsystems.PoRepProofMaxTasks, cuzkClient)
 		activeTasks = append(activeTasks, porepTask)
 	}
-	if cfg.Subsystems.EnableMoveStorage {
+	if enableMoveStorage {
 		moveStorageTask := seal.NewMoveStorageTask(sp, slr, db, cfg.Subsystems.MoveStorageMaxTasks)
 		sealMoveStorage = moveStorageTask
-		moveStorageSnapTask := snap.NewMoveStorageTask(slr, db, cfg.Subsystems.MoveStorageMaxTasks)
-		snapMoveStorage = moveStorageSnapTask
-
+		activeTasks = append(activeTasks, moveStorageTask)
+	}
+	if cfg.Subsystems.EnableMoveStorage {
 		storePieceTask, err := piece2.NewStorePieceTask(db, must.One(slrLazy.Val()), stor, cfg.Subsystems.MoveStorageMaxTasks)
 		if err != nil {
 			return nil, nil, sp, nil, nil, nil, nil, err
 		}
 		storePiecePoll = storePieceTask
 
-		activeTasks = append(activeTasks, moveStorageTask, moveStorageSnapTask, storePieceTask)
+		activeTasks = append(activeTasks, storePieceTask)
 		if !cfg.Subsystems.EnableParkPiece {
 			// add cleanup if it's not added above with park piece
 			cleanupPieceTask := piece2.NewCleanupPieceTask(db, must.One(slrLazy.Val()), 0)
@@ -688,7 +700,12 @@ func addSealingTasks(
 			activeTasks = append(activeTasks, unsealTask)
 		}
 	}
-	if cfg.Subsystems.EnableSendCommitMsg {
+	if enableSnapMoveStorage {
+		moveStorageSnapTask := snap.NewMoveStorageTask(slr, db, cfg.Subsystems.MoveStorageMaxTasks)
+		snapMoveStorage = moveStorageSnapTask
+		activeTasks = append(activeTasks, moveStorageSnapTask)
+	}
+	if enableSendCommitMsg {
 		commitTask := seal.NewSubmitCommitTask(sp, db, full, sender, as, cfg, prover)
 		activeTasks = append(activeTasks, commitTask)
 	}
@@ -708,7 +725,7 @@ func addSealingTasks(
 		proveTask := snap.NewProveTask(slr, db, asyncParams(), cfg.Subsystems.EnableRemoteProofs, cfg.Subsystems.UpdateProveMaxTasks, cuzkClient)
 		activeTasks = append(activeTasks, proveTask)
 	}
-	if cfg.Subsystems.EnableUpdateSubmit {
+	if enableUpdateSubmit {
 		submitTask := snap.NewSubmitTask(db, full, bstore, sender, as, cfg)
 		snapSubmit = submitTask
 		activeTasks = append(activeTasks, submitTask)

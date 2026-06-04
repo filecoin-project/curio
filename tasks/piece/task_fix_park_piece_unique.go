@@ -210,7 +210,7 @@ func (f *FixParkPieceTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Name: tasknames.FixParkPiece,
 		Cost: resources.Resources{
-			Cpu: 1,
+			Cpu: 0,
 			Gpu: 0,
 			Ram: 64 << 20,
 		},

@@ -59,7 +59,7 @@ func (s *PipelineGC) TypeDetails() harmonytask.TaskTypeDetails {
 		Name:      tasknames.PipelineGC,
 		MayFollow: []string{tasknames.CommitBatch, tasknames.MoveStorage, tasknames.UpdateBatch},
 		Cost: resources.Resources{
-			Cpu: 1,
+			Cpu: 0,
 			Ram: 64 << 20,
 			Gpu: 0,
 		},

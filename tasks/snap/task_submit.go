@@ -548,7 +548,7 @@ func (s *SubmitTask) TypeDetails() harmonytask.TaskTypeDetails {
 		Name:      tasknames.UpdateBatch,
 		MayFollow: []string{tasknames.UpdateProve, tasknames.SendMessage},
 		Cost: resources.Resources{
-			Cpu: 1,
+			Cpu: 0,
 			Ram: 64 << 20,
 		},
 		MaxFailures: 3,

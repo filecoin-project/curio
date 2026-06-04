@@ -136,7 +136,7 @@ func (t *TaskClientUpload) TypeDetails() harmonytask.TaskTypeDetails {
 		Name:      tasknames.PSPutVanilla,
 		MayFollow: []string{tasknames.PoRep},
 		Cost: resources.Resources{
-			Cpu: 1,
+			Cpu: 0,
 			Ram: 128 << 20,
 			Gpu: 0,
 		},

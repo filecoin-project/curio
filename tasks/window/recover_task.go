@@ -222,7 +222,7 @@ func (w *WdPostRecoverDeclareTask) TypeDetails() harmonytask.TaskTypeDetails {
 		Name:      tasknames.WdPostRecover,
 		MayFollow: []string{tasknames.WdPost},
 		Cost: resources.Resources{
-			Cpu: 1,
+			Cpu: 0,
 			Gpu: 0,
 			Ram: 128 << 20,
 		},

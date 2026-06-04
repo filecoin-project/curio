@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS pdp_piece_uploads (
 CREATE TABLE IF NOT EXISTS pdp_piecerefs (
     id BIGSERIAL PRIMARY KEY,
     service TEXT NOT NULL, -- pdp_services.id
-    piece_cid TEXT NOT NULL, -- piece cid v2
+    piece_cid TEXT NOT NULL, -- piece cid v1
     piece_ref BIGINT NOT NULL, -- parked_piece_refs.ref_id
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
 

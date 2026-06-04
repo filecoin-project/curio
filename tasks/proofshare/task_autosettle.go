@@ -272,7 +272,7 @@ func (t *TaskAutosettle) TypeDetails() harmonytask.TaskTypeDetails {
 		Name:      tasknames.PSAutoSettle,
 		MayFollow: []string{tasknames.PShareSubmit, tasknames.SendMessage},
 		Cost: resources.Resources{
-			Cpu: 1,
+			Cpu: 0,
 			Ram: 64 << 20,
 			Gpu: 0,
 		},

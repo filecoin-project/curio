@@ -204,7 +204,7 @@ func (t *TaskSubmit) TypeDetails() harmonytask.TaskTypeDetails {
 		Name:      tasknames.PShareSubmit,
 		MayFollow: []string{tasknames.PSProve},
 		Cost: resources.Resources{
-			Cpu: 1,
+			Cpu: 0,
 			Gpu: 0,
 			Ram: 1 << 20,
 		},

@@ -184,8 +184,6 @@ var pdpTasks = []string{
 	tasknames.PDPv0_InitPP,
 	tasknames.PDPv0_ProvPeriod,
 	tasknames.PDPv0_Notify,
-	tasknames.PDPv0_DelDataSet,
-	tasknames.PDPv0_TermFWSS,
 }
 
 // taskFailureCheckWith is the parameterized core shared by taskFailureCheck

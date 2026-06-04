@@ -765,7 +765,7 @@ func (s *SectorMetadata) TypeDetails() harmonytask.TaskTypeDetails {
 		Name:      tasknames.SectorMetadata,
 		MayFollow: []string{tasknames.CommitBatch, tasknames.UpdateBatch},
 		Cost: resources.Resources{
-			Cpu: 1,
+			Cpu: 0,
 			Ram: 64 << 20,
 			Gpu: 0,
 		},

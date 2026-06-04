@@ -434,7 +434,7 @@ func (p *PieceCleanupTask) TypeDetails() harmonytask.TaskTypeDetails {
 		Name:      tasknames.PieceCleanup,
 		MayFollow: []string{tasknames.Indexing, tasknames.PDPIndexing, tasknames.PDPv0_Indexing},
 		Cost: resources.Resources{
-			Cpu: 1,
+			Cpu: 0,
 			Ram: 64 << 20,
 		},
 		MaxFailures: 3,

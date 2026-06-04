@@ -445,7 +445,7 @@ func (I *IPNITask) TypeDetails() harmonytask.TaskTypeDetails {
 		Name:      tasknames.IPNI,
 		MayFollow: []string{tasknames.Indexing},
 		Cost: resources.Resources{
-			Cpu: 1,
+			Cpu: 0,
 			Ram: 1 << 30,
 		},
 		MaxFailures: 3,
