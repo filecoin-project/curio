@@ -1447,7 +1447,8 @@ USAGE:
 
 OPTIONS:
    --source value      path to store the pieces from
-   --target value      path to piece storage directory in Curio's attached permanent storage
+   --target value      path to storage directory in Curio's attached permanent storage
+   --result value      path to write the JSON result
    --batch-size value  number of pieces to move to permanent storage (default: 20)
    --help, -h          show help
 ```

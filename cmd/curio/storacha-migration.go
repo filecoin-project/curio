@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -34,6 +35,7 @@ const storachaMigrationDataURL = "storacha-migration"
 type importPiecesOutput struct {
 	Count  int      `json:"count"`
 	Pieces []string `json:"pieces"`
+	Error  string   `json:"error,omitempty"`
 }
 
 type storachaImportResult struct {
@@ -66,14 +68,19 @@ var importPiecesCmd = &cli.Command{
 			Name:  "target",
 			Usage: "path to storage directory in Curio's attached permanent storage",
 		},
+		&cli.StringFlag{
+			Name:  "result",
+			Usage: "path to write the JSON result",
+		},
 		&cli.IntFlag{
 			Name:  "batch-size",
 			Usage: "number of pieces to move to permanent storage",
 			Value: 20,
 		},
 	},
-	Action: func(cctx *cli.Context) error {
+	Action: func(cctx *cli.Context) (err error) {
 		ctx := cctx.Context
+		var out importPiecesOutput
 
 		/*
 			How this migration works:
@@ -108,6 +115,29 @@ var importPiecesCmd = &cli.Command{
 			already present.
 		*/
 
+		if cctx.String("result") == "" {
+			return fmt.Errorf("result is required")
+		}
+
+		resultPath, err := homedir.Expand(cctx.String("result"))
+		if err != nil {
+			return xerrors.Errorf("expanding result path: %w", err)
+		}
+		resultPath, err = filepath.Abs(filepath.Clean(resultPath))
+		if err != nil {
+			return xerrors.Errorf("resolving result path: %w", err)
+		}
+
+		defer func() {
+			if err != nil {
+				out.Error = err.Error()
+			}
+			writeErr := writeImportPiecesResult(resultPath, out)
+			if writeErr != nil {
+				err = errors.Join(err, writeErr)
+			}
+		}()
+
 		if cctx.String("source") == "" || cctx.String("target") == "" {
 			return fmt.Errorf("source and target both are required")
 		}
@@ -138,18 +168,26 @@ var importPiecesCmd = &cli.Command{
 
 		si := paths.NewDBIndex(curioalerting.NewAlertingSystem(), db)
 
-		out, err := runImportPieces(ctx, db, si, storageID, sourcePath, targetPath, cctx.Int("batch-size"))
-		if err != nil {
-			return err
-		}
-
-		err = PrintJson(out)
+		out, err = runImportPieces(ctx, db, si, storageID, sourcePath, targetPath, cctx.Int("batch-size"))
 		if err != nil {
 			return err
 		}
 
 		return nil
 	},
+}
+
+func writeImportPiecesResult(path string, out importPiecesOutput) error {
+	resJson, err := json.MarshalIndent(out, "", "  ")
+	if err != nil {
+		return xerrors.Errorf("marshalling import result: %w", err)
+	}
+
+	if err := os.WriteFile(path, resJson, 0644); err != nil {
+		return xerrors.Errorf("writing import result: %w", err)
+	}
+
+	return nil
 }
 
 func runImportPieces(ctx context.Context, db *harmonydb.DB, si paths.SectorIndex, storageID storiface.ID, sourcePath, targetPath string, batchSize int) (importPiecesOutput, error) {

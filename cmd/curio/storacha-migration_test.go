@@ -88,6 +88,24 @@ func TestStorachaPieceInfoFromFileName(t *testing.T) {
 	require.Nil(t, pi)
 }
 
+func TestWriteImportPiecesResultIncludesError(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "result.json")
+	expected := importPiecesOutput{
+		Count:  2,
+		Pieces: []string{"piece-a", "piece-b"},
+		Error:  "import failed",
+	}
+
+	require.NoError(t, writeImportPiecesResult(path, expected))
+
+	mb, err := os.ReadFile(path)
+	require.NoError(t, err)
+
+	var actual importPiecesOutput
+	require.NoError(t, json.Unmarshal(mb, &actual))
+	require.Equal(t, expected, actual)
+}
+
 func TestStorachaMigrationFreshImport(t *testing.T) {
 	env := setupStorachaMigrationTest(t)
 	pieces := newStorachaPieceFixtures(t)
