@@ -656,7 +656,7 @@ func (r *Remote) Reader(ctx context.Context, s storiface.SectorRef, offset, size
 		log.Debugf("check if partial file is allocated %s (+%d,%d)", path, offset, size)
 
 		if has {
-			log.Infof("returning piece reader for local unsealed piece sector=%+v, (offset=%d, size=%d)", s.ID, offset, size)
+			log.Debugw("returning piece reader for local unsealed piece sector=%+v, (offset=%d, size=%d)", s.ID, offset, size)
 
 			// refs keep track of the currently opened pf
 			// if they drop to 0 for longer than LocalReaderTimeout, pf will be closed
@@ -672,7 +672,7 @@ func (r *Remote) Reader(ctx context.Context, s storiface.SectorRef, offset, size
 				for range ticker.C {
 					refsLk.Lock()
 					if refs == 0 && lastRefs == 0 && pf != nil { // pf can't really be nil here, but better be safe
-						log.Infow("closing idle partial file", "path", path)
+						log.Debugw("closing idle partial file", "path", path)
 						err := pf.Close()
 						if err != nil {
 							log.Errorw("closing idle partial file", "path", path, "error", err)
@@ -811,7 +811,7 @@ func (r *Remote) ReaderPiece(ctx context.Context, s storiface.SectorRef, ft stor
 	path := storiface.PathByType(paths, ft)
 
 	if path != "" {
-		log.Infof("returning piece reader for local unsealed piece sector=%+v, (offset=%d, size=%d)", s.ID, offset, size)
+		log.Debugw("returning piece reader for local unsealed piece sector=%+v, (offset=%d, size=%d)", s.ID, offset, size)
 
 		// refs keep track of the currently opened pf
 		// if they drop to 0 for longer than LocalReaderTimeout, pf will be closed
@@ -829,7 +829,7 @@ func (r *Remote) ReaderPiece(ctx context.Context, s storiface.SectorRef, ft stor
 			for range ticker.C {
 				refsLk.Lock()
 				if refs == 0 && lastRefs == 0 && f != nil {
-					log.Infow("closing idle partial file", "path", path)
+					log.Debugw("closing idle partial file", "path", path)
 					err := f.Close()
 					if err != nil {
 						log.Errorw("closing idle partial file", "path", path, "error", err)
