@@ -59,13 +59,26 @@ func (c *CleanupPieceTask) pollCleanupTasks(ctx context.Context) {
 			continue
 		}
 
-		if len(pieceIDs) == 0 {
+		var pieceIDs2 []storiface.PieceNumber
+
+		// Now check the table directly to handle the stale index case
+		err = c.db.Select(ctx, &pieceIDs, `WITH checked AS MATERIALIZED (
+    			SELECT id, ref_count, cleanup_task_id
+    			FROM parked_pieces
+    			WHERE id = ANY($1::bigint[])    
+			)
+			SELECT id
+				FROM checked
+				WHERE ref_count = 0
+				AND cleanup_task_id IS NULL`, &pieceIDs)
+
+		if len(pieceIDs2) == 0 {
 			time.Sleep(PieceParkPollInterval)
 			continue
 		}
 
 		claimedAny := false
-		for _, pieceID := range pieceIDs {
+		for _, pieceID := range pieceIDs2 {
 
 			// create a task for each piece
 			c.TF.Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, err error) {
