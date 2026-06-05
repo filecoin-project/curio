@@ -64,6 +64,7 @@ func (c *CleanupPieceTask) pollCleanupTasks(ctx context.Context) {
 			continue
 		}
 
+		claimedAny := false
 		for _, pieceID := range pieceIDs {
 
 			// create a task for each piece
@@ -75,14 +76,21 @@ func (c *CleanupPieceTask) pollCleanupTasks(ctx context.Context) {
 						SET cleanup_task_id = $1
 						WHERE cleanup_task_id IS NULL
 						  AND id = $2
-						  AND ref_count = 0`, id, pieceID)
+						  AND ref_count = 0`, id, pieceID.ID)
 				if err != nil {
 					return false, xerrors.Errorf("updating parked piece: %w", err)
+				}
+				if n > 0 {
+					claimedAny = true
 				}
 
 				// commit only if we updated the piece
 				return n > 0, nil
 			})
+		}
+		if !claimedAny {
+			log.Warnf("all pieces indexed as ref count = 0 stale, none claimed for cleanup")
+			time.Sleep(PieceParkPollInterval)
 		}
 	}
 }
