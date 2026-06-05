@@ -76,7 +76,7 @@ func (c *CleanupPieceTask) pollCleanupTasks(ctx context.Context) {
 						SET cleanup_task_id = $1
 						WHERE cleanup_task_id IS NULL
 						  AND id = $2
-						  AND ref_count = 0`, id, pieceID.ID)
+						  AND ref_count = 0`, id, pieceID)
 				if err != nil {
 					return false, xerrors.Errorf("updating parked piece: %w", err)
 				}
