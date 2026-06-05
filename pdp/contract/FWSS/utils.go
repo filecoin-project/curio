@@ -1,6 +1,8 @@
 package FWSS
 
 import (
+	"strings"
+
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"golang.org/x/mod/semver"
@@ -21,7 +23,7 @@ func EnsureServiceTermination(tx *harmonydb.Tx, dataSetID int64) error {
 	return nil
 }
 
-const clientTerminationNotSupportedVersion = "1.2.1"
+const clientTerminationNotSupportedVersion = "v1.2.1"
 
 // SupportsClientTermination reports whether FWSS supports
 // terminateService(uint256,bytes) for client-authorized termination.
@@ -36,5 +38,16 @@ func SupportsClientTermination(opts *bind.CallOpts, serviceAddr common.Address, 
 		return false, xerrors.Errorf("failed to get version: %w", err)
 	}
 
-	return semver.Compare(version, clientTerminationNotSupportedVersion) > 1, nil
+	return fwssSupportsClientTerminationVersion(version), nil
+}
+
+func fwssSupportsClientTerminationVersion(version string) bool {
+	return semver.Compare(fwssSemver(version), clientTerminationNotSupportedVersion) > 0
+}
+
+func fwssSemver(version string) string {
+	if strings.HasPrefix(version, "v") {
+		return version
+	}
+	return "v" + version
 }

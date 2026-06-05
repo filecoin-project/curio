@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"strings"
 
+	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/pdp/contract/FWSS"
 )
 
@@ -18,6 +19,7 @@ import (
 var (
 	ErrSelectorDataSetPaymentBeyondEndEpoch    string
 	ErrSelectorDataSetPaymentAlreadyTerminated string
+	ErrSelectorPDPVerifierDataSetNotFound      string
 )
 
 func init() {
@@ -37,6 +39,17 @@ func init() {
 		panic("FWSS ABI missing DataSetPaymentAlreadyTerminated error")
 	}
 	ErrSelectorDataSetPaymentAlreadyTerminated = hex.EncodeToString(alreadyTerminated.ID[:4])
+
+	parsedPDPVerifier, err := contract.PDPVerifierMetaData.GetAbi()
+	if err != nil {
+		panic("failed to parse PDPVerifier ABI: " + err.Error())
+	}
+
+	dataSetNotFound, ok := parsedPDPVerifier.Errors["DataSetNotFound"]
+	if !ok {
+		panic("PDPVerifier ABI missing DataSetNotFound error")
+	}
+	ErrSelectorPDPVerifierDataSetNotFound = hex.EncodeToString(dataSetNotFound.ID[:4])
 }
 
 // IsUnrecoverableError returns true if the error contains a known unrecoverable
@@ -49,6 +62,16 @@ func IsUnrecoverableError(err error) bool {
 	errStr := strings.ToLower(err.Error())
 	return strings.Contains(errStr, ErrSelectorDataSetPaymentBeyondEndEpoch) ||
 		strings.Contains(errStr, ErrSelectorDataSetPaymentAlreadyTerminated)
+}
+
+// IsPDPVerifierDataSetNotFound returns true if PDPVerifier reports that a
+// data set no longer exists. In the deletion pipeline this means on-chain
+// cleanup has already finalized and local cleanup can proceed.
+func IsPDPVerifierDataSetNotFound(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), ErrSelectorPDPVerifierDataSetNotFound)
 }
 
 // IsContractRevert returns true if the error indicates a contract revert.

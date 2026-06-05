@@ -160,7 +160,7 @@ func (t *CleanupPiecesTask) sendCleanupPieces(ctx context.Context, sender common
 			return txHash, batchSize, nil
 		}
 
-		if !strings.Contains(err.Error(), "call ran out of gas") {
+		if !isCleanupPiecesGasEstimateOutOfGas(err) {
 			return common.Hash{}, 0, err
 		}
 
@@ -295,6 +295,23 @@ func (s dataSetCleanupState) Finalized() bool {
 	return !s.Live && !s.CleanupMode && s.NextPieceID.Sign() == 0
 }
 
+func finalizedDataSetCleanupState() dataSetCleanupState {
+	return dataSetCleanupState{
+		Live:        false,
+		CleanupMode: false,
+		NextPieceID: big.NewInt(0),
+	}
+}
+
+func isCleanupPiecesGasEstimateOutOfGas(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := strings.ToLower(err.Error())
+	return strings.Contains(errStr, "call ran out of gas") ||
+		strings.Contains(errStr, "out of gas (7)")
+}
+
 // readDataSetCleanupState reduces PDPVerifier state to the deletion states
 // Curio cares about: live, cleanup mode, and finalized cleanup.
 func readDataSetCleanupState(ctx context.Context, ethClient ethchain.EthClient, dataSetID int64) (dataSetCleanupState, error) {
@@ -306,11 +323,17 @@ func readDataSetCleanupState(ctx context.Context, ethClient ethchain.EthClient, 
 	setID := big.NewInt(dataSetID)
 	live, err := verifier.DataSetLive(contract.EthCallOpts(ctx), setID)
 	if err != nil {
+		if IsPDPVerifierDataSetNotFound(err) {
+			return finalizedDataSetCleanupState(), nil
+		}
 		return dataSetCleanupState{}, xerrors.Errorf("failed to check if data set %d is live: %w", dataSetID, err)
 	}
 
 	nextPieceID, err := verifier.GetNextPieceId(contract.EthCallOpts(ctx), setID)
 	if err != nil {
+		if IsPDPVerifierDataSetNotFound(err) {
+			return finalizedDataSetCleanupState(), nil
+		}
 		return dataSetCleanupState{}, xerrors.Errorf("failed to get next piece id for data set %d: %w", dataSetID, err)
 	}
 
@@ -318,6 +341,9 @@ func readDataSetCleanupState(ctx context.Context, ethClient ethchain.EthClient, 
 	if !live && nextPieceID.Sign() > 0 {
 		nextChallengeEpoch, err := verifier.GetNextChallengeEpoch(contract.EthCallOpts(ctx), setID)
 		if err != nil {
+			if IsPDPVerifierDataSetNotFound(err) {
+				return finalizedDataSetCleanupState(), nil
+			}
 			return dataSetCleanupState{}, xerrors.Errorf("failed to get next challenge epoch for data set %d: %w", dataSetID, err)
 		}
 		cleanupMode = nextChallengeEpoch.Cmp(cleanupModeSentinel) == 0
