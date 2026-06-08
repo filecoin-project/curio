@@ -34,6 +34,10 @@ func NewClient(baseURL string, client address.Address, wallet *wallet.LocalWalle
 	}
 }
 
+func (c *Client) SubmitDeal(ctx context.Context, deal *mk20.Deal) *Error {
+	return c.http.SubmitDeal(ctx, deal)
+}
+
 func (c *Client) CreateDataSet(ctx context.Context, client, recordKeeper string, extraData []byte) (ulid.ULID, error) {
 	id, err := ulid.New(ulid.Now(), rand.Reader)
 	if err != nil {
