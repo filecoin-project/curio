@@ -1930,35 +1930,18 @@ var mk20DealCmd = &cli.Command{
 			p.DDOV1.AllocationId = new(verifreg.AllocationId(cctx.Uint64("allocation")))
 		}
 
-		id, err := mk20.NewULID()
-		if err != nil {
-			return err
-		}
-		log.Debugw("generated deal id", "id", id)
-
-		deal := mk20.Deal{
-			Identifier: id,
-			Client:     walletAddr.String(),
-			Data:       &d,
-			Products:   p,
-		}
-
-		log.Debugw("deal", "deal", deal)
-
 		// Try to request all URLs one by one and exit after first success
 		for _, u := range hurls {
 			pclient := client.NewClient(u.String(), walletAddr, n.Wallet)
 			log.Debugw("trying to send request to", "url", u.String())
 
-			rerr := pclient.SubmitDeal(ctx, &deal)
-			if rerr.Error != nil {
-				log.Warnw("failed to send request", "url", u.String(), "error", rerr.Error)
+			id, err := pclient.MakeDeal(ctx, walletAddr.String(), &d, p.DDOV1, p.RetrievalV1)
+			if err != nil {
+				log.Warnw("failed to send request", "url", u.String(), "error", err)
 				continue
 			}
-			if rerr.Status != http.StatusOK {
-				log.Warnw("failed to send request", "url", u.String(), "status", rerr.Status, "error", rerr.HError())
-				continue
-			}
+
+			log.Debugw("generated deal id", "id", id)
 			return nil
 		}
 		return xerrors.Errorf("failed to send request to any of the URLs")

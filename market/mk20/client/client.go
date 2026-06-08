@@ -34,8 +34,30 @@ func NewClient(baseURL string, client address.Address, wallet *wallet.LocalWalle
 	}
 }
 
-func (c *Client) SubmitDeal(ctx context.Context, deal *mk20.Deal) *Error {
-	return c.http.SubmitDeal(ctx, deal)
+func (c *Client) MakeDeal(ctx context.Context, client string, data *mk20.DataSource, ddo *mk20.DDOV1, retrieval *mk20.RetrievalV1) (ulid.ULID, error) {
+	id, err := ulid.New(ulid.Now(), rand.Reader)
+	if err != nil {
+		return ulid.ULID{}, xerrors.Errorf("failed to create ULID: %w", err)
+	}
+
+	deal := &mk20.Deal{
+		Identifier: id,
+		Client:     client,
+		Data:       data,
+		Products: mk20.Products{
+			DDOV1:       ddo,
+			RetrievalV1: retrieval,
+		},
+	}
+
+	rerr := c.http.SubmitDeal(ctx, deal)
+	if rerr.Error != nil {
+		return ulid.ULID{}, rerr.Error
+	}
+	if rerr.Status != 200 {
+		return ulid.ULID{}, rerr.HError()
+	}
+	return id, nil
 }
 
 func (c *Client) CreateDataSet(ctx context.Context, client, recordKeeper string, extraData []byte) (ulid.ULID, error) {
