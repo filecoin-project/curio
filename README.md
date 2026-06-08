@@ -97,6 +97,14 @@ Join our community discussions and seek support via:
 
 Dual-licensed under [MIT](https://github.com/filecoin-project/curio/blob/master/LICENSE-MIT) + [Apache 2.0](https://github.com/filecoin-project/curio/blob/master/LICENSE-APACHE)
 
+# Releases 
+
+Normal curio releases are cut roughly every two weeks.  Releases are cut directly off main.  The minor version indicates the latest filecoin network version number the release is compatibile with.  The patch is always incremented by one for each new release.  When extensive testing is required before communicating a stable version curio releases may be marked as rc, i.e. v1.28.2-rc1, v1.28.2-rc2 with a subsequent stable release marked as v1.28.2
+
+## Emergency Release
+
+In emergency fire fighting scenarios releases may be cut directly off of a previous release.  The purpose of this procedure is to allow very fine grained patches which take no new changes on main since the latest release being debugged.  In this case the process is to create a branch on the release being repaired for adding emergency commits: `git checkout -b release/vx.y.(z+1) vx.y.z`. 
+
 # Contributing
 
 We welcome contributions from the community! Feel free to open PRs. Reach out to the team on Slack if you need any help.
