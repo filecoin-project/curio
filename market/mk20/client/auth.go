@@ -24,12 +24,7 @@ type Signer interface {
 // on every request using the algorithm defined in the OpenAPI spec.
 func CurioAuthHeader(s Signer) Option {
 	return WithAuth(func(_ context.Context, requestMethod string, requestPath string) (string, string, error) {
-		if requestPath == "" {
-			requestPath = "/"
-		}
-		now := time.Now().UTC().Truncate(time.Minute)
-		msg := bytes.Join([][]byte{s.PublicKeyBytes(), []byte(strings.ToUpper(requestMethod)), []byte(requestPath), []byte(now.Format(time.RFC3339))}, []byte{})
-		digest := sha256.Sum256(msg)
+		digest := AuthDigest(s.PublicKeyBytes(), requestMethod, requestPath, time.Now())
 
 		sig, err := s.Sign(digest[:])
 		if err != nil {
@@ -43,4 +38,22 @@ func CurioAuthHeader(s Signer) Option {
 		)
 		return "Authorization", header, nil
 	})
+}
+
+// AuthDigest returns the SHA-256 digest that must be signed for CurioAuth.
+//
+// The message format must match the mk20 server-side verifier:
+// address bytes + uppercase HTTP method + escaped request path + RFC3339 minute timestamp.
+func AuthDigest(pubKey []byte, requestMethod string, requestPath string, timestamp time.Time) [32]byte {
+	requestMethod = strings.ToUpper(requestMethod)
+	if requestPath == "" {
+		requestPath = "/"
+	}
+
+	return sha256.Sum256(bytes.Join([][]byte{
+		pubKey,
+		[]byte(requestMethod),
+		[]byte(requestPath),
+		[]byte(timestamp.UTC().Truncate(time.Minute).Format(time.RFC3339)),
+	}, []byte{}))
 }

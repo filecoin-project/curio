@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -1737,10 +1736,9 @@ var mk20DealCmd = &cli.Command{
 
 		keyType := client.KeyFromClientAddress(walletAddr)
 		pkey := walletAddr.Bytes()
-		ts := time.Now().UTC().Truncate(time.Hour)
-		msg := sha256.Sum256(bytes.Join([][]byte{pkey, []byte(ts.Format(time.RFC3339))}, []byte{}))
+		digest := client.AuthDigest(pkey, "POST", "/market/mk20/deal", time.Now())
 
-		signature, err := n.Wallet.WalletSign(ctx, walletAddr, msg[:], lapi.MsgMeta{Type: lapi.MTDealProposal})
+		signature, err := n.Wallet.WalletSign(ctx, walletAddr, digest[:], lapi.MsgMeta{})
 		if err != nil {
 			return xerrors.Errorf("signing message: %w", err)
 		}
