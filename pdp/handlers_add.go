@@ -252,6 +252,26 @@ func (p *PDPService) transformAddPiecesRequest(ctx context.Context, serviceLabel
 	return pieceDataArray, subPieceInfoMap, nil
 }
 
+func subPieceCidV1ListFromPieces(pieces []AddPieceRequest) ([]string, error) {
+	seen := make(map[string]struct{})
+	list := make([]string, 0)
+	for _, piece := range pieces {
+		for _, subPiece := range piece.SubPieces {
+			info, err := ParsePieceCid(subPiece.SubPieceCID)
+			if err != nil {
+				return nil, err
+			}
+			cidStr := info.CidV1.String()
+			if _, ok := seen[cidStr]; ok {
+				continue
+			}
+			seen[cidStr] = struct{}{}
+			list = append(list, cidStr)
+		}
+	}
+	return list, nil
+}
+
 func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -278,21 +298,6 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 		httpServerError(w, http.StatusBadRequest, "Invalid data set ID format", err)
 		return
 	}
-
-	if err = verifyDataSetForService(ctx, p.db, serviceLabel, dataSetIdUint64); err != nil {
-		switch {
-		case errors.Is(err, ErrDataSetNotFound):
-			httpServerError(w, http.StatusNotFound, "Data set not found", err)
-		case errors.Is(err, ErrDataSetTerminated):
-			http.Error(w, err.Error(), http.StatusConflict)
-		default:
-			httpServerError(w, http.StatusInternalServerError, "Failed to retrieve data set: "+err.Error(), err)
-		}
-		return
-	}
-
-	// Convert dataSetId to *big.Int
-	dataSetId := new(big.Int).SetUint64(dataSetIdUint64)
 
 	// Step 3: Parse the request body
 
@@ -321,6 +326,36 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 		httpServerError(w, http.StatusBadRequest, errMsg, err)
 		return
 	}
+
+	subPieceCidV1List, err := subPieceCidV1ListFromPieces(payload.Pieces)
+	if err != nil {
+		httpServerError(w, http.StatusBadRequest, "Invalid subPieceCid: "+err.Error(), err)
+		return
+	}
+
+	if err = verifyDataSetForService(ctx, p.db, serviceLabel, dataSetIdUint64); err != nil {
+		switch {
+		case errors.Is(err, ErrDataSetNotFound), errors.Is(err, ErrDataSetTerminated):
+			if p.recordIPOffense(w, r, OffenseBadDataSetAdd) {
+				return
+			}
+			if discardErr := discardOrphanPiecrefsForSubPieces(ctx, p.db, serviceLabel, subPieceCidV1List); discardErr != nil {
+				log.Warnw("failed to discard orphan piecerefs after bad data set addPieces",
+					"dataSetId", dataSetIdUint64, "error", discardErr)
+			}
+			if errors.Is(err, ErrDataSetNotFound) {
+				httpServerError(w, http.StatusNotFound, "Data set not found", err)
+			} else {
+				http.Error(w, err.Error(), http.StatusConflict)
+			}
+		default:
+			httpServerError(w, http.StatusInternalServerError, "Failed to retrieve data set: "+err.Error(), err)
+		}
+		return
+	}
+
+	// Convert dataSetId to *big.Int
+	dataSetId := new(big.Int).SetUint64(dataSetIdUint64)
 
 	extraDataBytes, err := decodeExtraData(payload.ExtraData)
 	if err != nil {
