@@ -16,7 +16,6 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/go-chi/chi/v5"
 	"github.com/ipfs/go-cid"
-	"github.com/yugabyte/pgx/v5"
 
 	commputils "github.com/filecoin-project/go-commp-utils/v2"
 	commcid "github.com/filecoin-project/go-fil-commcid"
@@ -280,31 +279,15 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// check if the data set belongs to the service in pdp_data_sets
-	var dataSetService string
-	var unrecoverable *int64
-	err = p.db.QueryRow(ctx, `
-			SELECT service, unrecoverable_proving_failure_epoch
-			FROM pdp_data_sets
-			WHERE id = $1
-		`, dataSetIdUint64).Scan(&dataSetService, &unrecoverable)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+	if err = verifyDataSetForService(ctx, p.db, serviceLabel, dataSetIdUint64); err != nil {
+		switch {
+		case errors.Is(err, ErrDataSetNotFound):
 			httpServerError(w, http.StatusNotFound, "Data set not found", err)
-			return
+		case errors.Is(err, ErrDataSetTerminated):
+			http.Error(w, err.Error(), http.StatusConflict)
+		default:
+			httpServerError(w, http.StatusInternalServerError, "Failed to retrieve data set: "+err.Error(), err)
 		}
-		httpServerError(w, http.StatusInternalServerError, "Failed to retrieve data set: "+err.Error(), err)
-		return
-	}
-
-	if dataSetService != serviceLabel {
-		// same as when actually not found to avoid leaking information in obvious ways
-		httpServerError(w, http.StatusNotFound, "Data set not found", err)
-		return
-	}
-
-	if unrecoverable != nil {
-		http.Error(w, "Data set has been terminated due to unrecoverable proving failure", http.StatusConflict)
 		return
 	}
 
