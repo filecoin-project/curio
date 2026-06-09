@@ -71,7 +71,8 @@ Updates will affect running instances.`,
 
 			Comment: `Maximum number of sectors per commit batch message. The batch will be submitted
 immediately when this many sectors are ready, without waiting for the timeout.
-0 = use the protocol maximum. (Default: 0)`,
+0 = use the protocol maximum. (Default: 0)
+Updates will affect running instances.`,
 		},
 	},
 	"CompressionConfig": {
@@ -1359,7 +1360,8 @@ Updates will affect running instances.`,
 
 			Comment: `Maximum number of sectors per precommit batch message. The batch will be submitted
 immediately when this many sectors are ready, without waiting for the timeout.
-0 = use the protocol maximum. (Default: 0)`,
+0 = use the protocol maximum. (Default: 0)
+Updates will affect running instances.`,
 		},
 	},
 	"PrometheusAlertManagerConfig": {

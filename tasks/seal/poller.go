@@ -11,7 +11,6 @@ import (
 
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
-	miner15 "github.com/filecoin-project/go-state-types/builtin/v15/miner"
 
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -50,17 +49,21 @@ type SealPollerAPI interface {
 }
 
 type preCommitBatchingConfig struct {
-	MaxPreCommitBatch int
+	MaxPreCommitBatch *config.Dynamic[int]
 	Slack             *config.Dynamic[time.Duration]
 	Timeout           *config.Dynamic[time.Duration]
 }
 
 type commitBatchingConfig struct {
 	MinCommitBatch int
-	MaxCommitBatch int
+	MaxCommitBatch *config.Dynamic[int]
 	Slack          *config.Dynamic[time.Duration]
 	Timeout        *config.Dynamic[time.Duration]
 }
+
+// commitBatchProtocolMax caps commit batches; the protocol allows more (819 per
+// FIP-13) but larger aggregates are rarely cheaper and bloat the message.
+const commitBatchProtocolMax = 256
 
 type pollerConfig struct {
 	preCommit preCommitBatchingConfig
@@ -76,18 +79,15 @@ type SealPoller struct {
 }
 
 func NewPoller(db *harmonydb.DB, api SealPollerAPI, cfg *config.CurioConfig) *SealPoller {
-	precommitMax := ClampMaxBatch(cfg.Batching.PreCommit.MaxBatch, miner15.PreCommitSectorBatchMaxSize)
-	commitMax := ClampMaxBatch(cfg.Batching.Commit.MaxBatch, 256)
-
 	c := pollerConfig{
 		commit: commitBatchingConfig{
 			MinCommitBatch: miner.MinAggregatedSectors,
-			MaxCommitBatch: commitMax,
+			MaxCommitBatch: cfg.Batching.Commit.MaxBatch,
 			Slack:          cfg.Batching.Commit.Slack,
 			Timeout:        cfg.Batching.Commit.Timeout,
 		},
 		preCommit: preCommitBatchingConfig{
-			MaxPreCommitBatch: precommitMax,
+			MaxPreCommitBatch: cfg.Batching.PreCommit.MaxBatch,
 			Slack:             cfg.Batching.PreCommit.Slack,
 			Timeout:           cfg.Batching.PreCommit.Timeout,
 		},

@@ -90,12 +90,14 @@ func DefaultCurioConfig() *CurioConfig {
 		},
 		Batching: CurioBatchingConfig{
 			PreCommit: PreCommitBatchingConfig{
-				Timeout: NewDynamic(4 * time.Hour),
-				Slack:   NewDynamic(6 * time.Hour),
+				Timeout:  NewDynamic(4 * time.Hour),
+				Slack:    NewDynamic(6 * time.Hour),
+				MaxBatch: NewDynamic(0),
 			},
 			Commit: CommitBatchingConfig{
-				Timeout: NewDynamic(time.Hour),
-				Slack:   NewDynamic(time.Hour),
+				Timeout:  NewDynamic(time.Hour),
+				Slack:    NewDynamic(time.Hour),
+				MaxBatch: NewDynamic(0),
 			},
 			Update: UpdateBatchingConfig{
 				BaseFeeThreshold: NewDynamic(types.MustParseFIL("0.005")),
@@ -779,7 +781,8 @@ type PreCommitBatchingConfig struct {
 	// Maximum number of sectors per precommit batch message. The batch will be submitted
 	// immediately when this many sectors are ready, without waiting for the timeout.
 	// 0 = use the protocol maximum. (Default: 0)
-	MaxBatch int
+	// Updates will affect running instances.
+	MaxBatch *Dynamic[int]
 }
 
 type CommitBatchingConfig struct {
@@ -794,7 +797,8 @@ type CommitBatchingConfig struct {
 	// Maximum number of sectors per commit batch message. The batch will be submitted
 	// immediately when this many sectors are ready, without waiting for the timeout.
 	// 0 = use the protocol maximum. (Default: 0)
-	MaxBatch int
+	// Updates will affect running instances.
+	MaxBatch *Dynamic[int]
 }
 
 type UpdateBatchingConfig struct {

@@ -80,7 +80,7 @@ func (s *SealPoller) pollStartBatchCommitMsg(ctx context.Context) {
 
 	slackEpochs := SlackEpochs(s.cfg.commit.Slack.Get(), build.BlockDelaySecs)
 	timeout := s.cfg.commit.Timeout.Get()
-	maxBatch := s.cfg.commit.MaxCommitBatch
+	maxBatch := ClampMaxBatch(s.cfg.commit.MaxCommitBatch.Get(), commitBatchProtocolMax)
 	currentHeight := int64(ts.Height())
 
 	s.pollers[pollerCommitMsg].Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
@@ -117,7 +117,7 @@ func (s *SealPoller) pollStartBatchCommitMsg(ctx context.Context) {
 				FLOOR((rn - 1)::NUMERIC / $1)::BIGINT AS batch_index
 			FROM numbered
 			ORDER BY sp_id, reg_seal_proof, batch_index, ready_at`,
-			s.cfg.commit.MaxCommitBatch)
+			maxBatch)
 		if err != nil {
 			return false, xerrors.Errorf("getting commit batch candidates: %w", err)
 		}

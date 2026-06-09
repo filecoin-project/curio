@@ -1125,6 +1125,7 @@ description: The default curio configuration
     # Maximum number of sectors per precommit batch message. The batch will be submitted
     # immediately when this many sectors are ready, without waiting for the timeout.
     # 0 = use the protocol maximum. (Default: 0)
+    # Updates will affect running instances.
     #
     # type: int
     #MaxBatch = 0
@@ -1151,6 +1152,7 @@ description: The default curio configuration
     # Maximum number of sectors per commit batch message. The batch will be submitted
     # immediately when this many sectors are ready, without waiting for the timeout.
     # 0 = use the protocol maximum. (Default: 0)
+    # Updates will affect running instances.
     #
     # type: int
     #MaxBatch = 0
