@@ -5,7 +5,7 @@ import (
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/chainsched"
-	"github.com/filecoin-project/curio/lib/ethchain"
+	"github.com/filecoin-project/curio/api"
 
 	chainTypes "github.com/filecoin-project/lotus/chain/types"
 )
@@ -13,7 +13,7 @@ import (
 // NewDataSetWatch runes processing steps for data set creation and piece addtion
 // These two are run in sequence to allow for combined create-and-add flow to first
 // create the data set, then add the pieces to it.
-func NewDataSetWatch(db *harmonydb.DB, ethClient ethchain.EthClient, pcs *chainsched.CurioChainSched) {
+func NewDataSetWatch(db *harmonydb.DB, ethClient api.EthClientInterface, pcs *chainsched.CurioChainSched) {
 	if err := pcs.AddHandler(func(ctx context.Context, revert, apply *chainTypes.TipSet) error {
 		err := processPendingDataSetCreates(ctx, db, ethClient)
 		if err != nil {

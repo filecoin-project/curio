@@ -14,7 +14,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
-	"github.com/filecoin-project/curio/lib/ethchain"
+	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/tasks/message"
@@ -23,11 +23,11 @@ import (
 
 type DeleteDataSetTask struct {
 	db        *harmonydb.DB
-	ethClient ethchain.EthClient
+	ethClient api.EthClientInterface
 	sender    *message.SenderETH
 }
 
-func NewDeleteDataSetTask(db *harmonydb.DB, ethClient ethchain.EthClient, sender *message.SenderETH) *DeleteDataSetTask {
+func NewDeleteDataSetTask(db *harmonydb.DB, ethClient api.EthClientInterface, sender *message.SenderETH) *DeleteDataSetTask {
 	return &DeleteDataSetTask{
 		db:        db,
 		ethClient: ethClient,

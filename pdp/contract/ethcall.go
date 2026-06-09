@@ -8,7 +8,7 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"golang.org/x/xerrors"
 
-	"github.com/filecoin-project/curio/lib/ethchain"
+	"github.com/filecoin-project/curio/api"
 )
 
 // EthCallTimeout is the maximum duration for any eth_call RPC operation.
@@ -32,7 +32,7 @@ func EthCallOpts(ctx context.Context) *bind.CallOpts {
 // FilCleanupDeposit returns the FIL cleanup deposit required when creating a data set.
 // deleteDataSet and cleanupPieces are nonpayable; the deposit is refunded to whoever
 // finalizes on-chain cleanup via _finalizeCleanup.
-func FilCleanupDeposit(ctx context.Context, ethClient ethchain.EthClient) (*big.Int, error) {
+func FilCleanupDeposit(ctx context.Context, ethClient api.EthClientInterface) (*big.Int, error) {
 	pdpVerifier, err := NewPDPVerifier(ContractAddresses().PDPVerifier, ethClient)
 	if err != nil {
 		return nil, xerrors.Errorf("instantiating PDPVerifier: %w", err)

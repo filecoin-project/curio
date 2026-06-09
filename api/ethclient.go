@@ -29,6 +29,7 @@ type EthClientInterface interface {
 	NetworkID(ctx context.Context) (*mathbig.Int, error)
 	BalanceAt(ctx context.Context, account common.Address, blockNumber *mathbig.Int) (*mathbig.Int, error)
 	BalanceAtHash(ctx context.Context, account common.Address, blockHash common.Hash) (*mathbig.Int, error)
+	BlobBaseFee(ctx context.Context) (*mathbig.Int, error)
 	StorageAt(ctx context.Context, account common.Address, key common.Hash, blockNumber *mathbig.Int) ([]byte, error)
 	StorageAtHash(ctx context.Context, account common.Address, key common.Hash, blockHash common.Hash) ([]byte, error)
 	CodeAt(ctx context.Context, account common.Address, blockNumber *mathbig.Int) ([]byte, error)

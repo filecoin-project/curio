@@ -12,7 +12,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
-	"github.com/filecoin-project/curio/lib/ethchain"
+	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/lib/filecoinpayment"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/tasks/message"
@@ -22,11 +22,11 @@ var log = logging.Logger("filecoin-pay-settle")
 
 type SettleTask struct {
 	db        *harmonydb.DB
-	ethClient ethchain.EthClient
+	ethClient api.EthClientInterface
 	sender    *message.SenderETH
 }
 
-func NewSettleTask(db *harmonydb.DB, ethClient ethchain.EthClient, sender *message.SenderETH) *SettleTask {
+func NewSettleTask(db *harmonydb.DB, ethClient api.EthClientInterface, sender *message.SenderETH) *SettleTask {
 	return &SettleTask{
 		db:        db,
 		ethClient: ethClient,

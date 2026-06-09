@@ -14,7 +14,7 @@ import (
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/chainsched"
-	"github.com/filecoin-project/curio/lib/ethchain"
+	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/lib/filecoinpayment"
 	"github.com/filecoin-project/curio/lib/paths/alertinginterface"
 	"github.com/filecoin-project/curio/pdp/contract"
@@ -43,7 +43,7 @@ type mwe struct {
 	Success *bool `db:"tx_success"`
 }
 
-func NewSettleWatcher(db *harmonydb.DB, ethClient ethchain.EthClient, pcs *chainsched.CurioChainSched, al alertinginterface.AlertingInterface) {
+func NewSettleWatcher(db *harmonydb.DB, ethClient api.EthClientInterface, pcs *chainsched.CurioChainSched, al alertinginterface.AlertingInterface) {
 	at := al.AddAlertType(alertName, alertType)
 	if err := pcs.AddHandler(func(ctx context.Context, revert, apply *chainTypes.TipSet) error {
 		err := processPendingTransactions(ctx, db, ethClient, al, at)
@@ -56,7 +56,7 @@ func NewSettleWatcher(db *harmonydb.DB, ethClient ethchain.EthClient, pcs *chain
 	}
 }
 
-func processPendingTransactions(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, al alertinginterface.AlertingInterface, at alertinginterface.AlertType) error {
+func processPendingTransactions(ctx context.Context, db *harmonydb.DB, ethClient api.EthClientInterface, al alertinginterface.AlertingInterface, at alertinginterface.AlertType) error {
 	// Handle failed settlements first - log error and clean up
 	// This JOINLESS query structure is a critical optimization to prevent the query planner from iterating the entire
 	// massive mwe table on each filecoin head change.  We've observed that mwe gets selected as driving table if we
@@ -134,7 +134,7 @@ func processPendingTransactions(ctx context.Context, db *harmonydb.DB, ethClient
 	return nil
 }
 
-func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, fwssv *FWSS.FilecoinWarmStorageServiceStateView, fwssAddr common.Address, settle settled) error {
+func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient api.EthClientInterface, fwssv *FWSS.FilecoinWarmStorageServiceStateView, fwssAddr common.Address, settle settled) error {
 	paymentContractAddr, err := filecoinpayment.PaymentContractAddress()
 	if err != nil {
 		return fmt.Errorf("failed to get payment contract address: %w", err)

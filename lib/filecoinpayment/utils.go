@@ -16,14 +16,14 @@ import (
 	"github.com/filecoin-project/go-state-types/builtin"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/curio/lib/ethchain"
+	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/tasks/message"
 )
 
 var log = logging.Logger("filecoin-pay")
 
-func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, sender *message.SenderETH, from common.Address, payees []common.Address, operators []common.Address) error {
+func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient api.EthClientInterface, sender *message.SenderETH, from common.Address, payees []common.Address, operators []common.Address) error {
 	paymentContractAddr, err := PaymentContractAddress()
 	if err != nil {
 		return fmt.Errorf("failed to get payment contract address: %w", err)
