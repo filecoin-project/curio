@@ -53,3 +53,62 @@ func TestIPOffenseThrottleDoesNotBlockOtherIPs(t *testing.T) {
 		t.Fatal("expected other IP to remain unblocked")
 	}
 }
+
+func TestIPOffenseThrottleCleansExpiredStateOnAccess(t *testing.T) {
+	throttle := testIPOffenseThrottle()
+	req := &http.Request{RemoteAddr: "203.0.113.10:1234"}
+	now := time.Now()
+
+	throttle.mu.Lock()
+	throttle.state["203.0.113.10"] = map[string]*ipOffenseState{
+		"test_offense": {
+			blockedUntil: now.Add(-time.Minute),
+			windowStart:  now.Add(-3 * time.Minute),
+		},
+	}
+	throttle.mu.Unlock()
+
+	blocked, _, _ := throttle.longestBlock(req)
+	if blocked {
+		t.Fatal("expected expired block state to be cleaned on access")
+	}
+
+	throttle.mu.RLock()
+	_, ok := throttle.state["203.0.113.10"]
+	throttle.mu.RUnlock()
+	if ok {
+		t.Fatal("expected expired IP state to be removed")
+	}
+}
+
+func TestIPOffenseThrottleCleanupAllRemovesStaleIPs(t *testing.T) {
+	throttle := testIPOffenseThrottle()
+	now := time.Now()
+
+	throttle.mu.Lock()
+	throttle.state["203.0.113.10"] = map[string]*ipOffenseState{
+		"test_offense": {
+			blockedUntil: now.Add(-time.Minute),
+			windowStart:  now.Add(-3 * time.Minute),
+		},
+	}
+	throttle.state["198.51.100.4"] = map[string]*ipOffenseState{
+		"test_offense": {
+			hits:         1,
+			windowStart:  now,
+			blockedUntil: now.Add(2 * time.Minute),
+		},
+	}
+	throttle.mu.Unlock()
+
+	throttle.cleanupAll()
+
+	throttle.mu.RLock()
+	defer throttle.mu.RUnlock()
+	if _, ok := throttle.state["203.0.113.10"]; ok {
+		t.Fatal("expected stale IP to be removed by periodic cleanup")
+	}
+	if _, ok := throttle.state["198.51.100.4"]; !ok {
+		t.Fatal("expected active IP to remain after periodic cleanup")
+	}
+}

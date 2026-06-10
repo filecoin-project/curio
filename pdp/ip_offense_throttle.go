@@ -1,6 +1,7 @@
 package pdp
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/http"
@@ -30,6 +31,8 @@ type IPOffenseThrottle struct {
 	state map[string]map[string]*ipOffenseState
 }
 
+const ipOffenseCleanupInterval = 5 * time.Minute
+
 type ipOffenseState struct {
 	hits         int
 	windowStart  time.Time
@@ -40,6 +43,60 @@ func NewIPOffenseThrottle(policies map[string]IPOffensePolicy) *IPOffenseThrottl
 	return &IPOffenseThrottle{
 		policies: policies,
 		state:    make(map[string]map[string]*ipOffenseState),
+	}
+}
+
+// RunCleanup periodically removes expired offense state for all tracked IPs.
+func (t *IPOffenseThrottle) RunCleanup(ctx context.Context) {
+	ticker := time.NewTicker(ipOffenseCleanupInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			t.cleanupAll()
+		}
+	}
+}
+
+func offenseStateExpired(st *ipOffenseState, policy IPOffensePolicy, now time.Time) bool {
+	if now.Before(st.blockedUntil) {
+		return false
+	}
+	if st.hits > 0 && now.Sub(st.windowStart) < policy.Window*2 {
+		return false
+	}
+	return true
+}
+
+// cleanupIPLocked removes expired offense entries for ip. Caller must hold t.mu.
+func (t *IPOffenseThrottle) cleanupIPLocked(ip string, now time.Time) {
+	offenses, ok := t.state[ip]
+	if !ok {
+		return
+	}
+
+	for offense, st := range offenses {
+		policy, ok := t.policies[offense]
+		if !ok || offenseStateExpired(st, policy, now) {
+			delete(offenses, offense)
+		}
+	}
+	if len(offenses) == 0 {
+		delete(t.state, ip)
+	}
+}
+
+func (t *IPOffenseThrottle) cleanupAll() {
+	now := time.Now()
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	for ip := range t.state {
+		t.cleanupIPLocked(ip, now)
 	}
 }
 
@@ -101,28 +158,7 @@ func (t *IPOffenseThrottle) Record(r *http.Request, offense string) (blocked boo
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	for stateIP, offenses := range t.state {
-		keep := false
-		for stateOffense, st := range offenses {
-			statePolicy, ok := t.policies[stateOffense]
-			if !ok {
-				delete(offenses, stateOffense)
-				continue
-			}
-			if now.Before(st.blockedUntil) {
-				keep = true
-				continue
-			}
-			if st.hits > 0 && now.Sub(st.windowStart) < statePolicy.Window*2 {
-				keep = true
-				continue
-			}
-			delete(offenses, stateOffense)
-		}
-		if !keep || len(offenses) == 0 {
-			delete(t.state, stateIP)
-		}
-	}
+	t.cleanupIPLocked(ip, now)
 
 	offenses, ok := t.state[ip]
 	if !ok {
@@ -168,8 +204,11 @@ func (t *IPOffenseThrottle) longestBlock(r *http.Request) (bool, time.Duration, 
 
 	now := time.Now()
 
-	t.mu.RLock()
-	defer t.mu.RUnlock()
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	t.cleanupIPLocked(ip, now)
+
 	offenses, ok := t.state[ip]
 	if !ok {
 		return false, 0, ""

@@ -113,6 +113,7 @@ func NewPDPService(
 		ipOffenseThrottle: NewIPOffenseThrottle(defaultIPOffensePolicies()),
 	}
 
+	go p.ipOffenseThrottle.RunCleanup(ctx)
 	go p.cleanup(ctx)
 	return p
 }
