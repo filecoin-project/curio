@@ -58,7 +58,8 @@ func TestHandlePull_BackpressureStress(t *testing.T) {
 	}
 
 	stats := &pdpPullStressStats{}
-	handler := NewPullHandler(&NullAuth{}, NewDBPullStore(db), &mockValidator{shouldPass: true})
+	ensurePullTestDataSet(t, db, testDataSetId, "public")
+	handler := NewPullHandler(&NullAuth{}, NewDBPullStore(db), &mockValidator{shouldPass: true}, db)
 	dataSetID := testDataSetId
 
 	testCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -212,7 +213,8 @@ func TestHandlePull_BackpressureSoloClientCanUseNinetyPercent(t *testing.T) {
 	db, err := harmonydb.NewFromConfigWithITestID(t)
 	require.NoError(t, err)
 
-	handler := NewPullHandler(&NullAuth{}, NewDBPullStore(db), &mockValidator{shouldPass: true})
+	ensurePullTestDataSet(t, db, testDataSetId, "public")
+	handler := NewPullHandler(&NullAuth{}, NewDBPullStore(db), &mockValidator{shouldPass: true}, db)
 	dataSetID := testDataSetId
 	rawSizes := []uint64{127, 254, 508, 1016}
 	piecePool := make([]string, pullStressSoloClientLimit+1)
@@ -232,7 +234,8 @@ func TestHandlePull_BackpressureClientCanBorrowUnusedSlots(t *testing.T) {
 	db, err := harmonydb.NewFromConfigWithITestID(t)
 	require.NoError(t, err)
 
-	handler := NewPullHandler(&NullAuth{}, NewDBPullStore(db), &mockValidator{shouldPass: true})
+	ensurePullTestDataSet(t, db, testDataSetId, "public")
+	handler := NewPullHandler(&NullAuth{}, NewDBPullStore(db), &mockValidator{shouldPass: true}, db)
 	dataSetID := testDataSetId
 	rawSizes := []uint64{127, 254, 508, 1016}
 	piecePool := make([]string, 31)
@@ -253,7 +256,8 @@ func TestHandlePull_BackpressureClientLimitAppliesNearGlobalReserve(t *testing.T
 	db, err := harmonydb.NewFromConfigWithITestID(t)
 	require.NoError(t, err)
 
-	handler := NewPullHandler(&NullAuth{}, NewDBPullStore(db), &mockValidator{shouldPass: true})
+	ensurePullTestDataSet(t, db, testDataSetId, "public")
+	handler := NewPullHandler(&NullAuth{}, NewDBPullStore(db), &mockValidator{shouldPass: true}, db)
 	dataSetID := testDataSetId
 	rawSizes := []uint64{127, 254, 508, 1016}
 	piecePool := make([]string, pullStressSoloClientLimit+1)
@@ -473,4 +477,43 @@ func pullStressActiveCounts(ctx context.Context, db *harmonydb.DB) (int, int, er
 	}
 
 	return globalPending, maxClientPending, nil
+}
+
+func ensurePullTestDataSet(t *testing.T, db *harmonydb.DB, dataSetID uint64, service string) {
+	t.Helper()
+
+	ctx := context.Background()
+	txHash := fmt.Sprintf("0x%064x", dataSetID)
+	_, err := db.Exec(ctx, `
+		INSERT INTO pdp_data_sets (id, create_message_hash, service, proving_period, challenge_window, init_ready)
+		VALUES ($1, $2, $3, 100, 10, FALSE)
+		ON CONFLICT (id) DO NOTHING
+	`, int64(dataSetID), txHash, service)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = db.Exec(ctx, `DELETE FROM pdp_data_sets WHERE id = $1`, int64(dataSetID))
+	})
+}
+
+func TestHandlePull_DataSetNotFound(t *testing.T) {
+	db, err := harmonydb.NewFromConfigWithITestID(t)
+	require.NoError(t, err)
+
+	handler := NewPullHandler(&NullAuth{}, NewDBPullStore(db), &mockValidator{shouldPass: true}, db)
+	body := PullRequest{
+		ExtraData: testAddPiecesOnlyExtraData(t),
+		DataSetId: &testDataSetId,
+		Pieces: []PullPieceRequest{
+			{PieceCid: testCid1, SourceURL: "https://example.com/piece/" + testCid1},
+		},
+	}
+	bodyBytes, err := json.Marshal(body)
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodPost, "/pdp/piece/pull", bytes.NewReader(bodyBytes))
+	rec := httptest.NewRecorder()
+	handler.HandlePull(rec, req)
+
+	require.Equal(t, http.StatusNotFound, rec.Code)
+	require.Contains(t, rec.Body.String(), "Data set not found")
 }
