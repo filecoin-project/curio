@@ -101,14 +101,14 @@ func (p *PDPService) handleTerminateDataSet(w http.ResponseWriter, r *http.Reque
 	dataSetService, err := p.getDataSetService(ctx, dataSetID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			http.Error(w, "Data set not found", http.StatusBadRequest)
+			http.Error(w, "Data set not found", http.StatusNotFound)
 			return
 		}
 		httpServerError(w, http.StatusInternalServerError, "Failed to retrieve data set", err)
 		return
 	}
 	if dataSetService != serviceLabel {
-		http.Error(w, "Data set not found", http.StatusBadRequest)
+		http.Error(w, "Data set not found", http.StatusNotFound)
 		return
 	}
 
@@ -124,12 +124,18 @@ func (p *PDPService) handleTerminateDataSet(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	var terminatedEpoch int64
+	var terminatedEpoch sql.NullInt64
 	err = p.db.QueryRow(ctx, `SELECT service_termination_epoch FROM pdp_delete_data_set WHERE id = $1`, dataSetID).Scan(&terminatedEpoch)
 	if err == nil {
+		if terminatedEpoch.Valid {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusConflict)
+			TerminateCode0.EncodeResponse(w, &terminatedEpoch.Int64)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusConflict)
-		TerminateCode0.EncodeResponse(w, &terminatedEpoch)
+		TerminateCode1.EncodeResponse(w, nil)
 		return
 	}
 
