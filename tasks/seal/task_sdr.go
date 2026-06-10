@@ -25,6 +25,8 @@ import (
 
 	"github.com/filecoin-project/lotus/chain/actors/policy"
 	"github.com/filecoin-project/lotus/chain/types"
+	"strconv"
+	"strings"
 )
 
 var IsDevnet = build.BlockDelaySecs < 30
@@ -183,6 +185,29 @@ func (s *SDRTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEngine)
 	return ids, nil
 }
 
+func sdrCPUCostFromEnv() int {
+	const defaultSDRCPUCost = 4
+
+	raw := strings.TrimSpace(os.Getenv("FIL_PROOFS_MULTICORE_SDR_PRODUCERS"))
+	if raw == "" {
+		return defaultSDRCPUCost
+	}
+
+	producers, err := strconv.Atoi(raw)
+	if err != nil {
+		log.Warnw("invalid FIL_PROOFS_MULTICORE_SDR_PRODUCERS, using default SDR CPU cost", "value", raw, "error", err, "default_cpu_cost", defaultSDRCPUCost)
+		return defaultSDRCPUCost
+	}
+
+	if producers < 1 || producers > 3 {
+		log.Warnw("FIL_PROOFS_MULTICORE_SDR_PRODUCERS out of range, using default SDR CPU cost", "value", raw, "default_cpu_cost", defaultSDRCPUCost)
+		return defaultSDRCPUCost
+	}
+
+	// filecoin-ffi supports producer values 1..3, corresponding roughly to 2..4 CPU cores.
+	return producers + 1
+}
+
 func (s *SDRTask) TypeDetails() harmonytask.TaskTypeDetails {
 	ssize := abi.SectorSize(32 << 30) // todo task details needs taskID to get correct sector size
 	if IsDevnet {
@@ -193,7 +218,7 @@ func (s *SDRTask) TypeDetails() harmonytask.TaskTypeDetails {
 		Max:  s.max,
 		Name: tasknames.SDR,
 		Cost: resources.Resources{
-			Cpu:     4, // todo multicore sdr
+			Cpu:     sdrCPUCostFromEnv(), // based on FIL_PROOFS_MULTICORE_SDR_PRODUCERS
 			Gpu:     0,
 			Ram:     (64 << 30) + (256 << 20),
 			Storage: s.sc.Storage(s.taskToSector, storiface.FTCache, storiface.FTNone, ssize, storiface.PathSealing, paths.MinFreeStoragePercentage),
