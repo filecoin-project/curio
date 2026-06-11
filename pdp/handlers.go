@@ -189,8 +189,8 @@ func Routes(r *chi.Mux, p *PDPService) {
 		// POST /pdp/piece
 		r.Post("/piece", instrument("pieceUploadInit", p.handlePiecePost, nil))
 
-		// GET /pdp/piece/
-		r.Get("/piece/", p.handleFindPiece)
+		// GET /pdp/piece
+		r.Get("/piece", p.handleFindPiece)
 
 		// PUT /pdp/piece/upload/{uploadUUID}
 		r.Put("/piece/upload/{uploadUUID}", instrument("pieceUpload", p.handlePieceUpload, kvUploadUUID))
