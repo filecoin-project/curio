@@ -92,6 +92,28 @@ var runCmd = &cli.Command{
 			log.Errorf("ensuring tempdir exists: %s", err)
 		}
 
+		repoPath, err := homedir.Expand(cctx.String(deps.FlagRepoPath))
+		if err != nil {
+			return xerrors.Errorf("expanding repo path: %w", err)
+		}
+		pidPath := filepath.Join(repoPath, "curio.pid")
+
+		if shouldCheckAlreadyRunning(cctx) {
+			restarted, err := gracehttpsvc.RestartIfAlreadyRunning(pidPath)
+			if err != nil {
+				return xerrors.Errorf("checking for running curio: %w", err)
+			}
+			if restarted {
+				log.Info("Curio is already running; graceful restart triggered")
+				return nil
+			}
+		}
+
+		if err := gracehttpsvc.WritePIDFile(pidPath); err != nil {
+			return xerrors.Errorf("writing pid file: %w", err)
+		}
+		defer gracehttpsvc.RemovePIDFile(pidPath)
+
 		if os.Getenv("GOLOG_FILE") != "" {
 			err := os.MkdirAll(filepath.Dir(os.Getenv("GOLOG_FILE")), 0755)
 			if err != nil {
@@ -141,16 +163,6 @@ var runCmd = &cli.Command{
 			return nil
 		})
 
-		repoPath, err := homedir.Expand(cctx.String(deps.FlagRepoPath))
-		if err != nil {
-			return xerrors.Errorf("expanding repo path: %w", err)
-		}
-		pidPath := filepath.Join(repoPath, "curio.pid")
-		if err := gracehttpsvc.WritePIDFile(pidPath); err != nil {
-			log.Errorf("writing pid file: %s", err)
-		}
-		defer gracehttpsvc.RemovePIDFile(pidPath)
-
 		var extraServers []*http.Server
 		if marketServer != nil {
 			extraServers = append(extraServers, marketServer)
@@ -163,6 +175,19 @@ var runCmd = &cli.Command{
 
 		return nil
 	},
+}
+
+func shouldCheckAlreadyRunning(cctx *cli.Context) bool {
+	if gracehttpsvc.IsGraceHandoff() {
+		return false
+	}
+	if cctx.Bool("halt-after-init") {
+		return false
+	}
+	if os.Getenv("CURIO_SKIP_ALREADY_RUNNING") != "" {
+		return false
+	}
+	return true
 }
 
 var layersFlag = &cli.StringSliceFlag{

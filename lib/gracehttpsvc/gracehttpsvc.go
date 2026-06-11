@@ -3,6 +3,7 @@
 package gracehttpsvc
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -12,6 +13,8 @@ import (
 
 	"github.com/facebookgo/grace/gracehttp"
 )
+
+const listenFdsKey = "LISTEN_FDS"
 
 var preRestartHook func() error
 
@@ -51,16 +54,39 @@ func RemovePIDFile(path string) {
 	_ = os.Remove(path)
 }
 
+// IsGraceHandoff reports whether this process inherited listener FDs from a
+// graceful restart predecessor.
+func IsGraceHandoff() bool {
+	return os.Getenv(listenFdsKey) != ""
+}
+
+// IsProcessAlive reports whether pid refers to a running process.
+func IsProcessAlive(pid int) bool {
+	if pid <= 0 || pid == os.Getpid() {
+		return false
+	}
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return false
+	}
+	return proc.Signal(syscall.Signal(0)) == nil
+}
+
+func parsePID(data []byte) (int, error) {
+	text := string(data)
+	if len(text) > 0 && text[len(text)-1] == '\n' {
+		text = text[:len(text)-1]
+	}
+	return strconv.Atoi(text)
+}
+
 // RestartFromPIDFile reads a pid from path and sends SIGUSR2 to that process.
 func RestartFromPIDFile(path string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("reading pid file %s: %w", path, err)
 	}
-	pid, err := strconv.Atoi(string(data[:len(data)-1]))
-	if len(data) > 0 && data[len(data)-1] != '\n' {
-		pid, err = strconv.Atoi(string(data))
-	}
+	pid, err := parsePID(data)
 	if err != nil {
 		return fmt.Errorf("parsing pid from %s: %w", path, err)
 	}
@@ -68,6 +94,40 @@ func RestartFromPIDFile(path string) error {
 		return fmt.Errorf("sending SIGUSR2 to pid %d: %w", pid, err)
 	}
 	return nil
+}
+
+// RestartIfAlreadyRunning checks pidPath for a live process. When one is found,
+// SIGUSR2 is sent to trigger a graceful restart and true is returned so the
+// caller can exit without starting a second instance. Stale pid files are removed.
+func RestartIfAlreadyRunning(pidPath string) (bool, error) {
+	data, err := os.ReadFile(pidPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("reading pid file %s: %w", pidPath, err)
+	}
+
+	pid, err := parsePID(data)
+	if err != nil {
+		RemovePIDFile(pidPath)
+		return false, nil
+	}
+
+	if !IsProcessAlive(pid) {
+		RemovePIDFile(pidPath)
+		return false, nil
+	}
+
+	if err := RestartPID(pid); err != nil {
+		if errors.Is(err, syscall.ESRCH) {
+			RemovePIDFile(pidPath)
+			return false, nil
+		}
+		return false, err
+	}
+
+	return true, nil
 }
 
 // Serve starts one or more HTTP servers with gracehttp, enabling graceful
