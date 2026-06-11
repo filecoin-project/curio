@@ -98,10 +98,17 @@ func CurioHandler(
 	return ah
 }
 
+// TaskEngineRestarter begins an in-memory graceful restart: it cordons the
+// node (without persisting to the DB), drains running tasks, then restarts.
+type TaskEngineRestarter interface {
+	RequestRestart()
+}
+
 type CurioAPI struct {
 	*deps.Deps
 	paths.SectorIndex
 	ShutdownChan chan struct{}
+	restarter    TaskEngineRestarter
 }
 
 func (p *CurioAPI) Version(context.Context) ([]int, error) {
@@ -226,8 +233,14 @@ func (p *CurioAPI) Shutdown(context.Context) error {
 	return gracehttpsvc.TriggerShutdown()
 }
 
-// Restart triggers a zero-downtime process restart via SIGUSR2.
+// Restart initiates a graceful restart. When a task engine is wired in, it
+// cordons the node in-memory and drains running tasks before triggering the
+// zero-downtime restart; otherwise it triggers the restart immediately.
 func (p *CurioAPI) Restart(context.Context) error {
+	if p.restarter != nil {
+		p.restarter.RequestRestart()
+		return nil
+	}
 	return gracehttpsvc.TriggerRestart()
 }
 
@@ -457,7 +470,7 @@ func (p *CurioAPI) IndexSamples(ctx context.Context, pcid cid.Cid) ([]multihash.
 	return p.IndexStore.GetPieceHashRange(ctx, pcid, firstHash, chunk.NumberOfBlocks, true)
 }
 
-func ListenAndServe(ctx context.Context, dependencies *deps.Deps, shutdownChan chan struct{}, extraServers ...*http.Server) error {
+func ListenAndServe(ctx context.Context, dependencies *deps.Deps, shutdownChan chan struct{}, restarter TaskEngineRestarter, extraServers ...*http.Server) error {
 	fh := &paths.FetchHandler{Local: dependencies.LocalStore, PfHandler: &paths.DefaultPartialFileHandler{}}
 	remoteHandler := func(w http.ResponseWriter, r *http.Request) {
 		if !auth.HasPerm(r.Context(), nil, lapi.PermAdmin) {
@@ -489,7 +502,7 @@ func ListenAndServe(ctx context.Context, dependencies *deps.Deps, shutdownChan c
 		Handler: CurioHandler(
 			authVerify,
 			remoteHandler,
-			&CurioAPI{dependencies, dependencies.Si, shutdownChan},
+			&CurioAPI{dependencies, dependencies.Si, shutdownChan, restarter},
 			prometheusServiceDiscovery(ctx, dependencies),
 			permissioned),
 		ReadHeaderTimeout: time.Minute * 3,

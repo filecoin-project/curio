@@ -146,6 +146,11 @@ type TaskEngine struct {
 	// runtime flags
 	yieldBackground atomic.Bool
 
+	// restartRequested is an in-memory cordon set when a graceful restart is
+	// requested via RPC. It is intentionally not persisted to the DB so that
+	// the node returns to its previous cordon state after restarting.
+	restartRequested atomic.Bool
+
 	// synchronous to the single-threaded poller
 	lastFollowTime time.Time
 	lastCleanup    atomic.Value
@@ -287,6 +292,11 @@ func (e *TaskEngine) poller() {
 		if err != nil {
 			log.Error("Unable to check schedulable status: ", err)
 			continue
+		}
+
+		// An in-memory restart request cordons the node without touching the DB.
+		if e.restartRequested.Load() {
+			schedulable = false
 		}
 
 		e.yieldBackground.Store(!schedulable)
@@ -519,6 +529,55 @@ func (e *TaskEngine) checkNodeFlags() (bool, error) {
 	return !unschedulable, nil
 }
 
+func (e *TaskEngine) activeTaskCount() int {
+	count := 0
+	for _, h := range e.handlers {
+		count += h.Max.ActiveThis()
+	}
+	return count
+}
+
+// RequestRestart begins an in-memory graceful restart. The node immediately
+// stops accepting new tasks (the same effect as cordoning), waits for the
+// currently-running tasks to drain, then triggers a zero-downtime restart.
+//
+// The cordon is kept in-memory only and is never written to harmony_machines,
+// so after the restart the node returns to whatever cordon state was persisted
+// in the database before the restart was requested.
+func (e *TaskEngine) RequestRestart() {
+	if !e.restartRequested.CompareAndSwap(false, true) {
+		// a restart is already in progress
+		return
+	}
+	log.Infow("restart requested; cordoning in-memory and draining tasks", "ownerID", e.ownerID)
+	go e.drainAndRestart()
+}
+
+func (e *TaskEngine) drainAndRestart() {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-e.ctx.Done():
+			return
+		case <-ticker.C:
+		}
+
+		if active := e.activeTaskCount(); active > 0 {
+			log.Infow("restart waiting for tasks to drain", "ownerID", e.ownerID, "activeTasks ", active)
+			continue
+		}
+
+		log.Infow("no tasks running, triggering graceful restart", "ownerID", e.ownerID)
+		if err := gracehttpsvc.TriggerRestart(); err != nil {
+			log.Errorw("graceful restart failed, falling back to exit", "error", err)
+			os.Exit(ExitStatusRestartRequest)
+		}
+		return
+	}
+}
+
 func (e *TaskEngine) restartIfNoTasksPending(pendingSince time.Time) {
 	var tasksPending int
 	err := e.db.QueryRow(e.ctx, `SELECT COUNT(*) FROM harmony_task WHERE owner_id=$1`, e.ownerID).Scan(&tasksPending)
@@ -526,21 +585,30 @@ func (e *TaskEngine) restartIfNoTasksPending(pendingSince time.Time) {
 		log.Error("Unable to check for tasks pending: ", err)
 		return
 	}
-	if tasksPending == 0 {
-		log.Infow("no tasks pending, restarting", "ownerID", e.ownerID, "pendingSince", pendingSince, "took", time.Since(pendingSince))
 
-		// unset the flags first
-		_, err = e.db.Exec(e.ctx, `UPDATE harmony_machines SET restart_request=NULL, unschedulable=FALSE WHERE host_and_port=$1`, e.hostAndPort)
-		if err != nil {
-			log.Error("Unable to unset restart request: ", err)
-			return
-		}
+	activeTasks := e.activeTaskCount()
+	if tasksPending > 0 || activeTasks > 0 {
+		log.Infow("restart waiting for tasks to finish",
+			"ownerID", e.ownerID,
+			"pendingSince", pendingSince,
+			"tasksPending", tasksPending,
+			"activeTasks", activeTasks)
+		return
+	}
 
-		// zero-downtime restart via gracehttp; fall back to exit 100 for systemd
-		if err := gracehttpsvc.TriggerRestart(); err != nil {
-			log.Errorw("graceful restart failed, falling back to exit", "error", err)
-			os.Exit(ExitStatusRestartRequest)
-		}
+	log.Infow("no tasks pending, restarting", "ownerID", e.ownerID, "pendingSince", pendingSince, "took", time.Since(pendingSince))
+
+	// Clear restart_request only; stay cordoned until the operator uncordons after restart.
+	_, err = e.db.Exec(e.ctx, `UPDATE harmony_machines SET restart_request=NULL WHERE host_and_port=$1`, e.hostAndPort)
+	if err != nil {
+		log.Error("Unable to unset restart request: ", err)
+		return
+	}
+
+	// zero-downtime restart via gracehttp; fall back to exit 100 for systemd
+	if err := gracehttpsvc.TriggerRestart(); err != nil {
+		log.Errorw("graceful restart failed, falling back to exit", "error", err)
+		os.Exit(ExitStatusRestartRequest)
 	}
 }
 

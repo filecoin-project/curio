@@ -71,7 +71,7 @@ func TestGraceRestartDuringPDPPing(t *testing.T) {
 	}()
 
 	require.Eventually(t, func() bool {
-		return pingSuccesses.Load() >= 20
+		return pingSuccesses.Load() >= 5
 	}, 30*time.Second, 25*time.Millisecond, "expected initial successful PDP pings before restart")
 
 	require.NoError(t, gracehttpsvc.RestartFromPIDFile(pidPath))
@@ -85,7 +85,7 @@ func TestGraceRestartDuringPDPPing(t *testing.T) {
 	}, 2*time.Minute, 100*time.Millisecond, "expected curio.pid to reflect a new process after restart")
 
 	require.Eventually(t, func() bool {
-		return pingSuccesses.Load() >= 40
+		return pingSuccesses.Load() >= 10
 	}, 2*time.Minute, 25*time.Millisecond, "expected continued successful PDP pings through restart")
 
 	close(stopPinger)

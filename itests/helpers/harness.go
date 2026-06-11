@@ -100,7 +100,7 @@ func StartCurioHarness(
 		if marketServer != nil {
 			extra = append(extra, marketServer)
 		}
-		err := rpc.ListenAndServe(ctx, dependencies, shutdownChan, extra...)
+		err := rpc.ListenAndServe(ctx, dependencies, shutdownChan, taskEngine, extra...)
 		if err != nil {
 			t.Errorf("failed to start the Curio RPC server: %v", err)
 		}

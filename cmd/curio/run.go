@@ -168,7 +168,7 @@ var runCmd = &cli.Command{
 			extraServers = append(extraServers, marketServer)
 		}
 
-		err = rpc.ListenAndServe(ctx, dependencies, shutdownChan, extraServers...)
+		err = rpc.ListenAndServe(ctx, dependencies, shutdownChan, taskEngine, extraServers...)
 		if err != nil {
 			return err
 		}
