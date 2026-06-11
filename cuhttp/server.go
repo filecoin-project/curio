@@ -146,8 +146,9 @@ type ServiceDeps struct {
 	AlertTask  *alertmanager.AlertTask
 }
 
-// This starts the public-facing server for market calls.
-func StartHTTPServer(ctx context.Context, d *deps.Deps, sd *ServiceDeps) error {
+// NewHTTPServer builds the public-facing server for market calls without
+// starting it. The caller should pass the returned server to gracehttpsvc.Serve.
+func NewHTTPServer(ctx context.Context, d *deps.Deps, sd *ServiceDeps) (*http.Server, error) {
 	cfg := d.Cfg.HTTP
 
 	// Setup the Chi router for more complex routing (if needed in the future)
@@ -201,7 +202,7 @@ func StartHTTPServer(ctx context.Context, d *deps.Deps, sd *ServiceDeps) error {
 
 	chiRouter, err = attachRouters(ctx, chiRouter, d, sd)
 	if err != nil {
-		return xerrors.Errorf("failed to attach routers: %w", err)
+		return nil, xerrors.Errorf("failed to attach routers: %w", err)
 	}
 
 	// Set up the HTTP server with proper timeouts
@@ -225,33 +226,13 @@ func StartHTTPServer(ctx context.Context, d *deps.Deps, sd *ServiceDeps) error {
 		server.TLSConfig = certManager.TLSConfig()
 	}
 
-	// We don't need to run an HTTP server. Any HTTP request should simply be handled as HTTPS.
+	if !cfg.DelegateTLS {
+		log.Infof("Configured HTTPS server for https://%s on %s", cfg.DomainName, cfg.ListenAddress)
+	} else {
+		log.Infof("Configured HTTP server (delegated TLS) on %s", cfg.ListenAddress)
+	}
 
-	// Start the server with TLS
-	go func() {
-		log.Infof("Starting HTTPS server for https://%s on %s", cfg.DomainName, cfg.ListenAddress)
-		var serr error
-		if !cfg.DelegateTLS {
-			serr = server.ListenAndServeTLS("", "")
-		} else {
-			serr = server.ListenAndServe()
-		}
-		if serr != nil && !errors.Is(serr, http.ErrServerClosed) {
-			log.Errorf("Failed to start HTTPS server: %s", serr)
-			panic(serr)
-		}
-	}()
-
-	go func() {
-		<-ctx.Done()
-		log.Warn("Shutting down HTTP Server...")
-		if err := server.Shutdown(context.Background()); err != nil {
-			log.Errorf("shutting down web server failed: %s", err)
-		}
-		log.Warn("HTTP Server graceful shutdown successful")
-	}()
-
-	return nil
+	return server, nil
 }
 
 type cache struct {

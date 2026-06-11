@@ -56,6 +56,8 @@ type CurioMethods struct {
 
 	LogSetLevel func(p0 context.Context, p1 string, p2 string) error `perm:"admin"`
 
+	Restart func(p0 context.Context) error `perm:"admin"`
+
 	Shutdown func(p0 context.Context) error `perm:"admin"`
 
 	StorageAddLocal func(p0 context.Context, p1 string) error `perm:"admin"`
@@ -300,6 +302,17 @@ func (s *CurioStruct) LogSetLevel(p0 context.Context, p1 string, p2 string) erro
 }
 
 func (s *CurioStub) LogSetLevel(p0 context.Context, p1 string, p2 string) error {
+	return ErrNotSupported
+}
+
+func (s *CurioStruct) Restart(p0 context.Context) error {
+	if s.Internal.Restart == nil {
+		return ErrNotSupported
+	}
+	return s.Internal.Restart(p0)
+}
+
+func (s *CurioStub) Restart(p0 context.Context) error {
 	return ErrNotSupported
 }
 

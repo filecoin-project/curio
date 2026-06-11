@@ -209,6 +209,7 @@ var cliCmd = &cli.Command{
 		logCmd,
 		waitApiCmd,
 		stopCmd,
+		restartCmd,
 		cordonCmd,
 		uncordonCmd,
 		indexSampleCmd,

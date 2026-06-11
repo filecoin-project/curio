@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/mitchellh/go-homedir"
 	"github.com/pkg/errors"
 	"github.com/urfave/cli/v2"
 	"go.opencensus.io/stats"
@@ -16,8 +18,8 @@ import (
 	"github.com/filecoin-project/curio/cmd/curio/rpc"
 	"github.com/filecoin-project/curio/cmd/curio/tasks"
 	"github.com/filecoin-project/curio/deps"
+	"github.com/filecoin-project/curio/lib/gracehttpsvc"
 	curiometrics "github.com/filecoin-project/curio/lib/metrics"
-	"github.com/filecoin-project/curio/lib/shutdown"
 
 	"github.com/filecoin-project/lotus/lib/ulimit"
 	"github.com/filecoin-project/lotus/metrics"
@@ -128,22 +130,37 @@ var runCmd = &cli.Command{
 
 		go ffiSelfTest() // Panics on failure
 
-		taskEngine, err := tasks.StartTasks(ctx, dependencies, shutdownChan)
-
+		taskEngine, marketServer, err := tasks.StartTasks(ctx, dependencies, shutdownChan)
 		if err != nil {
 			return xerrors.Errorf("starting tasks: %w", err)
 		}
 		defer taskEngine.GracefullyTerminate()
 
-		err = rpc.ListenAndServe(ctx, dependencies, shutdownChan) // Monitor for shutdown.
+		gracehttpsvc.SetPreRestartHook(func() error {
+			taskEngine.GracefullyTerminate()
+			return nil
+		})
+
+		repoPath, err := homedir.Expand(cctx.String(deps.FlagRepoPath))
+		if err != nil {
+			return xerrors.Errorf("expanding repo path: %w", err)
+		}
+		pidPath := filepath.Join(repoPath, "curio.pid")
+		if err := gracehttpsvc.WritePIDFile(pidPath); err != nil {
+			log.Errorf("writing pid file: %s", err)
+		}
+		defer gracehttpsvc.RemovePIDFile(pidPath)
+
+		var extraServers []*http.Server
+		if marketServer != nil {
+			extraServers = append(extraServers, marketServer)
+		}
+
+		err = rpc.ListenAndServe(ctx, dependencies, shutdownChan, extraServers...)
 		if err != nil {
 			return err
 		}
 
-		finishCh := shutdown.MonitorShutdown(shutdownChan) //node.ShutdownHandler{Component: "rpc server", StopFunc: rpcStopper},
-		//node.ShutdownHandler{Component: "curio", StopFunc: stop},
-
-		<-finishCh
 		return nil
 	},
 }

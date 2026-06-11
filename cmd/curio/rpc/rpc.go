@@ -24,8 +24,9 @@ import (
 	"github.com/multiformats/go-multihash"
 	"github.com/urfave/cli/v2"
 	"go.opencensus.io/tag"
-	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
+
+	"github.com/filecoin-project/curio/lib/gracehttpsvc"
 
 	ffi "github.com/filecoin-project/filecoin-ffi"
 	"github.com/filecoin-project/go-address"
@@ -217,8 +218,17 @@ func (p *CurioAPI) AllocatePieceToSector(ctx context.Context, maddr address.Addr
 
 // Trigger shutdown
 func (p *CurioAPI) Shutdown(context.Context) error {
-	close(p.ShutdownChan)
-	return nil
+	select {
+	case <-p.ShutdownChan:
+	default:
+		close(p.ShutdownChan)
+	}
+	return gracehttpsvc.TriggerShutdown()
+}
+
+// Restart triggers a zero-downtime process restart via SIGUSR2.
+func (p *CurioAPI) Restart(context.Context) error {
+	return gracehttpsvc.TriggerRestart()
 }
 
 func (p *CurioAPI) StorageInit(ctx context.Context, path string, opts storiface.LocalStorageMeta) error {
@@ -447,7 +457,7 @@ func (p *CurioAPI) IndexSamples(ctx context.Context, pcid cid.Cid) ([]multihash.
 	return p.IndexStore.GetPieceHashRange(ctx, pcid, firstHash, chunk.NumberOfBlocks, true)
 }
 
-func ListenAndServe(ctx context.Context, dependencies *deps.Deps, shutdownChan chan struct{}) error {
+func ListenAndServe(ctx context.Context, dependencies *deps.Deps, shutdownChan chan struct{}, extraServers ...*http.Server) error {
 	fh := &paths.FetchHandler{Local: dependencies.LocalStore, PfHandler: &paths.DefaultPartialFileHandler{}}
 	remoteHandler := func(w http.ResponseWriter, r *http.Request) {
 		if !auth.HasPerm(r.Context(), nil, lapi.PermAdmin) {
@@ -491,26 +501,13 @@ func ListenAndServe(ctx context.Context, dependencies *deps.Deps, shutdownChan c
 	}
 
 	log.Infof("Setting up RPC server at %s", dependencies.ListenAddr)
-	eg := errgroup.Group{}
-	eg.Go(srv.ListenAndServe)
 
+	servers := []*http.Server{srv}
 	if dependencies.Cfg.Subsystems.EnableWebGui {
-		web, err := web.GetSrv(ctx, dependencies, false)
+		webSrv, err := web.GetSrv(ctx, dependencies, false)
 		if err != nil {
 			return err
 		}
-
-		go func() {
-			<-ctx.Done()
-			log.Warn("Shutting down...")
-			if err := srv.Shutdown(context.TODO()); err != nil {
-				log.Errorf("shutting down RPC server failed: %s", err)
-			}
-			if err := web.Shutdown(context.Background()); err != nil {
-				log.Errorf("shutting down web server failed: %s", err)
-			}
-			log.Warn("Graceful shutdown successful")
-		}()
 
 		uiAddress := dependencies.Cfg.Subsystems.GuiAddress
 		if uiAddress == "" || uiAddress[0] == ':' || uiAddress == "0.0.0.0:4701" {
@@ -521,9 +518,15 @@ func ListenAndServe(ctx context.Context, dependencies *deps.Deps, shutdownChan c
 		}
 
 		log.Infof("GUI:  http://%s", uiAddress)
-		eg.Go(web.ListenAndServe)
+		servers = append(servers, webSrv)
 	}
-	return eg.Wait()
+	for _, s := range extraServers {
+		if s != nil {
+			servers = append(servers, s)
+		}
+	}
+
+	return gracehttpsvc.Serve(servers...)
 }
 
 func GetCurioAPI(ctx *cli.Context) (api.Curio, jsonrpc.ClientCloser, error) {

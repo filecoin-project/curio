@@ -16,6 +16,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
+	"github.com/filecoin-project/curio/lib/gracehttpsvc"
 )
 
 // Consts (except for unit test)
@@ -535,8 +536,11 @@ func (e *TaskEngine) restartIfNoTasksPending(pendingSince time.Time) {
 			return
 		}
 
-		// then exit
-		os.Exit(ExitStatusRestartRequest)
+		// zero-downtime restart via gracehttp; fall back to exit 100 for systemd
+		if err := gracehttpsvc.TriggerRestart(); err != nil {
+			log.Errorw("graceful restart failed, falling back to exit", "error", err)
+			os.Exit(ExitStatusRestartRequest)
+		}
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"testing"
 	"time"
@@ -91,11 +92,15 @@ func StartCurioHarness(
 	require.NoError(t, os.Setenv("CURIO_REPO_PATH", dir))
 	require.NoError(t, dependencies.PopulateRemainingDeps(ctx, cctx, false))
 
-	taskEngine, err := tasks.StartTasks(ctx, dependencies, shutdownChan)
+	taskEngine, marketServer, err := tasks.StartTasks(ctx, dependencies, shutdownChan)
 	require.NoError(t, err)
 
 	go func() {
-		err := rpc.ListenAndServe(ctx, dependencies, shutdownChan)
+		var extra []*http.Server
+		if marketServer != nil {
+			extra = append(extra, marketServer)
+		}
+		err := rpc.ListenAndServe(ctx, dependencies, shutdownChan, extra...)
 		if err != nil {
 			t.Errorf("failed to start the Curio RPC server: %v", err)
 		}
