@@ -83,11 +83,17 @@ func TestReadPID(t *testing.T) {
 
 	dir := t.TempDir()
 	pidPath := filepath.Join(dir, "curio.pid")
-	require.NoError(t, WritePIDFile(pidPath))
+	if err := WritePIDFile(pidPath); err != nil {
+		t.Fatal(err)
+	}
 
 	pid, err := ReadPID(pidPath)
-	require.NoError(t, err)
-	require.Equal(t, os.Getpid(), pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pid != os.Getpid() {
+		t.Fatalf("expected pid %d, got %d", os.Getpid(), pid)
+	}
 }
 
 func TestIsGraceHandoff(t *testing.T) {
