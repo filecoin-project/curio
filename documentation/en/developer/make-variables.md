@@ -55,6 +55,10 @@ These targets share the same pipeline and differ only in tags:
   - Builds: `curio`, `sptool`
   - Tag behavior: appends `2k` to `CURIO_TAGS` then runs `build`.
 
+- `make pdp`
+  - Builds: `bin/pdp` (PDP-only daemon; no worker RPC or deal market)
+  - Uses the same `CURIO_TAGS` and `BUILD_DEPS` pipeline as `curio`.
+
 Equivalent one-off forms are also available:
 
 - `make calibnet-curio`

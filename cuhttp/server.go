@@ -315,8 +315,16 @@ func attachRouters(ctx context.Context, r *chi.Mux, d *deps.Deps, sd *ServiceDep
 	libp2p.Router(r, rd)
 
 	if sd.EthSender != nil {
-		pdsvc := pdp.NewPDPService(ctx, d.DB, d.LocalStore, must.One(d.EthClient.Get()), d.Chain, sd.EthSender, sd.AlertTask, ipp)
-		pdp.Routes(r, pdsvc)
+		if err := pdp.MountRoutes(ctx, r, pdp.MountDeps{
+			DB:         d.DB,
+			LocalStore: d.LocalStore,
+			EthClient:  must.One(d.EthClient.Get()),
+			Chain:      d.Chain,
+			EthSender:  sd.EthSender,
+			AlertTask:  sd.AlertTask,
+		}, ipp); err != nil {
+			return nil, err
+		}
 	}
 
 	// Attach the market handler

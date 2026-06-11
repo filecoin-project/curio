@@ -1,0 +1,55 @@
+package pdpnode
+
+import (
+	"context"
+	"os"
+	"os/signal"
+	"syscall"
+
+	"github.com/urfave/cli/v2"
+	"golang.org/x/xerrors"
+
+	"github.com/filecoin-project/curio/lib/shutdown"
+	"github.com/filecoin-project/lotus/lib/ulimit"
+)
+
+// Run starts the PDP node until shutdown.
+func Run(cctx *cli.Context) error {
+	ctx := context.Background()
+	if cctx.Bool("manage-fdlimit") {
+		if _, _, err := ulimit.ManageFdLimit(); err != nil {
+			log.Errorf("setting file descriptor limit: %s", err)
+		}
+	}
+
+	d, err := Open(ctx, cctx)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+
+	taskRes, err := RegisterTasks(ctx, d)
+	if err != nil {
+		return xerrors.Errorf("register tasks: %w", err)
+	}
+	defer taskRes.Engine.GracefullyTerminate()
+
+	if err := StartPublic(ctx, d, taskRes); err != nil {
+		return xerrors.Errorf("public http: %w", err)
+	}
+
+	if _, err := StartAdmin(ctx, d); err != nil {
+		return xerrors.Errorf("admin http: %w", err)
+	}
+
+	shutdownChan := make(chan struct{})
+	go func() {
+		sig := make(chan os.Signal, 1)
+		signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
+		<-sig
+		close(shutdownChan)
+	}()
+
+	<-shutdown.MonitorShutdown(shutdownChan)
+	return nil
+}

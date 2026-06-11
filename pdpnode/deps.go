@@ -1,0 +1,220 @@
+// Package pdpnode runs PDP workflows without the curio sealing/PoRep dependency graph.
+package pdpnode
+
+import (
+	"context"
+	"net/http"
+	"os"
+	"path"
+	"strings"
+
+	logging "github.com/ipfs/go-log/v2"
+	"github.com/urfave/cli/v2"
+	"golang.org/x/xerrors"
+
+	"github.com/filecoin-project/curio/alertmanager"
+	"github.com/filecoin-project/curio/alertmanager/curioalerting"
+	"github.com/filecoin-project/curio/api"
+	curiodeps "github.com/filecoin-project/curio/deps"
+	"github.com/filecoin-project/curio/deps/config"
+	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/cachedreader"
+	"github.com/filecoin-project/curio/lib/curiochain"
+	"github.com/filecoin-project/curio/lib/ethchain"
+	"github.com/filecoin-project/curio/lib/paths"
+	"github.com/filecoin-project/curio/lib/pieceprovider"
+	"github.com/filecoin-project/curio/lib/piecestore"
+	"github.com/filecoin-project/curio/lib/repo"
+	"github.com/filecoin-project/curio/market/indexstore"
+	"github.com/filecoin-project/curio/market/ipni/chunker"
+	"github.com/filecoin-project/curio/tasks/message"
+
+	lrepo "github.com/filecoin-project/lotus/node/repo"
+	"github.com/filecoin-project/lotus/lib/lazy"
+)
+
+var log = logging.Logger("pdpnode")
+
+const defaultMachineHost = "127.0.0.1:pdp"
+
+// Deps holds PDP-node runtime dependencies.
+type Deps struct {
+	Cfg               *config.CurioConfig
+	DB                *harmonydb.DB
+	Chain             api.Chain
+	chainCloser       func()
+	Bstore            curiochain.CurioBlockstore
+	Stor              *paths.Remote
+	LocalStore        *paths.Local
+	LocalPaths        *paths.BasicLocalStorage
+	Si                paths.SectorIndex
+	PieceIO           piecestore.PieceIO
+	IndexStore        *indexstore.IndexStore
+	SectorReader      *pieceprovider.SectorReader
+	CachedPieceReader *cachedreader.CachedPieceReader
+	ServeChunker      *chunker.ServeChunker
+	EthClient         *lazy.Lazy[ethchain.EthClient]
+	Sender            *message.Sender
+	Al                *curioalerting.AlertingSystem
+	Alert             *alertmanager.AlertNow
+	MachineHost       string
+	Name              string
+	MachineID         int64
+}
+
+// Open initializes PDP-node dependencies from CLI flags and a single base config layer.
+func Open(ctx context.Context, cctx *cli.Context) (*Deps, error) {
+	repoPath := cctx.String(curiodeps.FlagRepoPath)
+	r, err := lrepo.NewFS(repoPath)
+	if err != nil {
+		return nil, err
+	}
+	ok, err := r.Exists()
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		if err := r.Init(repo.Curio); err != nil {
+			return nil, err
+		}
+	}
+
+	db, err := curiodeps.MakeDB(cctx)
+	if err != nil {
+		return nil, err
+	}
+
+	cfg, err := curiodeps.GetConfig(ctx, nil, db)
+	if err != nil {
+		return nil, xerrors.Errorf("load config: %w", err)
+	}
+
+	if !cfg.Subsystems.EnablePDP {
+		cfg.Subsystems.EnablePDP = true
+	}
+	if cfg.Subsystems.GuiAddress == "" || strings.HasPrefix(cfg.Subsystems.GuiAddress, "0.0.0.0") {
+		port := "4701"
+		if parts := strings.Split(cfg.Subsystems.GuiAddress, ":"); len(parts) == 2 && parts[1] != "" {
+			port = parts[1]
+		}
+		cfg.Subsystems.GuiAddress = "127.0.0.1:" + port
+	}
+
+	machineHost := cctx.String("machine-host")
+	if machineHost == "" {
+		machineHost = defaultMachineHost
+	}
+
+	al := curioalerting.NewAlertingSystem()
+	si := paths.NewDBIndex(al, db)
+
+	localPaths := &paths.BasicLocalStorage{
+		PathToJSON: path.Join(repoPath, "storage.json"),
+	}
+
+	sa, err := curiodeps.StorageAuth(cfg.Apis.StorageRPCSecret)
+	if err != nil {
+		return nil, xerrors.Errorf("storage auth: %w", err)
+	}
+
+	localStore, err := paths.NewLocal(ctx, localPaths, si, "http://"+machineHost+"/remote")
+	if err != nil {
+		return nil, err
+	}
+
+	stor, err := paths.NewRemote(localStore, si, http.Header(sa), 1000, &paths.DefaultPartialFileHandler{})
+	if err != nil {
+		return nil, xerrors.Errorf("remote store: %w", err)
+	}
+
+	cfgApiInfo := cfg.Apis.ChainApiInfo
+	if v := os.Getenv("FULLNODE_API_INFO"); v != "" {
+		cfgApiInfo = []string{v}
+	}
+	chain, chainCloser, err := curiodeps.GetFullNodeAPIV1Curio(cctx, cfgApiInfo)
+	if err != nil {
+		return nil, err
+	}
+
+	dbHost := cctx.String("db-host-cql")
+	if dbHost == "" {
+		dbHost = cctx.String("db-host")
+	}
+	indexStore, err := indexstore.NewIndexStore(strings.Split(dbHost, ","), cctx.Int("db-cassandra-port"), cfg)
+	if err != nil {
+		return nil, xerrors.Errorf("index store: %w", err)
+	}
+	if err := indexStore.Start(ctx, false); err != nil {
+		return nil, xerrors.Errorf("start index store: %w", err)
+	}
+
+	sectorReader := pieceprovider.NewSectorReader(stor, si)
+	ppr := pieceprovider.NewPieceParkReader(stor, si)
+	cpr := cachedreader.NewCachedPieceReader(db, sectorReader, ppr, indexStore)
+	serveChunker := chunker.NewServeChunker(db, sectorReader, indexStore, cpr)
+
+	ethLazy := lazy.MakeLazy(func() (ethchain.EthClient, error) {
+		return curiodeps.GetEthClient(cctx, cfgApiInfo)
+	})
+
+	name := cctx.String("name")
+
+	d := &Deps{
+		Cfg:               cfg,
+		DB:                db,
+		Chain:             chain,
+		chainCloser:       chainCloser,
+		Bstore:            curiochain.NewChainBlockstore(chain),
+		Stor:              stor,
+		LocalStore:        localStore,
+		LocalPaths:        localPaths,
+		Si:                si,
+		PieceIO:           piecestore.New(stor, localStore, si),
+		IndexStore:        indexStore,
+		SectorReader:      sectorReader,
+		CachedPieceReader: cpr,
+		ServeChunker:      serveChunker,
+		EthClient:         ethLazy,
+		Al:                al,
+		Alert:             alertmanager.NewAlertNow(db, machineHost),
+		MachineHost:       machineHost,
+		Name:              name,
+		MachineID:         -1,
+	}
+
+	sender, _ := message.NewSender(chain, chain, db, cfg.Fees.MaximizeFeeCap)
+	d.Sender = sender
+
+	return d, nil
+}
+
+func (d *Deps) Close() {
+	if d.chainCloser != nil {
+		d.chainCloser()
+	}
+}
+
+// CurioDeps builds a curio deps struct for shared web/cuhttp integrations.
+func (d *Deps) CurioDeps() *curiodeps.Deps {
+	return &curiodeps.Deps{
+		Cfg:               d.Cfg,
+		DB:                d.DB,
+		Chain:             d.Chain,
+		Bstore:            d.Bstore,
+		Stor:              d.Stor,
+		LocalStore:        d.LocalStore,
+		LocalPaths:        d.LocalPaths,
+		Si:                d.Si,
+		IndexStore:        d.IndexStore,
+		SectorReader:      d.SectorReader,
+		CachedPieceReader: d.CachedPieceReader,
+		ServeChunker:      d.ServeChunker,
+		EthClient:         d.EthClient,
+		Sender:            d.Sender,
+		Al:                d.Al,
+		Alert:             d.Alert,
+		ListenAddr:        d.MachineHost,
+		Name:              d.Name,
+		MachineID:         &d.MachineID,
+	}
+}

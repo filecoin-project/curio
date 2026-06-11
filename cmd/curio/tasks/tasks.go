@@ -46,9 +46,7 @@ import (
 	"github.com/filecoin-project/curio/tasks/indexing"
 	"github.com/filecoin-project/curio/tasks/message"
 	"github.com/filecoin-project/curio/tasks/metadata"
-	"github.com/filecoin-project/curio/tasks/pay"
-	"github.com/filecoin-project/curio/tasks/pdp"
-	"github.com/filecoin-project/curio/tasks/pdpv0"
+	"github.com/filecoin-project/curio/pdpnode"
 	piece2 "github.com/filecoin-project/curio/tasks/piece"
 	"github.com/filecoin-project/curio/tasks/proofshare"
 	"github.com/filecoin-project/curio/tasks/scrub"
@@ -309,76 +307,18 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 			return nil, err
 		}
 
-		// Enable PDP v1 subsystem
 		if cfg.Subsystems.EnablePDP {
-			es := getSenderEth()
-			sdeps.EthSender = es
-
-			ethClient := must.One(dependencies.EthClient.Val())
-
-			pdp.NewWatcherDataSetCreate(db, ethClient, chainSched)
-			pdp.NewWatcherPieceAdd(db, chainSched, ethClient)
-			pdp.NewWatcherDelete(db, chainSched)
-			pdp.NewWatcherPieceDelete(db, chainSched)
-
-			pdpProveTask := pdp.NewProveTask(chainSched, db, ethClient, dependencies.Chain, es, dependencies.CachedPieceReader, iStore)
-			pdpNextProvingPeriodTask := pdp.NewNextProvingPeriodTask(db, ethClient, dependencies.Chain, chainSched, es)
-			pdpInitProvingPeriodTask := pdp.NewInitProvingPeriodTask(db, ethClient, dependencies.Chain, chainSched, es)
-			pdpNotifTask := pdp.NewPDPNotifyTask(db)
-
-			addProofSetTask := pdp.NewPDPTaskAddDataSet(db, es, ethClient, full)
-			pdpAddRoot := pdp.NewPDPTaskAddPiece(db, es, ethClient)
-			pdpDelRoot := pdp.NewPDPTaskDeletePiece(db, es, ethClient)
-			pdpDelProofSetTask := pdp.NewPDPTaskDeleteDataSet(db, es, ethClient, full)
-
-			pdpAggregateTask := pdp.NewAggregatePDPDealTask(db, sc)
-			pdpCache := pdp.NewTaskPDPSaveCache(db, dependencies.CachedPieceReader, iStore)
-			commPTask := pdp.NewPDPCommpTask(db, sc, cfg.Subsystems.CommPMaxTasks)
-
-			//pdpSync := pdp.NewPDPSyncTask(db, ethClient)
-
-			activeTasks = append(activeTasks, pdpNotifTask, pdpProveTask, pdpNextProvingPeriodTask, pdpInitProvingPeriodTask, commPTask, pdpAddRoot, addProofSetTask, pdpAggregateTask, pdpCache, pdpDelRoot, pdpDelProofSetTask)
-		}
-
-		// Enable PDP v0 subsystem
-		if cfg.Subsystems.EnablePDP {
-			es := getSenderEth()
-
-			pdpv0.NewDataSetWatch(db, must.One(dependencies.EthClient.Val()), chainSched)
-
-			pay.NewSettleWatcher(db, must.One(dependencies.EthClient.Val()), chainSched, dependencies.Al)
-			pdpv0.NewDataSetDeleteWatcher(db, must.One(dependencies.EthClient.Val()), chainSched)
-			pdpv0.NewCleanupPiecesWatcher(db, must.One(dependencies.EthClient.Val()), chainSched)
-			pdpv0.NewTerminateServiceWatcher(db, must.One(dependencies.EthClient.Val()), chainSched)
-
-			pdpProveTask := pdpv0.NewProveTask(chainSched, db, must.One(dependencies.EthClient.Val()), dependencies.Chain, es, dependencies.CachedPieceReader, iStore)
-			pdpNextProvingPeriodTask := pdpv0.NewNextProvingPeriodTask(db, must.One(dependencies.EthClient.Val()), dependencies.Chain, chainSched, es)
-			pdpInitProvingPeriodTask := pdpv0.NewInitProvingPeriodTask(db, must.One(dependencies.EthClient.Val()), dependencies.Chain, chainSched, es)
-			pdpNotifTask := pdpv0.NewPDPNotifyTask(ctx, db)
-			pdpPullPieceTask := pdpv0.NewPDPPullPieceTask(ctx, db, sc, cfg.Subsystems.PDPPullPieceMaxTasks)
-
-			pdpTerminate := pdpv0.NewTerminateServiceTask(db, must.One(dependencies.EthClient.Val()), senderEth)
-			pdpDelete := pdpv0.NewDeleteDataSetTask(db, must.One(dependencies.EthClient.Val()), senderEth)
-			pdpCleanup := pdpv0.NewCleanupPiecesTask(db, must.One(dependencies.EthClient.Val()), senderEth)
-			pdpChainDBStateSync := pdpv0.NewTaskChainSync(db, must.One(dependencies.EthClient.Val()), senderEth)
-			payTask := pay.NewSettleTask(db, must.One(dependencies.EthClient.Val()), senderEth) // Move this to a common section once PDP v1 is live
-			pdpSaveCacheTask := pdpv0.NewTaskPDPSaveCache(db, dependencies.CachedPieceReader, iStore)
-			pdpPieceGC := pdpv0.NewPieceGCTask(&cfg.HTTP, db, iStore)
-			pdpReorgChk := pdpv0.NewReorgCheckTask(db, must.One(dependencies.EthClient.Val()), dependencies.Chain)
-			activeTasks = append(activeTasks, pdpProveTask, pdpNotifTask, pdpPullPieceTask, pdpNextProvingPeriodTask, pdpInitProvingPeriodTask, pdpTerminate, pdpDelete, pdpCleanup, pdpChainDBStateSync, payTask, pdpSaveCacheTask, pdpPieceGC, pdpReorgChk)
-
+			if err := pdpnode.Attach(ctx, dependencies, &activeTasks, &sdeps, chainSched); err != nil {
+				return nil, err
+			}
 		}
 
 		idxMax := taskhelp.Max(cfg.Subsystems.IndexingMaxTasks)
 
 		indexingTask := indexing.NewIndexingTask(db, sc, iStore, dependencies.SectorReader, dependencies.CachedPieceReader, cfg, idxMax)
 		ipniTask := indexing.NewIPNITask(db, cfg, idxMax, iStore)
-		pdpv1IdxTask := indexing.NewPDPIndexingTask(db, sc, iStore, dependencies.CachedPieceReader, cfg, idxMax)
-		pdpv1IPNITask := indexing.NewPDPIPNITask(db, cfg, idxMax, iStore)
 		fixRawSizeTask := storage_market.NewFixRawSize(db, sc, dependencies.SectorReader)
-		pdpv0IndexingTask := indexing.NewPDPV0IndexingTask(db, iStore, dependencies.CachedPieceReader, cfg, idxMax)
-		pdpv0IpniTask := indexing.NewPDPV0IPNITask(db, cfg, idxMax, iStore)
-		activeTasks = append(activeTasks, ipniTask, indexingTask, pdpv1IdxTask, pdpv1IPNITask, fixRawSizeTask, pdpv0IndexingTask, pdpv0IpniTask)
+		activeTasks = append(activeTasks, ipniTask, indexingTask, fixRawSizeTask)
 
 		if cfg.HTTP.Enable {
 			// TODO: Put this back once PDPv1 is also being used

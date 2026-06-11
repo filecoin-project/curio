@@ -54,6 +54,17 @@ pdptool: $(BUILD_DEPS)
 .PHONY: pdptool
 BINS += pdptool
 
+pdp: $(BUILD_DEPS)
+	mkdir -p bin
+	rm -f bin/pdp
+	CGO_LDFLAGS_ALLOW=$(CGO_LDFLAGS_ALLOW) $(GOCC) build $(GOFLAGS) \
+	-tags "$(CURIO_TAGS)" \
+	-o bin/pdp -ldflags " -s -w \
+	-X github.com/filecoin-project/curio/build.CurrentCommit=+git_`git log -1 --format=%h_%cI`" \
+	./cmd/pdp
+.PHONY: pdp
+BINS += bin/pdp
+
 ## CUZK PROVING DAEMON (Rust, requires CUDA)
 ## cuzk is a persistent GPU-resident SNARK proving daemon. It is built separately
 ## from the Go binary because it requires CUDA (nvcc) and the Rust toolchain.
