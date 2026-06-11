@@ -176,6 +176,8 @@ jobs:
             target: "./itests/deal_e2e_test.go"
           - name: test-itest-dynamic-config
             target: "./itests/dyncfg_test.go"
+          - name: test-itest-grace-restart
+            target: "./itests/grace_restart_test.go"
           - name: test-itest-harmonyDB
             target: "./itests/harmonydb_test.go"
           - name: test-itest-park-piece

@@ -55,6 +55,7 @@ COMMANDS:
    log           Manage logging
    wait-api      Wait for Curio api to come online
    stop          Stop a running Curio process
+   restart       Gracefully restart a running Curio process
    cordon        Cordon a machine, set it to maintenance mode
    uncordon      Uncordon a machine, resume scheduling
    index-sample  Provides a sample of CIDs from an indexed piece
@@ -299,6 +300,19 @@ USAGE:
    curio cli stop [command options]
 
 OPTIONS:
+   --help, -h  show help
+```
+
+### curio cli restart
+```
+NAME:
+   curio cli restart - Gracefully restart a running Curio process
+
+USAGE:
+   curio cli restart [command options]
+
+OPTIONS:
+   --local     restart via local pid file instead of the RPC API (default: false)
    --help, -h  show help
 ```
 

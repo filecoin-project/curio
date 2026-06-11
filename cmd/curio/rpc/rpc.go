@@ -26,8 +26,6 @@ import (
 	"go.opencensus.io/tag"
 	"golang.org/x/xerrors"
 
-	"github.com/filecoin-project/curio/lib/gracehttpsvc"
-
 	ffi "github.com/filecoin-project/filecoin-ffi"
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-jsonrpc"
@@ -40,6 +38,7 @@ import (
 	ltypes "github.com/filecoin-project/curio/api/types"
 	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps"
+	"github.com/filecoin-project/curio/lib/gracehttpsvc"
 	"github.com/filecoin-project/curio/lib/metrics"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/repo"

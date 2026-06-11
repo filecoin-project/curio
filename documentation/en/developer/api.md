@@ -11,6 +11,7 @@ description: Curio API references
 * [DefaultGroup](api.md#DefaultGroup)
   * [Cordon](api.md#Cordon)
   * [Info](api.md#Info)
+  * [Restart](api.md#Restart)
   * [Shutdown](api.md#Shutdown)
   * [Uncordon](api.md#Uncordon)
   * [Version](api.md#Version)
@@ -165,6 +166,15 @@ Response:
   }
 }
 ```
+
+#### Restart
+
+
+Perms: admin
+
+Inputs: `null`
+
+Response: `{}`
 
 #### Shutdown
 

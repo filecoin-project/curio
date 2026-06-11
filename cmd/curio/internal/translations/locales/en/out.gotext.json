@@ -1373,6 +1373,13 @@
             "fuzzy": true
         },
         {
+            "id": "Gracefully restart a running Curio process",
+            "message": "Gracefully restart a running Curio process",
+            "translation": "Gracefully restart a running Curio process",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
             "id": "Host: {Join}",
             "message": "Host: {Join}",
             "translation": "Host: {Join}",
@@ -3355,6 +3362,13 @@
             "id": "redeclare sectors in a local storage path",
             "message": "redeclare sectors in a local storage path",
             "translation": "redeclare sectors in a local storage path",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "restart via local pid file instead of the RPC API",
+            "message": "restart via local pid file instead of the RPC API",
+            "translation": "restart via local pid file instead of the RPC API",
             "translatorComment": "Copied from source.",
             "fuzzy": true
         },

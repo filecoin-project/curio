@@ -3159,6 +3159,18 @@
       "translation": "목표 상태: true (봉인 해제 보장), false (봉인 해제 사본 없음 보장)",
       "message": "Target state: true (ensure unsealed), false (ensure no unsealed copy)",
       "placeholder": null
+    },
+    {
+      "id": "Gracefully restart a running Curio process",
+      "translation": "실행 중인 Curio 프로세스 정상 재시작",
+      "message": "Gracefully restart a running Curio process",
+      "placeholder": null
+    },
+    {
+      "id": "restart via local pid file instead of the RPC API",
+      "translation": "RPC API 대신 로컬 pid 파일로 재시작",
+      "message": "restart via local pid file instead of the RPC API",
+      "placeholder": null
     }
   ]
 }
