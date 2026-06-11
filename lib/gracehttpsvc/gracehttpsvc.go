@@ -33,7 +33,12 @@ func TriggerRestart() error {
 // TriggerShutdown requests a graceful shutdown by sending SIGTERM to the
 // current process. gracehttp will drain HTTP connections before exiting.
 func TriggerShutdown() error {
-	return syscall.Kill(os.Getpid(), syscall.SIGTERM)
+	return ShutdownPID(os.Getpid())
+}
+
+// ShutdownPID sends SIGTERM to the process identified by pid.
+func ShutdownPID(pid int) error {
+	return syscall.Kill(pid, syscall.SIGTERM)
 }
 
 // RestartPID sends SIGUSR2 to the process identified by pid.
@@ -80,15 +85,24 @@ func parsePID(data []byte) (int, error) {
 	return strconv.Atoi(text)
 }
 
-// RestartFromPIDFile reads a pid from path and sends SIGUSR2 to that process.
-func RestartFromPIDFile(path string) error {
+// ReadPID reads a process id from path.
+func ReadPID(path string) (int, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return fmt.Errorf("reading pid file %s: %w", path, err)
+		return 0, fmt.Errorf("reading pid file %s: %w", path, err)
 	}
 	pid, err := parsePID(data)
 	if err != nil {
-		return fmt.Errorf("parsing pid from %s: %w", path, err)
+		return 0, fmt.Errorf("parsing pid from %s: %w", path, err)
+	}
+	return pid, nil
+}
+
+// RestartFromPIDFile reads a pid from path and sends SIGUSR2 to that process.
+func RestartFromPIDFile(path string) error {
+	pid, err := ReadPID(path)
+	if err != nil {
+		return err
 	}
 	if err := RestartPID(pid); err != nil {
 		return fmt.Errorf("sending SIGUSR2 to pid %d: %w", pid, err)

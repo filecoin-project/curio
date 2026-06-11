@@ -78,6 +78,18 @@ func TestRestartIfAlreadyRunningCurrentProcess(t *testing.T) {
 	}
 }
 
+func TestReadPID(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	pidPath := filepath.Join(dir, "curio.pid")
+	require.NoError(t, WritePIDFile(pidPath))
+
+	pid, err := ReadPID(pidPath)
+	require.NoError(t, err)
+	require.Equal(t, os.Getpid(), pid)
+}
+
 func TestIsGraceHandoff(t *testing.T) {
 	t.Setenv(listenFdsKey, "")
 	if IsGraceHandoff() {
