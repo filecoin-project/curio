@@ -520,7 +520,7 @@ func addSealingTasks(
 		activeTasks = append(activeTasks, moveStorageTask)
 	}
 	if cfg.Subsystems.EnableMoveStorage {
-		storePieceTask, err := piece2.NewStorePieceTask(db, must.One(slrLazy.Val()), stor, cfg.Subsystems.MoveStorageMaxTasks)
+		storePieceTask, err := piece2.NewStorePieceTask(db, must.One(slrLazy.Val()), stor, cfg.Subsystems.MoveStorageMaxTasks, cfg.Subsystems.ParkPieceMinFreeStoragePercent)
 		if err != nil {
 			return nil, nil, err
 		}
