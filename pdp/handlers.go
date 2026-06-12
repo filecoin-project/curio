@@ -1008,7 +1008,8 @@ func (p *PDPService) handleDeleteDataSetPiece(w http.ResponseWriter, r *http.Req
 		return
 	}
 	type DeletePiecePayload struct {
-		ExtraData *string `json:"extraData"`
+		ExtraData *string  `json:"extraData"`
+		PieceIDs  []uint64 `json:"pieceIds"`
 	}
 	var payload DeletePiecePayload
 	err = json.NewDecoder(r.Body).Decode(&payload)
@@ -1038,14 +1039,18 @@ func (p *PDPService) handleDeleteDataSetPiece(w http.ResponseWriter, r *http.Req
 		}
 	}
 
-	// Check if we have this piece or not
-	var found bool
-	err = p.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pdp_data_set_pieces WHERE data_set = $1 AND piece_id = $2)`, dataSetId, pieceID).Scan(&found)
+	pieceIDs := []uint64{pieceID}
+	if len(payload.PieceIDs) > 0 {
+		pieceIDs = payload.PieceIDs
+	}
+
+	var foundCount int
+	err = p.db.QueryRow(ctx, `SELECT COUNT(DISTINCT piece_id) FROM pdp_data_set_pieces WHERE data_set = $1 AND piece_id = ANY($2)`, dataSetId, pieceIDs).Scan(&foundCount)
 	if err != nil {
 		httpServerError(w, http.StatusInternalServerError, "Failed to query piece existence", err)
 		return
 	}
-	if !found {
+	if foundCount != len(pieceIDs) {
 		http.Error(w, "Piece not found", http.StatusNotFound)
 		return
 	}
@@ -1057,10 +1062,15 @@ func (p *PDPService) handleDeleteDataSetPiece(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	pieceIDArgs := make([]*big.Int, len(pieceIDs))
+	for i, id := range pieceIDs {
+		pieceIDArgs[i] = new(big.Int).SetUint64(id)
+	}
+
 	// Pack the method call data
 	data, err := abiData.Pack("schedulePieceDeletions",
 		big.NewInt(int64(dataSetId)),
-		[]*big.Int{big.NewInt(int64(pieceID))},
+		pieceIDArgs,
 		[]byte(extraDataBytes),
 	)
 	if err != nil {
@@ -1113,8 +1123,8 @@ func (p *PDPService) handleDeleteDataSetPiece(w http.ResponseWriter, r *http.Req
 		_, err = tx.Exec(`
 			UPDATE pdp_data_set_pieces
 			SET rm_message_hash = $1
-			WHERE data_set = $2 AND piece_id = $3`,
-			txHashLower, dataSetId, pieceID)
+			WHERE data_set = $2 AND piece_id = ANY($3)`,
+			txHashLower, dataSetId, pieceIDs)
 		if err != nil {
 			log.Errorw("Failed to update rm_message_hash in pdp_data_set_pieces", "dataSetId", dataSetId, "pieceID", pieceID, "error", err)
 			return false, err
