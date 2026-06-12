@@ -1,0 +1,2 @@
+DROP INDEX IF EXISTS open_sector_pieces_spid_snap_piece_idx;
+DROP INDEX IF EXISTS sectors_meta_snap_alloc_candidates_idx;
