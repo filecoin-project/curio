@@ -72,7 +72,8 @@ When releasing from a source other than `main`, document the release-source rati
 10. Create release notes from the merged changes.
 11. Review the release notes with the team.
 12. Publish the release.
-13. Monitor operator feedback after publication.
+13. Announce the release on the appropriate channels (see Release Announcements).
+14. Monitor operator feedback after publication.
 
 ## Stable Release Checklist
 
@@ -97,6 +98,9 @@ Use this checklist for a stable release.
 - [ ] Confirm the compare link points from the previous release to the new release.
 - [ ] Review the release notes with the team.
 - [ ] Publish the GitHub release as stable and mark it as latest.
+- [ ] Announce the stable release in the Curio support Slack, naming the version, release type, and intended upgrade audience.
+- [ ] Confirm the docs version page reflects this release as the current recommended version.
+- [ ] If an RC preceded this release, state in the announcement that the RC is superseded.
 - [ ] Monitor GitHub issues, Curio support Slack, packaging/install failures, migration failures, and upgrade feedback.
 
 ## RC Release Checklist
@@ -124,6 +128,7 @@ Use this checklist only when an RC is justified by coordinated testing needs.
 - [ ] Confirm the compare link points from the previous release or previous RC to the new RC.
 - [ ] Review the release notes with the team.
 - [ ] Publish the GitHub release as a pre-release.
+- [ ] Announce the RC only to the intended testing audience, with the test scope and an explicit statement that it is not a mainnet upgrade recommendation.
 - [ ] Monitor testing feedback.
 - [ ] Maintain at least a 48-hour observation window before publishing the corresponding stable release unless there is an urgent security or correctness reason.
 
@@ -273,6 +278,49 @@ Before publishing, review the notes with the team for:
 - PRs that require highlight coverage.
 - Internal-only PRs to omit from release notes.
 
+## Release Announcements
+
+Publishing a GitHub release is not the same as announcing it. A release is not considered shipped until operators have been told what to run and why. The GitHub releases page alone is not a sufficient announcement channel: it can show pre-releases above stable releases, lists multiple recent tags, and does not by itself tell an operator which version is current and safe for mainnet.
+
+### Announcement Principles
+
+- Every stable release gets an announcement. An RC is announced only to the testing audience that is expected to act on it.
+- The announcement names the current recommended version explicitly. Operators should not have to infer "what should I run" from the tag list.
+- Announce after the release is published and marked latest, not before.
+- Keep one canonical "current recommended Curio version" pointer that operators can check at any time, independent of scrolling release history. The docs version page (`documentation/en/versions.md`) is that pointer.
+
+### Channels
+
+| Channel | Stable | RC | Purpose |
+| :--- | :--- | :--- | :--- |
+| Curio support Slack | Required | Required (testers only) | Primary operator announcement channel. Post the version, release type, intended audience, upgrade guidance, and any migration note. |
+| GitHub release notes | Required | Required | Canonical detailed notes. Stable marked latest; RC marked pre-release. |
+| Docs version page (`documentation/en/versions.md`) | Required | Only with a documented release requirement | Canonical "current recommended version" pointer. |
+| `curiostorage` on X | Breaking or major new features only | No | Optional public post for notable feature releases. Not required for routine patch or RC releases. |
+
+The Curio support Slack announcement is the baseline requirement. Routine releases do not need any additional public posts; reserve the `curiostorage` X account for breaking changes or significant new features.
+
+### Announcement Content
+
+A stable release announcement states, in this order:
+
+1. Version and release type. For stable mainnet releases, say so explicitly.
+2. Who should upgrade and how urgently (for example all mainnet SPs, PDP-only, PoRep-only, FOC participants, or calibration testers).
+3. Upgrade ordering and prerequisites (for example "upgrade Lotus first"), only when relevant.
+4. Migration or schema impact (automatic vs manual), only when relevant.
+5. The compare link or release-notes link.
+
+An RC announcement additionally states the test scope, the intended testers, and an explicit statement that it is not a mainnet upgrade recommendation.
+
+Do not announce a stable release and its preceding RC as if they were two separate things to run. If an RC preceded the stable release, the stable announcement supersedes the RC and must say so.
+
+### Announcement Timing
+
+- Announce stable releases promptly after publishing and marking latest.
+- Do not pre-announce a version that is not yet published and marked latest.
+- When an RC is followed by a stable release, the stable announcement must make clear the RC is superseded so operators do not run the pre-release by mistake.
+- Apply the same cadence discipline as releases: do not flood operator channels with rapid back-to-back announcements for non-urgent follow-up releases.
+
 ## Publishing Checklist
 
 Before publishing:
@@ -287,6 +335,7 @@ Before publishing:
 - Confirm mainnet releases are stable releases.
 - Confirm stable releases are marked as latest.
 - Confirm RC releases are marked as pre-releases and are not marked as latest.
+- Confirm the release has been announced on the appropriate channels (see Release Announcements).
 
 After publishing:
 
@@ -306,3 +355,5 @@ After publishing:
 - Forgetting to update the docs version page for a stable release.
 - Including a generic upgrade-prep section when no prep is required.
 - Shipping rapid back-to-back releases without accounting for PoRep operator upgrade cost.
+- Publishing a release without announcing it, leaving operators to infer the current version from the tag list.
+- Announcing a stable release without noting that a preceding RC is superseded.
