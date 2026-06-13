@@ -1,6 +1,8 @@
 # Curio Release Process
 
-This document is for Curio maintainers. It describes how to prepare, review, and publish Curio stable and release-candidate releases.
+This document is for Curio maintainers. It is the canonical reference for how to prepare, review, publish, and announce a Curio release. It is linked from the repository `README` and from the Curio support Slack release pin so maintainers can find it without searching the tree.
+
+Curio releases default to stable. Release candidates are the exception, not a parallel track (see Release Principles). The checklist below is written stable-first: run the Release Checklist for every release, and apply the short RC Delta only on the rare occasion an RC is justified.
 
 ## Release Principles
 
@@ -61,75 +63,58 @@ When releasing from a source other than `main`, document the release-source rati
 ## Release Flow
 
 1. Scope the PRs required for the release.
-2. Choose the release source. Use `main` unless there is a documented release risk or compatibility reason.
+2. Choose the release source. Use `main` unless there is a documented release risk or compatibility reason (see [Release Source](#release-source)).
 3. Confirm each required PR is merged into `main` or otherwise included in the chosen release source.
-4. Select the release type: stable or RC.
-5. Open a version upgrade PR.
+4. Determine the release type: stable or RC. Default to stable; an RC requires explicit justification (see [Release Principles](#release-principles)).
+5. Open a version upgrade PR (see [Version Upgrade PR](#version-upgrade-pr)).
 6. For stable releases, update the docs version page in the same PR.
 7. For RC releases, do not update the docs version page unless there is a documented release requirement.
 8. Complete review and CI for the version upgrade PR.
-9. Merge the version upgrade PR.
-10. Create release notes from the merged changes.
+9. Merge the version upgrade PR. The release tag is not created until publish time, so the version PR merges before release notes exist; release notes are generated from the merged changes.
+10. Create release notes from the merged changes (see [Release Notes](#release-notes)).
 11. Review the release notes with the team.
-12. Publish the release.
-13. Announce the release on the appropriate channels (see Release Announcements).
+12. Publish the release. Creating the GitHub release is what creates the tag.
+13. Announce the release on the appropriate channels (see [Release Announcements](#release-announcements)).
 14. Monitor operator feedback after publication.
 
-## Stable Release Checklist
+## Release Checklist
 
-Use this checklist for a stable release.
+Run this checklist for every release. It is written for a stable release, which is the default. If, and only if, an RC is justified (see [Release Principles](#release-principles)), apply the RC Delta below instead of the stable-specific lines it overrides.
 
 - [ ] Confirm the release is suitable for mainnet.
 - [ ] Confirm the release source. Use `main` unless there is a documented release risk or compatibility reason.
 - [ ] If the release source is not `main`, document the release-source rationale.
 - [ ] Confirm all scoped PRs are merged into `main` or otherwise included in the chosen release source.
 - [ ] Confirm no newer network-version line has already shipped.
-- [ ] Open a version upgrade PR.
-- [ ] Set `BuildVersionArray` in `build/version.go` to the target `v1.<network-version>.<patch>` version.
-- [ ] Set `BuildVersionRC` in `build/version.go` to `0`.
-- [ ] Run `make gen`.
-- [ ] Update `documentation/en/versions.md`.
-- [ ] Update `documentation/zh/versions.md` if the translated version matrix is being maintained for this release.
+- [ ] Open a version upgrade PR (see [Version Upgrade PR](#version-upgrade-pr)). In that PR:
+  - [ ] Set `BuildVersionArray` in `build/version.go` to `[3]int{1, <network-version>, <patch>}`.
+  - [ ] Set `BuildVersionRC` in `build/version.go` to `0`.
+  - [ ] Run `make gen` and include any generated changes.
+  - [ ] Update `documentation/en/versions.md`.
+  - [ ] Update `documentation/zh/versions.md` if the translated version matrix is being maintained for this release.
 - [ ] Confirm CI passes, or confirm maintainers accept any known failures.
 - [ ] Merge the version upgrade PR.
-- [ ] Create the release tag using the stable version, for example `v1.28.0`.
-- [ ] Create release notes with the stable-release template.
+- [ ] Create release notes with the stable-release template (see [Release Notes](#release-notes)).
 - [ ] Include `Upgrade prep for Storage Providers` only if operators have required preparation or upgrade-risk items.
 - [ ] Confirm the compare link points from the previous release to the new release.
 - [ ] Review the release notes with the team.
-- [ ] Publish the GitHub release as stable and mark it as latest.
-- [ ] Announce the stable release in the Curio support Slack, naming the version, release type, and intended upgrade audience.
+- [ ] Publish the GitHub release as stable and mark it as latest. Publishing creates the tag (`v1.<network-version>.<patch>`, for example `v1.28.0`).
+- [ ] Announce the stable release in the Curio support Slack, naming the version, release type, and intended upgrade audience (see [Release Announcements](#release-announcements)).
 - [ ] Confirm the docs version page reflects this release as the current recommended version.
 - [ ] If an RC preceded this release, state in the announcement that the RC is superseded.
 - [ ] Monitor GitHub issues, Curio support Slack, packaging/install failures, migration failures, and upgrade feedback.
 
-## RC Release Checklist
+### RC Delta
 
-Use this checklist only when an RC is justified by coordinated testing needs.
+RCs are the exception. Only cut one when coordinated testing genuinely needs a release artifact and testing from `main` or a feature branch is not sufficient (see [Release Principles](#release-principles)). When that bar is met, take the Release Checklist above and override these lines:
 
-- [ ] Confirm an RC is required because coordinated testing needs a release artifact.
-- [ ] Confirm testing from `main` or a feature branch is not sufficient.
-- [ ] Confirm the RC is for calibration-network testing or another coordinated upgrade requirement.
-- [ ] Confirm the release source. Use `main` unless there is a documented release risk or compatibility reason.
-- [ ] If the release source is not `main`, document the release-source rationale.
-- [ ] Confirm all scoped PRs for the RC are merged into `main` or otherwise included in the chosen release source.
-- [ ] Confirm no newer network-version line has already shipped.
-- [ ] Open a version upgrade PR.
-- [ ] Set `BuildVersionArray` in `build/version.go` to the target stable version, for example `[3]int{1, 28, 0}`.
-- [ ] Set `BuildVersionRC` in `build/version.go` to the RC number, for example `1`.
-- [ ] Run `make gen`.
+- [ ] First confirm the RC is justified: coordinated testing needs a release artifact, `main`/feature-branch testing is not sufficient, and the RC targets calibration-network or another coordinated upgrade requirement.
+- [ ] Set `BuildVersionRC` to the RC number instead of `0` (for example `1`). `BuildVersionArray` stays the target stable version, for example `[3]int{1, 28, 0}`.
 - [ ] Do not update the docs version page unless there is a documented release requirement.
-- [ ] Confirm CI passes, or confirm maintainers accept any known failures.
-- [ ] Merge the version upgrade PR.
-- [ ] Create the release tag using the RC suffix, for example `v1.28.0-rc1`.
-- [ ] Create release notes that clearly mark the release as an RC.
-- [ ] Document the test scope and intended testers.
-- [ ] Do not include mainnet upgrade recommendation language.
-- [ ] Confirm the compare link points from the previous release or previous RC to the new RC.
-- [ ] Review the release notes with the team.
-- [ ] Publish the GitHub release as a pre-release.
-- [ ] Announce the RC only to the intended testing audience, with the test scope and an explicit statement that it is not a mainnet upgrade recommendation.
-- [ ] Monitor testing feedback.
+- [ ] Release notes clearly mark the release as an RC, document the test scope and intended testers, and include no mainnet upgrade recommendation language.
+- [ ] The compare link points from the previous release or previous RC to the new RC.
+- [ ] Publish the GitHub release as a pre-release; the tag uses the `-rcN` suffix (for example `v1.28.0-rc1`). Do not mark it latest.
+- [ ] Announce only to the intended testing audience, with the test scope and an explicit statement that it is not a mainnet upgrade recommendation.
 - [ ] Maintain at least a 48-hour observation window before publishing the corresponding stable release unless there is an urgent security or correctness reason.
 
 ## Version Upgrade PR
@@ -138,23 +123,16 @@ Keep the version upgrade PR small and focused. Do not include unrelated feature 
 
 The version upgrade PR must target the selected release source. For the standard release path, this is `main`. If it targets a feature branch, release branch, or cherry-pick branch, document the release-source rationale in the PR.
 
-Update `build/version.go`:
+The version upgrade PR makes exactly these changes:
 
-- Set `BuildVersionArray` to `[3]int{1, <network-version>, <patch>}`.
-- Set `BuildVersionRC` to `0` for stable releases.
-- Set `BuildVersionRC` to the RC number for RC releases.
-
-Run `make gen` after updating the version and include any generated changes in the PR.
-
-For stable releases, also update:
-
-- `documentation/en/versions.md`
-- `documentation/zh/versions.md` if the translated version matrix is being maintained for that release
-
-For RC releases:
-
-- A version upgrade PR is still required.
-- The docs version page does not need to be updated.
+- Update `build/version.go`:
+  - Set `BuildVersionArray` to `[3]int{1, <network-version>, <patch>}`.
+  - Set `BuildVersionRC` to `0` for stable releases, or to the RC number for RC releases.
+- Run `make gen` after updating the version and include any generated changes in the PR.
+- For stable releases, also update:
+  - `documentation/en/versions.md`
+  - `documentation/zh/versions.md` if the translated version matrix is being maintained for that release
+- For RC releases, a version upgrade PR is still required, but the docs version page does not need to be updated.
 
 Before merging the version upgrade PR, verify:
 
@@ -162,42 +140,6 @@ Before merging the version upgrade PR, verify:
 - The version in `build/version.go` matches the intended release.
 - `BuildVersionRC` is correct for stable vs RC.
 - CI passes, or any failures are understood and accepted by maintainers.
-
-## RC Policy
-
-Default to stable releases.
-
-Use an RC only when the team needs a release artifact for coordinated testing. Do not create an RC just because a change needs testing. Prefer testing from `main` or from a feature branch when possible.
-
-Valid RC reasons include:
-
-- A network upgrade needs provider testing before mainnet.
-- A contract upgrade needs coordinated user or provider validation.
-- Calibration-network operators need to test upgrade behavior.
-- Packaging, versioning, or deployment behavior must be tested before stable.
-
-Insufficient RC reasons include:
-
-- General confidence-building.
-- Feature-branch validation is still in progress.
-- A fix is important but could ship as stable after review and CI.
-- General uncertainty without a documented coordinated-upgrade requirement.
-
-After publishing an RC, maintain a minimum 48-hour observation window before publishing the corresponding stable release unless there is an urgent security or correctness reason to move faster.
-
-## Stable Release Policy
-
-Use a stable release when maintainers conclude the release is suitable for mainnet.
-
-Stable releases require:
-
-- All scoped PRs merged to `main` or otherwise included in the chosen release source.
-- A merged version upgrade PR.
-- Docs version page update.
-- Team-reviewed release notes.
-- A GitHub compare link from the previous release.
-
-Stable release notes must state the intended upgrade audience and rationale.
 
 ## Release Notes
 
