@@ -57,7 +57,7 @@ func (s *PipelineGC) TypeDetails() harmonytask.TaskTypeDetails {
 		Max:  taskhelp.Max(1),
 		Name: "PipelineGC",
 		Cost: resources.Resources{
-			Cpu: 1,
+			Cpu: 0,
 			Ram: 64 << 20,
 			Gpu: 0,
 		},

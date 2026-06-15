@@ -197,7 +197,7 @@ func (t *PDPNotifyTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Name: tasknames.PDPv0_Notify,
 		Cost: resources.Resources{
-			Cpu: 1,
+			Cpu: 0,
 			Ram: 128 << 20, // 128MB
 		},
 		MaxFailures: 14,

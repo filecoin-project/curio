@@ -323,7 +323,7 @@ require (
 	github.com/prometheus/procfs v0.20.1 // indirect
 	github.com/prometheus/statsd_exporter v0.29.0 // indirect
 	github.com/quic-go/qpack v0.6.0 // indirect
-	github.com/quic-go/quic-go v0.59.0 // indirect
+	github.com/quic-go/quic-go v0.59.1 // indirect
 	github.com/quic-go/webtransport-go v0.10.0 // indirect
 	github.com/raulk/go-watchdog v1.3.0 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
@@ -375,7 +375,6 @@ require (
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	go.yaml.in/yaml/v4 v4.0.0-rc.2 // indirect
 	go4.org v0.0.0-20260112195520-a5071408f32f // indirect
-	golang.org/x/mod v0.35.0 // indirect
 	golang.org/x/net v0.53.0 // indirect
 	golang.org/x/telemetry v0.0.0-20260409153401-be6f6cb8b1fa // indirect
 	golang.org/x/time v0.15.0 // indirect
@@ -388,6 +387,9 @@ require (
 	lukechampine.com/blake3 v1.4.1 // indirect
 )
 
-require github.com/curiostorage/shouldtest v0.0.0-20260522222211-a06c87260eb5
+require (
+	github.com/curiostorage/shouldtest v0.0.0-20260522222211-a06c87260eb5
+	golang.org/x/mod v0.35.0
+)
 
 replace github.com/filecoin-project/filecoin-ffi => ./extern/filecoin-ffi

@@ -58,7 +58,8 @@ func TestHandlePull_BackpressureStress(t *testing.T) {
 	}
 
 	stats := &pdpPullStressStats{}
-	handler := NewPullHandler(&NullAuth{}, NewDBPullStore(db), &mockValidator{shouldPass: true})
+	ensurePullTestDataSet(t, db, testDataSetId, "public")
+	handler := NewPullHandler(&NullAuth{}, NewDBPullStore(db), &mockValidator{shouldPass: true}, db)
 	dataSetID := testDataSetId
 
 	testCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -212,7 +213,8 @@ func TestHandlePull_BackpressureSoloClientCanUseNinetyPercent(t *testing.T) {
 	db, err := harmonydb.NewFromConfigWithITestID(t)
 	require.NoError(t, err)
 
-	handler := NewPullHandler(&NullAuth{}, NewDBPullStore(db), &mockValidator{shouldPass: true})
+	ensurePullTestDataSet(t, db, testDataSetId, "public")
+	handler := NewPullHandler(&NullAuth{}, NewDBPullStore(db), &mockValidator{shouldPass: true}, db)
 	dataSetID := testDataSetId
 	rawSizes := []uint64{127, 254, 508, 1016}
 	piecePool := make([]string, pullStressSoloClientLimit+1)
@@ -221,10 +223,9 @@ func TestHandlePull_BackpressureSoloClientCanUseNinetyPercent(t *testing.T) {
 	}
 
 	payer := common.HexToAddress("0x1111111111111111111111111111111111111111")
-	rec := submitPullStressRequest(t, handler, payer, 1, dataSetID, pullPiecesFromCIDs(piecePool[:pullStressSoloClientLimit]))
-	require.Equal(t, http.StatusOK, rec.Code)
+	nonce := submitPullStressRequestChunked(t, handler, payer, 1, dataSetID, piecePool[:pullStressSoloClientLimit])
 
-	rec = submitPullStressRequest(t, handler, payer, 2, dataSetID, pullPiecesFromCIDs(piecePool[pullStressSoloClientLimit:]))
+	rec := submitPullStressRequest(t, handler, payer, nonce, dataSetID, pullPiecesFromCIDs(piecePool[pullStressSoloClientLimit:]))
 	require.Equal(t, http.StatusTooManyRequests, rec.Code)
 	require.Equal(t, "60", rec.Header().Get("Retry-After"))
 }
@@ -233,7 +234,8 @@ func TestHandlePull_BackpressureClientCanBorrowUnusedSlots(t *testing.T) {
 	db, err := harmonydb.NewFromConfigWithITestID(t)
 	require.NoError(t, err)
 
-	handler := NewPullHandler(&NullAuth{}, NewDBPullStore(db), &mockValidator{shouldPass: true})
+	ensurePullTestDataSet(t, db, testDataSetId, "public")
+	handler := NewPullHandler(&NullAuth{}, NewDBPullStore(db), &mockValidator{shouldPass: true}, db)
 	dataSetID := testDataSetId
 	rawSizes := []uint64{127, 254, 508, 1016}
 	piecePool := make([]string, 31)
@@ -254,7 +256,8 @@ func TestHandlePull_BackpressureClientLimitAppliesNearGlobalReserve(t *testing.T
 	db, err := harmonydb.NewFromConfigWithITestID(t)
 	require.NoError(t, err)
 
-	handler := NewPullHandler(&NullAuth{}, NewDBPullStore(db), &mockValidator{shouldPass: true})
+	ensurePullTestDataSet(t, db, testDataSetId, "public")
+	handler := NewPullHandler(&NullAuth{}, NewDBPullStore(db), &mockValidator{shouldPass: true}, db)
 	dataSetID := testDataSetId
 	rawSizes := []uint64{127, 254, 508, 1016}
 	piecePool := make([]string, pullStressSoloClientLimit+1)
@@ -264,10 +267,9 @@ func TestHandlePull_BackpressureClientLimitAppliesNearGlobalReserve(t *testing.T
 
 	firstClient := common.HexToAddress("0x1111111111111111111111111111111111111111")
 	secondClient := common.HexToAddress("0x2222222222222222222222222222222222222222")
-	rec := submitPullStressRequest(t, handler, firstClient, 1, dataSetID, pullPiecesFromCIDs(piecePool[:pullStressSoloClientLimit-pullStressPerClientLimit]))
-	require.Equal(t, http.StatusOK, rec.Code)
+	nonce := submitPullStressRequestChunked(t, handler, firstClient, 1, dataSetID, piecePool[:pullStressSoloClientLimit-pullStressPerClientLimit])
 
-	rec = submitPullStressRequest(t, handler, secondClient, 2, dataSetID, pullPiecesFromCIDs(piecePool[pullStressSoloClientLimit-pullStressPerClientLimit:]))
+	rec := submitPullStressRequest(t, handler, secondClient, nonce, dataSetID, pullPiecesFromCIDs(piecePool[pullStressSoloClientLimit-pullStressPerClientLimit:]))
 	require.Equal(t, http.StatusTooManyRequests, rec.Code)
 	require.Equal(t, "60", rec.Header().Get("Retry-After"))
 }
@@ -409,6 +411,23 @@ func submitPullStressRequest(t *testing.T, handler *PullHandler, payer common.Ad
 	return rec
 }
 
+// submitPullStressRequestChunked submits cids in MaxAddPiecesBatchSize chunks
+// (each with its own nonce), requiring 200 OK for each, and returns the next
+// unused nonce. Pending state accumulates across chunks just as it would for a
+// client streaming batches at the request size limit.
+func submitPullStressRequestChunked(t *testing.T, handler *PullHandler, payer common.Address, nonce int64, dataSetID uint64, cids []string) int64 {
+	t.Helper()
+
+	for len(cids) > 0 {
+		batch := min(len(cids), MaxAddPiecesBatchSize)
+		rec := submitPullStressRequest(t, handler, payer, nonce, dataSetID, pullPiecesFromCIDs(cids[:batch]))
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		cids = cids[batch:]
+		nonce++
+	}
+	return nonce
+}
+
 func (s *pdpPullStressStats) snapshot() pdpPullStressStats {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -458,4 +477,43 @@ func pullStressActiveCounts(ctx context.Context, db *harmonydb.DB) (int, int, er
 	}
 
 	return globalPending, maxClientPending, nil
+}
+
+func ensurePullTestDataSet(t *testing.T, db *harmonydb.DB, dataSetID uint64, service string) {
+	t.Helper()
+
+	ctx := context.Background()
+	txHash := fmt.Sprintf("0x%064x", dataSetID)
+	_, err := db.Exec(ctx, `
+		INSERT INTO pdp_data_sets (id, create_message_hash, service, proving_period, challenge_window, init_ready)
+		VALUES ($1, $2, $3, 100, 10, FALSE)
+		ON CONFLICT (id) DO NOTHING
+	`, int64(dataSetID), txHash, service)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = db.Exec(ctx, `DELETE FROM pdp_data_sets WHERE id = $1`, int64(dataSetID))
+	})
+}
+
+func TestHandlePull_DataSetNotFound(t *testing.T) {
+	db, err := harmonydb.NewFromConfigWithITestID(t)
+	require.NoError(t, err)
+
+	handler := NewPullHandler(&NullAuth{}, NewDBPullStore(db), &mockValidator{shouldPass: true}, db)
+	body := PullRequest{
+		ExtraData: testAddPiecesOnlyExtraData(t),
+		DataSetId: &testDataSetId,
+		Pieces: []PullPieceRequest{
+			{PieceCid: testCid1, SourceURL: "https://example.com/piece/" + testCid1},
+		},
+	}
+	bodyBytes, err := json.Marshal(body)
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodPost, "/pdp/piece/pull", bytes.NewReader(bodyBytes))
+	rec := httptest.NewRecorder()
+	handler.HandlePull(rec, req)
+
+	require.Equal(t, http.StatusNotFound, rec.Code)
+	require.Contains(t, rec.Body.String(), "Data set not found")
 }

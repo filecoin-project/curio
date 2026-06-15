@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/big"
 	"net/http"
@@ -149,14 +150,16 @@ type PullHandler struct {
 	auth      Auth
 	store     PullStore
 	validator AddPiecesValidator
+	db        *harmonydb.DB
 }
 
 // NewPullHandler creates a new PullHandler
-func NewPullHandler(auth Auth, store PullStore, validator AddPiecesValidator) *PullHandler {
+func NewPullHandler(auth Auth, store PullStore, validator AddPiecesValidator, db *harmonydb.DB) *PullHandler {
 	return &PullHandler{
 		auth:      auth,
 		store:     store,
 		validator: validator,
+		db:        db,
 	}
 }
 
@@ -341,6 +344,20 @@ func (h *PullHandler) HandlePull(w http.ResponseWriter, r *http.Request) {
 		// Return existing status
 		h.respondWithStatus(ctx, w, existingPull.ID)
 		return
+	}
+
+	if dataSetId > 0 && h.db != nil {
+		if err := verifyDataSetForService(ctx, h.db, service, dataSetId); err != nil {
+			switch {
+			case errors.Is(err, ErrDataSetNotFound):
+				httpServerError(w, http.StatusNotFound, "Data set not found", err)
+			case errors.Is(err, ErrDataSetTerminated):
+				http.Error(w, err.Error(), http.StatusConflict)
+			default:
+				httpServerError(w, http.StatusInternalServerError, "Failed to retrieve data set: "+err.Error(), err)
+			}
+			return
+		}
 	}
 
 	var payer common.Address

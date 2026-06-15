@@ -175,7 +175,7 @@ func (p *PDPTaskAddPiece) TypeDetails() harmonytask.TaskTypeDetails {
 		Max:  taskhelp.Max(50),
 		Name: tasknames.PDPAddPiece,
 		Cost: resources.Resources{
-			Cpu: 1,
+			Cpu: 0,
 			Ram: 64 << 20,
 		},
 		MaxFailures: 3,

@@ -51,8 +51,8 @@ func NewParkPieceTask(db *harmonydb.DB, sc *ffi2.SealCalls, remote *paths.Remote
 	return newPieceTask(db, sc, remote, max, maxInPark, false, p2Active, minFreeStoragePercent)
 }
 
-func NewStorePieceTask(db *harmonydb.DB, sc *ffi2.SealCalls, remote *paths.Remote, max int) (*ParkPieceTask, error) {
-	return newPieceTask(db, sc, remote, max, 0, true, nil, 10)
+func NewStorePieceTask(db *harmonydb.DB, sc *ffi2.SealCalls, remote *paths.Remote, max int, minFreeStoragePercent float64) (*ParkPieceTask, error) {
+	return newPieceTask(db, sc, remote, max, 0, true, nil, minFreeStoragePercent)
 }
 
 func newPieceTask(db *harmonydb.DB, sc *ffi2.SealCalls, remote *paths.Remote, max int, maxInPark int, longTerm bool, p2Active func() bool, minFreeStoragePercent float64) (*ParkPieceTask, error) {

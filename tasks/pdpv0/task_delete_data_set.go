@@ -52,23 +52,23 @@ func (t *DeleteDataSetTask) Do(taskID harmonytask.TaskID, stillOwned func() bool
 		return false, xerrors.Errorf("failed to get pdp owner: %w", err)
 	}
 
-	pdpAddress := contract.ContractAddresses().PDPVerifier
-
-	verifier, err := contract.NewPDPVerifier(pdpAddress, t.ethClient)
+	state, err := readDataSetCleanupState(ctx, t.ethClient, dataSetId)
 	if err != nil {
-		return false, xerrors.Errorf("failed to instantiate PDPVerifier contract: %w", err)
+		return false, xerrors.Errorf("failed to read PDP cleanup state: %w", err)
 	}
 
-	live, err := verifier.DataSetLive(contract.EthCallOpts(ctx), big.NewInt(dataSetId))
-	if err != nil {
-		return false, xerrors.Errorf("failed to check if data set is live: %w", err)
+	if state.Finalized() {
+		if err := cleanupFinalizedDataSet(ctx, t.db, dataSetId); err != nil {
+			return false, err
+		}
+		return true, nil
 	}
 
-	if !live {
+	if state.CleanupMode {
 		n, err := t.db.Exec(ctx, `UPDATE pdp_delete_data_set SET 
                                after_delete_data_set = TRUE,
                                delete_data_set_task_id = NULL,
-                               terminated  = TRUE
+                               delete_tx_hash = NULL
                            WHERE delete_data_set_task_id = $1`, taskID)
 		if err != nil {
 			return false, xerrors.Errorf("failed to update pdp_delete_data_set: %w", err)
@@ -80,6 +80,12 @@ func (t *DeleteDataSetTask) Do(taskID harmonytask.TaskID, stillOwned func() bool
 
 		return true, nil
 	}
+
+	if !state.Live {
+		return false, xerrors.Errorf("data set %d is not live, in cleanup mode, or finalized", dataSetId)
+	}
+
+	pdpAddress := contract.ContractAddresses().PDPVerifier
 
 	pdpABi, err := contract.PDPVerifierMetaData.GetAbi()
 	if err != nil {
@@ -144,7 +150,7 @@ func (t *DeleteDataSetTask) CanAccept(ids []harmonytask.TaskID, engine *harmonyt
 
 func (t *DeleteDataSetTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(10),
+		Max:  taskhelp.Max(15),
 		Name: tasknames.PDPv0_DelDataSet,
 		Cost: resources.Resources{
 			Cpu: 0,
@@ -152,7 +158,7 @@ func (t *DeleteDataSetTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Ram: 64 << 20,
 		},
 		MaxFailures: 3,
-		IAmBored: passcall.Every(time.Hour, func(taskFunc harmonytask.AddTaskFunc) error {
+		IAmBored: passcall.Every(time.Minute*10, func(taskFunc harmonytask.AddTaskFunc) error {
 			return t.schedule(context.Background(), taskFunc)
 		}),
 	}

@@ -360,7 +360,7 @@ func (t *TaskRequestProofs) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Name: "bg:PShareRequest",
 		Cost: resources.Resources{
-			Cpu: 1,
+			Cpu: 0,
 			Gpu: 0,
 			Ram: 1 << 20,
 		},

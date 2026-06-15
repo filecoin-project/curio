@@ -133,7 +133,7 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient api.Eth
 	for txToSend, railIDs := range transactionsToSend {
 		txHash, err := sender.Send(ctx, from, txToSend, "settleRail")
 		if err != nil {
-			log.Errorw("failed to send settle transaction", "error", err)
+			log.Errorw("failed to send settle transaction", "railIDs", railIDs, "error", err)
 			continue
 		}
 

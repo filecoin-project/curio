@@ -5,8 +5,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -1735,27 +1733,6 @@ var mk20DealCmd = &cli.Command{
 			return err
 		}
 
-		keyType := client.KeyFromClientAddress(walletAddr)
-		pkey := walletAddr.Bytes()
-		ts := time.Now().UTC().Truncate(time.Hour)
-		msg := sha256.Sum256(bytes.Join([][]byte{pkey, []byte(ts.Format(time.RFC3339))}, []byte{}))
-
-		signature, err := n.Wallet.WalletSign(ctx, walletAddr, msg[:], lapi.MsgMeta{Type: lapi.MTDealProposal})
-		if err != nil {
-			return xerrors.Errorf("signing message: %w", err)
-		}
-
-		sig, err := signature.MarshalBinary()
-		if err != nil {
-			return xerrors.Errorf("marshaling signature: %w", err)
-		}
-
-		authHeader := fmt.Sprintf("CurioAuth %s:%s:%s",
-			keyType,
-			base64.StdEncoding.EncodeToString(pkey),
-			base64.StdEncoding.EncodeToString(sig),
-		)
-
 		minfo, err := api.StateMinerInfo(ctx, maddr, chain_types.EmptyTSK)
 		if err != nil {
 			return err
@@ -1953,50 +1930,18 @@ var mk20DealCmd = &cli.Command{
 			p.DDOV1.AllocationId = new(verifreg.AllocationId(cctx.Uint64("allocation")))
 		}
 
-		id, err := mk20.NewULID()
-		if err != nil {
-			return err
-		}
-		log.Debugw("generated deal id", "id", id)
-
-		deal := mk20.Deal{
-			Identifier: id,
-			Client:     walletAddr.String(),
-			Data:       &d,
-			Products:   p,
-		}
-
-		log.Debugw("deal", "deal", deal)
-
-		body, err := json.Marshal(deal)
-		if err != nil {
-			return err
-		}
-
 		// Try to request all URLs one by one and exit after first success
 		for _, u := range hurls {
-			s := u.String() + "/market/mk20/deal"
+			pclient := client.NewClient(u.String(), walletAddr, n.Wallet)
 			log.Debugw("trying to send request to", "url", u.String())
-			req, err := http.NewRequest("POST", s, bytes.NewReader(body))
+
+			id, err := pclient.MakeDeal(ctx, walletAddr.String(), &d, p.DDOV1, p.RetrievalV1)
 			if err != nil {
-				return xerrors.Errorf("failed to create request: %w", err)
-			}
-			req.Header.Set("Content-Type", "application/json")
-			req.Header.Set("Authorization", authHeader)
-			log.Debugw("Headers", "headers", req.Header)
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				log.Warnw("failed to send request", "url", s, "error", err)
+				log.Warnw("failed to send request", "url", u.String(), "error", err)
 				continue
 			}
-			if resp.StatusCode != http.StatusOK {
-				respBody, err := io.ReadAll(resp.Body)
-				if err != nil {
-					return xerrors.Errorf("failed to read response body: %w", err)
-				}
-				log.Warnw("failed to send request", "url", s, "status", resp.StatusCode, "body", string(respBody))
-				continue
-			}
+
+			log.Debugw("generated deal id", "id", id)
 			return nil
 		}
 		return xerrors.Errorf("failed to send request to any of the URLs")

@@ -1,0 +1,3 @@
+DROP INDEX IF EXISTS idx_pdp_piecerefs_zero_refcount_created;
+DROP INDEX IF EXISTS idx_pdp_data_set_pieces_pdp_pieceref;
+DROP INDEX IF EXISTS idx_pdp_data_set_piece_adds_pdp_pieceref;
