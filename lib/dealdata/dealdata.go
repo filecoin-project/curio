@@ -1,3 +1,5 @@
+//go:build !pdp
+
 package dealdata
 
 import (
@@ -26,8 +28,6 @@ import (
 	"github.com/filecoin-project/lotus/chain/proofs"
 	"github.com/filecoin-project/lotus/storage/pipeline/lib/nullreader"
 )
-
-var log = logging.Logger("dealdata")
 
 type dealMetadata struct {
 	PieceIndex int64  `db:"piece_index"`

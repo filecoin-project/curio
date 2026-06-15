@@ -4,7 +4,7 @@ import (
 	"context"
 
 	curiodeps "github.com/filecoin-project/curio/deps"
-	"github.com/filecoin-project/curio/cuhttp"
+	"github.com/filecoin-project/curio/cuhttp/servicedeps"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/lib/chainsched"
 	"github.com/filecoin-project/curio/lib/piecestore"
@@ -15,7 +15,7 @@ func Attach(
 	ctx context.Context,
 	cd *curiodeps.Deps,
 	activeTasks *[]harmonytask.TaskInterface,
-	sdeps *cuhttp.ServiceDeps,
+	sdeps *servicedeps.Deps,
 	chainSched *chainsched.CurioChainSched,
 ) error {
 	d := FromCurio(cd)

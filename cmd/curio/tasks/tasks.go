@@ -23,6 +23,7 @@ import (
 	"github.com/filecoin-project/curio/api"
 	curiobuild "github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/cuhttp"
+	"github.com/filecoin-project/curio/cuhttp/servicedeps"
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -267,8 +268,11 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 	amTask := alertmanager.NewAlertTask(full, db, cfg.Alerting, dependencies.Al)
 
 	{
-		var sdeps = cuhttp.ServiceDeps{
+		var httpSD = servicedeps.Deps{
 			AlertTask: amTask,
+		}
+		var sdeps = cuhttp.ServiceDeps{
+			Deps: httpSD,
 		}
 		// Market tasks
 		var dm *storage_market.CurioStorageDealMarket
@@ -308,7 +312,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		}
 
 		if cfg.Subsystems.EnablePDP {
-			if err := pdpnode.Attach(ctx, dependencies, &activeTasks, &sdeps, chainSched); err != nil {
+			if err := pdpnode.Attach(ctx, dependencies, &activeTasks, &httpSD, chainSched); err != nil {
 				return nil, err
 			}
 		}
@@ -320,6 +324,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		fixRawSizeTask := storage_market.NewFixRawSize(db, sc, dependencies.SectorReader)
 		activeTasks = append(activeTasks, ipniTask, indexingTask, fixRawSizeTask)
 
+		sdeps.Deps = httpSD
 		if cfg.HTTP.Enable {
 			// TODO: Put this back once PDPv1 is also being used
 			//if !cfg.Subsystems.EnableDealMarket {

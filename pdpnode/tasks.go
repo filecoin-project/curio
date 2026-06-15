@@ -8,7 +8,7 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/alertmanager"
-	"github.com/filecoin-project/curio/cuhttp"
+	"github.com/filecoin-project/curio/cuhttp/servicedeps"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/chainsched"
@@ -24,7 +24,7 @@ import (
 type TaskResult struct {
 	Engine      *harmonytask.TaskEngine
 	AlertTask   *alertmanager.AlertTask
-	ServiceDeps cuhttp.ServiceDeps
+	ServiceDeps servicedeps.Deps
 	EthSender   *message.SenderETH
 }
 
@@ -153,7 +153,7 @@ func RegisterTasks(ctx context.Context, d *Deps) (*TaskResult, error) {
 		Engine:    ht,
 		AlertTask: bundle.amTask,
 		EthSender: bundle.ethSender,
-		ServiceDeps: cuhttp.ServiceDeps{
+		ServiceDeps: servicedeps.Deps{
 			EthSender: bundle.ethSender,
 			AlertTask: bundle.amTask,
 		},
@@ -161,13 +161,13 @@ func RegisterTasks(ctx context.Context, d *Deps) (*TaskResult, error) {
 }
 
 // AppendTasks adds PDP tasks to a curio task list.
-func AppendTasks(ctx context.Context, d *Deps, chainSched *chainsched.CurioChainSched, active *[]harmonytask.TaskInterface) (*cuhttp.ServiceDeps, error) {
+func AppendTasks(ctx context.Context, d *Deps, chainSched *chainsched.CurioChainSched, active *[]harmonytask.TaskInterface) (*servicedeps.Deps, error) {
 	bundle, err := buildPDPTasks(ctx, d, chainSched)
 	if err != nil {
 		return nil, err
 	}
 	*active = append(*active, bundle.tasks...)
-	sd := &cuhttp.ServiceDeps{
+	sd := &servicedeps.Deps{
 		EthSender: bundle.ethSender,
 		AlertTask: bundle.amTask,
 	}

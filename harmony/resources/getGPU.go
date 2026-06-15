@@ -1,4 +1,4 @@
-//go:build !darwin
+//go:build !pdp && !darwin
 
 package resources
 

@@ -21,9 +21,9 @@ func TestPDPBinaryBuilds(t *testing.T) {
 	}
 
 	out := filepath.Join(t.TempDir(), "pdp")
-	cmd := exec.Command("go", "build", "-tags", "cunative nosupraseal", "-o", out, "./cmd/pdp")
+	cmd := exec.Command("go", "build", "-tags", "cunative nosupraseal pdp", "-o", out, "./cmd/pdp")
 	cmd.Dir = root
-	cmd.Env = append(os.Environ(), "CGO_LDFLAGS_ALLOW=.*", "FFI_USE_OPENCL=1")
+	cmd.Env = append(os.Environ(), "CGO_LDFLAGS_ALLOW=.*", "CGO_ENABLED=0")
 	outBytes, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("go build ./cmd/pdp: %v\n%s", err, outBytes)

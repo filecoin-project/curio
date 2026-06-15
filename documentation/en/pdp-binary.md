@@ -5,11 +5,12 @@ The `pdp` binary is a lightweight Curio variant focused on Proof of Data Possess
 ## Build
 
 ```bash
-FFI_USE_OPENCL=1 make deps   # or CUDA on GPU hosts
-make pdp
+make pdp   # → bin/pdp, no filecoin-ffi required
 ```
 
-The binary is written to `bin/pdp` (not the repo root, to avoid clashing with the `pdp/` Go package).
+The `pdp` build uses the `pdp` Go build tag and does not link `filecoin-ffi`. Sealing/PoRep, MK20 market handlers, and curio worker proving code are excluded via build tags.
+
+Curio (`make build`) is unchanged and still builds with full FFI support.
 
 ## Run
 

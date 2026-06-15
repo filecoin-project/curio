@@ -54,11 +54,11 @@ pdptool: $(BUILD_DEPS)
 .PHONY: pdptool
 BINS += pdptool
 
-pdp: $(BUILD_DEPS)
+pdp: setup-cgo-env ffi-version-check
 	mkdir -p bin
 	rm -f bin/pdp
 	CGO_LDFLAGS_ALLOW=$(CGO_LDFLAGS_ALLOW) $(GOCC) build $(GOFLAGS) \
-	-tags "$(CURIO_TAGS)" \
+	-tags "cunative nosupraseal pdp" \
 	-o bin/pdp -ldflags " -s -w \
 	-X github.com/filecoin-project/curio/build.CurrentCommit=+git_`git log -1 --format=%h_%cI`" \
 	./cmd/pdp

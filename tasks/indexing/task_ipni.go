@@ -1,3 +1,5 @@
+//go:build !pdp
+
 package indexing
 
 import (
@@ -36,22 +38,11 @@ import (
 	"github.com/filecoin-project/curio/market/ipni/ipniculib"
 )
 
-var ilog = logging.Logger("ipni")
-
-const ipniHeadCASRetries = 16
-
 type IPNITask struct {
 	db  *harmonydb.DB
 	cfg *config.CurioConfig
 	max taskhelp.Limiter
 	idx *indexstore.IndexStore
-}
-
-func nullableText(v string) any {
-	if v == "" {
-		return nil
-	}
-	return v
 }
 
 func NewIPNITask(db *harmonydb.DB, cfg *config.CurioConfig, max taskhelp.Limiter, idx *indexstore.IndexStore) *IPNITask {

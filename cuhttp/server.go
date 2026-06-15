@@ -21,6 +21,7 @@ import (
 
 	"github.com/filecoin-project/curio/alertmanager"
 	"github.com/filecoin-project/curio/build"
+	"github.com/filecoin-project/curio/cuhttp/servicedeps"
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -141,9 +142,8 @@ func isWebSocketUpgrade(r *http.Request) bool {
 }
 
 type ServiceDeps struct {
-	EthSender  *message.SenderETH
+	servicedeps.Deps
 	DealMarket *storage_market.CurioStorageDealMarket
-	AlertTask  *alertmanager.AlertTask
 }
 
 // This starts the public-facing server for market calls.

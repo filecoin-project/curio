@@ -1,3 +1,5 @@
+//go:build !pdp
+
 package mk20
 
 import (

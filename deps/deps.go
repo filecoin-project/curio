@@ -55,8 +55,6 @@ import (
 	"github.com/filecoin-project/lotus/lib/lazy"
 	"github.com/filecoin-project/lotus/node/modules/dtypes"
 	lrepo "github.com/filecoin-project/lotus/node/repo"
-	"github.com/filecoin-project/lotus/storage/sealer"
-	"github.com/filecoin-project/lotus/storage/sealer/ffiwrapper"
 )
 
 var log = logging.Logger("curio/deps")
@@ -121,7 +119,7 @@ type JwtPayload struct {
 	Allow []auth.Permission
 }
 
-func StorageAuth(apiKey string) (sealer.StorageAuth, error) {
+func StorageAuth(apiKey string) (http.Header, error) {
 	if apiKey == "" {
 		return nil, xerrors.Errorf("no api key provided")
 	}
@@ -144,7 +142,7 @@ func StorageAuth(apiKey string) (sealer.StorageAuth, error) {
 
 	headers := http.Header{}
 	headers.Add("Authorization", "Bearer "+string(token))
-	return sealer.StorageAuth(headers), nil
+	return headers, nil
 }
 
 func GetDeps(ctx context.Context, cctx *cli.Context) (*Deps, error) {
@@ -251,10 +249,6 @@ func (deps *Deps) PopulateRemainingDeps(ctx context.Context, cctx *cli.Context, 
 	applySSRFOverride()
 	deps.Cfg.Ingest.DisableSSRFProtection.OnChange(applySSRFOverride)
 	deps.Cfg.Ingest.SSRFAllowedHosts.OnChange(applySSRFOverride)
-
-	if deps.Verif == nil {
-		deps.Verif = ffiwrapper.ProofVerifier
-	}
 
 	if deps.As == nil {
 		deps.As, err = multictladdr.AddressSelector(deps.Cfg.Addresses)()
@@ -443,9 +437,7 @@ Get it with: jq .PrivateKey ~/.lotus-miner/keystore/MF2XI2BNNJ3XILLQOJUXMYLUMU`,
 		deps.ServeChunker = chunker.NewServeChunker(deps.DB, deps.SectorReader, deps.IndexStore, deps.CachedPieceReader)
 	}
 
-	if deps.Prover == nil {
-		deps.Prover = ffiwrapper.ProofProver
-	}
+	setDefaultVerifProver(deps)
 
 	return nil
 }
