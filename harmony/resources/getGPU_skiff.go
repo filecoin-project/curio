@@ -1,4 +1,4 @@
-//go:build pdp && !darwin
+//go:build skiff && !darwin
 
 package resources
 

@@ -1,4 +1,4 @@
-//go:build !pdp
+//go:build !skiff
 
 package indexing
 

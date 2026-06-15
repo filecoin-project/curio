@@ -15,8 +15,8 @@ import (
 
 func main() {
 	app := &cli.App{
-		Name:  "pdp",
-		Usage: "PDP storage service",
+		Name:    "skiff",
+		Usage:   "PDP storage service",
 		Version: curiobuild.UserVersion(),
 		Flags: []cli.Flag{
 			&cli.BoolFlag{Name: "color", Usage: "use color in display output"},
@@ -68,13 +68,13 @@ func main() {
 			},
 			&cli.StringFlag{
 				Name:    "machine-host",
-				EnvVars: []string{"PDP_MACHINE_HOST"},
+				EnvVars: []string{"SKIFF_MACHINE_HOST", "PDP_MACHINE_HOST"},
 				Usage:   "harmony machine identity (not a public listener)",
-				Value:   "127.0.0.1:pdp",
+				Value:   "127.0.0.1:skiff",
 			},
 			&cli.StringFlag{
 				Name:    "name",
-				EnvVars: []string{"PDP_NODE_NAME"},
+				EnvVars: []string{"SKIFF_NODE_NAME", "PDP_NODE_NAME"},
 				Usage:   "custom node name",
 			},
 			&cli.BoolFlag{

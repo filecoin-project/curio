@@ -35,7 +35,7 @@ import (
 
 var log = logging.Logger("pdpnode")
 
-const defaultMachineHost = "127.0.0.1:pdp"
+const defaultMachineHost = "127.0.0.1:skiff"
 
 // Deps holds PDP-node runtime dependencies.
 type Deps struct {

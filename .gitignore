@@ -5,7 +5,7 @@
 /docgen-openrpc
 /deps.json
 /pdptool
-/bin/pdp
+/bin/skiff
 
 extern/filecoin-ffi/rust/target
 **/*.a
@@ -34,3 +34,4 @@ node_modules
 
 # VIM
 *.swpcmd/curio/internal/translations/toyextract_tmp/
+/bin/
