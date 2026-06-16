@@ -5,7 +5,6 @@ import (
 	"context"
 	"net/http"
 	"os"
-	"path"
 	"strings"
 
 	logging "github.com/ipfs/go-log/v2"
@@ -44,7 +43,7 @@ type Deps struct {
 	Bstore            curiochain.CurioBlockstore
 	Stor              *paths.Remote
 	LocalStore        *paths.Local
-	LocalPaths        *paths.BasicLocalStorage
+	LocalPaths        paths.LocalStorage
 	Si                paths.SectorIndex
 	PieceIO           piecestore.PieceIO
 	IndexStore        *indexstore.IndexStore
@@ -96,8 +95,9 @@ func Open(ctx context.Context, cctx *cli.Context) (*Deps, error) {
 	al := curioalerting.NewAlertingSystem()
 	si := paths.NewDBIndex(al, db)
 
-	localPaths := &paths.BasicLocalStorage{
-		PathToJSON: path.Join(repoPath, "storage.json"),
+	localPaths, err := newLocalStorage(repoPath)
+	if err != nil {
+		return nil, err
 	}
 
 	sa, err := curiodeps.StorageAuth(cfg.Apis.StorageRPCSecret)

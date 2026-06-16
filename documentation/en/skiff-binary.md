@@ -35,7 +35,7 @@ The admin GUI hides PoRep, sealing, and storage-market navigation when running S
 
 | Flag | Env | Default | Purpose |
 |------|-----|---------|---------|
-| `--repo` | `CURIO_REPO_PATH` | `~/.curio` | Data directory |
+| `--repo` | `CURIO_REPO_PATH` | `~/.curio` | Local data directory (Lantern chain state) |
 | `--db-host` | `CURIO_DB_HOST` | `127.0.0.1` | Yugabyte/Postgres host |
 | `--machine-host` | `SKIFF_MACHINE_HOST` | `127.0.0.1:skiff` | Harmony machine ID |
 
@@ -68,3 +68,7 @@ Skiff embeds [Lantern](https://github.com/Reiers/lantern) as its default chain b
 Embedded Lantern supports **mainnet** and **calibration** builds only. For `2k` / debug builds, set `ChainApiInfo` or `FULLNODE_API_INFO` to an external Lotus-compatible RPC endpoint.
 
 See [Enable PDP](experimental-features/Enable-PDP.md) for deployment guidance.
+
+## Storage
+
+Skiff does not use `storage.json`. On startup it scans the first three directory levels of each mount point for a folder named `curio-pdp-data` (at most one per mount point). If a discovered path has no `sectorstore.json`, one is created automatically with store enabled.

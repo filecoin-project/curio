@@ -162,7 +162,7 @@ type Deps struct {
 	Al                *curioalerting.AlertingSystem
 	Si                paths.SectorIndex
 	LocalStore        *paths.Local
-	LocalPaths        *paths.BasicLocalStorage
+	LocalPaths        paths.LocalStorage
 	Prover            storiface.Prover
 	ListenAddr        string
 	Name              string
