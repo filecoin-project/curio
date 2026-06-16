@@ -31,6 +31,9 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
         // deregister confirmation input
         deregisterConfirmation: { type: String },
 
+        keyStatus: { type: Object },
+        keyStatusLoading: { type: Boolean },
+
         capabilities: { type: Object },
 
     };
@@ -106,7 +109,23 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
 
         this.deregisterConfirmation = '';
 
+        this.keyStatus = { configured: false };
+        this.keyStatusLoading = true;
+
+        this.loadKeyStatus();
         this.loadStatus();
+    }
+
+    async loadKeyStatus() {
+        this.keyStatusLoading = true;
+        try {
+            this.keyStatus = await RPCCall('PDPKeyStatus', []);
+        } catch (e) {
+            console.error('PDPKeyStatus error:', e);
+            this.keyStatus = { configured: false };
+        } finally {
+            this.keyStatusLoading = false;
+        }
     }
 
     async loadStatus() {
@@ -376,6 +395,12 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
             <div class="container-fluid" style="min-width: 70em">
                 <h2 class="mb-3">Filecoin Service Registry</h2>
 
+                ${this.keyStatusLoading ? '' : !this.keyStatus?.configured ? html`
+                    <div class="alert alert-danger">
+                        PDP wallet not configured. Create or assign a key on the PDP page before registering.
+                    </div>
+                ` : ''}
+
                 ${this.loading ? html`
                     <div class="d-flex align-items-center">
                         <div class="spinner-border me-2" role="status" aria-hidden="true"></div>
@@ -385,7 +410,8 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
                     <div class="alert alert-danger">Failed to load status: ${this.error}</div>
                 ` : html`${this.status === null ? html`
                     <div class="alert alert-warning">This provider is not registered.</div>
-                    <button class="btn btn-primary" @click=${this.openRegister}>Register Provider</button>
+                    <button class="btn btn-primary" @click=${this.openRegister}
+                            ?disabled=${!this.keyStatus?.configured}>Register Provider</button>
                 ` : html`
                     <div class="card bg-dark text-light mb-3">
                         <div class="card-header">Current Status</div>

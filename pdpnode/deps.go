@@ -25,6 +25,7 @@ import (
 	"github.com/filecoin-project/curio/lib/piecestore"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/ipni/chunker"
+	pdpwallet "github.com/filecoin-project/curio/pdp/wallet"
 	"github.com/filecoin-project/curio/tasks/message"
 
 	"github.com/filecoin-project/curio/lib/lazy"
@@ -69,6 +70,10 @@ func Open(ctx context.Context, cctx *cli.Context) (*Deps, error) {
 	db, err := curiodeps.MakeDB(cctx)
 	if err != nil {
 		return nil, err
+	}
+
+	if err := ensureSkiffBaseLayer(ctx, db); err != nil {
+		return nil, xerrors.Errorf("ensure skiff base config: %w", err)
 	}
 
 	cfg, err := curiodeps.GetConfig(ctx, nil, db)
@@ -168,6 +173,14 @@ func Open(ctx context.Context, cctx *cli.Context) (*Deps, error) {
 		MachineHost:       machineHost,
 		Name:              name,
 		MachineID:         -1,
+	}
+
+	hasKey, err := pdpwallet.HasPDPKey(ctx, db)
+	if err != nil {
+		log.Warnf("checking PDP wallet: %s", err)
+	} else if !hasKey {
+		log.Warn("PDP signing key not configured")
+		d.Alert.AddAlert("PDP wallet not configured. Create or assign a key on the PDP page.")
 	}
 
 	sender, _ := message.NewSender(chain, chain, db, cfg.Fees.MaximizeFeeCap)

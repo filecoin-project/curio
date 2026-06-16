@@ -12,6 +12,7 @@ func buildAlertFuncs() map[AlertName]AlertFunc {
 		Name_ChainSync:             chainSyncCheck,
 		Name_PendingMessages:       pendingMessagesCheck,
 		Name_IPNISync:              ipniSyncCheck,
+		Name_PDPKeyConfigured:      pdpKeyConfiguredCheck,
 	}
 }
 
@@ -23,5 +24,6 @@ func buildPingHealthFuncs() map[AlertName]AlertFunc {
 		Name_PermanentStorageSpace: af[Name_PermanentStorageSpace],
 		Name_PDPTaskFailures:       af[Name_PDPTaskFailures],
 		Name_IPNISync:              af[Name_IPNISync],
+		Name_PDPKeyConfigured:      af[Name_PDPKeyConfigured],
 	}
 }

@@ -6,6 +6,10 @@ description: >-
 
 # Enable PDP
 
+{% hint style="info" %}
+For a lightweight Postgres-only PDP node without Yugabyte or sealing, see the [Curio-PDP runbook](../curio-pdp.md) and [Skiff binary](../skiff-binary.md).
+{% endhint %}
+
 {% hint style="danger" %}
 **ALPHA FEATURE - UNDER DEVELOPMENT**
 

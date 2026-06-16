@@ -49,11 +49,13 @@ When PDP is enabled in full `curio`, `pdpnode.Attach()` registers PDP harmony ta
 
 ## Configuration
 
-Use a single `base` config layer. Ensure:
+Use a single `base` config layer. On first start, skiff **auto-seeds `base`** with PDP defaults (`EnablePDP`, `EnableWebGui`, `GuiAddress`, `StorageRPCSecret`). If a `pdp` layer exists from a prior setup, it is merged into `base` once. Ensure:
 
 - `Subsystems.EnablePDP = true` (forced on by the binary)
 - `Subsystems.EnableWebGui = true` for the admin UI
 - `HTTP.Enable = true` for the public `/pdp/*` API
+
+See [Enable PDP](experimental-features/Enable-PDP.md) for full-stack Curio deployment, or the [Curio-PDP runbook](curio-pdp.md) for the lightweight Postgres-based skiff build.
 
 ### Chain backend (Lantern)
 
@@ -66,8 +68,6 @@ Skiff embeds [Lantern](https://github.com/Reiers/lantern) as its default chain b
 | Embedded Lantern | Default |
 
 Embedded Lantern supports **mainnet** and **calibration** builds only. For `2k` / debug builds, set `ChainApiInfo` or `FULLNODE_API_INFO` to an external Lotus-compatible RPC endpoint.
-
-See [Enable PDP](experimental-features/Enable-PDP.md) for deployment guidance.
 
 ## Storage
 

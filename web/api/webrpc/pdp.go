@@ -2,9 +2,7 @@ package webrpc
 
 import (
 	"context"
-	"crypto/ecdsa"
 	"crypto/x509"
-	"encoding/hex"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -14,7 +12,6 @@ import (
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
@@ -22,6 +19,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/urlhelper"
 	"github.com/filecoin-project/curio/pdp/contract"
+	pdpwallet "github.com/filecoin-project/curio/pdp/wallet"
 	"github.com/filecoin-project/curio/tasks/indexing"
 )
 
@@ -139,63 +137,34 @@ type PDPOwnerAddress struct {
 }
 
 func (a *WebRPC) ImportPDPKey(ctx context.Context, hexPrivateKey string) (string, error) {
-	hexPrivateKey = strings.TrimSpace(hexPrivateKey)
-	if hexPrivateKey == "" {
-		return "", fmt.Errorf("private key cannot be empty")
-	}
-
-	// Remove any leading '0x' from the hex string
-	hexPrivateKey = strings.TrimPrefix(hexPrivateKey, "0x")
-	hexPrivateKey = strings.TrimPrefix(hexPrivateKey, "0X")
-
-	// Decode the hex private key
-	privateKeyBytes, err := hex.DecodeString(hexPrivateKey)
-	if err != nil {
-		return "", fmt.Errorf("failed to decode private key: %v", err)
-	}
-
-	// Parse the private key
-	privateKey, err := crypto.ToECDSA(privateKeyBytes)
-	if err != nil {
-		return "", fmt.Errorf("invalid private key: %v", err)
-	}
-
-	// Get the public key
-	publicKey := privateKey.Public()
-	publicKeyECDSA, ok := publicKey.(*ecdsa.PublicKey)
-	if !ok {
-		return "", xerrors.New("error casting public key to ECDSA")
-	}
-
-	// Derive the address
-	address := crypto.PubkeyToAddress(*publicKeyECDSA).Hex()
-
-	// Insert into the database within a transaction
-	_, err = a.Deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
-		// Check if the owner_address already exists
-		var existingAddress bool
-
-		err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM eth_keys WHERE role = 'pdp')`).Scan(&existingAddress)
-		if err != nil {
-			return false, xerrors.Errorf("failed to check existing owner address: %v", err)
-		}
-		if existingAddress {
-			return false, fmt.Errorf("owner address %s already exists", address)
-		}
-
-		// Insert the new owner address and private key
-		_, err = tx.Exec(`INSERT INTO eth_keys (address, private_key, role) VALUES ($1, $2, 'pdp')`, address, privateKeyBytes)
-		if err != nil {
-			return false, fmt.Errorf("failed to insert owner address: %v", err)
-		}
-		return true, nil
-	})
+	address, err := pdpwallet.ImportPDPKeyHex(ctx, a.Deps.DB, hexPrivateKey)
 	if err != nil {
 		log.Errorf("ImportPDPKey: failed to import key: %v", err)
-		return "", fmt.Errorf("failed to import key")
+		return "", err
 	}
-
 	return address, nil
+}
+
+func (a *WebRPC) CreatePDPKey(ctx context.Context) (*pdpwallet.CreatedKey, error) {
+	created, err := pdpwallet.CreatePDPKey(ctx, a.Deps.DB)
+	if err != nil {
+		log.Errorf("CreatePDPKey: %v", err)
+		return nil, err
+	}
+	return created, nil
+}
+
+func (a *WebRPC) CreatePDPKeyLantern(ctx context.Context) (*pdpwallet.CreatedKey, error) {
+	created, err := pdpwallet.CreatePDPKeyLantern(ctx, a.Deps.DB)
+	if err != nil {
+		log.Errorf("CreatePDPKeyLantern: %v", err)
+		return nil, err
+	}
+	return created, nil
+}
+
+func (a *WebRPC) PDPKeyStatus(ctx context.Context) (pdpwallet.Status, error) {
+	return pdpwallet.PDPKeyStatus(ctx, a.Deps.DB)
 }
 
 func (a *WebRPC) ListPDPKeys(ctx context.Context) ([]string, error) {

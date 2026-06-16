@@ -98,6 +98,7 @@ const (
 	Name_MissingSectors        AlertName = "MissingSectors"
 	Name_PendingMessages       AlertName = "PendingMessages"
 	Name_IPNISync              AlertName = "IPNISync"
+	Name_PDPKeyConfigured      AlertName = "PDPKeyConfigured"
 )
 
 var AlertNames = []string{
@@ -112,6 +113,7 @@ var AlertNames = []string{
 	string(Name_MissingSectors),
 	string(Name_PendingMessages),
 	string(Name_IPNISync),
+	string(Name_PDPKeyConfigured),
 }
 
 func init() {

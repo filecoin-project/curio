@@ -1183,3 +1183,41 @@ func ipniSyncCheck(al *alerts) {
 		}
 	}
 }
+
+func pdpKeyConfiguredCheck(al *alerts) {
+	Name := Name_PDPKeyConfigured
+	al.alertMap[Name] = &alertOut{}
+
+	pdpEnabled := false
+	err := config.ForEachConfig[struct {
+		Subsystems struct {
+			EnablePDP bool
+		}
+	}](al.ctx, al.db, func(_ string, cfg struct {
+		Subsystems struct {
+			EnablePDP bool
+		}
+	}) error {
+		if cfg.Subsystems.EnablePDP {
+			pdpEnabled = true
+		}
+		return nil
+	})
+	if err != nil {
+		al.alertMap[Name].err = xerrors.Errorf("checking PDP config: %w", err)
+		return
+	}
+	if !pdpEnabled {
+		return
+	}
+
+	var exists bool
+	err = al.db.QueryRow(al.ctx, `SELECT EXISTS(SELECT 1 FROM eth_keys WHERE role = 'pdp')`).Scan(&exists)
+	if err != nil {
+		al.alertMap[Name].err = xerrors.Errorf("checking PDP wallet: %w", err)
+		return
+	}
+	if !exists {
+		al.alertMap[Name].alertString = "PDP wallet not configured. Create or assign a key on the PDP page."
+	}
+}
