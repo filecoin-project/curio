@@ -22,11 +22,10 @@ All endpoints are rooted at `/pdp`.
 | POST | `/pdp/data-sets/create-and-add` | Create a data set and add pieces atomically |
 | GET | `/pdp/data-sets/created/{txHash}` | Check data set creation status |
 | GET | `/pdp/data-sets/{dataSetId}` | Get data set details |
-| POST | `/pdp/data-sets/{dataSetId}/terminate` | Terminate data set | 
-| GET | `
+| POST | `/pdp/data-sets/{dataSetId}/terminate` | Terminate data set |
+| GET | `/pdp/data-sets/{dataSetId}/terminate` | Get data set termination status |
 | POST | `/pdp/data-sets/{dataSetId}/pieces` | Add pieces to a data set |
-| GET | `/pdp/data-sets/{dataSetId}/pieces/added/{txHash}` | Get piece addition status | `/pdp/data-sets/{dataSetId}/terminate` | Get data set termination status 
-
+| GET | `/pdp/data-sets/{dataSetId}/pieces/added/{txHash}` | Get piece addition status |
 | GET | `/pdp/data-sets/{dataSetId}/pieces/{pieceId}` | Get piece details |
 | DELETE | `/pdp/data-sets/{dataSetId}/pieces/{pieceId}` | Schedule piece deletion |
 | POST | `/pdp/piece/pull` | Pull pieces from other SPs |
@@ -493,7 +492,7 @@ When you initiate an upload with the `notify` field specified, the PDP Service w
 
 
 #### Constraints and Requirements
-- **Client Authorization** A signature in the extra data must be from the the data set payer as recorded in the filecoin warm storage services contract.  The signature must be over the correct data authorizing termination.
+- **Client Authorization:** A signature in the extra data must be from the data set payer as recorded in the filecoin warm storage services contract.  The signature must be over the correct data authorizing termination.
 
 
 #### Response
@@ -506,14 +505,14 @@ When you initiate an upload with the `notify` field specified, the PDP Service w
 - `404 Not Found`: Data set not found
 - `409 Conflict`: Termination already in progress or complete
   - **Response Body:**
-  ```json
-  {
-    "code": <enum>,
-    "message": <string>,
-    "serviceTerminationEpoch": <chainEpoch>
-  }
-  ```
-  - **Fields** 
+    ```json
+    {
+      "code": <0-or-1>,
+      "message": <string>,
+      "serviceTerminationEpoch": <chain-epoch>
+    }
+    ```
+  - **Fields:** 
     - `code`: 0|1, 0 for termination already and completed and 1 for termination queued 
     - `message`: message describing the code in more detail
     - `serviceTerminationEpoch`: The epoch the service was terminated at
