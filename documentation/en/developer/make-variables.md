@@ -56,7 +56,7 @@ These targets share the same pipeline and differ only in tags:
   - Tag behavior: appends `2k` to `CURIO_TAGS` then runs `build`.
 
 - `make skiff`
-  - Builds: `bin/skiff` (PDP-only daemon; no worker RPC or deal market)
+  - Builds: `skiff` (PDP-only daemon; no worker RPC or deal market)
   - Uses the `skiff` build tag and skips filecoin-ffi `BUILD_DEPS`.
 
 Equivalent one-off forms are also available:

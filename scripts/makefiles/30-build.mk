@@ -55,15 +55,14 @@ pdptool: $(BUILD_DEPS)
 BINS += pdptool
 
 skiff: setup-cgo-env ffi-version-check
-	mkdir -p bin
-	rm -f bin/skiff
+	rm -f skiff
 	CGO_LDFLAGS_ALLOW=$(CGO_LDFLAGS_ALLOW) $(GOCC) build $(GOFLAGS) \
 	-tags "cunative nosupraseal skiff" \
-	-o bin/skiff -ldflags " -s -w \
+	-o skiff -ldflags " -s -w \
 	-X github.com/filecoin-project/curio/build.CurrentCommit=+git_`git log -1 --format=%h_%cI`" \
 	./cmd/skiff
 .PHONY: skiff
-BINS += bin/skiff
+BINS += skiff
 
 ## CUZK PROVING DAEMON (Rust, requires CUDA)
 ## cuzk is a persistent GPU-resident SNARK proving daemon. It is built separately

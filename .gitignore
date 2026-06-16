@@ -5,7 +5,7 @@
 /docgen-openrpc
 /deps.json
 /pdptool
-/bin/skiff
+/skiff
 
 extern/filecoin-ffi/rust/target
 **/*.a
