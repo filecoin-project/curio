@@ -53,7 +53,7 @@ type AllowDeny struct {
 
 func (a *WebRPC) GetClientFilters(ctx context.Context) ([]ClientFilter, error) {
 	var filters []ClientFilter
-	err := a.deps.DB.Select(ctx, &filters, `SELECT 
+	err := a.Deps.DB.Select(ctx, &filters, `SELECT 
 											name, 
 											active, 
 											wallets, 
@@ -71,7 +71,7 @@ func (a *WebRPC) GetClientFilters(ctx context.Context) ([]ClientFilter, error) {
 
 func (a *WebRPC) GetPriceFilters(ctx context.Context) ([]PriceFilter, error) {
 	var filters []PriceFilter
-	err := a.deps.DB.Select(ctx, &filters, `SELECT 
+	err := a.Deps.DB.Select(ctx, &filters, `SELECT 
 											name, 
 											min_duration_days, 
 											max_duration_days, 
@@ -88,7 +88,7 @@ func (a *WebRPC) GetPriceFilters(ctx context.Context) ([]PriceFilter, error) {
 
 func (a *WebRPC) GetAllowDenyList(ctx context.Context) ([]AllowDeny, error) {
 	var adList []AllowDeny
-	err := a.deps.DB.Select(ctx, &adList, `SELECT 
+	err := a.Deps.DB.Select(ctx, &adList, `SELECT 
 											wallet, 
 											status
 										FROM market_allow_list ORDER BY wallet`)
@@ -160,14 +160,14 @@ func (a *WebRPC) SetClientFilters(ctx context.Context, name string, active bool,
 	}
 
 	var all int
-	err := a.deps.DB.QueryRow(ctx, `SELECT COUNT(*) FROM market_mk12_pricing_filters WHERE name = ANY($1)`, filters).Scan(&all)
+	err := a.Deps.DB.QueryRow(ctx, `SELECT COUNT(*) FROM market_mk12_pricing_filters WHERE name = ANY($1)`, filters).Scan(&all)
 	if err != nil {
 		return xerrors.Errorf("failed to check existing pricing filters: %w", err)
 	}
 	if all != len(filters) {
 		return xerrors.Errorf("not all pricing filters exist")
 	}
-	n, err := a.deps.DB.Exec(ctx, `UPDATE market_mk12_client_filters SET active = $2, wallets = $3, peer_ids = $4, pricing_filters = $5, 
+	n, err := a.Deps.DB.Exec(ctx, `UPDATE market_mk12_client_filters SET active = $2, wallets = $3, peer_ids = $4, pricing_filters = $5, 
                                       max_deals_per_hour = $6, max_deal_size_per_hour = $7, additional_info = $8 WHERE name = $1`, name,
 		active, clients, peerIds, filters, maxDealPerHour, maxDealSizePerHour, info)
 	if err != nil {
@@ -212,7 +212,7 @@ func (a *WebRPC) SetPriceFilters(ctx context.Context, name string, minDur, maxDu
 		return xerrors.Errorf("name cannot be empty")
 	}
 
-	n, err := a.deps.DB.Exec(ctx, `UPDATE market_mk12_pricing_filters SET min_duration_days = $2, max_duration_days = $3, 
+	n, err := a.Deps.DB.Exec(ctx, `UPDATE market_mk12_pricing_filters SET min_duration_days = $2, max_duration_days = $3, 
                                        min_size = $4, max_size = $5, price= $6, verified = $7 WHERE name = $1`,
 		name, minDur, maxDur, minSize, maxSize, price, verified)
 	if err != nil {
@@ -230,7 +230,7 @@ func (a *WebRPC) SetAllowDenyList(ctx context.Context, wallet string, status boo
 		return xerrors.Errorf("invalid wallet address: %w", err)
 	}
 
-	n, err := a.deps.DB.Exec(ctx, `UPDATE market_allow_list SET status = $2 WHERE wallet = $1`, wallet, status)
+	n, err := a.Deps.DB.Exec(ctx, `UPDATE market_allow_list SET status = $2 WHERE wallet = $1`, wallet, status)
 	if err != nil {
 		return xerrors.Errorf("updating allow deny list: %w", err)
 	}
@@ -302,7 +302,7 @@ func (a *WebRPC) AddClientFilters(ctx context.Context, name string, active bool,
 	}
 
 	var all int
-	err := a.deps.DB.QueryRow(ctx, `SELECT COUNT(*) FROM market_mk12_pricing_filters WHERE name = ANY($1)`, filters).Scan(&all)
+	err := a.Deps.DB.QueryRow(ctx, `SELECT COUNT(*) FROM market_mk12_pricing_filters WHERE name = ANY($1)`, filters).Scan(&all)
 	if err != nil {
 		return xerrors.Errorf("failed to check existing pricing filters: %w", err)
 	}
@@ -310,7 +310,7 @@ func (a *WebRPC) AddClientFilters(ctx context.Context, name string, active bool,
 		return xerrors.Errorf("not all pricing filters exist")
 	}
 
-	n, err := a.deps.DB.Exec(ctx, `INSERT INTO market_mk12_client_filters (name, active, wallets, 
+	n, err := a.Deps.DB.Exec(ctx, `INSERT INTO market_mk12_client_filters (name, active, wallets, 
                                         peer_ids, pricing_filters, max_deals_per_hour, max_deal_size_per_hour, additional_info) 
 										VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
 		name, active, clients, peerIds, filters, maxDealPerHour, maxDealSizePerHour, info)
@@ -356,7 +356,7 @@ func (a *WebRPC) AddPriceFilters(ctx context.Context, name string, minDur, maxDu
 		return xerrors.Errorf("name cannot be empty")
 	}
 
-	n, err := a.deps.DB.Exec(ctx, `INSERT INTO market_mk12_pricing_filters (name, 
+	n, err := a.Deps.DB.Exec(ctx, `INSERT INTO market_mk12_pricing_filters (name, 
                                          min_duration_days, max_duration_days, min_size, max_size, price, 
                                          verified) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 		name, minDur, maxDur, minSize, maxSize, price, verified)
@@ -375,7 +375,7 @@ func (a *WebRPC) AddAllowDenyList(ctx context.Context, wallet string, status boo
 		return xerrors.Errorf("invalid wallet address: %w", err)
 	}
 
-	n, err := a.deps.DB.Exec(ctx, "INSERT INTO market_allow_list (wallet, status) VALUES ($1, $2)", w.String(), status)
+	n, err := a.Deps.DB.Exec(ctx, "INSERT INTO market_allow_list (wallet, status) VALUES ($1, $2)", w.String(), status)
 	if err != nil {
 		return err
 	}
@@ -386,21 +386,21 @@ func (a *WebRPC) AddAllowDenyList(ctx context.Context, wallet string, status boo
 }
 
 func (a *WebRPC) RemovePricingFilter(ctx context.Context, name string) error {
-	_, err := a.deps.DB.Exec(ctx, `SELECT remove_pricing_filter($1)`, name)
+	_, err := a.Deps.DB.Exec(ctx, `SELECT remove_pricing_filter($1)`, name)
 	if err != nil {
 		return err
 	}
 	return nil
 }
 func (a *WebRPC) RemoveClientFilter(ctx context.Context, name string) error {
-	_, err := a.deps.DB.Exec(ctx, `DELETE FROM market_mk12_client_filters WHERE name = $1`, name)
+	_, err := a.Deps.DB.Exec(ctx, `DELETE FROM market_mk12_client_filters WHERE name = $1`, name)
 	if err != nil {
 		return err
 	}
 	return nil
 }
 func (a *WebRPC) RemoveAllowFilter(ctx context.Context, wallet string) error {
-	_, err := a.deps.DB.Exec(ctx, `DELETE FROM market_allow_list WHERE wallet = $1`, wallet)
+	_, err := a.Deps.DB.Exec(ctx, `DELETE FROM market_allow_list WHERE wallet = $1`, wallet)
 	if err != nil {
 		return err
 	}
@@ -418,14 +418,14 @@ func (a *WebRPC) DefaultFilterBehaviour(ctx context.Context) (*DefaultFilterBeha
 	var cfgminers []address.Address
 	var cgminer []address.Address
 
-	lo.ForEach(lo.Keys(a.deps.Maddrs.Get()), func(item dtypes.MinerAddress, _ int) {
+	lo.ForEach(lo.Keys(a.Deps.Maddrs.Get()), func(item dtypes.MinerAddress, _ int) {
 		cfgminers = append(cfgminers, address.Address(item))
 	})
 
 	cgMap := make(map[string]bool)
 
-	if len(a.deps.Cfg.Market.StorageMarketConfig.MK12.CIDGravityTokens) > 0 {
-		for _, token := range a.deps.Cfg.Market.StorageMarketConfig.MK12.CIDGravityTokens {
+	if len(a.Deps.Cfg.Market.StorageMarketConfig.MK12.CIDGravityTokens) > 0 {
+		for _, token := range a.Deps.Cfg.Market.StorageMarketConfig.MK12.CIDGravityTokens {
 			st := strings.SplitN(token, ":", 2)
 			m, err := address.NewFromString(st[0])
 			if err != nil {
@@ -447,9 +447,9 @@ func (a *WebRPC) DefaultFilterBehaviour(ctx context.Context) (*DefaultFilterBeha
 	}
 
 	return &DefaultFilterBehaviourResponse{
-		AllowDealsFromUnknownClients:             !a.deps.Cfg.Market.StorageMarketConfig.MK12.DenyUnknownClients,
+		AllowDealsFromUnknownClients:             !a.Deps.Cfg.Market.StorageMarketConfig.MK12.DenyUnknownClients,
 		IsCidGravityEnabled:                      cgMap,
-		IsDealRejectedWhenCidGravityNotReachable: !a.deps.Cfg.Market.StorageMarketConfig.MK12.DefaultCIDGravityAccept,
+		IsDealRejectedWhenCidGravityNotReachable: !a.Deps.Cfg.Market.StorageMarketConfig.MK12.DefaultCIDGravityAccept,
 	}, nil
 
 }

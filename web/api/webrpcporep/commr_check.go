@@ -1,4 +1,4 @@
-package webrpc
+package webrpcporep
 
 import (
 	"context"
@@ -28,7 +28,7 @@ type CommRCheckResult struct {
 
 // SectorCommRCheckStart starts a CommR check for a sector
 // fileType is either "sealed" or "update"
-func (a *WebRPC) SectorCommRCheckStart(ctx context.Context, spStr string, sectorNum int64, fileType string) (*CommRCheckResult, error) {
+func (a *PoRep) SectorCommRCheckStart(ctx context.Context, spStr string, sectorNum int64, fileType string) (*CommRCheckResult, error) {
 	maddr, err := address.NewFromString(spStr)
 	if err != nil {
 		return nil, xerrors.Errorf("invalid miner address: %w", err)
@@ -57,12 +57,12 @@ func (a *WebRPC) SectorCommRCheckStart(ctx context.Context, spStr string, sector
 	if fileType == "sealed" {
 		// For sealed files, we need the original CommR (before any snap upgrades)
 		// orig_sealed_cid is set for snap-upgraded sectors, cur_sealed_cid for non-upgraded
-		err = a.deps.DB.QueryRow(ctx, `
+		err = a.Deps.DB.QueryRow(ctx, `
 			SELECT COALESCE(orig_sealed_cid, cur_sealed_cid) FROM sectors_meta WHERE sp_id = $1 AND sector_num = $2
 		`, spID, sectorNum).Scan(&expectedCID)
 	} else {
 		// For update files, we need the current CommR (the snap-upgrade CommR)
-		err = a.deps.DB.QueryRow(ctx, `
+		err = a.Deps.DB.QueryRow(ctx, `
 			SELECT cur_sealed_cid FROM sectors_meta WHERE sp_id = $1 AND sector_num = $2
 		`, spID, sectorNum).Scan(&expectedCID)
 	}
@@ -73,7 +73,7 @@ func (a *WebRPC) SectorCommRCheckStart(ctx context.Context, spStr string, sector
 
 	// Create the check task
 	var checkID int64
-	err = a.deps.DB.QueryRow(ctx, `
+	err = a.Deps.DB.QueryRow(ctx, `
 		INSERT INTO scrub_commr_check (sp_id, sector_number, file_type, expected_comm_r)
 		VALUES ($1, $2, $3, $4)
 		RETURNING check_id
@@ -87,7 +87,7 @@ func (a *WebRPC) SectorCommRCheckStart(ctx context.Context, spStr string, sector
 }
 
 // SectorCommRCheckStatus checks the status of a CommR check
-func (a *WebRPC) SectorCommRCheckStatus(ctx context.Context, checkID int64) (*CommRCheckResult, error) {
+func (a *PoRep) SectorCommRCheckStatus(ctx context.Context, checkID int64) (*CommRCheckResult, error) {
 	var row struct {
 		SpID         int64          `db:"sp_id"`
 		SectorNumber int64          `db:"sector_number"`
@@ -100,7 +100,7 @@ func (a *WebRPC) SectorCommRCheckStatus(ctx context.Context, checkID int64) (*Co
 		Message      sql.NullString `db:"message"`
 	}
 
-	err := a.deps.DB.QueryRow(ctx, `
+	err := a.Deps.DB.QueryRow(ctx, `
 		SELECT sp_id, sector_number, create_time, task_id, file_type, expected_comm_r, ok, actual_comm_r, message
 		FROM scrub_commr_check
 		WHERE check_id = $1
@@ -136,7 +136,7 @@ func (a *WebRPC) SectorCommRCheckStatus(ctx context.Context, checkID int64) (*Co
 }
 
 // SectorCommRCheckList lists recent CommR checks for a sector
-func (a *WebRPC) SectorCommRCheckList(ctx context.Context, spStr string, sectorNum int64) ([]*CommRCheckResult, error) {
+func (a *PoRep) SectorCommRCheckList(ctx context.Context, spStr string, sectorNum int64) ([]*CommRCheckResult, error) {
 	maddr, err := address.NewFromString(spStr)
 	if err != nil {
 		return nil, xerrors.Errorf("invalid miner address: %w", err)
@@ -158,7 +158,7 @@ func (a *WebRPC) SectorCommRCheckList(ctx context.Context, spStr string, sectorN
 		Message     sql.NullString `db:"message"`
 	}
 
-	err = a.deps.DB.Select(ctx, &rows, `
+	err = a.Deps.DB.Select(ctx, &rows, `
 		SELECT check_id, create_time, task_id, file_type, expected_comm_r, ok, actual_comm_r, message
 		FROM scrub_commr_check
 		WHERE sp_id = $1 AND sector_number = $2

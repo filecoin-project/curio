@@ -1,4 +1,4 @@
-package webrpc
+package webrpcporep
 
 import (
 	"bytes"
@@ -101,7 +101,7 @@ type BeneficiaryTerm struct {
 	Expiration abi.ChainEpoch
 }
 
-func (a *WebRPC) ActorInfo(ctx context.Context, ActorIDstr string) (*ActorDetail, error) {
+func (a *PoRep) ActorInfo(ctx context.Context, ActorIDstr string) (*ActorDetail, error) {
 	maddr, err := address.NewFromString(ActorIDstr)
 	if err != nil {
 		return nil, xerrors.Errorf("parsing address: %w", err)
@@ -142,7 +142,7 @@ func (a *WebRPC) ActorInfo(ctx context.Context, ActorIDstr string) (*ActorDetail
 
 	summary := summaries[0]
 
-	info, err := a.deps.Chain.StateMinerInfo(ctx, maddr, types.EmptyTSK)
+	info, err := a.Deps.Chain.StateMinerInfo(ctx, maddr, types.EmptyTSK)
 	if err != nil {
 		return nil, xerrors.Errorf("getting miner info: %w", err)
 	}
@@ -205,7 +205,7 @@ func (a *WebRPC) ActorInfo(ctx context.Context, ActorIDstr string) (*ActorDetail
 		if ak, exists := accountKeyMap[addr]; exists {
 			return ak, nil
 		}
-		ak, err := a.deps.Chain.StateAccountKey(ctx, addr, types.EmptyTSK)
+		ak, err := a.Deps.Chain.StateAccountKey(ctx, addr, types.EmptyTSK)
 		if err != nil {
 			return address.Undef, err
 		}
@@ -217,7 +217,7 @@ func (a *WebRPC) ActorInfo(ctx context.Context, ActorIDstr string) (*ActorDetail
 		if bal, exists := balanceCache[addr]; exists {
 			return bal, nil
 		}
-		bal, err := a.deps.Chain.WalletBalance(ctx, addr)
+		bal, err := a.Deps.Chain.WalletBalance(ctx, addr)
 		if err != nil {
 			return big.Int{}, err
 		}
@@ -279,7 +279,7 @@ func (a *WebRPC) ActorInfo(ctx context.Context, ActorIDstr string) (*ActorDetail
 	return ad, nil
 }
 
-func (a *WebRPC) ActorSummary(ctx context.Context) ([]ActorSummary, error) {
+func (a *PoRep) ActorSummary(ctx context.Context) ([]ActorSummary, error) {
 	confNameToAddr := map[address.Address][]string{}
 	err := a.visitAddresses(ctx, func(name string, _ config.CurioAddresses, a address.Address) {
 		confNameToAddr[a] = append(confNameToAddr[a], name)
@@ -291,8 +291,8 @@ func (a *WebRPC) ActorSummary(ctx context.Context) ([]ActorSummary, error) {
 	return as, err
 }
 
-func (a *WebRPC) visitAddresses(ctx context.Context, cb func(string, config.CurioAddresses, address.Address)) error {
-	err := config.ForEachConfig(ctx, a.deps.DB, func(name string, info minimalActorInfo) error {
+func (a *PoRep) visitAddresses(ctx context.Context, cb func(string, config.CurioAddresses, address.Address)) error {
+	err := config.ForEachConfig(ctx, a.Deps.DB, func(name string, info minimalActorInfo) error {
 		for _, aset := range info.Addresses {
 			for _, addr := range aset.MinerAddresses {
 				a, err := address.NewFromString(addr)
@@ -310,23 +310,23 @@ func (a *WebRPC) visitAddresses(ctx context.Context, cb func(string, config.Curi
 	return nil
 }
 
-func (a *WebRPC) getActorSummary(ctx context.Context, confNameToAddr map[address.Address][]string) (as []ActorSummary, err error) {
+func (a *PoRep) getActorSummary(ctx context.Context, confNameToAddr map[address.Address][]string) (as []ActorSummary, err error) {
 	wins, err := a.spWins(ctx)
 	if err != nil {
 		return nil, xerrors.Errorf("getting sp wins: %w", err)
 	}
 
 	stor := store.ActorStore(ctx,
-		blockstore.NewReadCachedBlockstore(blockstore.NewAPIBlockstore(a.deps.Chain), curiochain.ChainBlockCache))
+		blockstore.NewReadCachedBlockstore(blockstore.NewAPIBlockstore(a.Deps.Chain), curiochain.ChainBlockCache))
 	var actorInfos []ActorSummary
 
 	for addr, cnames := range confNameToAddr {
-		p, err := a.deps.Chain.StateMinerPower(ctx, addr, types.EmptyTSK)
+		p, err := a.Deps.Chain.StateMinerPower(ctx, addr, types.EmptyTSK)
 		if err != nil {
 			return nil, xerrors.Errorf("getting miner power: %w", err)
 		}
 
-		mact, err := a.deps.Chain.StateGetActor(ctx, addr, types.EmptyTSK)
+		mact, err := a.Deps.Chain.StateGetActor(ctx, addr, types.EmptyTSK)
 		if err != nil {
 			return nil, xerrors.Errorf("getting actor: %w", err)
 		}
@@ -377,8 +377,8 @@ func (a *WebRPC) getActorSummary(ctx context.Context, confNameToAddr map[address
 	return actorInfos, nil
 }
 
-func (a *WebRPC) getDeadlines(ctx context.Context, addr address.Address) ([]ActorDeadline, error) {
-	dls, err := a.deps.Chain.StateMinerDeadlines(ctx, addr, types.EmptyTSK)
+func (a *PoRep) getDeadlines(ctx context.Context, addr address.Address) ([]ActorDeadline, error) {
+	dls, err := a.Deps.Chain.StateMinerDeadlines(ctx, addr, types.EmptyTSK)
 	if err != nil {
 		return nil, xerrors.Errorf("getting deadlines: %w", err)
 	}
@@ -386,7 +386,7 @@ func (a *WebRPC) getDeadlines(ctx context.Context, addr address.Address) ([]Acto
 	outDls := make([]ActorDeadline, 48)
 
 	for dlidx := range dls {
-		p, err := a.deps.Chain.StateMinerPartitions(ctx, addr, uint64(dlidx), types.EmptyTSK)
+		p, err := a.Deps.Chain.StateMinerPartitions(ctx, addr, uint64(dlidx), types.EmptyTSK)
 		if err != nil {
 			return nil, xerrors.Errorf("getting partition: %w", err)
 		}
@@ -451,7 +451,7 @@ func (a *WebRPC) getDeadlines(ctx context.Context, addr address.Address) ([]Acto
 		outDls[dlidx] = dl
 	}
 
-	pd, err := a.deps.Chain.StateMinerProvingDeadline(ctx, addr, types.EmptyTSK)
+	pd, err := a.Deps.Chain.StateMinerProvingDeadline(ctx, addr, types.EmptyTSK)
 	if err != nil {
 		return nil, xerrors.Errorf("getting proving deadline: %w", err)
 	}
@@ -461,7 +461,7 @@ func (a *WebRPC) getDeadlines(ctx context.Context, addr address.Address) ([]Acto
 	// Calculate open times for each deadline
 	// Each deadline is WPoStChallengeWindow epochs long (30 minutes)
 	// 48 deadlines per proving period
-	head, err := a.deps.Chain.ChainHead(ctx)
+	head, err := a.Deps.Chain.ChainHead(ctx)
 	if err != nil {
 		return nil, xerrors.Errorf("getting chain head: %w", err)
 	}
@@ -503,11 +503,11 @@ type wins struct {
 	Win30 int64 `db:"win30"`
 }
 
-func (a *WebRPC) spWins(ctx context.Context) (map[address.Address]wins, error) {
+func (a *PoRep) spWins(ctx context.Context) (map[address.Address]wins, error) {
 	var w []wins
 
 	// note: this query uses mining_tasks_won_sp_id_base_compute_time_index
-	err := a.deps.DB.Select(ctx, &w, `WITH wins AS (
+	err := a.Deps.DB.Select(ctx, &w, `WITH wins AS (
 	    SELECT
 	        sp_id,
 	        base_compute_time,
@@ -547,10 +547,10 @@ func (a *WebRPC) spWins(ctx context.Context) (map[address.Address]wins, error) {
 	return wm, nil
 }
 
-func (a *WebRPC) ActorList(ctx context.Context) ([]string, error) {
+func (a *PoRep) ActorList(ctx context.Context) ([]string, error) {
 	confNameToAddr := map[address.Address][]string{}
 
-	err := config.ForEachConfig(ctx, a.deps.DB, func(name string, info minimalActorInfo) error {
+	err := config.ForEachConfig(ctx, a.Deps.DB, func(name string, info minimalActorInfo) error {
 		for _, aset := range info.Addresses {
 			for _, addr := range aset.MinerAddresses {
 				a, err := address.NewFromString(addr)

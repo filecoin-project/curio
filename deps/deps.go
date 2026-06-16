@@ -34,11 +34,11 @@ import (
 	"github.com/filecoin-project/curio/alertmanager/curioalerting"
 	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/deps/config"
-	"github.com/filecoin-project/curio/deps/stats"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/cachedreader"
 	"github.com/filecoin-project/curio/lib/curiochain"
 	"github.com/filecoin-project/curio/lib/ethchain"
+	"github.com/filecoin-project/curio/lib/lazy"
 	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/pieceprovider"
@@ -50,9 +50,7 @@ import (
 	"github.com/filecoin-project/curio/tasks/message"
 
 	lapi "github.com/filecoin-project/lotus/api"
-	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/types"
-	"github.com/filecoin-project/lotus/lib/lazy"
 	"github.com/filecoin-project/lotus/node/modules/dtypes"
 	lrepo "github.com/filecoin-project/lotus/node/repo"
 )
@@ -372,32 +370,11 @@ Get it with: jq .PrivateKey ~/.lotus-miner/keystore/MF2XI2BNNJ3XILLQOJUXMYLUMU`,
 			log.Errorf("error setting maddrs: %s", err)
 		}
 	})
-	if deps.ProofTypes == nil {
-		deps.ProofTypes = map[abi.RegisteredSealProof]bool{}
-	}
-	if len(deps.ProofTypes) == 0 {
-		for maddr := range deps.Maddrs.Get() {
-			spt, err := sealProofType(maddr, deps.Chain)
-			if err != nil {
-				return err
-			}
-			deps.ProofTypes[spt] = true
-		}
-
-	}
-	if deps.Cfg.Subsystems.EnableProofShare {
-		deps.ProofTypes[abi.RegisteredSealProof_StackedDrg32GiBV1_1] = true
-		// deps.ProofTypes[abi.RegisteredSealProof_StackedDrg64GiBV1_1] = true TODO REVIEW UNCOMMENT
+	if err := initProofTypes(deps); err != nil {
+		return err
 	}
 
-	if deps.Cfg.Subsystems.EnableWalletExporter {
-		spIDs := []address.Address{}
-		for maddr := range deps.Maddrs.Get() {
-			spIDs = append(spIDs, address.Address(maddr))
-		}
-
-		stats.StartWalletExporter(ctx, deps.DB, deps.Chain, spIDs)
-	}
+	startWalletExporterIfEnabled(ctx, deps)
 
 	if deps.Name == "" {
 		deps.Name = cctx.String("name")
@@ -440,20 +417,6 @@ Get it with: jq .PrivateKey ~/.lotus-miner/keystore/MF2XI2BNNJ3XILLQOJUXMYLUMU`,
 	setDefaultVerifProver(deps)
 
 	return nil
-}
-
-func sealProofType(maddr dtypes.MinerAddress, fnapi api.Chain) (abi.RegisteredSealProof, error) {
-	mi, err := fnapi.StateMinerInfo(context.TODO(), address.Address(maddr), types.EmptyTSK)
-	if err != nil {
-		return 0, err
-	}
-	networkVersion, err := fnapi.StateNetworkVersion(context.TODO(), types.EmptyTSK)
-	if err != nil {
-		return 0, err
-	}
-
-	// node seal proof type does not decide whether or not we use synthetic porep
-	return miner.PreferredSealProofTypeFromWindowPoStType(networkVersion, mi.WindowPoStProofType, false)
 }
 
 func LoadConfigWithUpgrades(text string, curioConfigWithDefaults *config.CurioConfig) (toml.MetaData, error) {

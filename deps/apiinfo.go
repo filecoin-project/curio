@@ -25,7 +25,6 @@ import (
 	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/lib/ethchain"
 
-	lapi "github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/types"
 	cliutil "github.com/filecoin-project/lotus/cli/util"
 )
@@ -37,6 +36,11 @@ func GetFullNodeAPIV1Curio(ctx *cli.Context, ainfoCfg []string) (api.Chain, json
 		return tn.(api.Chain), func() {}, nil
 	}
 
+	ainfoCfg, embedCloser, err := resolveChainAPIInfo(ctx, ainfoCfg)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	if len(ainfoCfg) == 0 {
 		return nil, nil, xerrors.Errorf("could not get API info: none configured. \nConsider getting base.toml with './curio config get base >/tmp/base.toml' \nthen adding   \n[APIs] \n ChainApiInfo = [\" result_from lotus auth api-info --perm=admin \"]\n  and updating it with './curio config set /tmp/base.toml'")
 	}
@@ -44,7 +48,7 @@ func GetFullNodeAPIV1Curio(ctx *cli.Context, ainfoCfg []string) (api.Chain, json
 	var httpHeads []httpHead
 	version := "v1"
 	for _, i := range ainfoCfg {
-		ainfo := cliutil.ParseApiInfo(i)
+		ainfo := parseAPIInfo(i)
 		addr, err := ainfo.DialArgs(version)
 		if err != nil {
 			return nil, nil, xerrors.Errorf("could not get DialArgs: %w", err)
@@ -98,6 +102,7 @@ func GetFullNodeAPIV1Curio(ctx *cli.Context, ainfoCfg []string) (api.Chain, json
 	}
 
 	finalCloser := func() {
+		embedCloser()
 		for _, c := range closers {
 			c()
 		}
@@ -131,7 +136,7 @@ var RPCErrors = jsonrpc.NewErrors()
 func newChainNodeRPCV1(ctx context.Context, addr string, requestHeader http.Header, opts ...jsonrpc.Option) (api.Chain, jsonrpc.ClientCloser, error) {
 	var res api.ChainStruct
 	closer, err := jsonrpc.NewMergeClient(ctx, addr, "Filecoin",
-		api.GetInternalStructs(&res), requestHeader, append([]jsonrpc.Option{jsonrpc.WithErrors(lapi.RPCErrors)}, opts...)...)
+		api.GetInternalStructs(&res), requestHeader, append(chainRPCErrorOpts(), opts...)...)
 
 	return &res, closer, err
 }
@@ -340,6 +345,11 @@ func ErrorIsIn(err error, errorTypes []error) bool {
 }
 
 func GetEthClient(cctx *cli.Context, ainfoCfg []string) (ethchain.EthClient, error) {
+	ainfoCfg, _, err := resolveChainAPIInfo(cctx, ainfoCfg)
+	if err != nil {
+		return nil, err
+	}
+
 	if len(ainfoCfg) == 0 {
 		return nil, xerrors.Errorf("could not get API info: none configured. \nConsider getting base.toml with './curio config get base >/tmp/base.toml' \nthen adding   \n[APIs] \n ChainApiInfo = [\" result_from lotus auth api-info --perm=admin \"]\n  and updating it with './curio config set /tmp/base.toml'")
 	}
@@ -347,7 +357,7 @@ func GetEthClient(cctx *cli.Context, ainfoCfg []string) (ethchain.EthClient, err
 	version := "v1"
 	var httpHeads []httpHead
 	for _, i := range ainfoCfg {
-		ainfo := cliutil.ParseApiInfo(i)
+		ainfo := parseAPIInfo(i)
 		addr, err := ainfo.DialArgs(version)
 		if err != nil {
 			return nil, xerrors.Errorf("could not get eth DialArgs: %w", err)

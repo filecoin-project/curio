@@ -1,6 +1,6 @@
-//go:build !skiff
 
-package webrpc
+
+package webrpcporep
 
 import (
 	"context"
@@ -47,9 +47,9 @@ type UpgradeSector struct {
 	Miner string
 }
 
-func (a *WebRPC) UpgradeSectors(ctx context.Context) ([]*UpgradeSector, error) {
+func (a *PoRep) UpgradeSectors(ctx context.Context) ([]*UpgradeSector, error) {
 	sectors := []*UpgradeSector{}
-	err := a.deps.DB.Select(ctx, &sectors, `SELECT start_time, sp_id, sector_number, task_id_encode, after_encode, task_id_prove, after_prove, update_ready_at, task_id_submit, after_submit, after_prove_msg_success, task_id_move_storage, after_move_storage, failed, failed_reason, failed_reason_msg FROM sectors_snap_pipeline`)
+	err := a.Deps.DB.Select(ctx, &sectors, `SELECT start_time, sp_id, sector_number, task_id_encode, after_encode, task_id_prove, after_prove, update_ready_at, task_id_submit, after_submit, after_prove_msg_success, task_id_move_storage, after_move_storage, failed, failed_reason, failed_reason_msg FROM sectors_snap_pipeline`)
 	if err != nil {
 		return nil, err
 	}
@@ -83,18 +83,18 @@ func (a *WebRPC) UpgradeSectors(ctx context.Context) ([]*UpgradeSector, error) {
 	return sectors, nil
 }
 
-func (a *WebRPC) UpgradeResetTaskIDs(ctx context.Context, spid, sectorNum int64) error {
-	_, err := a.deps.DB.Exec(ctx, `SELECT unset_task_id_snap($1, $2)`, spid, sectorNum)
+func (a *PoRep) UpgradeResetTaskIDs(ctx context.Context, spid, sectorNum int64) error {
+	_, err := a.Deps.DB.Exec(ctx, `SELECT unset_task_id_snap($1, $2)`, spid, sectorNum)
 	return err
 }
 
-func (a *WebRPC) UpgradeDelete(ctx context.Context, spid, sectorNum uint64) error {
-	if err := snap.DropSectorPieceRefsSnap(ctx, a.deps.DB, abi.SectorID{Miner: abi.ActorID(spid), Number: abi.SectorNumber(sectorNum)}); err != nil {
+func (a *PoRep) UpgradeDelete(ctx context.Context, spid, sectorNum uint64) error {
+	if err := snap.DropSectorPieceRefsSnap(ctx, a.Deps.DB, abi.SectorID{Miner: abi.ActorID(spid), Number: abi.SectorNumber(sectorNum)}); err != nil {
 		// bad, but still do best we can and continue
 		log.Errorw("failed to drop sector piece refs", "error", err)
 	}
 
-	_, err := a.deps.DB.Exec(ctx, `DELETE FROM sectors_snap_pipeline WHERE sp_id = $1 AND sector_number = $2`, spid, sectorNum)
+	_, err := a.Deps.DB.Exec(ctx, `DELETE FROM sectors_snap_pipeline WHERE sp_id = $1 AND sector_number = $2`, spid, sectorNum)
 	return err
 }
 
@@ -112,9 +112,9 @@ func (smt SnapMissingTask) sectorID() abi.SectorID {
 	return abi.SectorID{Miner: abi.ActorID(smt.SpID), Number: abi.SectorNumber(smt.SectorNumber)}
 }
 
-func (a *WebRPC) pipelineSnapMissingTasks(ctx context.Context) ([]SnapMissingTask, error) {
+func (a *PoRep) pipelineSnapMissingTasks(ctx context.Context) ([]SnapMissingTask, error) {
 	var tasks []SnapMissingTask
-	err := a.deps.DB.Select(ctx, &tasks, `
+	err := a.Deps.DB.Select(ctx, &tasks, `
         WITH sector_tasks AS (
             SELECT
                 sp.sp_id,
@@ -161,7 +161,7 @@ func (a *WebRPC) pipelineSnapMissingTasks(ctx context.Context) ([]SnapMissingTas
 	return tasks, nil
 }
 
-func (a *WebRPC) PipelineSnapRestartAll(ctx context.Context) error {
+func (a *PoRep) PipelineSnapRestartAll(ctx context.Context) error {
 	missing, err := a.pipelineSnapMissingTasks(ctx)
 	if err != nil {
 		return err

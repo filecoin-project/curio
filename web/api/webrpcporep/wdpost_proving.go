@@ -1,6 +1,6 @@
-//go:build !skiff
 
-package webrpc
+
+package webrpcporep
 
 import (
 	"bytes"
@@ -51,7 +51,7 @@ type VanillaTestReport struct {
 }
 
 // SectorVanillaTest tests vanilla proof generation and verification for a single sector
-func (a *WebRPC) SectorVanillaTest(ctx context.Context, spStr string, sectorNum int64) (*VanillaTestReport, error) {
+func (a *PoRep) SectorVanillaTest(ctx context.Context, spStr string, sectorNum int64) (*VanillaTestReport, error) {
 	start := time.Now()
 
 	maddr, err := address.NewFromString(spStr)
@@ -71,14 +71,14 @@ func (a *WebRPC) SectorVanillaTest(ctx context.Context, spStr string, sectorNum 
 	}
 
 	// Get chain head and sector info
-	head, err := a.deps.Chain.ChainHead(ctx)
+	head, err := a.Deps.Chain.ChainHead(ctx)
 	if err != nil {
 		report.Error = xerrors.Errorf("getting chain head: %w", err).Error()
 		return report, nil
 	}
 
 	// Get sector on-chain info
-	sinfo, err := a.deps.Chain.StateSectorGetInfo(ctx, maddr, abi.SectorNumber(sectorNum), head.Key())
+	sinfo, err := a.Deps.Chain.StateSectorGetInfo(ctx, maddr, abi.SectorNumber(sectorNum), head.Key())
 	if err != nil {
 		report.Error = xerrors.Errorf("getting sector info: %w", err).Error()
 		return report, nil
@@ -89,7 +89,7 @@ func (a *WebRPC) SectorVanillaTest(ctx context.Context, spStr string, sectorNum 
 	}
 
 	// Get network version for proof type
-	nv, err := a.deps.Chain.StateNetworkVersion(ctx, head.Key())
+	nv, err := a.Deps.Chain.StateNetworkVersion(ctx, head.Key())
 	if err != nil {
 		report.Error = xerrors.Errorf("getting network version: %w", err).Error()
 		return report, nil
@@ -109,7 +109,7 @@ func (a *WebRPC) SectorVanillaTest(ctx context.Context, spStr string, sectorNum 
 	}
 
 	// Use current head for randomness (this is just a test, not actual proving)
-	rand, err := a.deps.Chain.StateGetRandomnessFromBeacon(ctx, crypto.DomainSeparationTag_WindowedPoStChallengeSeed, head.Height(), buf.Bytes(), head.Key())
+	rand, err := a.Deps.Chain.StateGetRandomnessFromBeacon(ctx, crypto.DomainSeparationTag_WindowedPoStChallengeSeed, head.Height(), buf.Bytes(), head.Key())
 	if err != nil {
 		report.Error = xerrors.Errorf("getting randomness: %w", err).Error()
 		return report, nil
@@ -137,7 +137,7 @@ func (a *WebRPC) SectorVanillaTest(ctx context.Context, spStr string, sectorNum 
 
 	// Generate vanilla proof
 	genStart := time.Now()
-	vanilla, genErr := a.deps.Stor.GenerateSingleVanillaProof(ctx, abi.ActorID(mid), challenge, ppt)
+	vanilla, genErr := a.Deps.Stor.GenerateSingleVanillaProof(ctx, abi.ActorID(mid), challenge, ppt)
 	genElapsed := time.Since(genStart)
 	result.GenerateTime = genElapsed.Round(time.Millisecond).String()
 	result.Slow = genElapsed.Seconds() > 2
@@ -203,7 +203,7 @@ func (a *WebRPC) SectorVanillaTest(ctx context.Context, spStr string, sectorNum 
 }
 
 // PartitionVanillaTest tests vanilla proof generation for all sectors in a partition
-func (a *WebRPC) PartitionVanillaTest(ctx context.Context, spStr string, deadlineIdx, partitionIdx uint64) (*VanillaTestReport, error) {
+func (a *PoRep) PartitionVanillaTest(ctx context.Context, spStr string, deadlineIdx, partitionIdx uint64) (*VanillaTestReport, error) {
 	start := time.Now()
 
 	maddr, err := address.NewFromString(spStr)
@@ -223,14 +223,14 @@ func (a *WebRPC) PartitionVanillaTest(ctx context.Context, spStr string, deadlin
 		Results:   []VanillaTestResult{},
 	}
 
-	head, err := a.deps.Chain.ChainHead(ctx)
+	head, err := a.Deps.Chain.ChainHead(ctx)
 	if err != nil {
 		report.Error = xerrors.Errorf("getting chain head: %w", err).Error()
 		return report, nil
 	}
 
 	// Get partitions
-	parts, err := a.deps.Chain.StateMinerPartitions(ctx, maddr, deadlineIdx, head.Key())
+	parts, err := a.Deps.Chain.StateMinerPartitions(ctx, maddr, deadlineIdx, head.Key())
 	if err != nil {
 		report.Error = xerrors.Errorf("getting partitions: %w", err).Error()
 		return report, nil
@@ -265,7 +265,7 @@ func (a *WebRPC) PartitionVanillaTest(ctx context.Context, spStr string, deadlin
 	}
 
 	di := dline.NewInfo(head.Height(), deadlineIdx, 0, 0, 0, 10, 0, 0)
-	rand, err := a.deps.Chain.StateGetRandomnessFromBeacon(ctx, crypto.DomainSeparationTag_WindowedPoStChallengeSeed, di.Challenge, buf.Bytes(), head.Key())
+	rand, err := a.Deps.Chain.StateGetRandomnessFromBeacon(ctx, crypto.DomainSeparationTag_WindowedPoStChallengeSeed, di.Challenge, buf.Bytes(), head.Key())
 	if err != nil {
 		report.Error = xerrors.Errorf("getting randomness: %w", err).Error()
 		return report, nil
@@ -279,13 +279,13 @@ func (a *WebRPC) PartitionVanillaTest(ctx context.Context, spStr string, deadlin
 	}
 
 	// Get proof type from first sector
-	sinfo, err := a.deps.Chain.StateSectorGetInfo(ctx, maddr, sectorNums[0], head.Key())
+	sinfo, err := a.Deps.Chain.StateSectorGetInfo(ctx, maddr, sectorNums[0], head.Key())
 	if err != nil {
 		report.Error = xerrors.Errorf("getting sector info: %w", err).Error()
 		return report, nil
 	}
 
-	nv, err := a.deps.Chain.StateNetworkVersion(ctx, head.Key())
+	nv, err := a.Deps.Chain.StateNetworkVersion(ctx, head.Key())
 	if err != nil {
 		report.Error = xerrors.Errorf("getting network version: %w", err).Error()
 		return report, nil
@@ -312,7 +312,7 @@ func (a *WebRPC) PartitionVanillaTest(ctx context.Context, spStr string, deadlin
 	challenges := make([]sectorChallenge, 0, len(sectorNums))
 
 	for _, snum := range postChallenges.Sectors {
-		si, err := a.deps.Chain.StateSectorGetInfo(ctx, maddr, snum, head.Key())
+		si, err := a.Deps.Chain.StateSectorGetInfo(ctx, maddr, snum, head.Key())
 		if err != nil {
 			log.Warnw("failed to get sector info", "sector", snum, "error", err)
 			continue
@@ -352,7 +352,7 @@ func (a *WebRPC) PartitionVanillaTest(ctx context.Context, spStr string, deadlin
 
 			// Generate
 			genStart := time.Now()
-			vanilla, genErr := a.deps.Stor.GenerateSingleVanillaProof(ctx, abi.ActorID(mid), sc.challenge, ppt)
+			vanilla, genErr := a.Deps.Stor.GenerateSingleVanillaProof(ctx, abi.ActorID(mid), sc.challenge, ppt)
 			genElapsed := time.Since(genStart)
 			result.GenerateTime = genElapsed.Round(time.Millisecond).String()
 			result.Slow = genElapsed.Seconds() > 2
@@ -433,7 +433,7 @@ type WdPostTaskResult struct {
 }
 
 // WdPostTaskStart creates a test WdPost task for a partition and returns the task ID
-func (a *WebRPC) WdPostTaskStart(ctx context.Context, spStr string, deadlineIdx uint64, partitionIdx uint64) (*WdPostTaskResult, error) {
+func (a *PoRep) WdPostTaskStart(ctx context.Context, spStr string, deadlineIdx uint64, partitionIdx uint64) (*WdPostTaskResult, error) {
 	maddr, err := address.NewFromString(spStr)
 	if err != nil {
 		return nil, xerrors.Errorf("invalid miner address: %w", err)
@@ -445,7 +445,7 @@ func (a *WebRPC) WdPostTaskStart(ctx context.Context, spStr string, deadlineIdx 
 	}
 
 	// Get current chain height for proving period
-	head, err := a.deps.Chain.ChainHead(ctx)
+	head, err := a.Deps.Chain.ChainHead(ctx)
 	if err != nil {
 		return nil, xerrors.Errorf("getting chain head: %w", err)
 	}
@@ -458,8 +458,8 @@ func (a *WebRPC) WdPostTaskStart(ctx context.Context, spStr string, deadlineIdx 
 
 	var taskID int64
 
-	_, err = a.deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
-		err = tx.QueryRow(`INSERT INTO harmony_task (name, posted_time, added_by) VALUES ('WdPost', CURRENT_TIMESTAMP, $1) RETURNING id`, a.deps.MachineID).Scan(&taskID)
+	_, err = a.Deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+		err = tx.QueryRow(`INSERT INTO harmony_task (name, posted_time, added_by) VALUES ('WdPost', CURRENT_TIMESTAMP, $1) RETURNING id`, a.Deps.MachineID).Scan(&taskID)
 		if err != nil {
 			return false, xerrors.Errorf("inserting harmony_task: %w", err)
 		}
@@ -489,14 +489,14 @@ func (a *WebRPC) WdPostTaskStart(ctx context.Context, spStr string, deadlineIdx 
 }
 
 // WdPostTaskCheck checks the status of a WdPost test task
-func (a *WebRPC) WdPostTaskCheck(ctx context.Context, taskID int64) (*WdPostTaskResult, error) {
+func (a *PoRep) WdPostTaskCheck(ctx context.Context, taskID int64) (*WdPostTaskResult, error) {
 	result := &WdPostTaskResult{
 		TaskID: taskID,
 	}
 
 	// Check harmony_test for result
 	var testResult NullString
-	err := a.deps.DB.QueryRow(ctx, `SELECT result FROM harmony_test WHERE task_id = $1`, taskID).Scan(&testResult)
+	err := a.Deps.DB.QueryRow(ctx, `SELECT result FROM harmony_test WHERE task_id = $1`, taskID).Scan(&testResult)
 	if err != nil {
 		return nil, xerrors.Errorf("checking harmony_test: %w", err)
 	}
@@ -512,7 +512,7 @@ func (a *WebRPC) WdPostTaskCheck(ctx context.Context, taskID int64) (*WdPostTask
 		Result bool   `db:"result"`
 		Err    string `db:"err"`
 	}
-	err = a.deps.DB.Select(ctx, &history, `SELECT id, result, err FROM harmony_task_history WHERE task_id = $1 AND result = false`, taskID)
+	err = a.Deps.DB.Select(ctx, &history, `SELECT id, result, err FROM harmony_task_history WHERE task_id = $1 AND result = false`, taskID)
 	if err == nil && len(history) > 0 {
 		// Find the most recent failed entry (highest ID)
 		var latest *struct {

@@ -38,7 +38,7 @@ func (a *WebRPC) PDPServices(ctx context.Context) ([]PDPService, error) {
 	services := []PDPService{}
 
 	// Use w.deps.DB.Select to retrieve the services
-	err := a.deps.DB.Select(ctx, &services, `SELECT id, service_label, pubkey FROM pdp_services ORDER BY id ASC`)
+	err := a.Deps.DB.Select(ctx, &services, `SELECT id, service_label, pubkey FROM pdp_services ORDER BY id ASC`)
 	if err != nil {
 		log.Errorf("PDPServices: failed to select services: %v", err)
 		return nil, fmt.Errorf("failed to retrieve services")
@@ -88,7 +88,7 @@ func (a *WebRPC) AddPDPService(ctx context.Context, name string, pubKey string) 
 
 	// Check if a service with the same name already exists
 	var existingID int64
-	err = a.deps.DB.QueryRow(ctx, `SELECT id FROM pdp_services WHERE service_label = $1`, name).Scan(&existingID)
+	err = a.Deps.DB.QueryRow(ctx, `SELECT id FROM pdp_services WHERE service_label = $1`, name).Scan(&existingID)
 	if err == nil {
 		// Service with the same name exists
 		return fmt.Errorf("a service with the same name already exists")
@@ -99,7 +99,7 @@ func (a *WebRPC) AddPDPService(ctx context.Context, name string, pubKey string) 
 	}
 
 	// Insert the new PDP service into the database
-	_, err = a.deps.DB.Exec(ctx, `INSERT INTO pdp_services (service_label, pubkey) VALUES ($1, $2)`, name, pubKeyBytes)
+	_, err = a.Deps.DB.Exec(ctx, `INSERT INTO pdp_services (service_label, pubkey) VALUES ($1, $2)`, name, pubKeyBytes)
 	if err != nil {
 		log.Errorf("AddPDPService: failed to insert service: %v", err)
 		return fmt.Errorf("failed to add service")
@@ -115,7 +115,7 @@ func (a *WebRPC) RemovePDPService(ctx context.Context, id int64) error {
 
 	// Check if the service exists
 	var existingID int64
-	err := a.deps.DB.QueryRow(ctx, `SELECT id FROM pdp_services WHERE id = $1`, id).Scan(&existingID)
+	err := a.Deps.DB.QueryRow(ctx, `SELECT id FROM pdp_services WHERE id = $1`, id).Scan(&existingID)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return fmt.Errorf("service with ID %d does not exist", id)
@@ -125,7 +125,7 @@ func (a *WebRPC) RemovePDPService(ctx context.Context, id int64) error {
 	}
 
 	// Delete the service
-	_, err = a.deps.DB.Exec(ctx, `DELETE FROM pdp_services WHERE id = $1`, id)
+	_, err = a.Deps.DB.Exec(ctx, `DELETE FROM pdp_services WHERE id = $1`, id)
 	if err != nil {
 		log.Errorf("RemovePDPService: failed to delete service: %v", err)
 		return fmt.Errorf("failed to remove service")
@@ -171,7 +171,7 @@ func (a *WebRPC) ImportPDPKey(ctx context.Context, hexPrivateKey string) (string
 	address := crypto.PubkeyToAddress(*publicKeyECDSA).Hex()
 
 	// Insert into the database within a transaction
-	_, err = a.deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+	_, err = a.Deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
 		// Check if the owner_address already exists
 		var existingAddress bool
 
@@ -201,8 +201,8 @@ func (a *WebRPC) ImportPDPKey(ctx context.Context, hexPrivateKey string) (string
 func (a *WebRPC) ListPDPKeys(ctx context.Context) ([]string, error) {
 	addresses := []string{}
 
-	// Use a.deps.DB.Select to retrieve the owner addresses
-	err := a.deps.DB.Select(ctx, &addresses, `SELECT address FROM eth_keys WHERE role = 'pdp' ORDER BY address ASC`)
+	// Use a.Deps.DB.Select to retrieve the owner addresses
+	err := a.Deps.DB.Select(ctx, &addresses, `SELECT address FROM eth_keys WHERE role = 'pdp' ORDER BY address ASC`)
 	if err != nil {
 		log.Errorf("ListPDPKeys: failed to select addresses: %v", err)
 		return nil, fmt.Errorf("failed to retrieve addresses")
@@ -219,7 +219,7 @@ func (a *WebRPC) RemovePDPKey(ctx context.Context, ownerAddress string) error {
 
 	// Check if the owner address exists
 	var existingAddress string
-	err := a.deps.DB.QueryRow(ctx, `SELECT address FROM eth_keys WHERE address = $1 AND role = 'pdp'`, ownerAddress).Scan(&existingAddress)
+	err := a.Deps.DB.QueryRow(ctx, `SELECT address FROM eth_keys WHERE address = $1 AND role = 'pdp'`, ownerAddress).Scan(&existingAddress)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return fmt.Errorf("owner address %s does not exist", ownerAddress)
@@ -229,7 +229,7 @@ func (a *WebRPC) RemovePDPKey(ctx context.Context, ownerAddress string) error {
 	}
 
 	// Delete the key
-	_, err = a.deps.DB.Exec(ctx, `DELETE FROM eth_keys WHERE address = $1 AND role = 'pdp'`, ownerAddress)
+	_, err = a.Deps.DB.Exec(ctx, `DELETE FROM eth_keys WHERE address = $1 AND role = 'pdp'`, ownerAddress)
 	if err != nil {
 		log.Errorf("RemovePDPKey: failed to delete key: %v", err)
 		return fmt.Errorf("failed to remove key")
@@ -316,7 +316,7 @@ func (a *WebRPC) FSRegistryStatus(ctx context.Context) (*FSRegistryStatus, error
 		return nil, fmt.Errorf("failed to get PDP address: %w", err)
 	}
 
-	eclient, err := a.deps.EthClient.Val()
+	eclient, err := a.Deps.EthClient.Val()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get eth client: %w", err)
 	}
@@ -415,7 +415,7 @@ func (a *WebRPC) FSRegister(ctx context.Context, name, description, location str
 		return fmt.Errorf("failed to get PDP address: %w", err)
 	}
 
-	eclient, err := a.deps.EthClient.Val()
+	eclient, err := a.Deps.EthClient.Val()
 	if err != nil {
 		return fmt.Errorf("failed to get eth client: %w", err)
 	}
@@ -439,7 +439,7 @@ func (a *WebRPC) FSRegister(ctx context.Context, name, description, location str
 		return xerrors.Errorf("provider is already registered")
 	}
 
-	serviceURL, err := urlhelper.GetExternalURL(&a.deps.Cfg.HTTP)
+	serviceURL, err := urlhelper.GetExternalURL(&a.Deps.Cfg.HTTP)
 	if err != nil {
 		return xerrors.Errorf("getting external URL: %w", err)
 	}
@@ -450,7 +450,7 @@ func (a *WebRPC) FSRegister(ctx context.Context, name, description, location str
 	}
 
 	var peerID peer.ID
-	_, err = a.deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+	_, err = a.Deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		peerID, err = indexing.PDPInitProvider(tx)
 		if err != nil {
 			return false, xerrors.Errorf("initializing PDP IPNI provider: %w", err)
@@ -474,7 +474,7 @@ func (a *WebRPC) FSRegister(ctx context.Context, name, description, location str
 		PaymentTokenAddress:      tokenAddress,
 	}
 
-	err = contract.FSRegister(ctx, a.deps.DB, a.deps.Chain, eclient, name, description, offering, nil)
+	err = contract.FSRegister(ctx, a.Deps.DB, a.Deps.Chain, eclient, name, description, offering, nil)
 	if err != nil {
 		return xerrors.Errorf("failed to register storage provider with service contract: %w", err)
 	}
@@ -503,7 +503,7 @@ func (a *WebRPC) FSUpdateProvider(ctx context.Context, name, description string)
 		return fmt.Errorf("failed to get PDP address: %w", err)
 	}
 
-	eclient, err := a.deps.EthClient.Val()
+	eclient, err := a.Deps.EthClient.Val()
 	if err != nil {
 		return fmt.Errorf("failed to get eth client: %w", err)
 	}
@@ -527,7 +527,7 @@ func (a *WebRPC) FSUpdateProvider(ctx context.Context, name, description string)
 		return xerrors.Errorf("provider is not registered")
 	}
 
-	hash, err := contract.FSUpdateProvider(ctx, name, description, a.deps.DB, eclient)
+	hash, err := contract.FSUpdateProvider(ctx, name, description, a.Deps.DB, eclient)
 	if err != nil {
 		return xerrors.Errorf("failed to update service provider info: %w", err)
 	}
@@ -575,7 +575,7 @@ func (a *WebRPC) FSUpdatePDP(ctx context.Context, pdpOffering *FSPDPOffering, ca
 
 	var peerID peer.ID
 	if pdpOffering.IpniIpfs || pdpOffering.IpniPiece {
-		_, err := a.deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+		_, err := a.Deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 			peerID, err = indexing.PDPInitProvider(tx)
 			if err != nil {
 				return false, xerrors.Errorf("initializing PDP IPNI provider: %w", err)
@@ -592,7 +592,7 @@ func (a *WebRPC) FSUpdatePDP(ctx context.Context, pdpOffering *FSPDPOffering, ca
 		return fmt.Errorf("failed to get PDP address: %w", err)
 	}
 
-	eclient, err := a.deps.EthClient.Val()
+	eclient, err := a.Deps.EthClient.Val()
 	if err != nil {
 		return fmt.Errorf("failed to get eth client: %w", err)
 	}
@@ -629,7 +629,7 @@ func (a *WebRPC) FSUpdatePDP(ctx context.Context, pdpOffering *FSPDPOffering, ca
 		PaymentTokenAddress:      common.HexToAddress("0x0000000000000000000000000000000000000000"),
 	}
 
-	hash, err := contract.FSUpdatePDPService(ctx, a.deps.DB, eclient, offering, capabilities)
+	hash, err := contract.FSUpdatePDPService(ctx, a.Deps.DB, eclient, offering, capabilities)
 	if err != nil {
 		return xerrors.Errorf("failed to update PDP offering: %w", err)
 	}
@@ -640,12 +640,12 @@ func (a *WebRPC) FSUpdatePDP(ctx context.Context, pdpOffering *FSPDPOffering, ca
 }
 
 func (a *WebRPC) FSDeregister(ctx context.Context) error {
-	eclient, err := a.deps.EthClient.Val()
+	eclient, err := a.Deps.EthClient.Val()
 	if err != nil {
 		return fmt.Errorf("failed to get eth client: %w", err)
 	}
 
-	hash, err := contract.FSDeregisterProvider(ctx, a.deps.DB, eclient)
+	hash, err := contract.FSDeregisterProvider(ctx, a.Deps.DB, eclient)
 	if err != nil {
 		return xerrors.Errorf("failed to deregister storage provider: %w", err)
 	}
@@ -656,7 +656,7 @@ func (a *WebRPC) FSDeregister(ctx context.Context) error {
 
 func (a *WebRPC) getPDPAddress(ctx context.Context) (common.Address, error) {
 	var existingAddress string
-	err := a.deps.DB.QueryRow(ctx, `SELECT address FROM eth_keys WHERE role = 'pdp'`).Scan(&existingAddress)
+	err := a.Deps.DB.QueryRow(ctx, `SELECT address FROM eth_keys WHERE role = 'pdp'`).Scan(&existingAddress)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return common.Address{}, fmt.Errorf("no PDP key found")

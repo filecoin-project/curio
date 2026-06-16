@@ -183,3 +183,7 @@ a:hover {
     font-weight: 800;
     src: url('/ux/fonts/JetBrainsMono-ExtraBold.woff2') format('woff2');
 }
+
+html.skiff-mode .curio-only {
+    display: none !important;
+}

@@ -64,7 +64,7 @@ func (a *WebRPC) NetSummary(ctx context.Context) (NetSummaryResponse, error) {
 	}
 
 	var rpcInfos []string
-	err := config.ForEachConfig[minimalApiInfo](ctx, a.deps.DB, func(_ string, info minimalApiInfo) error {
+	err := config.ForEachConfig[minimalApiInfo](ctx, a.Deps.DB, func(_ string, info minimalApiInfo) error {
 		rpcInfos = append(rpcInfos, info.Apis.ChainApiInfo...)
 		return nil
 	})

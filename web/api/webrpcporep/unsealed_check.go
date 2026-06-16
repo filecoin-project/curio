@@ -1,6 +1,6 @@
-//go:build !skiff
 
-package webrpc
+
+package webrpcporep
 
 import (
 	"context"
@@ -30,7 +30,7 @@ type UnsealedCheckResult struct {
 }
 
 // SectorUnsealedCheckStart starts an unsealed data check for a sector
-func (a *WebRPC) SectorUnsealedCheckStart(ctx context.Context, spStr string, sectorNum int64) (*UnsealedCheckResult, error) {
+func (a *PoRep) SectorUnsealedCheckStart(ctx context.Context, spStr string, sectorNum int64) (*UnsealedCheckResult, error) {
 	maddr, err := address.NewFromString(spStr)
 	if err != nil {
 		return nil, xerrors.Errorf("invalid miner address: %w", err)
@@ -47,7 +47,7 @@ func (a *WebRPC) SectorUnsealedCheckStart(ctx context.Context, spStr string, sec
 	}
 
 	// Get expected unsealed CID from pieces
-	unsealedCid, err := dealdata.UnsealedCidFromPieces(ctx, a.deps.DB, int64(spID), sectorNum)
+	unsealedCid, err := dealdata.UnsealedCidFromPieces(ctx, a.Deps.DB, int64(spID), sectorNum)
 	if err != nil {
 		return nil, xerrors.Errorf("getting expected unsealed CID: %w", err)
 	}
@@ -55,7 +55,7 @@ func (a *WebRPC) SectorUnsealedCheckStart(ctx context.Context, spStr string, sec
 
 	// Create the check task
 	var checkID int64
-	err = a.deps.DB.QueryRow(ctx, `
+	err = a.Deps.DB.QueryRow(ctx, `
 		INSERT INTO scrub_unseal_commd_check (sp_id, sector_number, expected_unsealed_cid)
 		VALUES ($1, $2, $3)
 		RETURNING check_id
@@ -69,7 +69,7 @@ func (a *WebRPC) SectorUnsealedCheckStart(ctx context.Context, spStr string, sec
 }
 
 // SectorUnsealedCheckStatus checks the status of an unsealed data check
-func (a *WebRPC) SectorUnsealedCheckStatus(ctx context.Context, checkID int64) (*UnsealedCheckResult, error) {
+func (a *PoRep) SectorUnsealedCheckStatus(ctx context.Context, checkID int64) (*UnsealedCheckResult, error) {
 	var row struct {
 		SpID          int64          `db:"sp_id"`
 		SectorNumber  int64          `db:"sector_number"`
@@ -81,7 +81,7 @@ func (a *WebRPC) SectorUnsealedCheckStatus(ctx context.Context, checkID int64) (
 		Message       sql.NullString `db:"message"`
 	}
 
-	err := a.deps.DB.QueryRow(ctx, `
+	err := a.Deps.DB.QueryRow(ctx, `
 		SELECT sp_id, sector_number, create_time, task_id, expected_unsealed_cid, ok, actual_unsealed_cid, message
 		FROM scrub_unseal_commd_check
 		WHERE check_id = $1
@@ -116,7 +116,7 @@ func (a *WebRPC) SectorUnsealedCheckStatus(ctx context.Context, checkID int64) (
 }
 
 // SectorUnsealedCheckList lists recent unsealed checks for a sector
-func (a *WebRPC) SectorUnsealedCheckList(ctx context.Context, spStr string, sectorNum int64) ([]*UnsealedCheckResult, error) {
+func (a *PoRep) SectorUnsealedCheckList(ctx context.Context, spStr string, sectorNum int64) ([]*UnsealedCheckResult, error) {
 	maddr, err := address.NewFromString(spStr)
 	if err != nil {
 		return nil, xerrors.Errorf("invalid miner address: %w", err)
@@ -136,7 +136,7 @@ func (a *WebRPC) SectorUnsealedCheckList(ctx context.Context, spStr string, sect
 		Message       sql.NullString `db:"message"`
 	}
 
-	err = a.deps.DB.Select(ctx, &rows, `
+	err = a.Deps.DB.Select(ctx, &rows, `
 		SELECT check_id, create_time, expected_unsealed_cid, ok, actual_unsealed_cid, message
 		FROM scrub_unseal_commd_check
 		WHERE sp_id = $1 AND sector_number = $2

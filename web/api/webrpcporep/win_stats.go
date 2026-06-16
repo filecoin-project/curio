@@ -1,4 +1,4 @@
-package webrpc
+package webrpcporep
 
 import (
 	"context"
@@ -27,9 +27,9 @@ type WinStats struct {
 	Miner string
 }
 
-func (a *WebRPC) WinStats(ctx context.Context) ([]WinStats, error) {
+func (a *PoRep) WinStats(ctx context.Context) ([]WinStats, error) {
 	var marks []WinStats
-	err := a.deps.DB.Select(ctx, &marks, `SELECT sp_id, epoch, mined_cid, task_id, submitted_at, included, base_compute_time, mined_at FROM mining_tasks WHERE won = true ORDER BY epoch DESC LIMIT 8`)
+	err := a.Deps.DB.Select(ctx, &marks, `SELECT sp_id, epoch, mined_cid, task_id, submitted_at, included, base_compute_time, mined_at FROM mining_tasks WHERE won = true ORDER BY epoch DESC LIMIT 8`)
 	if err != nil {
 		return nil, err
 	}
@@ -57,7 +57,7 @@ func (a *WebRPC) WinStats(ctx context.Context) ([]WinStats, error) {
 			Err    string `db:"error"`
 		}
 
-		err := a.deps.DB.Select(ctx, &taskRes, `SELECT result FROM harmony_task_history WHERE task_id = $1`, marks[i].TaskID)
+		err := a.Deps.DB.Select(ctx, &taskRes, `SELECT result FROM harmony_task_history WHERE task_id = $1`, marks[i].TaskID)
 		if err != nil {
 			return nil, err
 		}

@@ -1,4 +1,4 @@
-package webrpc
+package webrpcporep
 
 import (
 	"context"
@@ -90,10 +90,10 @@ type minerBitfields struct {
 	alloc, sectorSet, active, unproven, faulty bitfield.BitField
 }
 
-func (a *WebRPC) PipelinePorepSectors(ctx context.Context) ([]sectorListEntry, error) {
+func (a *PoRep) PipelinePorepSectors(ctx context.Context) ([]sectorListEntry, error) {
 	var tasks []PipelineTask
 
-	err := a.deps.DB.Select(ctx, &tasks, `SELECT 
+	err := a.Deps.DB.Select(ctx, &tasks, `SELECT 
 												sp.sp_id, 
 												sp.sector_number,
 												sp.create_time,
@@ -273,7 +273,7 @@ func (a *WebRPC) PipelinePorepSectors(ctx context.Context) ([]sectorListEntry, e
 		return nil, xerrors.Errorf("failed to fetch pipeline tasks: %w", err)
 	}
 
-	head, err := a.deps.Chain.ChainHead(ctx)
+	head, err := a.Deps.Chain.ChainHead(ctx)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to fetch chain head: %w", err)
 	}
@@ -293,7 +293,7 @@ func (a *WebRPC) PipelinePorepSectors(ctx context.Context) ([]sectorListEntry, e
 
 		mbf, ok := minerBitfieldCache[addr]
 		if !ok {
-			mbf, err = a.getMinerBitfields(ctx, addr, a.stor)
+			mbf, err = a.getMinerBitfields(ctx, addr, a.Stor)
 			if err != nil {
 				return nil, xerrors.Errorf("failed to load miner bitfields: %w", err)
 			}
@@ -319,8 +319,8 @@ func (a *WebRPC) PipelinePorepSectors(ctx context.Context) ([]sectorListEntry, e
 	return sectorList, nil
 }
 
-func (a *WebRPC) getMinerBitfields(ctx context.Context, addr address.Address, stor adt.Store) (minerBitfields, error) {
-	act, err := a.deps.Chain.StateGetActor(ctx, addr, types.EmptyTSK)
+func (a *PoRep) getMinerBitfields(ctx context.Context, addr address.Address, stor adt.Store) (minerBitfields, error) {
+	act, err := a.Deps.Chain.StateGetActor(ctx, addr, types.EmptyTSK)
 	if err != nil {
 		return minerBitfields{}, xerrors.Errorf("failed to load actor: %w", err)
 	}
@@ -377,14 +377,14 @@ type PorepPipelineSummary struct {
 	CountFailed       int
 }
 
-func (a *WebRPC) PorepPipelineSummary(ctx context.Context) ([]PorepPipelineSummary, error) {
+func (a *PoRep) PorepPipelineSummary(ctx context.Context) ([]PorepPipelineSummary, error) {
 
-	head, err := a.deps.Chain.ChainHead(ctx)
+	head, err := a.Deps.Chain.ChainHead(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	rows, err := a.deps.DB.Query(ctx, `
+	rows, err := a.Deps.DB.Query(ctx, `
 	SELECT 
 		sp_id,
 		COUNT(*) FILTER (WHERE after_sdr = false) as CountSDR,
@@ -423,7 +423,7 @@ func (a *WebRPC) PorepPipelineSummary(ctx context.Context) ([]PorepPipelineSumma
 	return summaries, nil
 }
 
-func (a *WebRPC) PipelinePorepRestartAll(ctx context.Context) error {
+func (a *PoRep) PipelinePorepRestartAll(ctx context.Context) error {
 	missing, err := a.pipelinePorepMissingTasks(ctx)
 	if err != nil {
 		return err
@@ -458,9 +458,9 @@ func (pmt porepMissingTask) sectorID() abi.SectorID {
 	return abi.SectorID{Miner: abi.ActorID(pmt.SpID), Number: abi.SectorNumber(pmt.SectorNumber)}
 }
 
-func (a *WebRPC) pipelinePorepMissingTasks(ctx context.Context) ([]porepMissingTask, error) {
+func (a *PoRep) pipelinePorepMissingTasks(ctx context.Context) ([]porepMissingTask, error) {
 	var tasks []porepMissingTask
-	err := a.deps.DB.Select(ctx, &tasks, `
+	err := a.Deps.DB.Select(ctx, &tasks, `
 		WITH sector_tasks AS (
 			SELECT
 				sp.sp_id,

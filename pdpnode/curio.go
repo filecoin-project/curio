@@ -3,8 +3,8 @@ package pdpnode
 import (
 	"context"
 
-	curiodeps "github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/cuhttp/servicedeps"
+	curiodeps "github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/lib/chainsched"
 	"github.com/filecoin-project/curio/lib/piecestore"

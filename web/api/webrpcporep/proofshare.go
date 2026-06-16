@@ -1,6 +1,6 @@
-//go:build !skiff
 
-package webrpc
+
+package webrpcporep
 
 import (
 	"context"
@@ -49,10 +49,10 @@ type ProofShareQueueItem struct {
 }
 
 // PSGetMeta returns the current meta row from proofshare_meta (always a single row).
-func (a *WebRPC) PSGetMeta(ctx context.Context) (ProofShareMeta, error) {
+func (a *PoRep) PSGetMeta(ctx context.Context) (ProofShareMeta, error) {
 	var meta ProofShareMeta
 
-	err := a.deps.DB.QueryRow(ctx, `
+	err := a.Deps.DB.QueryRow(ctx, `
         SELECT enabled, wallet, request_task_id, pprice
         FROM proofshare_meta
         WHERE singleton = TRUE
@@ -72,7 +72,7 @@ func (a *WebRPC) PSGetMeta(ctx context.Context) (ProofShareMeta, error) {
 
 // PSSetMeta updates proofshare_meta with new "enabled" flag and "wallet" address.
 // If you want to allow a NULL wallet, you could accept a pointer or do conditional logic.
-func (a *WebRPC) PSSetMeta(ctx context.Context, enabled bool, wallet string, price string) error {
+func (a *PoRep) PSSetMeta(ctx context.Context, enabled bool, wallet string, price string) error {
 	ta, err := types.ParseFIL(price)
 	if err != nil {
 		return xerrors.Errorf("PSSetMeta: invalid price: %w", err)
@@ -82,12 +82,12 @@ func (a *WebRPC) PSSetMeta(ctx context.Context, enabled bool, wallet string, pri
 	if err != nil {
 		return xerrors.Errorf("PSSetMeta: invalid wallet address: %w", err)
 	}
-	addr, err = a.deps.Chain.StateAccountKey(ctx, addr, types.EmptyTSK)
+	addr, err = a.Deps.Chain.StateAccountKey(ctx, addr, types.EmptyTSK)
 	if err != nil {
 		return xerrors.Errorf("PSSetMeta: failed to get account key: %w", err)
 	}
 
-	_, err = a.deps.DB.Exec(ctx, `
+	_, err = a.Deps.DB.Exec(ctx, `
         UPDATE proofshare_meta
         SET enabled = $1, wallet = $2, pprice = $3
         WHERE singleton = TRUE
@@ -98,10 +98,10 @@ func (a *WebRPC) PSSetMeta(ctx context.Context, enabled bool, wallet string, pri
 	return nil
 }
 
-func (a *WebRPC) PSListAsks(ctx context.Context) ([]common.WorkAsk, error) {
+func (a *PoRep) PSListAsks(ctx context.Context) ([]common.WorkAsk, error) {
 	var meta ProofShareMeta
 
-	err := a.deps.DB.QueryRow(ctx, `
+	err := a.Deps.DB.QueryRow(ctx, `
         SELECT wallet
         FROM proofshare_meta
         WHERE singleton = TRUE
@@ -137,10 +137,10 @@ func (a *WebRPC) PSListAsks(ctx context.Context) ([]common.WorkAsk, error) {
 	return out, nil
 }
 
-func (a *WebRPC) PSAskWithdraw(ctx context.Context, askID int64) error {
+func (a *PoRep) PSAskWithdraw(ctx context.Context, askID int64) error {
 	// Get the wallet address from proofshare_meta
 	var wallet string
-	err := a.deps.DB.QueryRow(ctx, `
+	err := a.Deps.DB.QueryRow(ctx, `
 		SELECT wallet FROM proofshare_meta WHERE singleton = true
 	`).Scan(&wallet)
 	if err != nil {
@@ -157,7 +157,7 @@ func (a *WebRPC) PSAskWithdraw(ctx context.Context, askID int64) error {
 	}
 
 	// Create address resolver
-	resolver, err := proofsvc.NewAddressResolver(a.deps.Chain)
+	resolver, err := proofsvc.NewAddressResolver(a.Deps.Chain)
 	if err != nil {
 		return xerrors.Errorf("PSAskWithdraw: failed to create address resolver: %w", err)
 	}
@@ -171,10 +171,10 @@ func (a *WebRPC) PSAskWithdraw(ctx context.Context, askID int64) error {
 }
 
 // PSListQueue returns all records from the proofshare_queue table, ordered by the newest first.
-func (a *WebRPC) PSListQueue(ctx context.Context) ([]*ProofShareQueueItem, error) {
+func (a *PoRep) PSListQueue(ctx context.Context) ([]*ProofShareQueueItem, error) {
 	items := []*ProofShareQueueItem{}
 
-	err := a.deps.DB.Select(ctx, &items, `
+	err := a.Deps.DB.Select(ctx, &items, `
         SELECT request_cid as service_id,
                obtained_at,
                compute_task_id,
@@ -197,7 +197,7 @@ func (a *WebRPC) PSListQueue(ctx context.Context) ([]*ProofShareQueueItem, error
 
 		var paymentAmt = "0"
 		var providerID, paymentNonce int64
-		err := a.deps.DB.QueryRow(ctx, `
+		err := a.Deps.DB.QueryRow(ctx, `
 			SELECT payment_cumulative_amount, provider_id, payment_nonce
 			FROM proofshare_provider_payments
 			WHERE request_cid = $1
@@ -208,7 +208,7 @@ func (a *WebRPC) PSListQueue(ctx context.Context) ([]*ProofShareQueueItem, error
 
 		var prevPaymentAmt = "0"
 		if paymentNonce > 0 {
-			err := a.deps.DB.QueryRow(ctx, `
+			err := a.Deps.DB.QueryRow(ctx, `
 				SELECT payment_cumulative_amount
 				FROM proofshare_provider_payments
 				WHERE provider_id = $1 AND payment_nonce = $2
@@ -233,11 +233,11 @@ func (a *WebRPC) PSListQueue(ctx context.Context) ([]*ProofShareQueueItem, error
 	return items, nil
 }
 
-func (a *WebRPC) PSProviderSettle(ctx context.Context, providerID int64) (cid.Cid, error) {
+func (a *PoRep) PSProviderSettle(ctx context.Context, providerID int64) (cid.Cid, error) {
 	// Use the common settlement function
-	settleCid, err := cuhelper.SettleProvider(ctx, a.deps.DB, a.deps.Chain,
+	settleCid, err := cuhelper.SettleProvider(ctx, a.Deps.DB, a.Deps.Chain,
 		func(ctx context.Context, msg *types.Message, mss *api.MessageSendSpec) (cid.Cid, error) {
-			return a.deps.Sender.Send(ctx, msg, mss, "ps-provider-settle")
+			return a.Deps.Sender.Send(ctx, msg, mss, "ps-provider-settle")
 		},
 		providerID)
 
@@ -246,7 +246,7 @@ func (a *WebRPC) PSProviderSettle(ctx context.Context, providerID int64) (cid.Ci
 	}
 
 	// Get payment info to track the settlement
-	paymentInfo, err := cuhelper.GetProviderPaymentInfo(ctx, a.deps.DB, providerID)
+	paymentInfo, err := cuhelper.GetProviderPaymentInfo(ctx, a.Deps.DB, providerID)
 	if err != nil {
 		// Settlement was sent but we couldn't get payment info for tracking
 		log.Errorw("PSProviderSettle: settlement sent but failed to get payment info for tracking",
@@ -273,13 +273,13 @@ func (a *WebRPC) PSProviderSettle(ctx context.Context, providerID int64) (cid.Ci
 	return settleCid, nil
 }
 
-func (a *WebRPC) addMessageTrackingProvider(ctx context.Context, messageCid cid.Cid, providerID int64, action string, txcb func(tx *harmonydb.Tx) error) error {
+func (a *PoRep) addMessageTrackingProvider(ctx context.Context, messageCid cid.Cid, providerID int64, action string, txcb func(tx *harmonydb.Tx) error) error {
 	addr, err := address.NewIDAddress(uint64(providerID))
 	if err != nil {
 		return xerrors.Errorf("addMessageTracking: invalid wallet address: %w", err)
 	}
 
-	idAddr, err := a.deps.Chain.StateLookupID(ctx, addr, types.EmptyTSK)
+	idAddr, err := a.Deps.Chain.StateLookupID(ctx, addr, types.EmptyTSK)
 	if err != nil {
 		return xerrors.Errorf("addMessageTracking: failed to lookup id: %w", err)
 	}
@@ -289,7 +289,7 @@ func (a *WebRPC) addMessageTrackingProvider(ctx context.Context, messageCid cid.
 		return xerrors.Errorf("addMessageTracking: failed to get wallet id: %w", err)
 	}
 
-	_, err = a.deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+	_, err = a.Deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
 		_, err := tx.Exec(`
 			INSERT INTO message_waits (signed_message_cid)
 			VALUES ($1)
@@ -339,9 +339,9 @@ type ProofShareClientSettings struct {
 }
 
 // PSClientGet fetches all proofshare_client_settings rows.
-func (a *WebRPC) PSClientGet(ctx context.Context) ([]ProofShareClientSettings, error) {
+func (a *PoRep) PSClientGet(ctx context.Context) ([]ProofShareClientSettings, error) {
 	var out []ProofShareClientSettings
-	err := a.deps.DB.Select(ctx, &out, `
+	err := a.Deps.DB.Select(ctx, &out, `
         SELECT sp_id, enabled, wallet, minimum_pending_seconds, do_porep, do_snap, pprice
         FROM proofshare_client_settings
         ORDER BY sp_id ASC
@@ -365,7 +365,7 @@ func (a *WebRPC) PSClientGet(ctx context.Context) ([]ProofShareClientSettings, e
 
 // PSClientSet updates or inserts a row in proofshare_client_settings.
 // If a row for sp_id doesn't exist, do an INSERT; otherwise do an UPDATE.
-func (a *WebRPC) PSClientSet(ctx context.Context, s ProofShareClientSettings) error {
+func (a *PoRep) PSClientSet(ctx context.Context, s ProofShareClientSettings) error {
 	maddr, err := address.NewFromString(s.Address)
 	if err != nil {
 		return xerrors.Errorf("PSClientSet: invalid address: %w", err)
@@ -389,14 +389,14 @@ func (a *WebRPC) PSClientSet(ctx context.Context, s ProofShareClientSettings) er
 		if err != nil {
 			return xerrors.Errorf("PSClientSet: invalid address: %w", err)
 		}
-		a, err := a.deps.Chain.StateAccountKey(ctx, addr, types.EmptyTSK)
+		a, err := a.Deps.Chain.StateAccountKey(ctx, addr, types.EmptyTSK)
 		if err != nil {
 			return xerrors.Errorf("PSClientSet: failed to get account key: %w", err)
 		}
 		walletAddr = &a
 	}
 
-	_, err = a.deps.DB.Exec(ctx, `
+	_, err = a.Deps.DB.Exec(ctx, `
         INSERT INTO proofshare_client_settings (sp_id, enabled, wallet, minimum_pending_seconds, do_porep, do_snap, pprice)
         VALUES ($1, $2, $3, $4, $5, $6, $7)
         ON CONFLICT (sp_id) DO UPDATE
@@ -441,12 +441,12 @@ type ProofShareClientRequest struct {
 }
 
 // PSClientRequests returns the list of proofshare_client_requests for a given sp_id
-func (a *WebRPC) PSClientRequests(ctx context.Context, spId int64) ([]*ProofShareClientRequest, error) {
+func (a *PoRep) PSClientRequests(ctx context.Context, spId int64) ([]*ProofShareClientRequest, error) {
 	var rows []*ProofShareClientRequest
 
 	// If you want spId=0 to mean "all," you can do logic in WHERE
 	// e.g.: WHERE (sp_id = $1 OR $1=0)
-	err := a.deps.DB.Select(ctx, &rows, `
+	err := a.Deps.DB.Select(ctx, &rows, `
         SELECT task_id, sp_id, sector_num, request_cid, request_uploaded, 
                payment_wallet, payment_nonce, request_sent, response_data,
                done, created_at, done_at
@@ -469,7 +469,7 @@ func (a *WebRPC) PSClientRequests(ctx context.Context, spId int64) ([]*ProofShar
 		currentNonce := r.PaymentNonce.Int64
 
 		var currentCumulativeAmountStr string
-		err := a.deps.DB.QueryRow(ctx, `
+		err := a.Deps.DB.QueryRow(ctx, `
 			SELECT cumulative_amount FROM proofshare_client_payments
 			WHERE wallet = $1 AND nonce = $2
 		`, walletID, currentNonce).Scan(&currentCumulativeAmountStr)
@@ -501,7 +501,7 @@ func (a *WebRPC) PSClientRequests(ctx context.Context, spId int64) ([]*ProofShar
 		if currentNonce > 0 { // Assuming nonces are non-negative. If nonce can be 0, previous is -1.
 			previousNonce := currentNonce - 1
 			var previousCumulativeAmountStr string
-			errDb := a.deps.DB.QueryRow(ctx, `
+			errDb := a.Deps.DB.QueryRow(ctx, `
 				SELECT cumulative_amount FROM proofshare_client_payments
 				WHERE wallet = $1 AND nonce = $2
 			`, walletID, previousNonce).Scan(&previousCumulativeAmountStr)
@@ -544,11 +544,11 @@ func (a *WebRPC) PSClientRequests(ctx context.Context, spId int64) ([]*ProofShar
 }
 
 // PSClientRemove removes a row from proofshare_client_settings if sp_id != 0.
-func (a *WebRPC) PSClientRemove(ctx context.Context, spId int64) error {
+func (a *PoRep) PSClientRemove(ctx context.Context, spId int64) error {
 	if spId == 0 {
 		return xerrors.Errorf("cannot remove default sp_id=0 row")
 	}
-	_, err := a.deps.DB.Exec(ctx, `
+	_, err := a.Deps.DB.Exec(ctx, `
         DELETE FROM proofshare_client_settings
         WHERE sp_id = $1
     `, spId)
@@ -584,9 +584,9 @@ type ProofShareClientWallet struct {
 	WithdrawTimestamp *time.Time `db:"-" json:"withdraw_timestamp"`
 }
 
-func (a *WebRPC) PSClientWallets(ctx context.Context) ([]*ProofShareClientWallet, error) {
+func (a *PoRep) PSClientWallets(ctx context.Context) ([]*ProofShareClientWallet, error) {
 	out := []*ProofShareClientWallet{}
-	err := a.deps.DB.Select(ctx, &out, `
+	err := a.Deps.DB.Select(ctx, &out, `
 		SELECT wallet
 		FROM proofshare_client_wallets
 		ORDER BY wallet ASC
@@ -601,13 +601,13 @@ func (a *WebRPC) PSClientWallets(ctx context.Context) ([]*ProofShareClientWallet
 			return nil, xerrors.Errorf("PSClientWallets: invalid address: %w", err)
 		}
 
-		wb, err := a.deps.Chain.WalletBalance(ctx, w.Address)
+		wb, err := a.Deps.Chain.WalletBalance(ctx, w.Address)
 		if err != nil {
 			return nil, xerrors.Errorf("PSClientWallets: failed to get chain balance: %w", err)
 		}
 		w.ChainBalance = types.FIL(wb).Short()
 
-		svc := common.NewService(a.deps.Chain)
+		svc := common.NewService(a.Deps.Chain)
 		clientState, err := svc.GetClientState(ctx, uint64(w.Wallet))
 		if err != nil {
 			return nil, xerrors.Errorf("PSClientWallets: failed to get client state: %w", err)
@@ -639,13 +639,13 @@ func (a *WebRPC) PSClientWallets(ctx context.Context) ([]*ProofShareClientWallet
 	return out, nil
 }
 
-func (a *WebRPC) PSClientAddWallet(ctx context.Context, wallet string) error {
+func (a *PoRep) PSClientAddWallet(ctx context.Context, wallet string) error {
 	addr, err := address.NewFromString(wallet)
 	if err != nil {
 		return xerrors.Errorf("PSClientAddWallet: invalid address: %w", err)
 	}
 
-	ida, err := a.deps.Chain.StateLookupID(ctx, addr, types.EmptyTSK)
+	ida, err := a.Deps.Chain.StateLookupID(ctx, addr, types.EmptyTSK)
 	if err != nil {
 		return err
 	}
@@ -655,7 +655,7 @@ func (a *WebRPC) PSClientAddWallet(ctx context.Context, wallet string) error {
 		return err
 	}
 
-	_, err = a.deps.DB.Exec(ctx, `
+	_, err = a.Deps.DB.Exec(ctx, `
 		INSERT INTO proofshare_client_wallets (wallet)
 		VALUES ($1)
 	`, id)
@@ -675,14 +675,14 @@ type ClientMessage struct {
 }
 
 // PSClientListMessages queries and returns the 10 most recently started client messages.
-func (a *WebRPC) PSClientListMessages(ctx context.Context) ([]ClientMessage, error) {
+func (a *PoRep) PSClientListMessages(ctx context.Context) ([]ClientMessage, error) {
 	const query = `
 		SELECT started_at, signed_cid, wallet, action, success, completed_at
 		FROM proofshare_client_messages
 		ORDER BY started_at DESC
 		LIMIT 10
 	`
-	rows, err := a.deps.DB.Query(ctx, query)
+	rows, err := a.Deps.DB.Query(ctx, query)
 	if err != nil {
 		return nil, xerrors.Errorf("PSClientListMessages: failed to execute query: %w", err)
 	}
@@ -718,13 +718,13 @@ func (a *WebRPC) PSClientListMessages(ctx context.Context) ([]ClientMessage, err
 	return messages, nil
 }
 
-func (a *WebRPC) addMessageTrackingClient(ctx context.Context, messageCid cid.Cid, wallet string, action string) error {
+func (a *PoRep) addMessageTrackingClient(ctx context.Context, messageCid cid.Cid, wallet string, action string) error {
 	addr, err := address.NewFromString(wallet)
 	if err != nil {
 		return xerrors.Errorf("addMessageTracking: invalid wallet address: %w", err)
 	}
 
-	idAddr, err := a.deps.Chain.StateLookupID(ctx, addr, types.EmptyTSK)
+	idAddr, err := a.Deps.Chain.StateLookupID(ctx, addr, types.EmptyTSK)
 	if err != nil {
 		return xerrors.Errorf("addMessageTracking: failed to lookup id: %w", err)
 	}
@@ -734,7 +734,7 @@ func (a *WebRPC) addMessageTrackingClient(ctx context.Context, messageCid cid.Ci
 		return xerrors.Errorf("addMessageTracking: failed to get wallet id: %w", err)
 	}
 
-	_, err = a.deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+	_, err = a.Deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
 		_, err := tx.Exec(`
 			INSERT INTO message_waits (signed_message_cid)
 			VALUES ($1)
@@ -760,7 +760,7 @@ func (a *WebRPC) addMessageTrackingClient(ctx context.Context, messageCid cid.Ci
 	return nil
 }
 
-func (a *WebRPC) PSClientRouterAddBalance(ctx context.Context, wallet string, amountStr string) (cid.Cid, error) {
+func (a *PoRep) PSClientRouterAddBalance(ctx context.Context, wallet string, amountStr string) (cid.Cid, error) {
 	addr, err := address.NewFromString(wallet)
 	if err != nil {
 		return cid.Undef, xerrors.Errorf("PSClientRouterAddBalance: invalid address: %w", err)
@@ -771,7 +771,7 @@ func (a *WebRPC) PSClientRouterAddBalance(ctx context.Context, wallet string, am
 		return cid.Undef, xerrors.Errorf("PSClientRouterAddBalance: invalid amount: %w", err)
 	}
 
-	availBalance, err := a.deps.Chain.WalletBalance(ctx, addr)
+	availBalance, err := a.Deps.Chain.WalletBalance(ctx, addr)
 	if err != nil {
 		return cid.Undef, xerrors.Errorf("PSClientRouterAddBalance: failed to get chain balance: %w", err)
 	}
@@ -783,8 +783,8 @@ func (a *WebRPC) PSClientRouterAddBalance(ctx context.Context, wallet string, am
 			types.FIL(availBalance).Short(), amountFIL.Short())
 	}
 
-	svc := common.NewServiceCustomSend(a.deps.Chain, func(ctx context.Context, msg *types.Message, mss *api.MessageSendSpec) (cid.Cid, error) {
-		return a.deps.Sender.Send(ctx, msg, mss, "ps-client-deposit")
+	svc := common.NewServiceCustomSend(a.Deps.Chain, func(ctx context.Context, msg *types.Message, mss *api.MessageSendSpec) (cid.Cid, error) {
+		return a.Deps.Sender.Send(ctx, msg, mss, "ps-client-deposit")
 	})
 
 	depositCid, err := svc.ClientDeposit(ctx, addr, amount)
@@ -801,14 +801,14 @@ func (a *WebRPC) PSClientRouterAddBalance(ctx context.Context, wallet string, am
 	return depositCid, nil
 }
 
-func (a *WebRPC) PSClientRouterRequestWithdrawal(ctx context.Context, wallet string, amountStr string) (cid.Cid, error) {
+func (a *PoRep) PSClientRouterRequestWithdrawal(ctx context.Context, wallet string, amountStr string) (cid.Cid, error) {
 	addr, err := address.NewFromString(wallet)
 	if err != nil {
 		return cid.Undef, xerrors.Errorf("PSClientRouterRequestWithdrawal: invalid address: %w", err)
 	}
 
-	svc := common.NewServiceCustomSend(a.deps.Chain, func(ctx context.Context, msg *types.Message, mss *api.MessageSendSpec) (cid.Cid, error) {
-		return a.deps.Sender.Send(ctx, msg, mss, "ps-client-withdraw")
+	svc := common.NewServiceCustomSend(a.Deps.Chain, func(ctx context.Context, msg *types.Message, mss *api.MessageSendSpec) (cid.Cid, error) {
+		return a.Deps.Sender.Send(ctx, msg, mss, "ps-client-withdraw")
 	})
 
 	amountFIL, err := types.ParseFIL(amountStr)
@@ -830,14 +830,14 @@ func (a *WebRPC) PSClientRouterRequestWithdrawal(ctx context.Context, wallet str
 	return withdrawCid, nil
 }
 
-func (a *WebRPC) PSClientRouterCancelWithdrawal(ctx context.Context, wallet string) (cid.Cid, error) {
+func (a *PoRep) PSClientRouterCancelWithdrawal(ctx context.Context, wallet string) (cid.Cid, error) {
 	addr, err := address.NewFromString(wallet)
 	if err != nil {
 		return cid.Undef, xerrors.Errorf("PSClientRouterCancelWithdrawal: invalid address: %w", err)
 	}
 
-	svc := common.NewServiceCustomSend(a.deps.Chain, func(ctx context.Context, msg *types.Message, mss *api.MessageSendSpec) (cid.Cid, error) {
-		return a.deps.Sender.Send(ctx, msg, mss, "ps-client-cancel-withdrawal")
+	svc := common.NewServiceCustomSend(a.Deps.Chain, func(ctx context.Context, msg *types.Message, mss *api.MessageSendSpec) (cid.Cid, error) {
+		return a.Deps.Sender.Send(ctx, msg, mss, "ps-client-cancel-withdrawal")
 	})
 
 	cancelCid, err := svc.ClientCancelWithdrawal(ctx, addr)
@@ -852,14 +852,14 @@ func (a *WebRPC) PSClientRouterCancelWithdrawal(ctx context.Context, wallet stri
 	return cancelCid, nil
 }
 
-func (a *WebRPC) PSClientRouterCompleteWithdrawal(ctx context.Context, wallet string) (cid.Cid, error) {
+func (a *PoRep) PSClientRouterCompleteWithdrawal(ctx context.Context, wallet string) (cid.Cid, error) {
 	addr, err := address.NewFromString(wallet)
 	if err != nil {
 		return cid.Undef, xerrors.Errorf("PSClientRouterCompleteWithdrawal: invalid address: %w", err)
 	}
 
-	svc := common.NewServiceCustomSend(a.deps.Chain, func(ctx context.Context, msg *types.Message, mss *api.MessageSendSpec) (cid.Cid, error) {
-		return a.deps.Sender.Send(ctx, msg, mss, "ps-client-complete-withdrawal")
+	svc := common.NewServiceCustomSend(a.Deps.Chain, func(ctx context.Context, msg *types.Message, mss *api.MessageSendSpec) (cid.Cid, error) {
+		return a.Deps.Sender.Send(ctx, msg, mss, "ps-client-complete-withdrawal")
 	})
 
 	completeCid, err := svc.ClientCompleteWithdrawal(ctx, addr)
@@ -895,7 +895,7 @@ type ProviderLastPaymentSummary struct {
 }
 
 // PSProviderLastPaymentsSummary returns a summary of the last payment and settlement status for each provider.
-func (a *WebRPC) PSProviderLastPaymentsSummary(ctx context.Context) ([]ProviderLastPaymentSummary, error) {
+func (a *PoRep) PSProviderLastPaymentsSummary(ctx context.Context) ([]ProviderLastPaymentSummary, error) {
 	var summaries []ProviderLastPaymentSummary
 
 	const query = `
@@ -942,12 +942,12 @@ LEFT JOIN LatestSettlements ls ON lp.provider_id = ls.provider_id
 ORDER BY lp.provider_id;
     ` // End of query string
 
-	err := a.deps.DB.Select(ctx, &summaries, query)
+	err := a.Deps.DB.Select(ctx, &summaries, query)
 	if err != nil {
 		return nil, xerrors.Errorf("PSProviderLastPaymentsSummary: failed to query payment summaries: %w", err)
 	}
 
-	svc := common.NewService(a.deps.Chain)
+	svc := common.NewService(a.Deps.Chain)
 
 	for i := range summaries {
 		item := &summaries[i] // Use pointer to modify in place
@@ -958,7 +958,7 @@ ORDER BY lp.provider_id;
 			log.Warnw("PSProviderLastPaymentsSummary: failed to create ID address", "walletID", item.WalletID, "error", addrErr)
 			item.Address = fmt.Sprintf("invalid_id_address_%d", item.WalletID)
 		} else {
-			keyAddr, keyAddrErr := a.deps.Chain.StateAccountKey(ctx, addr, types.EmptyTSK)
+			keyAddr, keyAddrErr := a.Deps.Chain.StateAccountKey(ctx, addr, types.EmptyTSK)
 			if keyAddrErr != nil {
 				log.Warnw("PSProviderLastPaymentsSummary: failed to get key address", "walletID", item.WalletID, "idAddress", addr.String(), "error", keyAddrErr)
 				item.Address = addr.String() // Fallback to ID address string
@@ -1049,7 +1049,7 @@ type ProofShareSettlementItem struct {
 }
 
 // PSListSettlements returns the 8 most recent settlement records, including the amount for that specific transaction.
-func (a *WebRPC) PSListSettlements(ctx context.Context) ([]ProofShareSettlementItem, error) {
+func (a *PoRep) PSListSettlements(ctx context.Context) ([]ProofShareSettlementItem, error) {
 	var items []ProofShareSettlementItem
 
 	const query = `
@@ -1085,7 +1085,7 @@ SELECT
 FROM RankedSettlements rs
 ORDER BY rs.settled_at DESC; -- Maintain final order
     `
-	err := a.deps.DB.Select(ctx, &items, query)
+	err := a.Deps.DB.Select(ctx, &items, query)
 	if err != nil {
 		return nil, xerrors.Errorf("PSListSettlements: failed to query settlements: %w", err)
 	}
@@ -1099,7 +1099,7 @@ ORDER BY rs.settled_at DESC; -- Maintain final order
 			log.Warnw("PSListSettlements: failed to create ID address", "providerID", item.ProviderID, "error", addrErr)
 			item.Address = fmt.Sprintf("invalid_id_address_%d", item.ProviderID)
 		} else {
-			keyAddr, keyAddrErr := a.deps.Chain.StateAccountKey(ctx, addr, types.EmptyTSK)
+			keyAddr, keyAddrErr := a.Deps.Chain.StateAccountKey(ctx, addr, types.EmptyTSK)
 			if keyAddrErr != nil {
 				log.Warnw("PSListSettlements: failed to get key address", "providerID", item.ProviderID, "idAddress", addr.String(), "error", keyAddrErr)
 				item.Address = addr.String() // Fallback to ID address
@@ -1142,6 +1142,6 @@ ORDER BY rs.settled_at DESC; -- Maintain final order
 	return items, nil
 }
 
-func (a *WebRPC) PSGetTos(ctx context.Context) (proofsvc.Tos, error) {
+func (a *PoRep) PSGetTos(ctx context.Context) (proofsvc.Tos, error) {
 	return proofsvc.GetTos(), nil
 }

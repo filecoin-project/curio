@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/ipfs/go-cid"
-	logging "github.com/ipfs/go-log/v2"
 	"github.com/oklog/ulid"
 	"github.com/samber/lo"
 	"github.com/yugabyte/pgx/v5"
@@ -42,8 +41,6 @@ import (
 	lethtypes "github.com/filecoin-project/lotus/chain/types/ethtypes"
 	"github.com/filecoin-project/lotus/lib/lazy"
 )
-
-var log = logging.Logger("mk20")
 
 type MK20API interface {
 	ChainHead(context.Context) (*types.TipSet, error)

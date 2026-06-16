@@ -5,12 +5,13 @@ Skiff is a lightweight Curio variant focused on Proof of Data Possession (PDP) s
 ## Build
 
 ```bash
-make skiff      # → skiff (main-net), no filecoin-ffi required
-make calibnet   # → curio, sptool, skiff (calibration-net)
-make 2k         # → curio, sptool, skiff (dev-net / 2k)
+make curio-pdp  # → curio (main-net PDP build), no filecoin-ffi required
+make skiff      # synonym for make curio-pdp
+make calibnet-curio-pdp  # → curio with calibnet tag
+make 2k-curio-pdp        # → curio with 2k tag
 ```
 
-`skiff` is also built by `make build` (main-net). Network selection follows `CURIO_TAGS` (`calibnet`, `2k`, etc.) via `SKIFF_TAGS`.
+`make build`, `make calibnet`, and `make 2k` build the full `curio` + `sptool` pair only. Build the PDP variant explicitly with `make curio-pdp`. Network selection follows `CURIO_TAGS` (`calibnet`, `2k`, etc.) via `SKIFF_TAGS`.
 
 The `skiff` build uses the `skiff` Go build tag and does not link `filecoin-ffi`. Sealing/PoRep, MK20 market handlers, and curio worker proving code are excluded via build tags.
 
@@ -19,7 +20,7 @@ Curio (`make build`) is unchanged and still builds with full FFI support.
 ## Run
 
 ```bash
-./skiff
+./curio
 ```
 
 With defaults:
@@ -27,6 +28,8 @@ With defaults:
 - **Admin GUI**: `http://127.0.0.1:4701` (webrpc + config editor)
 - **Public PDP API**: `HTTP.ListenAddress` / `HTTP.DomainName` from the `base` config layer
 - **Machine identity**: `127.0.0.1:skiff` (harmony task scheduling; not a public listener)
+
+The admin GUI hides PoRep, sealing, and storage-market navigation when running Skiff. It shows PDP-focused pages (overview, PDP, config, wallets, IPNI, alerts).
 
 ### Common flags
 
@@ -51,5 +54,17 @@ Use a single `base` config layer. Ensure:
 - `Subsystems.EnablePDP = true` (forced on by the binary)
 - `Subsystems.EnableWebGui = true` for the admin UI
 - `HTTP.Enable = true` for the public `/pdp/*` API
+
+### Chain backend (Lantern)
+
+Skiff embeds [Lantern](https://github.com/Reiers/lantern) as its default chain backend when no external API is configured. State is stored under `<repo>/lantern`.
+
+| Source | Precedence |
+|--------|------------|
+| `FULLNODE_API_INFO` env | Highest |
+| `[APIs].ChainApiInfo` in config | Second |
+| Embedded Lantern | Default |
+
+Embedded Lantern supports **mainnet** and **calibration** builds only. For `2k` / debug builds, set `ChainApiInfo` or `FULLNODE_API_INFO` to an external Lotus-compatible RPC endpoint.
 
 See [Enable PDP](experimental-features/Enable-PDP.md) for deployment guidance.

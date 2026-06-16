@@ -1,4 +1,4 @@
-package webrpc
+package webrpcporep
 
 import (
 	"context"
@@ -25,9 +25,9 @@ type StorageGCStats struct {
 	Miner string
 }
 
-func (a *WebRPC) StorageGCStats(ctx context.Context) ([]*StorageGCStats, error) {
+func (a *PoRep) StorageGCStats(ctx context.Context) ([]*StorageGCStats, error) {
 	var stats []*StorageGCStats
-	err := a.deps.DB.Select(ctx, &stats, `SELECT sp_id, count(*) as count FROM storage_removal_marks GROUP BY sp_id ORDER BY sp_id DESC`)
+	err := a.Deps.DB.Select(ctx, &stats, `SELECT sp_id, count(*) as count FROM storage_removal_marks GROUP BY sp_id ORDER BY sp_id DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -55,10 +55,10 @@ type StorageUseStats struct {
 	CapStr string `db:"-"`
 }
 
-func (a *WebRPC) StorageUseStats(ctx context.Context) ([]StorageUseStats, error) {
+func (a *PoRep) StorageUseStats(ctx context.Context) ([]StorageUseStats, error) {
 	var stats []StorageUseStats
 
-	err := a.deps.DB.Select(ctx, &stats, `SELECT can_seal, can_store, SUM(available) as available, SUM(capacity) as capacity FROM storage_path GROUP BY can_seal, can_store`)
+	err := a.Deps.DB.Select(ctx, &stats, `SELECT can_seal, can_store, SUM(available) as available, SUM(capacity) as capacity FROM storage_path GROUP BY can_seal, can_store`)
 	if err != nil {
 		return nil, err
 	}
@@ -122,7 +122,7 @@ func parseCSV(s string) []string {
 // grouped by each file type. A given storage path’s capacity is counted for a file type if its
 // allow/deny lists (if set) permit that file type. In addition, if the resulting list contains
 // more than a chosen threshold of entries, the lower-volume ones are merged into a single "Other" entry.
-func (a *WebRPC) StorageStoreTypeStats(ctx context.Context) ([]StorageStoreStats, error) {
+func (a *PoRep) StorageStoreTypeStats(ctx context.Context) ([]StorageStoreStats, error) {
 	// Query all storage paths that are available for storing.
 	var paths []*storagePathRow
 	const query = `
@@ -130,7 +130,7 @@ func (a *WebRPC) StorageStoreTypeStats(ctx context.Context) ([]StorageStoreStats
 		FROM storage_path
 		WHERE can_store = true
 	`
-	if err := a.deps.DB.Select(ctx, &paths, query); err != nil {
+	if err := a.Deps.DB.Select(ctx, &paths, query); err != nil {
 		return nil, xerrors.Errorf("querying storage paths: %w", err)
 	}
 
@@ -270,7 +270,7 @@ type StorageGCMarks struct {
 	Total int
 }
 
-func (a *WebRPC) StorageGCMarks(ctx context.Context, miner *string, sectorNum *int64, limit int, offset int) (*StorageGCMarks, error) {
+func (a *PoRep) StorageGCMarks(ctx context.Context, miner *string, sectorNum *int64, limit int, offset int) (*StorageGCMarks, error) {
 	var spID *int64
 	if miner != nil {
 		maddr, err := address.NewFromString(*miner)
@@ -292,7 +292,7 @@ func (a *WebRPC) StorageGCMarks(ctx context.Context, miner *string, sectorNum *i
 	var total int
 
 	// Get the total count of rows
-	err := a.deps.DB.QueryRow(ctx, `SELECT 
+	err := a.Deps.DB.QueryRow(ctx, `SELECT 
     											COUNT(*) 
 											FROM storage_removal_marks 
 											WHERE 
@@ -302,7 +302,7 @@ func (a *WebRPC) StorageGCMarks(ctx context.Context, miner *string, sectorNum *i
 		return nil, xerrors.Errorf("querying storage removal marks: %w", err)
 	}
 
-	err = a.deps.DB.Select(ctx, &marks, `
+	err = a.Deps.DB.Select(ctx, &marks, `
 								SELECT 
 								    m.sp_id, 
 								    m.sector_num, 
@@ -362,34 +362,34 @@ func (a *WebRPC) StorageGCMarks(ctx context.Context, miner *string, sectorNum *i
 	}, nil
 }
 
-func (a *WebRPC) StorageGCApprove(ctx context.Context, actor int64, sectorNum int64, fileType int64, storageID string) error {
+func (a *PoRep) StorageGCApprove(ctx context.Context, actor int64, sectorNum int64, fileType int64, storageID string) error {
 	now := time.Now()
-	_, err := a.deps.DB.Exec(ctx, `UPDATE storage_removal_marks SET approved = true, approved_at = $1 WHERE sp_id = $2 AND sector_num = $3 AND sector_filetype = $4 AND storage_id = $5`, now, actor, sectorNum, fileType, storageID)
+	_, err := a.Deps.DB.Exec(ctx, `UPDATE storage_removal_marks SET approved = true, approved_at = $1 WHERE sp_id = $2 AND sector_num = $3 AND sector_filetype = $4 AND storage_id = $5`, now, actor, sectorNum, fileType, storageID)
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-func (a *WebRPC) StorageGCApproveAll(ctx context.Context) error {
+func (a *PoRep) StorageGCApproveAll(ctx context.Context) error {
 	now := time.Now()
-	_, err := a.deps.DB.Exec(ctx, `UPDATE storage_removal_marks SET approved = true, approved_at = $1 WHERE approved = false`, now)
+	_, err := a.Deps.DB.Exec(ctx, `UPDATE storage_removal_marks SET approved = true, approved_at = $1 WHERE approved = false`, now)
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-func (a *WebRPC) StorageGCUnapproveAll(ctx context.Context) error {
-	_, err := a.deps.DB.Exec(ctx, `UPDATE storage_removal_marks SET approved = false, approved_at = NULL WHERE approved = true`)
+func (a *PoRep) StorageGCUnapproveAll(ctx context.Context) error {
+	_, err := a.Deps.DB.Exec(ctx, `UPDATE storage_removal_marks SET approved = false, approved_at = NULL WHERE approved = true`)
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-func (a *WebRPC) StorageGCUnapprove(ctx context.Context, actor int64, sectorNum int64, fileType int64, storageID string) error {
-	_, err := a.deps.DB.Exec(ctx, `UPDATE storage_removal_marks SET approved = false, approved_at = NULL WHERE sp_id = $1 AND sector_num = $2 AND sector_filetype = $3 AND storage_id = $4`, actor, sectorNum, fileType, storageID)
+func (a *PoRep) StorageGCUnapprove(ctx context.Context, actor int64, sectorNum int64, fileType int64, storageID string) error {
+	_, err := a.Deps.DB.Exec(ctx, `UPDATE storage_removal_marks SET approved = false, approved_at = NULL WHERE sp_id = $1 AND sector_num = $2 AND sector_filetype = $3 AND storage_id = $4`, actor, sectorNum, fileType, storageID)
 	if err != nil {
 		return err
 	}

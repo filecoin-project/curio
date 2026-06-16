@@ -9,10 +9,10 @@ import (
 	"github.com/curiostorage/shouldtest/config"
 )
 
-// TestSkiffBinaryBuilds ensures cmd/skiff compiles (skipped when SKIP_SKIFF_BUILD is set).
-func TestSkiffBinaryBuilds(t *testing.T) {
-	if os.Getenv("SKIP_SKIFF_BUILD") != "" {
-		t.Skip("SKIP_SKIFF_BUILD set")
+// TestCurioPDPBuilds ensures make curio-pdp compiles without CGO (skipped when SKIP_CURIO_PDP_BUILD is set).
+func TestCurioPDPBuilds(t *testing.T) {
+	if os.Getenv("SKIP_CURIO_PDP_BUILD") != "" {
+		t.Skip("SKIP_CURIO_PDP_BUILD set")
 	}
 
 	root, err := config.ModuleRoot()
@@ -20,12 +20,16 @@ func TestSkiffBinaryBuilds(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out := filepath.Join(t.TempDir(), "skiff")
-	cmd := exec.Command("go", "build", "-tags", "cunative nosupraseal skiff", "-o", out, "./cmd/skiff")
+	cmd := exec.Command("make", "curio-pdp")
 	cmd.Dir = root
-	cmd.Env = append(os.Environ(), "CGO_LDFLAGS_ALLOW=.*", "CGO_ENABLED=0")
+	cmd.Env = append(os.Environ(), "CGO_ENABLED=0", "CGO_LDFLAGS_ALLOW=.*")
 	outBytes, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("go build ./cmd/skiff: %v\n%s", err, outBytes)
+		t.Fatalf("make curio-pdp: %v\n%s", err, outBytes)
+	}
+
+	built := filepath.Join(root, "curio")
+	if _, err := os.Stat(built); err != nil {
+		t.Fatalf("expected ./curio after make curio-pdp: %v", err)
 	}
 }

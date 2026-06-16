@@ -10,16 +10,13 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/lib/shutdown"
-	"github.com/filecoin-project/lotus/lib/ulimit"
 )
 
 // Run starts the PDP node until shutdown.
 func Run(cctx *cli.Context) error {
 	ctx := context.Background()
 	if cctx.Bool("manage-fdlimit") {
-		if _, _, err := ulimit.ManageFdLimit(); err != nil {
-			log.Errorf("setting file descriptor limit: %s", err)
-		}
+		manageFdLimit()
 	}
 
 	d, err := Open(ctx, cctx)

@@ -54,15 +54,17 @@ pdptool: $(BUILD_DEPS)
 .PHONY: pdptool
 BINS += pdptool
 
-skiff: setup-cgo-env ffi-version-check
-	rm -f skiff
+curio-pdp: setup-cgo-env ffi-version-check
+	rm -f curio
 	CGO_LDFLAGS_ALLOW=$(CGO_LDFLAGS_ALLOW) $(GOCC) build $(GOFLAGS) \
 	-tags "$(SKIFF_TAGS)" \
-	-o skiff -ldflags " -s -w \
+	-o curio -ldflags " -s -w \
 	-X github.com/filecoin-project/curio/build.CurrentCommit=+git_`git log -1 --format=%h_%cI`" \
 	./cmd/skiff
+.PHONY: curio-pdp
+
+skiff: curio-pdp
 .PHONY: skiff
-BINS += skiff
 
 ## CUZK PROVING DAEMON (Rust, requires CUDA)
 ## cuzk is a persistent GPU-resident SNARK proving daemon. It is built separately
@@ -109,7 +111,7 @@ debug: build
 all: build
 .PHONY: all
 
-build: curio sptool skiff
+build: curio sptool
 	@[[ $$(type -P "curio") ]] && echo "Caution: you have \
 an existing curio binary in your PATH. This may cause problems if you don't run 'sudo make install'" || true
 .PHONY: build
@@ -120,11 +122,14 @@ calibnet-sptool: sptool
 calibnet-curio: CURIO_TAGS += calibnet
 calibnet-curio: curio
 
-calibnet-skiff: CURIO_TAGS += calibnet
-calibnet-skiff: skiff
+calibnet-curio-pdp: CURIO_TAGS += calibnet
+calibnet-curio-pdp: curio-pdp
 
-2k-skiff: CURIO_TAGS += 2k
-2k-skiff: skiff
+2k-curio-pdp: CURIO_TAGS += 2k
+2k-curio-pdp: curio-pdp
+
+calibnet-skiff: calibnet-curio-pdp
+2k-skiff: 2k-curio-pdp
 
 install: install-curio install-sptool
 .PHONY: install

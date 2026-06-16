@@ -1,6 +1,6 @@
-//go:build !skiff
 
-package webrpc
+
+package webrpcporep
 
 import (
 	"context"
@@ -34,9 +34,9 @@ type OpenDealInfo struct {
 	Miner string
 }
 
-func (a *WebRPC) DealsPending(ctx context.Context) ([]OpenDealInfo, error) {
+func (a *PoRep) DealsPending(ctx context.Context) ([]OpenDealInfo, error) {
 	deals := []OpenDealInfo{}
-	err := a.deps.DB.Select(ctx, &deals, `SELECT sp_id, sector_number, piece_cid, piece_size, data_raw_size, created_at, is_snap FROM open_sector_pieces ORDER BY created_at DESC`)
+	err := a.Deps.DB.Select(ctx, &deals, `SELECT sp_id, sector_number, piece_cid, piece_size, data_raw_size, created_at, is_snap FROM open_sector_pieces ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -63,11 +63,11 @@ func (a *WebRPC) DealsPending(ctx context.Context) ([]OpenDealInfo, error) {
 	return deals, nil
 }
 
-func (a *WebRPC) DealsSealNow(ctx context.Context, spId, sectorNumber uint64) error {
+func (a *PoRep) DealsSealNow(ctx context.Context, spId, sectorNumber uint64) error {
 	maddr, err := address.NewIDAddress(spId)
 	if err != nil {
 		return err
 	}
 
-	return storageingest.SealNow(ctx, a.deps.Chain, a.deps.DB, maddr, abi.SectorNumber(sectorNumber), false)
+	return storageingest.SealNow(ctx, a.Deps.Chain, a.Deps.DB, maddr, abi.SectorNumber(sectorNumber), false)
 }

@@ -1,4 +1,4 @@
-package webrpc
+package webrpcporep
 
 import (
 	"context"
@@ -35,7 +35,7 @@ type SectorBuckets struct {
 	BlockDelaySeconds int
 }
 
-func (a *WebRPC) ActorCharts(ctx context.Context, maddr address.Address) (*SectorBuckets, error) {
+func (a *PoRep) ActorCharts(ctx context.Context, maddr address.Address) (*SectorBuckets, error) {
 	out := SectorBuckets{
 		All:               []SectorBucket{},
 		CC:                []SectorBucket{},
@@ -43,14 +43,14 @@ func (a *WebRPC) ActorCharts(ctx context.Context, maddr address.Address) (*Secto
 	}
 
 	stor := store.ActorStore(ctx,
-		blockstore.NewReadCachedBlockstore(blockstore.NewAPIBlockstore(a.deps.Chain), curiochain.ChainBlockCache))
+		blockstore.NewReadCachedBlockstore(blockstore.NewAPIBlockstore(a.Deps.Chain), curiochain.ChainBlockCache))
 
-	now, err := a.deps.Chain.ChainHead(ctx)
+	now, err := a.Deps.Chain.ChainHead(ctx)
 	if err != nil {
 		return nil, xerrors.Errorf("getting head: %w", err)
 	}
 
-	mact, err := a.deps.Chain.StateGetActor(ctx, maddr, now.Key())
+	mact, err := a.Deps.Chain.StateGetActor(ctx, maddr, now.Key())
 	if err != nil {
 		return nil, xerrors.Errorf("getting actor: %w", err)
 	}
@@ -166,7 +166,7 @@ func (a *WebRPC) ActorCharts(ctx context.Context, maddr address.Address) (*Secto
 	return &out, nil
 }
 
-func (a *WebRPC) prepExpirationBucket(out []SectorBucket, now *types.TipSet) ([]SectorBucket, error) {
+func (a *PoRep) prepExpirationBucket(out []SectorBucket, now *types.TipSet) ([]SectorBucket, error) {
 	totalCount := lo.Reduce(out, func(acc int64, b SectorBucket, _ int) int64 {
 		return acc + b.Count
 	}, int64(0))

@@ -12,7 +12,6 @@ import (
 	"strconv"
 
 	"github.com/ipfs/go-cid"
-	logging "github.com/ipfs/go-log/v2"
 	"golang.org/x/xerrors"
 
 	commputils "github.com/filecoin-project/go-commp-utils/v2"

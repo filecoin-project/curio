@@ -24,13 +24,11 @@ import (
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/pieceprovider"
 	"github.com/filecoin-project/curio/lib/piecestore"
-	"github.com/filecoin-project/curio/lib/repo"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/ipni/chunker"
 	"github.com/filecoin-project/curio/tasks/message"
 
-	lrepo "github.com/filecoin-project/lotus/node/repo"
-	"github.com/filecoin-project/lotus/lib/lazy"
+	"github.com/filecoin-project/curio/lib/lazy"
 )
 
 var log = logging.Logger("pdpnode")
@@ -65,18 +63,8 @@ type Deps struct {
 // Open initializes PDP-node dependencies from CLI flags and a single base config layer.
 func Open(ctx context.Context, cctx *cli.Context) (*Deps, error) {
 	repoPath := cctx.String(curiodeps.FlagRepoPath)
-	r, err := lrepo.NewFS(repoPath)
-	if err != nil {
+	if err := ensureRepo(repoPath); err != nil {
 		return nil, err
-	}
-	ok, err := r.Exists()
-	if err != nil {
-		return nil, err
-	}
-	if !ok {
-		if err := r.Init(repo.Curio); err != nil {
-			return nil, err
-		}
 	}
 
 	db, err := curiodeps.MakeDB(cctx)

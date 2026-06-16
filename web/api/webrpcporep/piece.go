@@ -1,4 +1,4 @@
-package webrpc
+package webrpcporep
 
 import (
 	"context"
@@ -8,10 +8,10 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 )
 
-func (a *WebRPC) FindEntriesByDataURL(ctx context.Context, dataURL string) ([]PieceParkRefEntry, error) {
+func (a *PoRep) FindEntriesByDataURL(ctx context.Context, dataURL string) ([]PieceParkRefEntry, error) {
 	var entries = []PieceParkRefEntry{}
 
-	_, err := a.deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+	_, err := a.Deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		rows, err := tx.Query(`
 			WITH combined AS (
 				-- SDR Initial Pieces

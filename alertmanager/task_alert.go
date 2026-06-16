@@ -114,26 +114,8 @@ var AlertNames = []string{
 	string(Name_IPNISync),
 }
 
-var AlertFuncs = map[AlertName]AlertFunc{
-	Name_BalanceCheck:          balanceCheck,
-	Name_TaskFailures:          taskFailureCheck,
-	Name_PDPTaskFailures:       pdpTaskFailureCheck,
-	Name_PermanentStorageSpace: permanentStorageCheck,
-	Name_WindowPost:            wdPostCheck,
-	Name_WinningPost:           wnPostCheck,
-	Name_NowCheck:              NowCheck,
-	Name_ChainSync:             chainSyncCheck,
-	Name_MissingSectors:        missingSectorCheck,
-	Name_PendingMessages:       pendingMessagesCheck,
-	Name_IPNISync:              ipniSyncCheck,
-}
-
-var PingHealthFuncs = map[AlertName]AlertFunc{
-	Name_BalanceCheck:          AlertFuncs[Name_BalanceCheck],
-	Name_ChainSync:             AlertFuncs[Name_ChainSync],
-	Name_PermanentStorageSpace: AlertFuncs[Name_PermanentStorageSpace],
-	Name_PDPTaskFailures:       AlertFuncs[Name_PDPTaskFailures],
-	Name_IPNISync:              AlertFuncs[Name_IPNISync],
+func init() {
+	registerAlertMaps()
 }
 
 func isPingHealthOnly(now time.Time) bool {

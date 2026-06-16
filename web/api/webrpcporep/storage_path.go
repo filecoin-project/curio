@@ -1,4 +1,4 @@
-package webrpc
+package webrpcporep
 
 import (
 	"context"
@@ -142,9 +142,9 @@ type StoragePathDetailResult struct {
 	ApprovedGC         int                       `json:"ApprovedGC"`
 }
 
-func (a *WebRPC) StoragePathList(ctx context.Context) ([]*StoragePathInfo, error) {
+func (a *PoRep) StoragePathList(ctx context.Context) ([]*StoragePathInfo, error) {
 	var pathsList []*StoragePathInfo
-	err := a.deps.DB.Select(ctx, &pathsList, `SELECT 
+	err := a.Deps.DB.Select(ctx, &pathsList, `SELECT 
 		storage_id, 
 		urls, 
 		weight, 
@@ -175,10 +175,10 @@ func (a *WebRPC) StoragePathList(ctx context.Context) ([]*StoragePathInfo, error
 	return pathsList, nil
 }
 
-func (a *WebRPC) StoragePathDetail(ctx context.Context, storageID string) (*StoragePathDetailResult, error) {
+func (a *PoRep) StoragePathDetail(ctx context.Context, storageID string) (*StoragePathDetailResult, error) {
 	// Get basic path info
 	path := StoragePathInfo{}
-	err := a.deps.DB.QueryRow(ctx, `SELECT 
+	err := a.Deps.DB.QueryRow(ctx, `SELECT 
 		storage_id, 
 		urls, 
 		weight, 
@@ -229,7 +229,7 @@ func (a *WebRPC) StoragePathDetail(ctx context.Context, storageID string) (*Stor
 	}
 
 	// Get URL liveness
-	err = a.deps.DB.Select(ctx, &result.URLs, `
+	err = a.Deps.DB.Select(ctx, &result.URLs, `
 		SELECT url, last_checked, last_live, last_dead, last_dead_reason
 		FROM sector_path_url_liveness
 		WHERE storage_id = $1
@@ -262,7 +262,7 @@ func (a *WebRPC) StoragePathDetail(ctx context.Context, storageID string) (*Stor
 		Count    int   `db:"count"`
 		Primary  int   `db:"primary_count"`
 	}
-	err = a.deps.DB.Select(ctx, &typeSummary, `
+	err = a.Deps.DB.Select(ctx, &typeSummary, `
 		SELECT sector_filetype, COUNT(*) as count, SUM(CASE WHEN is_primary THEN 1 ELSE 0 END) as primary_count
 		FROM sector_location
 		WHERE storage_id = $1
@@ -290,7 +290,7 @@ func (a *WebRPC) StoragePathDetail(ctx context.Context, storageID string) (*Stor
 		Count   int   `db:"count"`
 		Primary int   `db:"primary_count"`
 	}
-	err = a.deps.DB.Select(ctx, &minerSummary, `
+	err = a.Deps.DB.Select(ctx, &minerSummary, `
 		SELECT miner_id, COUNT(*) as count, SUM(CASE WHEN is_primary THEN 1 ELSE 0 END) as primary_count
 		FROM sector_location
 		WHERE storage_id = $1
@@ -314,7 +314,7 @@ func (a *WebRPC) StoragePathDetail(ctx context.Context, storageID string) (*Stor
 	}
 
 	// Get GC marks
-	err = a.deps.DB.Select(ctx, &result.GCMarks, `
+	err = a.Deps.DB.Select(ctx, &result.GCMarks, `
 		SELECT sp_id, sector_num, sector_filetype, created_at, approved
 		FROM storage_removal_marks
 		WHERE storage_id = $1
@@ -345,16 +345,16 @@ func (a *WebRPC) StoragePathDetail(ctx context.Context, storageID string) (*Stor
 }
 
 // StoragePathSectors returns paginated sectors for a storage path
-func (a *WebRPC) StoragePathSectors(ctx context.Context, storageID string, limit, offset int) (*StoragePathSectorsResult, error) {
+func (a *PoRep) StoragePathSectors(ctx context.Context, storageID string, limit, offset int) (*StoragePathSectorsResult, error) {
 	// Get total count
 	var total int
-	err := a.deps.DB.QueryRow(ctx, `SELECT COUNT(*) FROM sector_location WHERE storage_id = $1`, storageID).Scan(&total)
+	err := a.Deps.DB.QueryRow(ctx, `SELECT COUNT(*) FROM sector_location WHERE storage_id = $1`, storageID).Scan(&total)
 	if err != nil {
 		return nil, xerrors.Errorf("counting sectors: %w", err)
 	}
 
 	var sectors []StoragePathSector
-	err = a.deps.DB.Select(ctx, &sectors, `
+	err = a.Deps.DB.Select(ctx, &sectors, `
 		SELECT miner_id, sector_num, sector_filetype, is_primary, read_refs,
 			(write_ts IS NOT NULL) as has_write_lock 
 		FROM sector_location 
@@ -503,7 +503,7 @@ func formatTimeAgo(t time.Time) string {
 }
 
 // StoragePathsSummary returns summary info about all storage paths sorted by capacity
-func (a *WebRPC) StoragePathsSummary(ctx context.Context) ([]*StoragePathInfo, error) {
+func (a *PoRep) StoragePathsSummary(ctx context.Context) ([]*StoragePathInfo, error) {
 	pathsInfo, err := a.StoragePathList(ctx)
 	if err != nil {
 		return nil, err
@@ -526,7 +526,7 @@ func (a *WebRPC) StoragePathsSummary(ctx context.Context) ([]*StoragePathInfo, e
 }
 
 // HostToMachineID returns a map of host:port to machine ID for linking purposes
-func (a *WebRPC) HostToMachineID(ctx context.Context, hosts []string) (map[string]int64, error) {
+func (a *PoRep) HostToMachineID(ctx context.Context, hosts []string) (map[string]int64, error) {
 	if len(hosts) == 0 {
 		return map[string]int64{}, nil
 	}
@@ -535,7 +535,7 @@ func (a *WebRPC) HostToMachineID(ctx context.Context, hosts []string) (map[strin
 		ID          int64  `db:"id"`
 		HostAndPort string `db:"host_and_port"`
 	}
-	err := a.deps.DB.Select(ctx, &machines, `SELECT id, host_and_port FROM harmony_machines`)
+	err := a.Deps.DB.Select(ctx, &machines, `SELECT id, host_and_port FROM harmony_machines`)
 	if err != nil {
 		return nil, xerrors.Errorf("querying machines: %w", err)
 	}

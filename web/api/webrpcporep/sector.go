@@ -1,4 +1,4 @@
-package webrpc
+package webrpcporep
 
 import (
 	"context"
@@ -226,7 +226,7 @@ type SectorMeta struct {
 	HasSectorKey  bool     `db:"has_sector_key"`
 }
 
-func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*SectorInfo, error) {
+func (a *PoRep) SectorInfo(ctx context.Context, sp string, intid int64) (*SectorInfo, error) {
 
 	maddr, err := address.NewFromString(sp)
 	if err != nil {
@@ -247,7 +247,7 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 	var tasks []PipelineTask
 
 	// Fetch PoRep pipeline data
-	err = a.deps.DB.Select(ctx, &tasks, `SELECT 
+	err = a.Deps.DB.Select(ctx, &tasks, `SELECT 
        sp_id, sector_number,
        create_time,
        task_id_sdr, after_sdr,
@@ -271,7 +271,7 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 	// Fetch SnapDeals pipeline data
 	var snapTasks []SnapPipelineTask
 
-	err = a.deps.DB.Select(ctx, &snapTasks, `SELECT
+	err = a.Deps.DB.Select(ctx, &snapTasks, `SELECT
         sp_id, sector_number,
         start_time,
         upgrade_proof,
@@ -290,13 +290,13 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 		return nil, xerrors.Errorf("failed to fetch snap pipeline task info: %w", err)
 	}
 
-	head, err := a.deps.Chain.ChainHead(ctx)
+	head, err := a.Deps.Chain.ChainHead(ctx)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to fetch chain head: %w", err)
 	}
 	epoch := head.Height()
 
-	mbf, err := a.getMinerBitfields(ctx, maddr, a.stor)
+	mbf, err := a.getMinerBitfields(ctx, maddr, a.Stor)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to load miner bitfields: %w", err)
 	}
@@ -375,7 +375,7 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 		Urls              string                   `db:"urls"`
 	}
 
-	err = a.deps.DB.Select(ctx, &sectorLocations, `SELECT p.can_seal, p.can_store, l.sector_filetype, l.storage_id, p.urls FROM sector_location l
+	err = a.Deps.DB.Select(ctx, &sectorLocations, `SELECT p.can_seal, p.can_store, l.sector_filetype, l.storage_id, p.urls FROM sector_location l
     JOIN storage_path p ON l.storage_id = p.storage_id
     WHERE l.sector_num = $1 and l.miner_id = $2 ORDER BY p.can_seal, p.can_store, l.storage_id`, intid, spid)
 	if err != nil {
@@ -457,7 +457,7 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 	var sectorMetas []SectorMeta
 
 	// Fetch SectorMeta from DB
-	err = a.deps.DB.Select(ctx, &sectorMetas, `SELECT orig_sealed_cid, 
+	err = a.Deps.DB.Select(ctx, &sectorMetas, `SELECT orig_sealed_cid, 
        orig_unsealed_cid, cur_sealed_cid, cur_unsealed_cid, 
        msg_cid_precommit, msg_cid_commit, msg_cid_update, 
        expiration_epoch, deadline, partition, target_unseal_state, 
@@ -496,7 +496,7 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 
 	var pieces []SectorPieceMeta
 
-	err = a.deps.DB.Select(ctx, &pieces, `SELECT piece_index, combined.piece_cid, combined.piece_size,
+	err = a.Deps.DB.Select(ctx, &pieces, `SELECT piece_index, combined.piece_cid, combined.piece_size,
 													   data_url, data_raw_size, data_delete_on_finalize,
 													   f05_deal_id, direct_piece_activation_manifest,
 													   mpd.id AS deal_id, -- Extracted id from market_piece_deal
@@ -607,7 +607,7 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 			CleanupTaskID NullInt64 `db:"cleanup_task_id"`
 		}
 
-		err = a.deps.DB.Select(ctx, &parkedPiece, `SELECT ppr.piece_id, ppr.data_url, pp.created_at, pp.complete, pp.task_id, pp.cleanup_task_id FROM parked_piece_refs ppr
+		err = a.Deps.DB.Select(ctx, &parkedPiece, `SELECT ppr.piece_id, ppr.data_url, pp.created_at, pp.complete, pp.task_id, pp.cleanup_task_id FROM parked_piece_refs ppr
         INNER JOIN parked_pieces pp ON pp.id = ppr.piece_id
         WHERE ppr.ref_id = $1`, intID)
 		if err != nil {
@@ -677,7 +677,7 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 			Name        string    `db:"name"`
 			UpdateTime  time.Time `db:"update_time"`
 		}
-		err = a.deps.DB.Select(ctx, &dbtasks, `SELECT t.owner_id, hm.host_and_port, t.id, t.name, t.update_time FROM harmony_task t LEFT JOIN curio.harmony_machines hm ON hm.id = t.owner_id WHERE t.id = ANY($1)`, ids)
+		err = a.Deps.DB.Select(ctx, &dbtasks, `SELECT t.owner_id, hm.host_and_port, t.id, t.name, t.update_time FROM harmony_task t LEFT JOIN curio.harmony_machines hm ON hm.id = t.owner_id WHERE t.id = ANY($1)`, ids)
 		if err != nil {
 			return nil, xerrors.Errorf("failed to fetch task names: %v", err)
 		}
@@ -698,7 +698,7 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 		TaskID int64 `db:"task_id"`
 	}
 	// Fetch PoRep task IDs
-	err = a.deps.DB.Select(ctx, &taskIDsList, `SELECT unnest(get_sdr_pipeline_tasks($1, $2)) AS task_id`, spid, intid)
+	err = a.Deps.DB.Select(ctx, &taskIDsList, `SELECT unnest(get_sdr_pipeline_tasks($1, $2)) AS task_id`, spid, intid)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to fetch task history: %w", err)
 	}
@@ -707,7 +707,7 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 	var snapTaskIDs []struct {
 		TaskID int64 `db:"task_id"`
 	}
-	err = a.deps.DB.Select(ctx, &snapTaskIDs, `SELECT unnest(get_snap_pipeline_tasks($1, $2)) AS task_id`, spid, intid)
+	err = a.Deps.DB.Select(ctx, &snapTaskIDs, `SELECT unnest(get_snap_pipeline_tasks($1, $2)) AS task_id`, spid, intid)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to fetch snap task history: %w", err)
 	}
@@ -718,7 +718,7 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 	var th []TaskHistory
 	for _, taskID := range taskIDsList {
 		var taskHistories []TaskHistory
-		err = a.deps.DB.Select(ctx, &taskHistories, `
+		err = a.Deps.DB.Select(ctx, &taskHistories, `
             SELECT ht.task_id pipeline_task_id, ht.name, ht.completed_by_host_and_port, ht.result, ht.err, ht.work_start, ht.work_end
             FROM harmony_task_history ht
             WHERE ht.task_id = $1`, taskID.TaskID)
@@ -738,7 +738,7 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 		PipelineID    int64     `db:"pipeline_id"`
 		HarmonyTaskID NullInt64 `db:"harmony_task_id"`
 	}
-	err = a.deps.DB.Select(ctx, &taskState, `WITH task_ids AS (
+	err = a.Deps.DB.Select(ctx, &taskState, `WITH task_ids AS (
         SELECT unnest(get_sdr_pipeline_tasks($1, $2)) AS task_id
         UNION
         SELECT unnest(get_snap_pipeline_tasks($1, $2)) AS task_id
@@ -758,7 +758,7 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 		}
 	}
 
-	onChainInfo, err := a.deps.Chain.StateSectorGetInfo(ctx, maddr, abi.SectorNumber(intid), types.EmptyTSK)
+	onChainInfo, err := a.Deps.Chain.StateSectorGetInfo(ctx, maddr, abi.SectorNumber(intid), types.EmptyTSK)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to get on chain info for the sector: %w", err)
 	}
@@ -779,7 +779,7 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 		}
 
 		if si.Deadline == nil || si.Partition == nil {
-			part, err := a.deps.Chain.StateSectorPartition(ctx, maddr, abi.SectorNumber(intid), types.EmptyTSK)
+			part, err := a.Deps.Chain.StateSectorPartition(ctx, maddr, abi.SectorNumber(intid), types.EmptyTSK)
 			if err != nil {
 				return nil, xerrors.Errorf("failed to get partition info for the sector: %w", err)
 			}
@@ -864,19 +864,19 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 }
 
 // getSectorPartitionState retrieves detailed partition state for a sector
-func (a *WebRPC) getSectorPartitionState(ctx context.Context, maddr address.Address, sectorNum abi.SectorNumber, dlIdx, partIdx uint64) (*SectorPartitionState, error) {
-	head, err := a.deps.Chain.ChainHead(ctx)
+func (a *PoRep) getSectorPartitionState(ctx context.Context, maddr address.Address, sectorNum abi.SectorNumber, dlIdx, partIdx uint64) (*SectorPartitionState, error) {
+	head, err := a.Deps.Chain.ChainHead(ctx)
 	if err != nil {
 		return nil, xerrors.Errorf("getting chain head: %w", err)
 	}
 
 	// Get miner actor state
-	act, err := a.deps.Chain.StateGetActor(ctx, maddr, head.Key())
+	act, err := a.Deps.Chain.StateGetActor(ctx, maddr, head.Key())
 	if err != nil {
 		return nil, xerrors.Errorf("getting miner actor: %w", err)
 	}
 
-	mas, err := miner.Load(a.stor, act)
+	mas, err := miner.Load(a.Stor, act)
 	if err != nil {
 		return nil, xerrors.Errorf("loading miner state: %w", err)
 	}
@@ -999,42 +999,42 @@ func (a *WebRPC) getSectorPartitionState(ctx context.Context, maddr address.Addr
 	return state, nil
 }
 
-func (a *WebRPC) SectorResume(ctx context.Context, spid, id int64) error {
+func (a *PoRep) SectorResume(ctx context.Context, spid, id int64) error {
 	// Resume PoRep tasks
-	_, err := a.deps.DB.Exec(ctx, `SELECT unset_task_id($1, $2)`, spid, id)
+	_, err := a.Deps.DB.Exec(ctx, `SELECT unset_task_id($1, $2)`, spid, id)
 	if err != nil {
 		return xerrors.Errorf("failed to resume PoRep sector: %w", err)
 	}
 
 	// Resume SnapDeals tasks
-	_, err = a.deps.DB.Exec(ctx, `SELECT unset_task_id_snap($1, $2)`, spid, id)
+	_, err = a.Deps.DB.Exec(ctx, `SELECT unset_task_id_snap($1, $2)`, spid, id)
 	if err != nil {
 		return xerrors.Errorf("failed to resume SnapDeals sector: %w", err)
 	}
 	return nil
 }
 
-func (a *WebRPC) SectorRemove(ctx context.Context, spid, id int64) error {
+func (a *PoRep) SectorRemove(ctx context.Context, spid, id int64) error {
 	// Remove sector from batch_sector_refs
-	_, err := a.deps.DB.Exec(ctx, `DELETE FROM batch_sector_refs WHERE sp_id = $1 AND sector_number = $2`, spid, id)
+	_, err := a.Deps.DB.Exec(ctx, `DELETE FROM batch_sector_refs WHERE sp_id = $1 AND sector_number = $2`, spid, id)
 	if err != nil {
 		return xerrors.Errorf("failed to remove sector batch refs: %w", err)
 	}
 
 	// Remove from sectors_sdr_pipeline
-	_, err = a.deps.DB.Exec(ctx, `DELETE FROM sectors_sdr_pipeline WHERE sp_id = $1 AND sector_number = $2`, spid, id)
+	_, err = a.Deps.DB.Exec(ctx, `DELETE FROM sectors_sdr_pipeline WHERE sp_id = $1 AND sector_number = $2`, spid, id)
 	if err != nil {
 		return xerrors.Errorf("failed to remove PoRep sector: %w", err)
 	}
 
 	// Remove from sectors_snap_pipeline
-	_, err = a.deps.DB.Exec(ctx, `DELETE FROM sectors_snap_pipeline WHERE sp_id = $1 AND sector_number = $2`, spid, id)
+	_, err = a.Deps.DB.Exec(ctx, `DELETE FROM sectors_snap_pipeline WHERE sp_id = $1 AND sector_number = $2`, spid, id)
 	if err != nil {
 		return xerrors.Errorf("failed to remove SnapDeals sector: %w", err)
 	}
 
 	// Mark sector for removal
-	_, err = a.deps.DB.Exec(ctx, `INSERT INTO storage_removal_marks (sp_id, sector_num, sector_filetype, storage_id, created_at, approved, approved_at)
+	_, err = a.Deps.DB.Exec(ctx, `INSERT INTO storage_removal_marks (sp_id, sector_num, sector_filetype, storage_id, created_at, approved, approved_at)
         SELECT miner_id, sector_num, sector_filetype, storage_id, current_timestamp, FALSE, NULL FROM sector_location
         WHERE miner_id = $1 AND sector_num = $2`, spid, id)
 	if err != nil {
@@ -1044,37 +1044,37 @@ func (a *WebRPC) SectorRemove(ctx context.Context, spid, id int64) error {
 	return nil
 }
 
-func (a *WebRPC) SectorRestart(ctx context.Context, spid, id int64) error {
+func (a *PoRep) SectorRestart(ctx context.Context, spid, id int64) error {
 	// Reset PoRep sector state
-	_, err := a.deps.DB.Exec(ctx, `UPDATE sectors_sdr_pipeline SET after_sdr = false, after_tree_d = false, after_tree_c = false,
+	_, err := a.Deps.DB.Exec(ctx, `UPDATE sectors_sdr_pipeline SET after_sdr = false, after_tree_d = false, after_tree_c = false,
                                     after_tree_r = false WHERE sp_id = $1 AND sector_number = $2`, spid, id)
 	if err != nil {
 		return xerrors.Errorf("failed to reset PoRep sector state: %w", err)
 	}
 
 	// Reset SnapDeals sector state
-	_, err = a.deps.DB.Exec(ctx, `UPDATE sectors_snap_pipeline SET after_encode = false, after_prove = false, after_submit = false,
+	_, err = a.Deps.DB.Exec(ctx, `UPDATE sectors_snap_pipeline SET after_encode = false, after_prove = false, after_submit = false,
                                     after_move_storage = false WHERE sp_id = $1 AND sector_number = $2`, spid, id)
 	if err != nil {
 		return xerrors.Errorf("failed to reset SnapDeals sector state: %w", err)
 	}
 
 	// Remove sector files
-	err = a.deps.Stor.Remove(ctx, abi.SectorID{Miner: abi.ActorID(spid), Number: abi.SectorNumber(id)}, storiface.FTCache, true, nil)
+	err = a.Deps.Stor.Remove(ctx, abi.SectorID{Miner: abi.ActorID(spid), Number: abi.SectorNumber(id)}, storiface.FTCache, true, nil)
 	if err != nil {
 		return xerrors.Errorf("failed to remove cache file: %w", err)
 	}
-	err = a.deps.Stor.Remove(ctx, abi.SectorID{Miner: abi.ActorID(spid), Number: abi.SectorNumber(id)}, storiface.FTSealed, true, nil)
+	err = a.Deps.Stor.Remove(ctx, abi.SectorID{Miner: abi.ActorID(spid), Number: abi.SectorNumber(id)}, storiface.FTSealed, true, nil)
 	if err != nil {
 		return xerrors.Errorf("failed to remove sealed file: %w", err)
 	}
 
 	// Unset task IDs for both pipelines
-	_, err = a.deps.DB.Exec(ctx, `SELECT unset_task_id($1, $2)`, spid, id)
+	_, err = a.Deps.DB.Exec(ctx, `SELECT unset_task_id($1, $2)`, spid, id)
 	if err != nil {
 		return xerrors.Errorf("failed to resume PoRep sector: %w", err)
 	}
-	_, err = a.deps.DB.Exec(ctx, `SELECT unset_task_id_snap($1, $2)`, spid, id)
+	_, err = a.Deps.DB.Exec(ctx, `SELECT unset_task_id_snap($1, $2)`, spid, id)
 	if err != nil {
 		return xerrors.Errorf("failed to resume SnapDeals sector: %w", err)
 	}
@@ -1094,7 +1094,7 @@ type SectorCCScheduler struct {
 	RequestedSize string
 }
 
-func (a *WebRPC) SectorCCScheduler(ctx context.Context) ([]SectorCCScheduler, error) {
+func (a *PoRep) SectorCCScheduler(ctx context.Context) ([]SectorCCScheduler, error) {
 	var rows []struct {
 		SpID         int64 `db:"sp_id"`
 		ToSeal       int64 `db:"to_seal"`
@@ -1103,7 +1103,7 @@ func (a *WebRPC) SectorCCScheduler(ctx context.Context) ([]SectorCCScheduler, er
 		Enabled      bool  `db:"enabled"`
 	}
 
-	err := a.deps.DB.Select(ctx, &rows, `SELECT sp_id, to_seal, weight, duration_days, enabled FROM sectors_cc_scheduler ORDER BY sp_id`)
+	err := a.Deps.DB.Select(ctx, &rows, `SELECT sp_id, to_seal, weight, duration_days, enabled FROM sectors_cc_scheduler ORDER BY sp_id`)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to list cc scheduler entries: %w", err)
 	}
@@ -1111,7 +1111,7 @@ func (a *WebRPC) SectorCCScheduler(ctx context.Context) ([]SectorCCScheduler, er
 	out := make([]SectorCCScheduler, 0, len(rows))
 	for _, r := range rows {
 		addr := must.One(address.NewIDAddress(uint64(r.SpID)))
-		mi, err := a.deps.Chain.StateMinerInfo(ctx, addr, types.EmptyTSK)
+		mi, err := a.Deps.Chain.StateMinerInfo(ctx, addr, types.EmptyTSK)
 		if err != nil {
 			return nil, xerrors.Errorf("failed to get miner info for %s: %w", addr, err)
 		}
@@ -1129,7 +1129,7 @@ func (a *WebRPC) SectorCCScheduler(ctx context.Context) ([]SectorCCScheduler, er
 	return out, nil
 }
 
-func (a *WebRPC) SectorCCSchedulerEdit(ctx context.Context, sp string, toSeal int64, weight int64, durationDays int64, enabled bool) error {
+func (a *PoRep) SectorCCSchedulerEdit(ctx context.Context, sp string, toSeal int64, weight int64, durationDays int64, enabled bool) error {
 	spaddr, err := address.NewFromString(sp)
 	if err != nil {
 		return xerrors.Errorf("invalid sp address: %w", err)
@@ -1146,7 +1146,7 @@ func (a *WebRPC) SectorCCSchedulerEdit(ctx context.Context, sp string, toSeal in
 		return xerrors.Errorf("weight must be positive")
 	}
 
-	_, err = a.deps.DB.Exec(ctx, `INSERT INTO sectors_cc_scheduler (sp_id, to_seal, weight, duration_days, enabled) VALUES ($1, $2, $3, $4, $5)
+	_, err = a.Deps.DB.Exec(ctx, `INSERT INTO sectors_cc_scheduler (sp_id, to_seal, weight, duration_days, enabled) VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT (sp_id) DO UPDATE SET to_seal = EXCLUDED.to_seal, weight = EXCLUDED.weight, duration_days = EXCLUDED.duration_days, enabled = EXCLUDED.enabled`, spid, toSeal, weight, durationDays, enabled)
 	if err != nil {
 		return xerrors.Errorf("failed to upsert cc scheduler: %w", err)
@@ -1154,7 +1154,7 @@ func (a *WebRPC) SectorCCSchedulerEdit(ctx context.Context, sp string, toSeal in
 	return nil
 }
 
-func (a *WebRPC) SectorCCSchedulerDelete(ctx context.Context, sp string) error {
+func (a *PoRep) SectorCCSchedulerDelete(ctx context.Context, sp string) error {
 	spaddr, err := address.NewFromString(sp)
 	if err != nil {
 		return xerrors.Errorf("invalid sp address: %w", err)
@@ -1163,7 +1163,7 @@ func (a *WebRPC) SectorCCSchedulerDelete(ctx context.Context, sp string) error {
 	if err != nil {
 		return xerrors.Errorf("id from sp address: %w", err)
 	}
-	_, err = a.deps.DB.Exec(ctx, `DELETE FROM sectors_cc_scheduler WHERE sp_id = $1`, spid)
+	_, err = a.Deps.DB.Exec(ctx, `DELETE FROM sectors_cc_scheduler WHERE sp_id = $1`, spid)
 	if err != nil {
 		return xerrors.Errorf("failed to delete cc scheduler entry: %w", err)
 	}
@@ -1182,7 +1182,7 @@ type SPSectorStats struct {
 	NonCCCount   int64  `json:"non_cc_count"`
 }
 
-func (a *WebRPC) SectorSPStats(ctx context.Context) ([]SPSectorStats, error) {
+func (a *PoRep) SectorSPStats(ctx context.Context) ([]SPSectorStats, error) {
 	var stats []struct {
 		SpID       int64 `db:"sp_id"`
 		TotalCount int64 `db:"total_count"`
@@ -1190,7 +1190,7 @@ func (a *WebRPC) SectorSPStats(ctx context.Context) ([]SPSectorStats, error) {
 		CCCount    int64 `db:"cc_count"`
 	}
 
-	err := a.deps.DB.Select(ctx, &stats, `
+	err := a.Deps.DB.Select(ctx, &stats, `
 		SELECT 
 			sm.sp_id,
 			COUNT(*) as total_count,
@@ -1226,7 +1226,7 @@ type SectorPipelineStats struct {
 	Count        int64  `json:"count"`
 }
 
-func (a *WebRPC) SectorPipelineStats(ctx context.Context) ([]SectorPipelineStats, error) {
+func (a *PoRep) SectorPipelineStats(ctx context.Context) ([]SectorPipelineStats, error) {
 	var result []SectorPipelineStats
 
 	// PoRep pipeline stats
@@ -1235,7 +1235,7 @@ func (a *WebRPC) SectorPipelineStats(ctx context.Context) ([]SectorPipelineStats
 		Count int64  `db:"count"`
 	}
 
-	err := a.deps.DB.Select(ctx, &porepStats, `
+	err := a.Deps.DB.Select(ctx, &porepStats, `
 		SELECT stage, COUNT(*) as count
 		FROM (
 			SELECT 
@@ -1292,7 +1292,7 @@ func (a *WebRPC) SectorPipelineStats(ctx context.Context) ([]SectorPipelineStats
 		Count int64  `db:"count"`
 	}
 
-	err = a.deps.DB.Select(ctx, &snapStats, `
+	err = a.Deps.DB.Select(ctx, &snapStats, `
 		SELECT stage, COUNT(*) as count
 		FROM (
 			SELECT 
@@ -1337,7 +1337,7 @@ func (a *WebRPC) SectorPipelineStats(ctx context.Context) ([]SectorPipelineStats
 		SnapFailed  int64 `db:"snap_failed"`
 	}
 
-	err = a.deps.DB.QueryRow(ctx, `
+	err = a.Deps.DB.QueryRow(ctx, `
 		SELECT 
 			(SELECT COUNT(*) FROM sectors_sdr_pipeline WHERE failed) as porep_failed,
 			(SELECT COUNT(*) FROM sectors_snap_pipeline WHERE failed) as snap_failed`).Scan(&failedCount.PoRepFailed, &failedCount.SnapFailed)
@@ -1377,14 +1377,14 @@ type DeadlineStats struct {
 	PostSubmissions   string `json:"post_submissions"`
 }
 
-func (a *WebRPC) SectorDeadlineStats(ctx context.Context) ([]DeadlineStats, error) {
+func (a *PoRep) SectorDeadlineStats(ctx context.Context) ([]DeadlineStats, error) {
 	var stats []struct {
 		SpID     int64 `db:"sp_id"`
 		Deadline int64 `db:"deadline"`
 		Count    int64 `db:"count"`
 	}
 
-	err := a.deps.DB.Select(ctx, &stats, `
+	err := a.Deps.DB.Select(ctx, &stats, `
 		SELECT sp_id, deadline, COUNT(*) as count
 		FROM sectors_meta
 		WHERE deadline IS NOT NULL
@@ -1433,7 +1433,7 @@ func (a *WebRPC) SectorDeadlineStats(ctx context.Context) ([]DeadlineStats, erro
 	for _, sp := range spMap {
 		eg.Go(func() error {
 			// Get deadlines for this miner
-			deadlines, err := a.deps.Chain.StateMinerDeadlines(ctx, sp.spAddr, types.EmptyTSK)
+			deadlines, err := a.Deps.Chain.StateMinerDeadlines(ctx, sp.spAddr, types.EmptyTSK)
 			if err != nil {
 				// If we can't get deadline info, continue without it
 				log.Warnw("failed to get deadlines", "miner", sp.spAddr, "error", err)
@@ -1449,7 +1449,7 @@ func (a *WebRPC) SectorDeadlineStats(ctx context.Context) ([]DeadlineStats, erro
 				dl := deadlines[dlIdx]
 
 				// Get partitions for this deadline
-				parts, err := a.deps.Chain.StateMinerPartitions(ctx, sp.spAddr, uint64(dlIdx), types.EmptyTSK)
+				parts, err := a.Deps.Chain.StateMinerPartitions(ctx, sp.spAddr, uint64(dlIdx), types.EmptyTSK)
 				if err != nil {
 					log.Warnw("failed to get partitions", "miner", sp.spAddr, "deadline", dlIdx, "error", err)
 					continue
@@ -1530,13 +1530,13 @@ type SectorFileTypeStats struct {
 	Count    int64  `json:"count"`
 }
 
-func (a *WebRPC) SectorFileTypeStats(ctx context.Context) ([]SectorFileTypeStats, error) {
+func (a *PoRep) SectorFileTypeStats(ctx context.Context) ([]SectorFileTypeStats, error) {
 	var stats []struct {
 		FileType int   `db:"sector_filetype"`
 		Count    int64 `db:"count"`
 	}
 
-	err := a.deps.DB.Select(ctx, &stats, `
+	err := a.Deps.DB.Select(ctx, &stats, `
 		SELECT sector_filetype, COUNT(DISTINCT (miner_id, sector_num)) as count
 		FROM sector_location
 		GROUP BY sector_filetype
@@ -1576,7 +1576,7 @@ type DeadlineDetail struct {
 	Partitions           []DeadlinePartitionInfo `json:"partitions"`
 }
 
-func (a *WebRPC) DeadlineDetail(ctx context.Context, sp string, deadlineIdx uint64) (*DeadlineDetail, error) {
+func (a *PoRep) DeadlineDetail(ctx context.Context, sp string, deadlineIdx uint64) (*DeadlineDetail, error) {
 	maddr, err := address.NewFromString(sp)
 	if err != nil {
 		return nil, xerrors.Errorf("invalid sp address: %w", err)
@@ -1587,7 +1587,7 @@ func (a *WebRPC) DeadlineDetail(ctx context.Context, sp string, deadlineIdx uint
 	}
 
 	// Get deadline info from chain
-	deadlines, err := a.deps.Chain.StateMinerDeadlines(ctx, maddr, types.EmptyTSK)
+	deadlines, err := a.Deps.Chain.StateMinerDeadlines(ctx, maddr, types.EmptyTSK)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to get deadlines: %w", err)
 	}
@@ -1599,7 +1599,7 @@ func (a *WebRPC) DeadlineDetail(ctx context.Context, sp string, deadlineIdx uint
 	dl := deadlines[deadlineIdx]
 
 	// Get partitions for this deadline
-	parts, err := a.deps.Chain.StateMinerPartitions(ctx, maddr, deadlineIdx, types.EmptyTSK)
+	parts, err := a.Deps.Chain.StateMinerPartitions(ctx, maddr, deadlineIdx, types.EmptyTSK)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to get partitions: %w", err)
 	}
@@ -1664,28 +1664,28 @@ type SectorExpBucket struct {
 	LessThanDays int `json:"less_than_days" db:"less_than_days"`
 }
 
-func (a *WebRPC) SectorExpBuckets(ctx context.Context) ([]SectorExpBucket, error) {
+func (a *PoRep) SectorExpBuckets(ctx context.Context) ([]SectorExpBucket, error) {
 	var buckets []SectorExpBucket
-	err := a.deps.DB.Select(ctx, &buckets, `SELECT less_than_days FROM sectors_exp_buckets ORDER BY less_than_days`)
+	err := a.Deps.DB.Select(ctx, &buckets, `SELECT less_than_days FROM sectors_exp_buckets ORDER BY less_than_days`)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to query sector expiration buckets: %w", err)
 	}
 	return buckets, nil
 }
 
-func (a *WebRPC) SectorExpBucketAdd(ctx context.Context, lessThanDays int) error {
+func (a *PoRep) SectorExpBucketAdd(ctx context.Context, lessThanDays int) error {
 	if lessThanDays <= 0 {
 		return xerrors.Errorf("lessThanDays must be positive")
 	}
-	_, err := a.deps.DB.Exec(ctx, `INSERT INTO sectors_exp_buckets (less_than_days) VALUES ($1) ON CONFLICT DO NOTHING`, lessThanDays)
+	_, err := a.Deps.DB.Exec(ctx, `INSERT INTO sectors_exp_buckets (less_than_days) VALUES ($1) ON CONFLICT DO NOTHING`, lessThanDays)
 	if err != nil {
 		return xerrors.Errorf("failed to add sector expiration bucket: %w", err)
 	}
 	return nil
 }
 
-func (a *WebRPC) SectorExpBucketDelete(ctx context.Context, lessThanDays int) error {
-	_, err := a.deps.DB.Exec(ctx, `DELETE FROM sectors_exp_buckets WHERE less_than_days = $1`, lessThanDays)
+func (a *PoRep) SectorExpBucketDelete(ctx context.Context, lessThanDays int) error {
+	_, err := a.Deps.DB.Exec(ctx, `DELETE FROM sectors_exp_buckets WHERE less_than_days = $1`, lessThanDays)
 	if err != nil {
 		return xerrors.Errorf("failed to delete sector expiration bucket: %w", err)
 	}
@@ -1707,17 +1707,17 @@ type SectorExpManagerPreset struct {
 	DropClaims              bool   `json:"drop_claims" db:"drop_claims"`
 }
 
-func (a *WebRPC) SectorExpManagerPresets(ctx context.Context) ([]SectorExpManagerPreset, error) {
+func (a *PoRep) SectorExpManagerPresets(ctx context.Context) ([]SectorExpManagerPreset, error) {
 	var presets []SectorExpManagerPreset
-	err := a.deps.DB.Select(ctx, &presets, `SELECT * FROM sectors_exp_manager_presets ORDER BY name`)
+	err := a.Deps.DB.Select(ctx, &presets, `SELECT * FROM sectors_exp_manager_presets ORDER BY name`)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to query sector expiration manager presets: %w", err)
 	}
 	return presets, nil
 }
 
-func (a *WebRPC) SectorExpManagerPresetAdd(ctx context.Context, preset SectorExpManagerPreset) error {
-	_, err := a.deps.DB.Exec(ctx, `
+func (a *PoRep) SectorExpManagerPresetAdd(ctx context.Context, preset SectorExpManagerPreset) error {
+	_, err := a.Deps.DB.Exec(ctx, `
 		INSERT INTO sectors_exp_manager_presets 
 		(name, action_type, info_bucket_above_days, info_bucket_below_days, 
 		 target_expiration_days, max_candidate_days, 
@@ -1732,8 +1732,8 @@ func (a *WebRPC) SectorExpManagerPresetAdd(ctx context.Context, preset SectorExp
 	return nil
 }
 
-func (a *WebRPC) SectorExpManagerPresetUpdate(ctx context.Context, preset SectorExpManagerPreset) error {
-	_, err := a.deps.DB.Exec(ctx, `
+func (a *PoRep) SectorExpManagerPresetUpdate(ctx context.Context, preset SectorExpManagerPreset) error {
+	_, err := a.Deps.DB.Exec(ctx, `
 		UPDATE sectors_exp_manager_presets 
 		SET action_type = $2, info_bucket_above_days = $3, info_bucket_below_days = $4,
 		    target_expiration_days = $5, max_candidate_days = $6,
@@ -1749,8 +1749,8 @@ func (a *WebRPC) SectorExpManagerPresetUpdate(ctx context.Context, preset Sector
 	return nil
 }
 
-func (a *WebRPC) SectorExpManagerPresetDelete(ctx context.Context, name string) error {
-	_, err := a.deps.DB.Exec(ctx, `DELETE FROM sectors_exp_manager_presets WHERE name = $1`, name)
+func (a *PoRep) SectorExpManagerPresetDelete(ctx context.Context, name string) error {
+	_, err := a.Deps.DB.Exec(ctx, `DELETE FROM sectors_exp_manager_presets WHERE name = $1`, name)
 	if err != nil {
 		return xerrors.Errorf("failed to delete sector expiration manager preset: %w", err)
 	}
@@ -1769,7 +1769,7 @@ type SectorExpManagerSP struct {
 	LastMessageLandedAt *string `json:"last_message_landed_at" db:"last_message_landed_at"`
 }
 
-func (a *WebRPC) SectorExpManagerSPs(ctx context.Context) ([]SectorExpManagerSP, error) {
+func (a *PoRep) SectorExpManagerSPs(ctx context.Context) ([]SectorExpManagerSP, error) {
 	var rows []struct {
 		SpID                int64      `db:"sp_id"`
 		PresetName          string     `db:"preset_name"`
@@ -1778,7 +1778,7 @@ func (a *WebRPC) SectorExpManagerSPs(ctx context.Context) ([]SectorExpManagerSP,
 		LastMessageCID      NullString `db:"last_message_cid"`
 		LastMessageLandedAt NullTime   `db:"last_message_landed_at"`
 	}
-	err := a.deps.DB.Select(ctx, &rows, `SELECT * FROM sectors_exp_manager_sp ORDER BY sp_id, preset_name`)
+	err := a.Deps.DB.Select(ctx, &rows, `SELECT * FROM sectors_exp_manager_sp ORDER BY sp_id, preset_name`)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to query sector expiration manager SP assignments: %w", err)
 	}
@@ -1806,7 +1806,7 @@ func (a *WebRPC) SectorExpManagerSPs(ctx context.Context) ([]SectorExpManagerSP,
 	return result, nil
 }
 
-func (a *WebRPC) SectorExpManagerSPAdd(ctx context.Context, spAddress string, presetName string) error {
+func (a *PoRep) SectorExpManagerSPAdd(ctx context.Context, spAddress string, presetName string) error {
 	maddr, err := address.NewFromString(spAddress)
 	if err != nil {
 		return xerrors.Errorf("invalid sp address: %w", err)
@@ -1816,7 +1816,7 @@ func (a *WebRPC) SectorExpManagerSPAdd(ctx context.Context, spAddress string, pr
 		return xerrors.Errorf("id from sp address: %w", err)
 	}
 
-	_, err = a.deps.DB.Exec(ctx, `
+	_, err = a.Deps.DB.Exec(ctx, `
 		INSERT INTO sectors_exp_manager_sp (sp_id, preset_name, enabled)
 		VALUES ($1, $2, false)
 		ON CONFLICT (sp_id, preset_name) DO NOTHING`,
@@ -1827,7 +1827,7 @@ func (a *WebRPC) SectorExpManagerSPAdd(ctx context.Context, spAddress string, pr
 	return nil
 }
 
-func (a *WebRPC) SectorExpManagerSPToggle(ctx context.Context, spAddress string, presetName string, enabled bool) error {
+func (a *PoRep) SectorExpManagerSPToggle(ctx context.Context, spAddress string, presetName string, enabled bool) error {
 	maddr, err := address.NewFromString(spAddress)
 	if err != nil {
 		return xerrors.Errorf("invalid sp address: %w", err)
@@ -1837,7 +1837,7 @@ func (a *WebRPC) SectorExpManagerSPToggle(ctx context.Context, spAddress string,
 		return xerrors.Errorf("id from sp address: %w", err)
 	}
 
-	_, err = a.deps.DB.Exec(ctx, `
+	_, err = a.Deps.DB.Exec(ctx, `
 		UPDATE sectors_exp_manager_sp SET enabled = $3
 		WHERE sp_id = $1 AND preset_name = $2`,
 		spid, presetName, enabled)
@@ -1847,7 +1847,7 @@ func (a *WebRPC) SectorExpManagerSPToggle(ctx context.Context, spAddress string,
 	return nil
 }
 
-func (a *WebRPC) SectorExpManagerSPDelete(ctx context.Context, spAddress string, presetName string) error {
+func (a *PoRep) SectorExpManagerSPDelete(ctx context.Context, spAddress string, presetName string) error {
 	maddr, err := address.NewFromString(spAddress)
 	if err != nil {
 		return xerrors.Errorf("invalid sp address: %w", err)
@@ -1857,7 +1857,7 @@ func (a *WebRPC) SectorExpManagerSPDelete(ctx context.Context, spAddress string,
 		return xerrors.Errorf("id from sp address: %w", err)
 	}
 
-	_, err = a.deps.DB.Exec(ctx, `
+	_, err = a.Deps.DB.Exec(ctx, `
 		DELETE FROM sectors_exp_manager_sp 
 		WHERE sp_id = $1 AND preset_name = $2`,
 		spid, presetName)
@@ -1867,7 +1867,7 @@ func (a *WebRPC) SectorExpManagerSPDelete(ctx context.Context, spAddress string,
 	return nil
 }
 
-func (a *WebRPC) SectorExpManagerSPEvalCondition(ctx context.Context, spAddress string, presetName string) (bool, error) {
+func (a *PoRep) SectorExpManagerSPEvalCondition(ctx context.Context, spAddress string, presetName string) (bool, error) {
 	maddr, err := address.NewFromString(spAddress)
 	if err != nil {
 		return false, xerrors.Errorf("invalid sp address: %w", err)
@@ -1877,14 +1877,14 @@ func (a *WebRPC) SectorExpManagerSPEvalCondition(ctx context.Context, spAddress 
 		return false, xerrors.Errorf("id from sp address: %w", err)
 	}
 
-	head, err := a.deps.Chain.ChainHead(ctx)
+	head, err := a.Deps.Chain.ChainHead(ctx)
 	if err != nil {
 		return false, xerrors.Errorf("failed to get chain head: %w", err)
 	}
 	currentEpoch := head.Height()
 
 	var needsAction bool
-	err = a.deps.DB.QueryRow(ctx, `
+	err = a.Deps.DB.QueryRow(ctx, `
 		SELECT eval_ext_mgr_sp_condition($1, $2, $3, 2880)`,
 		spid, presetName, currentEpoch).Scan(&needsAction)
 	if err != nil {
@@ -1904,8 +1904,8 @@ type SectorExpBucketCount struct {
 	DealCount    int64  `json:"deal_count" db:"deal_count"`
 }
 
-func (a *WebRPC) SectorExpBucketCounts(ctx context.Context) ([]SectorExpBucketCount, error) {
-	head, err := a.deps.Chain.ChainHead(ctx)
+func (a *PoRep) SectorExpBucketCounts(ctx context.Context) ([]SectorExpBucketCount, error) {
+	head, err := a.Deps.Chain.ChainHead(ctx)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to get chain head: %w", err)
 	}
@@ -1922,7 +1922,7 @@ func (a *WebRPC) SectorExpBucketCounts(ctx context.Context) ([]SectorExpBucketCo
 	// Calculate counts per SP and bucket
 	// Bucket logic: sectors expiring in ranges between buckets
 	// The query returns cumulative counts (< N days), UI will calculate ranges
-	err = a.deps.DB.Select(ctx, &results, `
+	err = a.Deps.DB.Select(ctx, &results, `
 		WITH buckets AS (
 			SELECT less_than_days FROM sectors_exp_buckets
 		),
@@ -1954,7 +1954,7 @@ func (a *WebRPC) SectorExpBucketCounts(ctx context.Context) ([]SectorExpBucketCo
 		CCCount    int64 `db:"cc_count"`
 	}
 
-	err = a.deps.DB.Select(ctx, &openEndedResults, `
+	err = a.Deps.DB.Select(ctx, &openEndedResults, `
 		SELECT 
 			sm.sp_id,
 			COUNT(*) as total_count,
@@ -2003,7 +2003,7 @@ func (a *WebRPC) SectorExpBucketCounts(ctx context.Context) ([]SectorExpBucketCo
 	return output, nil
 }
 
-func (a *WebRPC) PartitionDetail(ctx context.Context, sp string, deadlineIdx uint64, partitionIdx uint64) (*PartitionDetail, error) {
+func (a *PoRep) PartitionDetail(ctx context.Context, sp string, deadlineIdx uint64, partitionIdx uint64) (*PartitionDetail, error) {
 	maddr, err := address.NewFromString(sp)
 	if err != nil {
 		return nil, xerrors.Errorf("invalid sp address: %w", err)
@@ -2014,7 +2014,7 @@ func (a *WebRPC) PartitionDetail(ctx context.Context, sp string, deadlineIdx uin
 	}
 
 	// Get partitions for this deadline
-	parts, err := a.deps.Chain.StateMinerPartitions(ctx, maddr, deadlineIdx, types.EmptyTSK)
+	parts, err := a.Deps.Chain.StateMinerPartitions(ctx, maddr, deadlineIdx, types.EmptyTSK)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to get partitions: %w", err)
 	}
@@ -2093,7 +2093,7 @@ func (a *WebRPC) PartitionDetail(ctx context.Context, sp string, deadlineIdx uin
 		}
 		var pathRows []pathRow
 
-		err = a.deps.DB.Select(ctx, &pathRows, `
+		err = a.Deps.DB.Select(ctx, &pathRows, `
 			SELECT 
 				sl.storage_id,
 				sp.can_seal,

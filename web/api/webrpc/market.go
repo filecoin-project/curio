@@ -55,7 +55,7 @@ type StorageAsk struct {
 
 func (a *WebRPC) GetStorageAsk(ctx context.Context, spID int64) (*StorageAsk, error) {
 	var asks []StorageAsk
-	err := a.deps.DB.Select(ctx, &asks, `
+	err := a.Deps.DB.Select(ctx, &asks, `
         SELECT sp_id, price, verified_price, min_size, max_size, created_at, expiry, sequence
         FROM market_mk12_storage_ask
         WHERE sp_id = $1
@@ -75,7 +75,7 @@ func (a *WebRPC) GetStorageAsk(ctx context.Context, spID int64) (*StorageAsk, er
 }
 
 func (a *WebRPC) SetStorageAsk(ctx context.Context, ask *StorageAsk) error {
-	err := a.deps.DB.QueryRow(ctx, `
+	err := a.Deps.DB.QueryRow(ctx, `
         INSERT INTO market_mk12_storage_ask (
             sp_id, price, verified_price, min_size, max_size, created_at, expiry, sequence
         ) VALUES (
@@ -143,7 +143,7 @@ func (a *WebRPC) GetMK12DealPipelines(ctx context.Context, limit int, offset int
 	}
 
 	var pipelines []*MK12Pipeline
-	err := a.deps.DB.Select(ctx, &pipelines, `
+	err := a.Deps.DB.Select(ctx, &pipelines, `
         SELECT
             uuid,
             sp_id,
@@ -238,7 +238,7 @@ func (a *WebRPC) StorageDealInfo(ctx context.Context, deal string) (*StorageDeal
 		return nil, xerrors.Errorf("failed to parse deal ID: %w", err)
 	}
 	var summaries []StorageDealSummary
-	err = a.deps.DB.Select(ctx, &summaries, `SELECT 
+	err = a.Deps.DB.Select(ctx, &summaries, `SELECT 
 														deal.uuid,
 														deal.sp_id,
 														deal.created_at,
@@ -395,7 +395,7 @@ type StorageDealList struct {
 func (a *WebRPC) MK12StorageDealList(ctx context.Context, limit int, offset int) ([]*StorageDealList, error) {
 	var mk12Summaries []*StorageDealList
 
-	err := a.deps.DB.Select(ctx, &mk12Summaries, `SELECT 
+	err := a.Deps.DB.Select(ctx, &mk12Summaries, `SELECT 
 									md.uuid,
 									md.sp_id,
 									md.created_at,
@@ -458,7 +458,7 @@ func (a *WebRPC) MarketBalance(ctx context.Context) ([]MarketBalanceStatus, erro
 
 	var miners []address.Address
 
-	err := config.ForEachConfig(ctx, a.deps.DB, func(name string, info minimalActorInfo) error {
+	err := config.ForEachConfig(ctx, a.Deps.DB, func(name string, info minimalActorInfo) error {
 		for _, aset := range info.Addresses {
 			for _, addr := range aset.MinerAddresses {
 				maddr, err := address.NewFromString(addr)
@@ -477,7 +477,7 @@ func (a *WebRPC) MarketBalance(ctx context.Context) ([]MarketBalanceStatus, erro
 	for _, m := range lists.UniqNoAllocWithComparator(miners, func(i, j int) bool {
 		return bytes.Compare(miners[i].Bytes(), miners[j].Bytes()) < 0
 	}) {
-		balance, err := a.deps.Chain.StateMarketBalance(ctx, m, types.EmptyTSK)
+		balance, err := a.Deps.Chain.StateMarketBalance(ctx, m, types.EmptyTSK)
 		if err != nil {
 			return nil, err
 		}
@@ -488,8 +488,8 @@ func (a *WebRPC) MarketBalance(ctx context.Context) ([]MarketBalanceStatus, erro
 			MarketBalance: avail.String(),
 		}
 
-		for _, w := range a.deps.As.MinerMap[m].DealPublishControl {
-			ac, err := a.deps.Chain.StateGetActor(ctx, w, types.EmptyTSK)
+		for _, w := range a.Deps.As.MinerMap[m].DealPublishControl {
+			ac, err := a.Deps.Chain.StateGetActor(ctx, w, types.EmptyTSK)
 			if err != nil {
 				return nil, err
 			}
@@ -537,7 +537,7 @@ func (a *WebRPC) MoveBalanceToEscrow(ctx context.Context, miner string, amount s
 		MaxFee: abi.TokenAmount(maxfee),
 	}
 
-	w, err := a.deps.Chain.StateGetActor(ctx, addr, types.EmptyTSK)
+	w, err := a.Deps.Chain.StateGetActor(ctx, addr, types.EmptyTSK)
 	if err != nil {
 		return "", err
 	}
@@ -554,7 +554,7 @@ func (a *WebRPC) MoveBalanceToEscrow(ctx context.Context, miner string, amount s
 		Params: params,
 	}
 
-	smsg, err := a.deps.Chain.MpoolPushMessage(ctx, msg, msp)
+	smsg, err := a.Deps.Chain.MpoolPushMessage(ctx, msg, msp)
 	if err != nil {
 		return "", xerrors.Errorf("moving %s to escrow wallet %s from %s: %w", amt.String(), maddr.String(), addr.String(), err)
 	}
@@ -618,7 +618,7 @@ func (a *WebRPC) PieceInfo(ctx context.Context, pieceCid string) (*PieceInfo, er
 		ret.Size = int64(psize)
 		pcid = pcid1
 		size = psize
-		err = a.deps.DB.QueryRow(ctx, `SELECT created_at, indexed, indexed_at FROM market_piece_metadata WHERE piece_cid = $1 AND piece_size = $2`, pcid1.String(), psize).Scan(&ret.CreatedAt, &ret.Indexed, &ret.IndexedAT)
+		err = a.Deps.DB.QueryRow(ctx, `SELECT created_at, indexed, indexed_at FROM market_piece_metadata WHERE piece_cid = $1 AND piece_size = $2`, pcid1.String(), psize).Scan(&ret.CreatedAt, &ret.Indexed, &ret.IndexedAT)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return nil, xerrors.Errorf("failed to get piece metadata: %w", err)
 		}
@@ -644,13 +644,13 @@ func (a *WebRPC) PieceInfo(ctx context.Context, pieceCid string) (*PieceInfo, er
 		}
 
 		var ipniAdPdp string
-		err = a.deps.DB.QueryRow(ctx, `SELECT ad_cid FROM ipni WHERE context_id = $1 ORDER BY order_number DESC LIMIT 1`, c1b).Scan(&ipniAdPdp)
+		err = a.Deps.DB.QueryRow(ctx, `SELECT ad_cid FROM ipni WHERE context_id = $1 ORDER BY order_number DESC LIMIT 1`, c1b).Scan(&ipniAdPdp)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return nil, xerrors.Errorf("failed to get ad ID by piece CID for PDP: %w", err)
 		}
 
 		var ipniAdPdp1 string
-		err = a.deps.DB.QueryRow(ctx, `SELECT ad_cid FROM ipni WHERE context_id = $1 ORDER BY order_number DESC LIMIT 1`, c2b).Scan(&ipniAdPdp1)
+		err = a.Deps.DB.QueryRow(ctx, `SELECT ad_cid FROM ipni WHERE context_id = $1 ORDER BY order_number DESC LIMIT 1`, c2b).Scan(&ipniAdPdp1)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return nil, xerrors.Errorf("failed to get ad ID by piece CID for PDP: %w", err)
 		}
@@ -659,7 +659,7 @@ func (a *WebRPC) PieceInfo(ctx context.Context, pieceCid string) (*PieceInfo, er
 	} else {
 		ret.PieceCid = piece.String()
 		pcid = piece
-		err = a.deps.DB.QueryRow(ctx, `SELECT piece_size, created_at, indexed, indexed_at FROM market_piece_metadata WHERE piece_cid = $1`, piece.String()).Scan(&ret.Size, &ret.CreatedAt, &ret.Indexed, &ret.IndexedAT)
+		err = a.Deps.DB.QueryRow(ctx, `SELECT piece_size, created_at, indexed, indexed_at FROM market_piece_metadata WHERE piece_cid = $1`, piece.String()).Scan(&ret.Size, &ret.CreatedAt, &ret.Indexed, &ret.IndexedAT)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return nil, xerrors.Errorf("failed to get piece metadata: %w", err)
 		}
@@ -668,7 +668,7 @@ func (a *WebRPC) PieceInfo(ctx context.Context, pieceCid string) (*PieceInfo, er
 
 	pieceDeals := []PieceDeal{}
 
-	err = a.deps.DB.Select(ctx, &pieceDeals, `SELECT 
+	err = a.Deps.DB.Select(ctx, &pieceDeals, `SELECT 
 														id, 
 														boost_deal, 
 														legacy_deal, 
@@ -715,7 +715,7 @@ func (a *WebRPC) PieceInfo(ctx context.Context, pieceCid string) (*PieceInfo, er
 
 	// Get only the latest Ad
 	var ipniAd string
-	err = a.deps.DB.QueryRow(ctx, `SELECT ad_cid FROM ipni WHERE context_id = $1 ORDER BY order_number DESC LIMIT 1`, b.Bytes()).Scan(&ipniAd)
+	err = a.Deps.DB.QueryRow(ctx, `SELECT ad_cid FROM ipni WHERE context_id = $1 ORDER BY order_number DESC LIMIT 1`, b.Bytes()).Scan(&ipniAd)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return nil, xerrors.Errorf("failed to get ad ID by piece CID: %w", err)
 	}
@@ -765,7 +765,7 @@ func (a *WebRPC) PieceParkStates(ctx context.Context, pieceCID string) (*ParkedP
 	var pps ParkedPieceState
 
 	// Query the parked_pieces table
-	err = a.deps.DB.QueryRow(ctx, `
+	err = a.Deps.DB.QueryRow(ctx, `
         SELECT id, created_at, piece_cid, piece_padded_size, piece_raw_size, complete, task_id, cleanup_task_id
         FROM parked_pieces WHERE piece_cid = $1
     `, pcid1.String()).Scan(
@@ -780,7 +780,7 @@ func (a *WebRPC) PieceParkStates(ctx context.Context, pieceCID string) (*ParkedP
 	}
 
 	// Query the parked_piece_refs table for references
-	rows, err := a.deps.DB.Query(ctx, `
+	rows, err := a.Deps.DB.Query(ctx, `
         SELECT ref_id, piece_id, data_url, data_headers
         FROM parked_piece_refs WHERE piece_id = $1
     `, pps.ID)
@@ -815,7 +815,7 @@ type PieceSummary struct {
 
 func (a *WebRPC) PieceSummary(ctx context.Context) (*PieceSummary, error) {
 	s := PieceSummary{}
-	err := a.deps.DB.QueryRow(ctx, `SELECT total, indexed, announced, last_updated FROM piece_summary`).Scan(&s.Total, &s.Indexed, &s.Announced, &s.LastUpdated)
+	err := a.Deps.DB.QueryRow(ctx, `SELECT total, indexed, announced, last_updated FROM piece_summary`).Scan(&s.Total, &s.Indexed, &s.Announced, &s.LastUpdated)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to query piece summary: %w", err)
 	}
@@ -962,7 +962,7 @@ func (a *WebRPC) PieceDealDetail(ctx context.Context, pieceCid string) (*PieceDe
 
 	var mk12Deals []*MK12Deal
 
-	err = a.deps.DB.Select(ctx, &mk12Deals, `
+	err = a.Deps.DB.Select(ctx, &mk12Deals, `
 										SELECT
 											uuid,
 											sp_id,
@@ -1031,7 +1031,7 @@ func (a *WebRPC) PieceDealDetail(ctx context.Context, pieceCid string) (*PieceDe
 	// Fetch pipelines matching the UUIDs
 	var pipelines []MK12DealPipeline
 	if len(uuids) > 0 {
-		err = a.deps.DB.Select(ctx, &pipelines, `
+		err = a.Deps.DB.Select(ctx, &pipelines, `
             SELECT
                 uuid,
                 sp_id,
@@ -1074,7 +1074,7 @@ func (a *WebRPC) PieceDealDetail(ctx context.Context, pieceCid string) (*PieceDe
 	}
 
 	var mk20Deals []*mk20.DBDeal
-	err = a.deps.DB.Select(ctx, &mk20Deals, `SELECT 
+	err = a.Deps.DB.Select(ctx, &mk20Deals, `SELECT 
 													id, 
 													client,
 													data,
@@ -1115,7 +1115,7 @@ func (a *WebRPC) PieceDealDetail(ctx context.Context, pieceCid string) (*PieceDe
 	}
 
 	var mk20Pipelines []MK20DDOPipeline
-	err = a.deps.DB.Select(ctx, &mk20Pipelines, `
+	err = a.Deps.DB.Select(ctx, &mk20Pipelines, `
 										SELECT
 										    created_at,
 											id,
@@ -1155,7 +1155,7 @@ func (a *WebRPC) PieceDealDetail(ctx context.Context, pieceCid string) (*PieceDe
 	}
 
 	var mk20PDPPipelines []MK20PDPPipeline
-	err = a.deps.DB.Select(ctx, &mk20PDPPipelines, `
+	err = a.Deps.DB.Select(ctx, &mk20PDPPipelines, `
 										SELECT
 											created_at,
 											id,
