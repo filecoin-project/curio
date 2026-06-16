@@ -5,8 +5,12 @@ Skiff is a lightweight Curio variant focused on Proof of Data Possession (PDP) s
 ## Build
 
 ```bash
-make skiff   # → skiff, no filecoin-ffi required
+make skiff      # → skiff (main-net), no filecoin-ffi required
+make calibnet   # → curio, sptool, skiff (calibration-net)
+make 2k         # → curio, sptool, skiff (dev-net / 2k)
 ```
+
+`skiff` is also built by `make build` (main-net). Network selection follows `CURIO_TAGS` (`calibnet`, `2k`, etc.) via `SKIFF_TAGS`.
 
 The `skiff` build uses the `skiff` Go build tag and does not link `filecoin-ffi`. Sealing/PoRep, MK20 market handlers, and curio worker proving code are excluded via build tags.
 

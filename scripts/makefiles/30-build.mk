@@ -57,7 +57,7 @@ BINS += pdptool
 skiff: setup-cgo-env ffi-version-check
 	rm -f skiff
 	CGO_LDFLAGS_ALLOW=$(CGO_LDFLAGS_ALLOW) $(GOCC) build $(GOFLAGS) \
-	-tags "cunative nosupraseal skiff" \
+	-tags "$(SKIFF_TAGS)" \
 	-o skiff -ldflags " -s -w \
 	-X github.com/filecoin-project/curio/build.CurrentCommit=+git_`git log -1 --format=%h_%cI`" \
 	./cmd/skiff
@@ -109,7 +109,7 @@ debug: build
 all: build
 .PHONY: all
 
-build: curio sptool
+build: curio sptool skiff
 	@[[ $$(type -P "curio") ]] && echo "Caution: you have \
 an existing curio binary in your PATH. This may cause problems if you don't run 'sudo make install'" || true
 .PHONY: build
@@ -119,6 +119,12 @@ calibnet-sptool: sptool
 
 calibnet-curio: CURIO_TAGS += calibnet
 calibnet-curio: curio
+
+calibnet-skiff: CURIO_TAGS += calibnet
+calibnet-skiff: skiff
+
+2k-skiff: CURIO_TAGS += 2k
+2k-skiff: skiff
 
 install: install-curio install-sptool
 .PHONY: install

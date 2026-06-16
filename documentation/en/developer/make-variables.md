@@ -39,31 +39,33 @@ Command-line values take precedence over file defaults.
 These targets share the same pipeline and differ only in tags:
 
 - `make build`
-  - Builds: `curio`, `sptool`
-  - Tag behavior: uses `CURIO_TAGS` as-is.
+  - Builds: `curio`, `sptool`, `skiff`
+  - Tag behavior: uses `CURIO_TAGS` as-is for `curio`/`sptool`; `skiff` uses `SKIFF_TAGS` (`CURIO_TAGS` + `nosupraseal` + `skiff`).
   - Default tags: `CURIO_TAGS_BASE` (`cunative`) plus conditional extras.
 
 - `make calibnet`
-  - Builds: `curio`, `sptool`
+  - Builds: `curio`, `sptool`, `skiff` (mainnet-calibration network)
   - Tag behavior: appends `calibnet` to `CURIO_TAGS` then runs `build`.
 
 - `make debug`
-  - Builds: `curio`, `sptool`
+  - Builds: `curio`, `sptool`, `skiff`
   - Tag behavior: appends `debug` to `CURIO_TAGS` then runs `build`.
 
 - `make 2k`
-  - Builds: `curio`, `sptool`
+  - Builds: `curio`, `sptool`, `skiff` (dev-net / 2k)
   - Tag behavior: appends `2k` to `CURIO_TAGS` then runs `build`.
 
 - `make skiff`
-  - Builds: `skiff` (PDP-only daemon; no worker RPC or deal market)
-  - Uses the `skiff` build tag and skips filecoin-ffi `BUILD_DEPS`.
+  - Builds: `skiff` only (PDP-only daemon; no worker RPC or deal market)
+  - Uses `SKIFF_TAGS` and skips filecoin-ffi `BUILD_DEPS`.
 
 Equivalent one-off forms are also available:
 
 - `make calibnet-curio`
 - `make calibnet-sptool`
+- `make calibnet-skiff`
 - `make cu2k`
+- `make 2k-skiff`
 
 ## Important default context
 

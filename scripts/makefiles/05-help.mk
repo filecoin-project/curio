@@ -6,7 +6,7 @@ help:
 	@echo ""
 	@echo "Core targets"
 	@echo "  make deps         Build external/native dependencies only (ffi/blst/supraseal as needed)"
-	@echo "  make build        Build default binaries: curio + sptool"
+	@echo "  make build        Build default binaries: curio + sptool + skiff"
 	@echo "  make calibnet     Same as build, plus calibnet tag"
 	@echo "  make debug        Same as build, plus debug tag"
 	@echo "  make 2k           Same as build, plus 2k tag"
