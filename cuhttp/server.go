@@ -19,7 +19,6 @@ import (
 	"golang.org/x/crypto/acme/autocert"
 	"golang.org/x/xerrors"
 
-	"github.com/filecoin-project/curio/alertmanager"
 	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/cuhttp/servicedeps"
 	"github.com/filecoin-project/curio/deps"
@@ -31,7 +30,6 @@ import (
 	"github.com/filecoin-project/curio/market/libp2p"
 	"github.com/filecoin-project/curio/market/retrieval"
 	"github.com/filecoin-project/curio/pdp"
-	"github.com/filecoin-project/curio/tasks/message"
 	storage_market "github.com/filecoin-project/curio/tasks/storage-market"
 )
 

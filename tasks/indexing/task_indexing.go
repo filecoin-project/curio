@@ -3,29 +3,19 @@
 package indexing
 
 import (
-	"bufio"
 	"context"
 	"database/sql"
 	"errors"
-	"fmt"
-	"io"
 	"net/url"
-	"runtime"
-	"sort"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/ipfs/go-cid"
-	logging "github.com/ipfs/go-log/v2"
-	carv2 "github.com/ipld/go-car/v2"
 	"github.com/oklog/ulid"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
 
-	"github.com/filecoin-project/go-data-segment/datasegment"
-	"github.com/filecoin-project/go-data-segment/fr32"
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/filecoin-project/go-state-types/abi"
 
@@ -42,7 +32,6 @@ import (
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/mk20"
 )
-
 
 type IndexingTask struct {
 	db                *harmonydb.DB

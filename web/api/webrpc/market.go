@@ -10,13 +10,10 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/ipfs/go-cid"
-	"github.com/oklog/ulid"
 	"github.com/snadrus/must"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
@@ -28,7 +25,6 @@ import (
 	"github.com/filecoin-project/go-state-types/big"
 
 	"github.com/filecoin-project/curio/deps/config"
-	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/commcidv2"
 	"github.com/filecoin-project/curio/lib/lists"
 	itype "github.com/filecoin-project/curio/market/ipni/types"
@@ -458,7 +454,11 @@ func (a *WebRPC) MarketBalance(ctx context.Context) ([]MarketBalanceStatus, erro
 
 	var miners []address.Address
 
-	err := config.ForEachConfig(ctx, a.Deps.DB, func(name string, info minimalActorInfo) error {
+	type minimalActorInfo struct {
+		Addresses []config.CurioAddresses
+	}
+
+	err := config.ForEachConfig[minimalActorInfo](ctx, a.Deps.DB, func(name string, info minimalActorInfo) error {
 		for _, aset := range info.Addresses {
 			for _, addr := range aset.MinerAddresses {
 				maddr, err := address.NewFromString(addr)

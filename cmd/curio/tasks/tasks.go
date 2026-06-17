@@ -40,6 +40,7 @@ import (
 	"github.com/filecoin-project/curio/lib/slotmgr"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/libp2p"
+	"github.com/filecoin-project/curio/pdpnode"
 	"github.com/filecoin-project/curio/tasks/balancemgr"
 	"github.com/filecoin-project/curio/tasks/expmgr"
 	"github.com/filecoin-project/curio/tasks/f3"
@@ -47,7 +48,6 @@ import (
 	"github.com/filecoin-project/curio/tasks/indexing"
 	"github.com/filecoin-project/curio/tasks/message"
 	"github.com/filecoin-project/curio/tasks/metadata"
-	"github.com/filecoin-project/curio/pdpnode"
 	piece2 "github.com/filecoin-project/curio/tasks/piece"
 	"github.com/filecoin-project/curio/tasks/proofshare"
 	"github.com/filecoin-project/curio/tasks/scrub"
@@ -158,21 +158,6 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 
 	// eth message sender as needed
 	var senderEth *message.SenderETH
-	var senderEthOnce sync.Once
-	var getSenderEth = func() *message.SenderETH {
-		senderEthOnce.Do(func() {
-			ec, err := dependencies.EthClient.Val()
-			if err != nil {
-				log.Errorw("failed to get eth client", "error", err)
-				return
-			}
-
-			var ethSenderTask *message.SendTaskETH
-			senderEth, ethSenderTask = message.NewSenderETH(ec, db)
-			activeTasks = append(activeTasks, ethSenderTask)
-		})
-		return senderEth
-	}
 
 	// Initialize cuzk client if configured (shared across PoSt and sealing tasks)
 	var cuzkClient *cuzk.Client

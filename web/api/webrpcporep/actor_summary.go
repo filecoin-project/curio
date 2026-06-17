@@ -7,6 +7,7 @@ import (
 	"sort"
 	"time"
 
+	logging "github.com/ipfs/go-log/v2"
 	"github.com/multiformats/go-multiaddr"
 	"golang.org/x/xerrors"
 
@@ -22,6 +23,8 @@ import (
 	"github.com/filecoin-project/lotus/chain/store"
 	"github.com/filecoin-project/lotus/chain/types"
 )
+
+var log = logging.Logger("webrpcporep")
 
 type ActorSummary struct {
 	Address string
