@@ -11,13 +11,16 @@ import (
 	os "os"
 	reflect "reflect"
 
-	partialfile "github.com/filecoin-project/curio/lib/partialfile"
-	storiface "github.com/filecoin-project/curio/lib/storiface"
-	abi "github.com/filecoin-project/go-state-types/abi"
-	fsutil "github.com/filecoin-project/lotus/storage/sealer/fsutil"
 	gomock "github.com/golang/mock/gomock"
 	uuid "github.com/google/uuid"
 	cid "github.com/ipfs/go-cid"
+
+	abi "github.com/filecoin-project/go-state-types/abi"
+
+	partialfile "github.com/filecoin-project/curio/lib/partialfile"
+	storiface "github.com/filecoin-project/curio/lib/storiface"
+
+	fsutil "github.com/filecoin-project/lotus/storage/sealer/fsutil"
 )
 
 // MockPartialFileHandler is a mock of PartialFileHandler interface.

@@ -5,12 +5,21 @@ package api
 import (
 	"context"
 	"fmt"
+	mathbig "math/big"
+	"net/http"
+	"net/url"
+	"reflect"
+
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	erpc "github.com/ethereum/go-ethereum/rpc"
-	ltypes "github.com/filecoin-project/curio/api/types"
-	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/google/uuid"
+	blocks "github.com/ipfs/go-block-format"
+	"github.com/ipfs/go-cid"
+	"github.com/multiformats/go-multihash"
+	"golang.org/x/xerrors"
+
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-bitfield"
 	"github.com/filecoin-project/go-jsonrpc/auth"
@@ -20,22 +29,16 @@ import (
 	"github.com/filecoin-project/go-state-types/crypto"
 	"github.com/filecoin-project/go-state-types/dline"
 	"github.com/filecoin-project/go-state-types/network"
+
+	ltypes "github.com/filecoin-project/curio/api/types"
+	"github.com/filecoin-project/curio/lib/storiface"
+
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/node/modules/dtypes"
 	lpiece "github.com/filecoin-project/lotus/storage/pipeline/piece"
 	"github.com/filecoin-project/lotus/storage/sealer/fsutil"
-	"github.com/google/uuid"
-	blocks "github.com/ipfs/go-block-format"
-	"github.com/ipfs/go-cid"
-	"github.com/multiformats/go-multihash"
-	mathbig "math/big"
-	"net/http"
-	"net/url"
-	"reflect"
-
-	"golang.org/x/xerrors"
 )
 
 var _ = reflect.TypeOf([]byte(nil))
