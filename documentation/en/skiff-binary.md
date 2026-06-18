@@ -71,4 +71,4 @@ Embedded Lantern supports **mainnet** and **calibration** builds only. For `2k` 
 
 ## Storage
 
-Skiff does not use `storage.json`. On startup it scans the first three directory levels of each mount point for a folder named `curio-pdp-data` (at most one per mount point). If a discovered path has no `sectorstore.json`, one is created automatically with store enabled.
+Skiff does not use `storage.json`. On startup it scans the first three directory levels of each mount point for a folder named `filecoin-hot-data` (at most one per mount point). If a discovered path has no `sectorstore.json`, one is created automatically with store enabled.

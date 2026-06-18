@@ -302,11 +302,17 @@ func (st *Local) openPath(ctx context.Context, p string, declare bool) (storifac
 		return "", false, xerrors.Errorf("unmarshalling storage metadata for %s: %w", p, err)
 	}
 
-	if p, exists := st.paths[meta.ID]; exists {
-		return "", false, xerrors.Errorf("path with ID %s already opened: '%s'", meta.ID, p.Local)
+	if existing, exists := st.paths[meta.ID]; exists {
+		log.Debugw("skipping duplicate storage path", "path", p, "existing", existing.Local, "id", meta.ID)
+		return meta.ID, meta.CanStore, nil
 	}
 
-	// TODO: Check existing / dedupe
+	for id, existing := range st.paths {
+		if sameLocalPath(p, existing.Local) {
+			log.Debugw("skipping duplicate storage path", "path", p, "existing", existing.Local, "id", id)
+			return id, meta.CanStore, nil
+		}
+	}
 
 	out := &path{
 		Local: p,
@@ -364,6 +370,21 @@ func (st *Local) openPath(ctx context.Context, p string, declare bool) (storifac
 	return meta.ID, meta.CanStore, nil
 }
 
+func sameLocalPath(a, b string) bool {
+	if a == b {
+		return true
+	}
+	ai, err := os.Stat(a)
+	if err != nil {
+		return false
+	}
+	bi, err := os.Stat(b)
+	if err != nil {
+		return false
+	}
+	return os.SameFile(ai, bi)
+}
+
 func (st *Local) ClosePath(ctx context.Context, id storiface.ID) error {
 	st.localLk.Lock()
 	defer st.localLk.Unlock()
@@ -397,12 +418,17 @@ func (st *Local) open(ctx context.Context) error {
 		canStore  bool
 	}
 	var pathsToDeclare []pathToDeclare
+	seenIDs := make(map[storiface.ID]struct{}, len(cfg.StoragePaths))
 
 	for _, path := range cfg.StoragePaths {
 		id, canStore, err := st.openPath(ctx, path.Path, false)
 		if err != nil {
 			return xerrors.Errorf("opening path %s: %w", path.Path, err)
 		}
+		if _, ok := seenIDs[id]; ok {
+			continue
+		}
+		seenIDs[id] = struct{}{}
 		pathsToDeclare = append(pathsToDeclare, pathToDeclare{
 			localPath: path.Path,
 			id:        id,

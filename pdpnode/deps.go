@@ -35,6 +35,11 @@ var log = logging.Logger("pdpnode")
 
 const defaultMachineHost = "127.0.0.1:skiff"
 
+// Skiff does not expose the curio /remote storage handler; paths.NewLocal still
+// needs a syntactically valid URL for the sector index. Machine-host is an
+// opaque harmony identity and is not used here.
+const skiffLocalStorageURL = "http://127.0.0.1:0/remote"
+
 // Deps holds PDP-node runtime dependencies.
 type Deps struct {
 	Cfg               *config.CurioConfig
@@ -110,7 +115,7 @@ func Open(ctx context.Context, cctx *cli.Context) (*Deps, error) {
 		return nil, xerrors.Errorf("storage auth: %w", err)
 	}
 
-	localStore, err := paths.NewLocal(ctx, localPaths, si, "http://"+machineHost+"/remote")
+	localStore, err := paths.NewLocal(ctx, localPaths, si, skiffLocalStorageURL)
 	if err != nil {
 		return nil, err
 	}

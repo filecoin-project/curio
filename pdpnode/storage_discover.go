@@ -15,12 +15,12 @@ import (
 
 const defaultPDPStorageWeight = 10
 
-const pdpDataDirName = "curio-pdp-data"
+const pdpDataDirName = "filecoin-hot-data"
 
 const maxPDPDataSearchDepth = 3
 
 // findCurioPDPDataOnMount searches up to maxDepth directory levels below mountRoot
-// for a directory named curio-pdp-data. When multiple matches exist, the
+// for a directory named filecoin-hot-data. When multiple matches exist, the
 // shallowest match wins.
 func findCurioPDPDataOnMount(mountRoot string, maxDepth int) (string, error) {
 	if maxDepth < 0 {
@@ -49,7 +49,9 @@ func findCurioPDPDataOnMount(mountRoot string, maxDepth int) (string, error) {
 
 		entries, err := os.ReadDir(entry.path)
 		if err != nil {
-			return "", xerrors.Errorf("reading %s: %w", entry.path, err)
+			// Unreadable subtrees (e.g. macOS SIP-protected paths) are treated as
+			// fully searched so discovery can continue elsewhere on the mount.
+			continue
 		}
 
 		sort.Slice(entries, func(i, j int) bool {
@@ -75,6 +77,29 @@ func findCurioPDPDataOnMount(mountRoot string, maxDepth int) (string, error) {
 	return "", nil
 }
 
+func canonicalStoragePath(p string) (string, error) {
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return "", err
+	}
+	return filepath.EvalSymlinks(abs)
+}
+
+func sameStoragePath(a, b string) bool {
+	if a == b {
+		return true
+	}
+	ai, err := os.Stat(a)
+	if err != nil {
+		return false
+	}
+	bi, err := os.Stat(b)
+	if err != nil {
+		return false
+	}
+	return os.SameFile(ai, bi)
+}
+
 func discoverPDPStoragePaths(mountPoints []string) ([]string, error) {
 	seenMounts := make(map[string]struct{}, len(mountPoints))
 	var paths []string
@@ -97,7 +122,23 @@ func discoverPDPStoragePaths(mountPoints []string) ([]string, error) {
 			continue
 		}
 
-		paths = append(paths, p)
+		canon, err := canonicalStoragePath(p)
+		if err != nil {
+			canon = filepath.Clean(p)
+		}
+
+		duplicate := false
+		for _, existing := range paths {
+			if sameStoragePath(canon, existing) {
+				duplicate = true
+				break
+			}
+		}
+		if duplicate {
+			continue
+		}
+
+		paths = append(paths, canon)
 	}
 
 	sort.Strings(paths)
