@@ -2,6 +2,7 @@ package pdpnode
 
 import (
 	"encoding/json"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -14,68 +15,6 @@ import (
 )
 
 const defaultPDPStorageWeight = 10
-
-const pdpDataDirName = "filecoin-hot-data"
-
-const maxPDPDataSearchDepth = 3
-
-// findCurioPDPDataOnMount searches up to maxDepth directory levels below mountRoot
-// for a directory named filecoin-hot-data. When multiple matches exist, the
-// shallowest match wins.
-func findCurioPDPDataOnMount(mountRoot string, maxDepth int) (string, error) {
-	if maxDepth < 0 {
-		return "", nil
-	}
-
-	if filepath.Base(mountRoot) == pdpDataDirName {
-		info, err := os.Stat(mountRoot)
-		if err != nil {
-			return "", err
-		}
-		if info.IsDir() {
-			return mountRoot, nil
-		}
-	}
-
-	type queueEntry struct {
-		path  string
-		depth int
-	}
-
-	queue := []queueEntry{{path: mountRoot, depth: 0}}
-	for len(queue) > 0 {
-		entry := queue[0]
-		queue = queue[1:]
-
-		entries, err := os.ReadDir(entry.path)
-		if err != nil {
-			// Unreadable subtrees (e.g. macOS SIP-protected paths) are treated as
-			// fully searched so discovery can continue elsewhere on the mount.
-			continue
-		}
-
-		sort.Slice(entries, func(i, j int) bool {
-			return entries[i].Name() < entries[j].Name()
-		})
-
-		for _, ent := range entries {
-			if !ent.IsDir() {
-				continue
-			}
-
-			child := filepath.Join(entry.path, ent.Name())
-			if ent.Name() == pdpDataDirName {
-				return child, nil
-			}
-
-			if entry.depth+1 < maxDepth {
-				queue = append(queue, queueEntry{path: child, depth: entry.depth + 1})
-			}
-		}
-	}
-
-	return "", nil
-}
 
 func canonicalStoragePath(p string) (string, error) {
 	abs, err := filepath.Abs(p)
@@ -100,49 +39,74 @@ func sameStoragePath(a, b string) bool {
 	return os.SameFile(ai, bi)
 }
 
-func discoverPDPStoragePaths(mountPoints []string) ([]string, error) {
-	seenMounts := make(map[string]struct{}, len(mountPoints))
-	var paths []string
+func isWritableDir(dir string) bool {
+	f, err := os.CreateTemp(dir, ".skiff-write-test-*")
+	if err != nil {
+		return false
+	}
+	name := f.Name()
+	_ = f.Close()
+	_ = os.Remove(name)
+	return true
+}
 
-	for _, mountRoot := range mountPoints {
-		mountRoot = filepath.Clean(mountRoot)
-		if mountRoot == "" {
-			continue
+func discoverWritableStoragePaths(dataRoot string) ([]string, error) {
+	dataRoot = filepath.Clean(dataRoot)
+	info, err := os.Stat(dataRoot)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
 		}
-		if _, ok := seenMounts[mountRoot]; ok {
-			continue
-		}
-		seenMounts[mountRoot] = struct{}{}
+		return nil, xerrors.Errorf("stat data root %s: %w", dataRoot, err)
+	}
+	if !info.IsDir() {
+		return nil, xerrors.Errorf("data root %s is not a directory", dataRoot)
+	}
 
-		p, err := findCurioPDPDataOnMount(mountRoot, maxPDPDataSearchDepth)
-		if err != nil {
-			return nil, err
-		}
-		if p == "" {
-			continue
-		}
+	var pathsOut []string
+	seen := make(map[string]struct{})
 
+	addPath := func(p string) {
 		canon, err := canonicalStoragePath(p)
 		if err != nil {
 			canon = filepath.Clean(p)
 		}
-
-		duplicate := false
-		for _, existing := range paths {
+		if _, ok := seen[canon]; ok {
+			return
+		}
+		for _, existing := range pathsOut {
 			if sameStoragePath(canon, existing) {
-				duplicate = true
-				break
+				return
 			}
 		}
-		if duplicate {
-			continue
-		}
-
-		paths = append(paths, canon)
+		seen[canon] = struct{}{}
+		pathsOut = append(pathsOut, canon)
 	}
 
-	sort.Strings(paths)
-	return paths, nil
+	err = filepath.WalkDir(dataRoot, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			if os.IsPermission(walkErr) {
+				if d != nil && d.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			return nil
+		}
+		if !d.IsDir() {
+			return nil
+		}
+		if isWritableDir(path) {
+			addPath(path)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, xerrors.Errorf("walking data root %s: %w", dataRoot, err)
+	}
+
+	sort.Strings(pathsOut)
+	return pathsOut, nil
 }
 
 func defaultPDPStorageMeta() storiface.LocalStorageMeta {
@@ -176,16 +140,16 @@ func ensureSectorstoreJSON(storagePath string) error {
 	return nil
 }
 
-func pdpStorageConfig(mountPoints []string) (storiface.StorageConfig, error) {
-	paths, err := discoverPDPStoragePaths(mountPoints)
+func pdpStorageConfig(dataRoot string) (storiface.StorageConfig, error) {
+	storagePaths, err := discoverWritableStoragePaths(dataRoot)
 	if err != nil {
 		return storiface.StorageConfig{}, err
 	}
 
 	cfg := storiface.StorageConfig{
-		StoragePaths: make([]storiface.LocalPath, 0, len(paths)),
+		StoragePaths: make([]storiface.LocalPath, 0, len(storagePaths)),
 	}
-	for _, p := range paths {
+	for _, p := range storagePaths {
 		if err := ensureSectorstoreJSON(p); err != nil {
 			return storiface.StorageConfig{}, err
 		}

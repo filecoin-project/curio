@@ -67,6 +67,12 @@ func main() {
 				Value:   "~/.curio",
 			},
 			&cli.StringFlag{
+				Name:    "data",
+				EnvVars: []string{"DATA_STORAGE", "SKIFF_DATA", "CURIO_DATA"},
+				Value:   "/data",
+				Usage:   "root directory to scan for writable storage (this path and all subdirectories)",
+			},
+			&cli.StringFlag{
 				Name:    "machine-host",
 				EnvVars: []string{"SKIFF_MACHINE_HOST", "PDP_MACHINE_HOST"},
 				Usage:   "harmony machine identity (not a public listener)",

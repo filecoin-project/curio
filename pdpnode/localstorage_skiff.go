@@ -11,30 +11,27 @@ import (
 	"github.com/filecoin-project/lotus/storage/sealer/fsutil"
 )
 
-type mountDiscoveredLocalStorage struct{}
-
-var _ paths.LocalStorage = &mountDiscoveredLocalStorage{}
-
-func newLocalStorage(_ string) (paths.LocalStorage, error) {
-	return &mountDiscoveredLocalStorage{}, nil
+type dataRootLocalStorage struct {
+	dataRoot string
 }
 
-func (ls *mountDiscoveredLocalStorage) GetStorage() (storiface.StorageConfig, error) {
-	mountPoints, err := listMountPoints()
-	if err != nil {
-		return storiface.StorageConfig{}, xerrors.Errorf("listing mount points: %w", err)
-	}
+var _ paths.LocalStorage = &dataRootLocalStorage{}
 
-	cfg, err := pdpStorageConfig(mountPoints)
+func newLocalStorage(dataRoot string) (paths.LocalStorage, error) {
+	return &dataRootLocalStorage{dataRoot: dataRoot}, nil
+}
+
+func (ls *dataRootLocalStorage) GetStorage() (storiface.StorageConfig, error) {
+	cfg, err := pdpStorageConfig(ls.dataRoot)
 	if err != nil {
 		return storiface.StorageConfig{}, err
 	}
 
 	if len(cfg.StoragePaths) == 0 {
-		return storiface.StorageConfig{}, xerrors.Errorf("no %s directories found within %d levels of mount points", pdpDataDirName, maxPDPDataSearchDepth)
+		return storiface.StorageConfig{}, xerrors.Errorf("no writable storage directories found under %s", ls.dataRoot)
 	}
 
-	log.Infof("discovered %d %s storage path(s)", len(cfg.StoragePaths), pdpDataDirName)
+	log.Infof("discovered %d writable storage path(s) under %s", len(cfg.StoragePaths), ls.dataRoot)
 	for _, p := range cfg.StoragePaths {
 		log.Infof("  %s", p.Path)
 	}
@@ -42,15 +39,15 @@ func (ls *mountDiscoveredLocalStorage) GetStorage() (storiface.StorageConfig, er
 	return cfg, nil
 }
 
-func (ls *mountDiscoveredLocalStorage) SetStorage(func(*storiface.StorageConfig)) error {
-	return xerrors.Errorf("storage paths are auto-discovered from %s directories on mount points", pdpDataDirName)
+func (ls *dataRootLocalStorage) SetStorage(func(*storiface.StorageConfig)) error {
+	return xerrors.Errorf("storage paths are auto-discovered under %s", ls.dataRoot)
 }
 
-func (ls *mountDiscoveredLocalStorage) Stat(path string) (fsutil.FsStat, error) {
+func (ls *dataRootLocalStorage) Stat(path string) (fsutil.FsStat, error) {
 	return fsutil.Statfs(path)
 }
 
-func (ls *mountDiscoveredLocalStorage) DiskUsage(path string) (int64, error) {
+func (ls *dataRootLocalStorage) DiskUsage(path string) (int64, error) {
 	si, err := fsutil.FileSize(path)
 	if err != nil {
 		return 0, err

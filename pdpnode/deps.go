@@ -105,7 +105,7 @@ func Open(ctx context.Context, cctx *cli.Context) (*Deps, error) {
 	al := curioalerting.NewAlertingSystem()
 	si := paths.NewDBIndex(al, db)
 
-	localPaths, err := newLocalStorage(repoPath)
+	localPaths, err := newLocalStorage(skiffStorageRoot(cctx, cfg, repoPath))
 	if err != nil {
 		return nil, err
 	}

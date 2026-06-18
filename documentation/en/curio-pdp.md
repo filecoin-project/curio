@@ -14,7 +14,7 @@ For the skiff binary overview and build flags, see [Skiff binary](skiff-binary.m
 
 Curio-PDP is intentionally lighter: no Yugabyte requirement and no separate CQL/Scylla service for operators who only run PDP.
 
-Piece payload files live on disk under discovered `filecoin-hot-data/` paths (see [Storage](skiff-binary.md#storage) in the skiff binary doc). Index data on disk must be copied separately when moving hosts; it is not included in SQL dumps.
+Piece payload files live on disk under writable paths discovered under `/data` (see [Storage](#storage)). Index data on disk must be copied separately when moving hosts; it is not included in SQL dumps.
 
 {% hint style="info" %}
 **Index store note:** The target Curio-PDP stack uses disk-based piece indexing. Current builds may still open a CQL `IndexStore` via `--db-cassandra-port`; disk-only indexing is follow-up work. Plan deployments accordingly.
@@ -23,7 +23,7 @@ Piece payload files live on disk under discovered `filecoin-hot-data/` paths (se
 ## Prerequisites
 
 * **Postgres** for HarmonyDB (`CURIO_DB_*` env vars or `--db-host` flags)
-* Mount points containing `filecoin-hot-data/` directories (auto-discovered; see skiff storage section)
+* Writable storage under `/data` (see [Storage](#storage))
 * Optional public **HTTPS domain** when exposing the PDP HTTP API (`HTTP.DomainName` in config)
 * FIL/tFIL to fund the PDP signing wallet before FWSS registration
 
@@ -88,7 +88,17 @@ Chain access defaults to embedded Lantern under `<repo>/lantern` unless `FULLNOD
 
 ## Storage
 
-Skiff discovers `filecoin-hot-data/` under mount points (see [skiff-binary.md](skiff-binary.md#storage)). Missing `sectorstore.json` files are created automatically.
+Curio-PDP stores piece payloads on local disk. Mount drives at **`/data`** (or bind-mount volumes beneath it). On startup the node scans `/data` and **every subdirectory**, probes each for write access, and uses every writable location as storage. Unwritable paths are skipped.
+
+Missing `sectorstore.json` files are created automatically in each writable location.
+
+Additionally, you can use a path other than `/data`:
+
+```bash
+DATA_STORAGE=/var/lib/curio-data ./curio
+```
+
+You can also set `[Subsystems].DataPath` in the `base` config layer, or pass `--data=/var/lib/curio-data`.
 
 ## Moving between deployment profiles
 
@@ -109,6 +119,6 @@ There is no dedicated migration tool — SQL export/import plus file copy is suf
 |---------|--------|
 | Alert: PDP wallet not configured | PDP page → create or assign key; verify `eth_keys` has `role=pdp` |
 | Postgres connection errors | `CURIO_DB_*`, firewall, migrations |
-| No storage paths | Mount points with `filecoin-hot-data/`; permissions on discovered paths |
+| No storage paths | Drives mounted under `/data` (or `DATA_STORAGE` / `--data`); write permissions on discovered paths |
 | Registration fails | Wallet funded; `HTTP.DomainName` / TLS; chain sync (Lantern or external API) |
 | Startup warning about missing key | Expected until wallet is configured; clears after key insert |
