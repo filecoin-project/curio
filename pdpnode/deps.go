@@ -4,7 +4,6 @@ package pdpnode
 import (
 	"context"
 	"net/http"
-	"os"
 	"strings"
 
 	logging "github.com/ipfs/go-log/v2"
@@ -67,6 +66,7 @@ type Deps struct {
 
 // Open initializes PDP-node dependencies from CLI flags and a single base config layer.
 func Open(ctx context.Context, cctx *cli.Context) (*Deps, error) {
+	skiffDockerLog("opening database connection")
 	repoPath := cctx.String(curiodeps.FlagRepoPath)
 	if err := ensureRepo(repoPath); err != nil {
 		return nil, err
@@ -89,7 +89,8 @@ func Open(ctx context.Context, cctx *cli.Context) (*Deps, error) {
 	if !cfg.Subsystems.EnablePDP {
 		cfg.Subsystems.EnablePDP = true
 	}
-	if cfg.Subsystems.GuiAddress == "" || strings.HasPrefix(cfg.Subsystems.GuiAddress, "0.0.0.0") {
+	applySkiffDockerListen(cfg)
+	if !skiffDockerMode() && (cfg.Subsystems.GuiAddress == "" || strings.HasPrefix(cfg.Subsystems.GuiAddress, "0.0.0.0")) {
 		port := "4701"
 		if parts := strings.Split(cfg.Subsystems.GuiAddress, ":"); len(parts) == 2 && parts[1] != "" {
 			port = parts[1]
@@ -101,6 +102,8 @@ func Open(ctx context.Context, cctx *cli.Context) (*Deps, error) {
 	if machineHost == "" {
 		machineHost = defaultMachineHost
 	}
+
+	skiffDockerLog("initializing storage")
 
 	al := curioalerting.NewAlertingSystem()
 	si := paths.NewDBIndex(al, db)
@@ -125,11 +128,8 @@ func Open(ctx context.Context, cctx *cli.Context) (*Deps, error) {
 		return nil, xerrors.Errorf("remote store: %w", err)
 	}
 
-	cfgApiInfo := cfg.Apis.ChainApiInfo
-	if v := os.Getenv("FULLNODE_API_INFO"); v != "" {
-		cfgApiInfo = []string{v}
-	}
-	chain, chainCloser, err := curiodeps.GetFullNodeAPIV1Curio(cctx, cfgApiInfo)
+	skiffDockerLog("connecting to chain API (embedded Lantern may take a minute on first start)")
+	chain, chainCloser, err := curiodeps.GetFullNodeAPIV1Curio(cctx, cfg.Apis)
 	if err != nil {
 		return nil, err
 	}
@@ -138,6 +138,7 @@ func Open(ctx context.Context, cctx *cli.Context) (*Deps, error) {
 	if dbHost == "" {
 		dbHost = cctx.String("db-host")
 	}
+	skiffDockerLog("starting index store on %s:%d", dbHost, cctx.Int("db-cassandra-port"))
 	indexStore, err := indexstore.NewIndexStore(strings.Split(dbHost, ","), cctx.Int("db-cassandra-port"), cfg)
 	if err != nil {
 		return nil, xerrors.Errorf("index store: %w", err)
@@ -152,7 +153,7 @@ func Open(ctx context.Context, cctx *cli.Context) (*Deps, error) {
 	serveChunker := chunker.NewServeChunker(db, sectorReader, indexStore, cpr)
 
 	ethLazy := lazy.MakeLazy(func() (ethchain.EthClient, error) {
-		return curiodeps.GetEthClient(cctx, cfgApiInfo)
+		return curiodeps.GetEthClient(cctx, cfg.Apis)
 	})
 
 	name := cctx.String("name")
@@ -191,6 +192,7 @@ func Open(ctx context.Context, cctx *cli.Context) (*Deps, error) {
 	sender, _ := message.NewSender(chain, chain, db, cfg.Fees.MaximizeFeeCap)
 	d.Sender = sender
 
+	skiffDockerLog("startup dependencies ready")
 	return d, nil
 }
 

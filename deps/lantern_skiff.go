@@ -19,6 +19,7 @@ import (
 	lanternwallet "github.com/Reiers/lantern/wallet"
 
 	"github.com/filecoin-project/curio/build"
+	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/pdp/contract"
 )
 
@@ -36,12 +37,15 @@ var (
 	embedErr  error
 )
 
-func resolveChainAPIInfo(cctx *cli.Context, configured []string) ([]string, func(), error) {
+func resolveChainAPIInfo(cctx *cli.Context, apis config.ApisConfig) ([]string, func(), error) {
 	if v := os.Getenv("FULLNODE_API_INFO"); v != "" {
 		return []string{v}, func() {}, nil
 	}
-	if len(configured) > 0 {
-		return configured, func() {}, nil
+	if len(apis.ChainApiInfo) > 0 {
+		return apis.ChainApiInfo, func() {}, nil
+	}
+	if !useEmbeddedLanternBackend(apis.ChainBackend) {
+		return nil, nil, xerrors.Errorf("chain API not configured: set [APIs].ChainApiInfo, FULLNODE_API_INFO, or ChainBackend=%q", config.ChainBackendLantern)
 	}
 
 	embedOnce.Do(func() {
@@ -91,6 +95,9 @@ func startEmbeddedLantern(cctx *cli.Context) (*embeddedLantern, error) {
 	for i := 0; i < 3000; i++ {
 		if d.Started() && d.RPCAddr() != "" {
 			break
+		}
+		if os.Getenv("SKIFF_DOCKER") != "" && i > 0 && i%100 == 0 {
+			_, _ = fmt.Fprintf(os.Stderr, "[skiff] waiting for embedded Lantern RPC (%ds)...\n", i/10)
 		}
 		time.Sleep(100 * time.Millisecond)
 	}

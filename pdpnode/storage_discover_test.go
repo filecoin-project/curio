@@ -24,17 +24,43 @@ func TestIsWritableDir(t *testing.T) {
 func TestDiscoverWritableStoragePaths(t *testing.T) {
 	root := t.TempDir()
 
-	writableA := filepath.Join(root, "a")
-	writableB := filepath.Join(root, "nested", "b")
-	blocked := filepath.Join(root, "blocked")
-	require.NoError(t, os.MkdirAll(writableA, 0o755))
-	require.NoError(t, os.MkdirAll(writableB, 0o755))
-	require.NoError(t, os.MkdirAll(blocked, 0o000))
-	t.Cleanup(func() { _ = os.Chmod(blocked, 0o755) })
+	require.NoError(t, os.MkdirAll(filepath.Join(root, skiffHotDataDirName), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "nested", skiffHotDataDirName), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "other"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "nested", "other"), 0o755))
 
 	got, err := discoverWritableStoragePaths(root)
 	require.NoError(t, err)
-	require.Equal(t, []string{mustCanon(t, root), mustCanon(t, writableA), mustCanon(t, filepath.Join(root, "nested")), mustCanon(t, writableB)}, got)
+	require.Equal(t, []string{
+		mustCanon(t, root),
+		mustCanon(t, filepath.Join(root, skiffHotDataDirName)),
+		mustCanon(t, filepath.Join(root, "nested", skiffHotDataDirName)),
+	}, got)
+}
+
+func TestDiscoverWritableStoragePathsSkipsSectorLayoutDirs(t *testing.T) {
+	root := t.TempDir()
+
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "sealed", "s-t01234-1"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "unsealed", "s-t01234-1"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "cache", "s-t01234-1"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "fetching", "tmp"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "stash"), 0o755))
+
+	got, err := discoverWritableStoragePaths(root)
+	require.NoError(t, err)
+	require.Equal(t, []string{mustCanon(t, root)}, got)
+}
+
+func TestDiscoverWritableStoragePathsRespectsMaxDepth(t *testing.T) {
+	root := t.TempDir()
+
+	deep := filepath.Join(root, "l1", "l2", "l3", skiffHotDataDirName)
+	require.NoError(t, os.MkdirAll(deep, 0o755))
+
+	got, err := discoverWritableStoragePaths(root)
+	require.NoError(t, err)
+	require.Equal(t, []string{mustCanon(t, root)}, got)
 }
 
 func TestDiscoverWritableStoragePathsIgnoresUnreadableSubtree(t *testing.T) {
@@ -52,14 +78,14 @@ func TestDiscoverWritableStoragePathsIgnoresUnreadableSubtree(t *testing.T) {
 
 func TestDiscoverWritableStoragePathsDedupesSymlinks(t *testing.T) {
 	root := t.TempDir()
-	nested := filepath.Join(root, "nested")
-	require.NoError(t, os.MkdirAll(nested, 0o755))
+	hot := filepath.Join(root, skiffHotDataDirName)
+	require.NoError(t, os.MkdirAll(hot, 0o755))
 	link := filepath.Join(root, "link")
-	require.NoError(t, os.Symlink(nested, link))
+	require.NoError(t, os.Symlink(hot, link))
 
 	got, err := discoverWritableStoragePaths(root)
 	require.NoError(t, err)
-	require.Equal(t, []string{mustCanon(t, root), mustCanon(t, nested)}, got)
+	require.Equal(t, []string{mustCanon(t, root), mustCanon(t, hot)}, got)
 }
 
 func TestDiscoverWritableStoragePathsMissingRoot(t *testing.T) {

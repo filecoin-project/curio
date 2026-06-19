@@ -2,7 +2,6 @@ package pdpnode
 
 import (
 	"encoding/json"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -14,7 +13,29 @@ import (
 	"github.com/filecoin-project/curio/lib/storiface"
 )
 
-const defaultPDPStorageWeight = 10
+const (
+	defaultPDPStorageWeight = 10
+	skiffHotDataDirName     = "filecoin-hot-data"
+	maxStorageScanDepth     = 3
+)
+
+var skipStorageDirNames = func() map[string]struct{} {
+	out := map[string]struct{}{
+		paths.FetchTempSubdir: {},
+		paths.StashDirName:    {},
+		"yugabyte":            {}, // skiff docker compose DB data dir under SKIFF_DATA
+		"skiff":               {}, // skiff docker compose repo dir under SKIFF_DATA
+	}
+	for _, ft := range storiface.PathTypes {
+		out[ft.String()] = struct{}{}
+	}
+	return out
+}()
+
+func isSkippedStorageDir(name string) bool {
+	_, ok := skipStorageDirNames[name]
+	return ok
+}
 
 func canonicalStoragePath(p string) (string, error) {
 	abs, err := filepath.Abs(p)
@@ -83,26 +104,51 @@ func discoverWritableStoragePaths(dataRoot string) ([]string, error) {
 		pathsOut = append(pathsOut, canon)
 	}
 
-	err = filepath.WalkDir(dataRoot, func(path string, d fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			if os.IsPermission(walkErr) {
-				if d != nil && d.IsDir() {
-					return filepath.SkipDir
-				}
-				return nil
+	if isWritableDir(dataRoot) {
+		addPath(dataRoot)
+	}
+
+	type scanEntry struct {
+		path  string
+		depth int
+	}
+	queue := []scanEntry{{path: dataRoot, depth: 0}}
+
+	for len(queue) > 0 {
+		entry := queue[0]
+		queue = queue[1:]
+
+		if entry.depth >= maxStorageScanDepth {
+			continue
+		}
+
+		children, err := os.ReadDir(entry.path)
+		if err != nil {
+			if os.IsPermission(err) {
+				continue
 			}
-			return nil
+			return nil, xerrors.Errorf("reading %s: %w", entry.path, err)
 		}
-		if !d.IsDir() {
-			return nil
+
+		for _, child := range children {
+			if !child.IsDir() {
+				continue
+			}
+			name := child.Name()
+			if isSkippedStorageDir(name) {
+				continue
+			}
+
+			childPath := filepath.Join(entry.path, name)
+			if name == skiffHotDataDirName {
+				if isWritableDir(childPath) {
+					addPath(childPath)
+				}
+				continue
+			}
+
+			queue = append(queue, scanEntry{path: childPath, depth: entry.depth + 1})
 		}
-		if isWritableDir(path) {
-			addPath(path)
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, xerrors.Errorf("walking data root %s: %w", dataRoot, err)
 	}
 
 	sort.Strings(pathsOut)

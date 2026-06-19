@@ -52,13 +52,13 @@ func TestResolveSkiffDataPath(t *testing.T) {
 
 func TestPDPStorageConfigFromDataRoot(t *testing.T) {
 	root := t.TempDir()
-	writable := filepath.Join(root, "store")
-	require.NoError(t, os.MkdirAll(writable, 0o755))
+	hot := filepath.Join(root, skiffHotDataDirName)
+	require.NoError(t, os.MkdirAll(hot, 0o755))
 
 	cfg, err := pdpStorageConfig(root)
 	require.NoError(t, err)
 	require.Len(t, cfg.StoragePaths, 2)
 
-	metaPath := filepath.Join(writable, "sectorstore.json")
+	metaPath := filepath.Join(hot, "sectorstore.json")
 	require.FileExists(t, metaPath)
 }

@@ -15,6 +15,7 @@ import (
 // Run starts the PDP node until shutdown.
 func Run(cctx *cli.Context) error {
 	ctx := context.Background()
+	skiffDockerLog("starting")
 	if cctx.Bool("manage-fdlimit") {
 		manageFdLimit()
 	}
@@ -25,6 +26,11 @@ func Run(cctx *cli.Context) error {
 	}
 	defer d.Close()
 
+	if _, err := StartAdmin(ctx, d); err != nil {
+		return xerrors.Errorf("admin http: %w", err)
+	}
+	skiffDockerLog("admin GUI listening on http://%s", d.Cfg.Subsystems.GuiAddress)
+
 	taskRes, err := RegisterTasks(ctx, d)
 	if err != nil {
 		return xerrors.Errorf("register tasks: %w", err)
@@ -33,10 +39,6 @@ func Run(cctx *cli.Context) error {
 
 	if err := StartPublic(ctx, d, taskRes); err != nil {
 		return xerrors.Errorf("public http: %w", err)
-	}
-
-	if _, err := StartAdmin(ctx, d); err != nil {
-		return xerrors.Errorf("admin http: %w", err)
 	}
 
 	shutdownChan := make(chan struct{})

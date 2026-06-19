@@ -12,7 +12,7 @@ curio: $(BUILD_DEPS)
 	-tags "$(CURIO_TAGS)" \
 	-o curio -ldflags " -s -w \
 	-X github.com/filecoin-project/curio/build.IsOpencl=$(FFI_USE_OPENCL) \
-	-X github.com/filecoin-project/curio/build.CurrentCommit=+git_`git log -1 --format=%h_%cI`" \
+	-X github.com/filecoin-project/curio/build.CurrentCommit=+git_$(CURIO_BUILD_COMMIT)" \
 	./cmd/curio
 .PHONY: curio
 BINS += curio
@@ -29,7 +29,7 @@ curio-native: $(BUILD_DEPS)
 			-tags "$(CURIO_TAGS)" \
 			-o curio -ldflags " -s -w \
 			-X github.com/filecoin-project/curio/build.IsOpencl=$(FFI_USE_OPENCL) \
-			-X github.com/filecoin-project/curio/build.CurrentCommit=+git_`git log -1 --format=%h_%cI`" \
+			-X github.com/filecoin-project/curio/build.CurrentCommit=+git_$(CURIO_BUILD_COMMIT)" \
 			./cmd/curio ; \
 	else \
 		echo "Building curio-native (non-amd64; GOAMD64 not applicable)"; \
@@ -37,7 +37,7 @@ curio-native: $(BUILD_DEPS)
 			-tags "$(CURIO_TAGS)" \
 			-o curio -ldflags " -s -w \
 			-X github.com/filecoin-project/curio/build.IsOpencl=$(FFI_USE_OPENCL) \
-			-X github.com/filecoin-project/curio/build.CurrentCommit=+git_`git log -1 --format=%h_%cI`" \
+			-X github.com/filecoin-project/curio/build.CurrentCommit=+git_$(CURIO_BUILD_COMMIT)" \
 			./cmd/curio ; \
 	fi
 .PHONY: curio-native
@@ -59,7 +59,7 @@ curio-pdp: setup-cgo-env ffi-version-check
 	CGO_LDFLAGS_ALLOW=$(CGO_LDFLAGS_ALLOW) $(GOCC) build $(GOFLAGS) \
 	-tags "$(SKIFF_TAGS)" \
 	-o curio -ldflags " -s -w \
-	-X github.com/filecoin-project/curio/build.CurrentCommit=+git_`git log -1 --format=%h_%cI`" \
+	-X github.com/filecoin-project/curio/build.CurrentCommit=+git_$(CURIO_BUILD_COMMIT)" \
 	./cmd/skiff
 .PHONY: curio-pdp
 

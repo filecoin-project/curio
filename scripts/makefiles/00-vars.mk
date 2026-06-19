@@ -23,6 +23,9 @@ CLEAN :=
 # Host OS identifier for parse-time branching.
 UNAME_S := $(shell uname)
 
+# Git commit embedded in binary version (override when .git is unavailable, e.g. docker build).
+CURIO_BUILD_COMMIT ?= $(shell git log -1 --format=%h_%cI 2>/dev/null || echo unknown)
+
 # CUDA library path setup for Linux hosts with nvcc present.
 ifeq ($(UNAME_S),Linux)
 NVCC_PATH := $(shell which nvcc 2>/dev/null)

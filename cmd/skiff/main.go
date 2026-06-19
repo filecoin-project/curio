@@ -8,6 +8,8 @@ import (
 	"github.com/mitchellh/go-homedir"
 	"github.com/urfave/cli/v2"
 
+	logging "github.com/ipfs/go-log/v2"
+
 	curiobuild "github.com/filecoin-project/curio/build"
 	curiodeps "github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/pdpnode"
@@ -92,6 +94,8 @@ func main() {
 			if c.IsSet("color") {
 				color.NoColor = !c.Bool("color")
 			}
+			_ = logging.SetLogLevel("*", "INFO")
+			_ = logging.SetLogLevel("rpc", "ERROR")
 			p, err := homedir.Expand(c.String(curiodeps.FlagRepoPath))
 			if err != nil {
 				return err

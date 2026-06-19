@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net/http"
+	"os"
 	"reflect"
 	"strings"
 	"sync"
@@ -23,6 +24,7 @@ import (
 
 	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/build"
+	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/lib/ethchain"
 
 	"github.com/filecoin-project/lotus/chain/types"
@@ -31,12 +33,23 @@ import (
 
 var clog = logging.Logger("curio/chain")
 
-func GetFullNodeAPIV1Curio(ctx *cli.Context, ainfoCfg []string) (api.Chain, jsonrpc.ClientCloser, error) {
+func skiffDockerMode() bool {
+	return os.Getenv("SKIFF_DOCKER") != ""
+}
+
+func chainStartupContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if !skiffDockerMode() {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, 30*time.Second)
+}
+
+func GetFullNodeAPIV1Curio(ctx *cli.Context, apis config.ApisConfig) (api.Chain, jsonrpc.ClientCloser, error) {
 	if tn, ok := ctx.App.Metadata["testnode-full"]; ok {
 		return tn.(api.Chain), func() {}, nil
 	}
 
-	ainfoCfg, embedCloser, err := resolveChainAPIInfo(ctx, ainfoCfg)
+	ainfoCfg, embedCloser, err := resolveChainAPIInfo(ctx, apis)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -72,8 +85,16 @@ func GetFullNodeAPIV1Curio(ctx *cli.Context, ainfoCfg []string) (api.Chain, json
 		}
 
 		// Validate network match
-		networkName, err := v1api.StateNetworkName(ctx.Context)
+		netCtx, netCancel := chainStartupContext(ctx.Context)
+		networkName, err := v1api.StateNetworkName(netCtx)
+		netCancel()
 		if err != nil {
+			if skiffDockerMode() && errors.Is(err, context.DeadlineExceeded) {
+				clog.Warnf("Chain network check timed out for %s (embedded Lantern may still be syncing); continuing", head.addr)
+				fullNodes = append(fullNodes, v1api)
+				closers = append(closers, closer)
+				continue
+			}
 			clog.Warnf("Failed to get network name from node %s: %s", head.addr, err.Error())
 			closer()
 			continue
@@ -344,8 +365,8 @@ func ErrorIsIn(err error, errorTypes []error) bool {
 	return false
 }
 
-func GetEthClient(cctx *cli.Context, ainfoCfg []string) (ethchain.EthClient, error) {
-	ainfoCfg, _, err := resolveChainAPIInfo(cctx, ainfoCfg)
+func GetEthClient(cctx *cli.Context, apis config.ApisConfig) (ethchain.EthClient, error) {
+	ainfoCfg, _, err := resolveChainAPIInfo(cctx, apis)
 	if err != nil {
 		return nil, err
 	}
@@ -387,8 +408,15 @@ func GetEthClient(cctx *cli.Context, ainfoCfg []string) (ethchain.EthClient, err
 			continue
 		}
 		client := &ethchain.ChainErrorWrap{EthClient: ethclient.NewClient(rpcClient)}
-		_, err = client.BlockNumber(cctx.Context)
+		ethCtx, ethCancel := chainStartupContext(cctx.Context)
+		_, err = client.BlockNumber(ethCtx)
+		ethCancel()
 		if err != nil {
+			if skiffDockerMode() && errors.Is(err, context.DeadlineExceeded) {
+				log.Warnf("eth block number timed out for %s (Lantern may still be syncing); continuing", head.addr)
+				clients = append(clients, client)
+				continue
+			}
 			log.Warnf("failed to get eth block number: %s", err)
 			continue
 		}

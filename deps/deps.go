@@ -265,11 +265,7 @@ func (deps *Deps) PopulateRemainingDeps(ctx context.Context, cctx *cli.Context, 
 
 	if deps.Chain == nil {
 		var fullCloser func()
-		cfgApiInfo := deps.Cfg.Apis.ChainApiInfo
-		if v := os.Getenv("FULLNODE_API_INFO"); v != "" {
-			cfgApiInfo = []string{v}
-		}
-		deps.Chain, fullCloser, err = GetFullNodeAPIV1Curio(cctx, cfgApiInfo)
+		deps.Chain, fullCloser, err = GetFullNodeAPIV1Curio(cctx, deps.Cfg.Apis)
 		if err != nil {
 			return err
 		}
@@ -282,11 +278,7 @@ func (deps *Deps) PopulateRemainingDeps(ctx context.Context, cctx *cli.Context, 
 
 	if deps.EthClient == nil {
 		deps.EthClient = lazy.MakeLazy[ethchain.EthClient](func() (ethchain.EthClient, error) {
-			cfgApiInfo := deps.Cfg.Apis.ChainApiInfo
-			if v := os.Getenv("FULLNODE_API_INFO"); v != "" {
-				cfgApiInfo = []string{v}
-			}
-			return GetEthClient(cctx, cfgApiInfo)
+			return GetEthClient(cctx, deps.Cfg.Apis)
 		})
 	}
 
@@ -596,18 +588,13 @@ func GetAPI(ctx context.Context, cctx *cli.Context) (*harmonydb.DB, *config.Curi
 		return nil, nil, nil, nil, nil, err
 	}
 
-	cfgApiInfo := cfg.Apis.ChainApiInfo
-	if v := os.Getenv("FULLNODE_API_INFO"); v != "" {
-		cfgApiInfo = []string{v}
-	}
-
-	full, fullCloser, err := GetFullNodeAPIV1Curio(cctx, cfgApiInfo)
+	full, fullCloser, err := GetFullNodeAPIV1Curio(cctx, cfg.Apis)
 	if err != nil {
 		return nil, nil, nil, nil, nil, err
 	}
 
 	ethClient := lazy.MakeLazy(func() (ethchain.EthClient, error) {
-		return GetEthClient(cctx, cfgApiInfo)
+		return GetEthClient(cctx, cfg.Apis)
 	})
 
 	return db, cfg, full, fullCloser, ethClient, nil

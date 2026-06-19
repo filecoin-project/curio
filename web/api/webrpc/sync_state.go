@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 
 	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/build"
+	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/deps/config"
 
 	cliutil "github.com/filecoin-project/lotus/cli/util"
@@ -25,28 +27,7 @@ type RpcInfo struct {
 }
 
 func (a *WebRPC) SyncerState(ctx context.Context) ([]RpcInfo, error) {
-	type minimalApiInfo struct {
-		Apis struct {
-			ChainApiInfo []string
-		}
-	}
-
-	var rpcInfos []string
-	confNameToAddr := make(map[string][]string) // config name -> api addresses
-
-	err := config.ForEachConfig[minimalApiInfo](ctx, a.Deps.DB, func(name string, info minimalApiInfo) error {
-		if len(info.Apis.ChainApiInfo) == 0 {
-			return nil
-		}
-
-		for _, addr := range info.Apis.ChainApiInfo {
-			rpcInfos = append(rpcInfos, addr)
-			ai := cliutil.ParseApiInfo(addr)
-			confNameToAddr[name] = append(confNameToAddr[name], ai.Addr)
-		}
-
-		return nil
-	})
+	endpoints, err := deps.CollectChainRPCEndpoints(ctx, a.Deps.DB)
 	if err != nil {
 		return nil, err
 	}
@@ -57,24 +38,22 @@ func (a *WebRPC) SyncerState(ctx context.Context) ([]RpcInfo, error) {
 	var infosLk sync.Mutex
 
 	var wg sync.WaitGroup
-	for _, info := range rpcInfos {
-		ai := cliutil.ParseApiInfo(info)
+	for _, endpoint := range endpoints {
+		ai := cliutil.ParseApiInfo(endpoint.ApiInfo)
 		if dedup[ai.Addr] {
 			continue
 		}
 		dedup[ai.Addr] = true
-		wg.Go(func() {
-			var clayers []string
-			for layer, adrs := range confNameToAddr {
-				for _, adr := range adrs {
-					if adr == ai.Addr {
-						clayers = append(clayers, layer)
-					}
-				}
-			}
 
+		displayAddr := ai.Addr
+		if len(endpoint.Layers) == 1 && endpoint.Layers[0] == config.ChainBackendLantern {
+			displayAddr = "lantern (embedded) · " + ai.Addr
+		}
+
+		wg.Go(func() {
+			clayers := append([]string(nil), endpoint.Layers...)
 			myinfo := RpcInfo{
-				Address:   ai.Addr,
+				Address:   displayAddr,
 				Reachable: false,
 				CLayers:   clayers,
 			}
@@ -87,6 +66,7 @@ func (a *WebRPC) SyncerState(ctx context.Context) ([]RpcInfo, error) {
 			addr, err := ai.DialArgs("v1")
 			if err != nil {
 				log.Warnf("could not get DialArgs: %w", err)
+				return
 			}
 
 			var res api.ChainStruct
@@ -122,18 +102,23 @@ func (a *WebRPC) SyncerState(ctx context.Context) ([]RpcInfo, error) {
 				syncState = fmt.Sprintf("behind (%s behind)", time.Since(time.Unix(int64(head.MinTimestamp()), 0)).Truncate(time.Second))
 			}
 
+			version := ver.Version
+			if strings.Contains(displayAddr, "lantern (embedded)") {
+				version = "lantern · " + version
+			}
+
 			myinfo = RpcInfo{
-				Address:   ai.Addr,
+				Address:   displayAddr,
 				CLayers:   clayers,
 				Reachable: true,
-				Version:   ver.Version,
+				Version:   version,
 				SyncState: syncState,
 			}
 		})
 	}
 	wg.Wait()
 
-	var infoList []RpcInfo
+	infoList := make([]RpcInfo, 0, len(infos))
 	for _, i := range infos {
 		infoList = append(infoList, i)
 	}

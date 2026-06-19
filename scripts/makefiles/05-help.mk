@@ -8,6 +8,8 @@ help:
 	@echo "  make deps         Build external/native dependencies only (ffi/blst/supraseal as needed)"
 	@echo "  make build        Build default binaries: curio + sptool"
 	@echo "  make curio-pdp    Build PDP-only curio (synonym: make skiff)"
+	@echo "  make skiff/up     Build and start skiff docker stack (mainnet)"
+	@echo "  make skiff/calibnet/up  Build and start skiff docker stack (calibnet)"
 	@echo "  make test-synapse Run Synapse SDK PDP HTTP API contract tests"
 	@echo "  make calibnet     Same as build, plus calibnet tag"
 	@echo "  make debug        Same as build, plus debug tag"

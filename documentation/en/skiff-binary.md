@@ -64,10 +64,13 @@ Skiff embeds [Lantern](https://github.com/Reiers/lantern) as its default chain b
 | Source | Precedence |
 |--------|------------|
 | `FULLNODE_API_INFO` env | Highest |
-| `[APIs].ChainApiInfo` in config | Second |
-| Embedded Lantern | Default |
+| `[APIs].ChainApiInfo` in config | Second (overrides ChainBackend) |
+| `[APIs].ChainBackend = "lantern"` | Default for skiff (embedded Lantern) |
+| Embedded Lantern | Used when ChainBackend is `lantern` and ChainApiInfo is unset |
 
-Embedded Lantern supports **mainnet** and **calibration** builds only. For `2k` / debug builds, set `ChainApiInfo` or `FULLNODE_API_INFO` to an external Lotus-compatible RPC endpoint.
+Set `[APIs].ChainBackend = "external"` and configure `ChainApiInfo` to use an external Lotus-compatible RPC instead of embedded Lantern.
+
+Embedded Lantern supports **mainnet** and **calibration** builds only. For `2k` / debug builds, set `ChainBackend = "external"` and `ChainApiInfo` or `FULLNODE_API_INFO` to an external Lotus-compatible RPC endpoint.
 
 ## Storage
 

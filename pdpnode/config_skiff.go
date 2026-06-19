@@ -7,12 +7,17 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"io"
+	"os"
 
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 )
+
+func skiffDockerMode() bool {
+	return os.Getenv("SKIFF_DOCKER") != ""
+}
 
 func defaultSkiffBaseConfig() *config.CurioConfig {
 	cfg := config.DefaultCurioConfig()
@@ -21,11 +26,23 @@ func defaultSkiffBaseConfig() *config.CurioConfig {
 	cfg.Subsystems.GuiAddress = "127.0.0.1:4701"
 	cfg.HTTP.Enable = false
 
+	if skiffDockerMode() {
+		cfg.Subsystems.GuiAddress = "0.0.0.0:4701"
+		cfg.HTTP.Enable = true
+		cfg.HTTP.DelegateTLS = true
+		cfg.HTTP.ListenAddress = "0.0.0.0:80"
+		cfg.HTTP.DomainName = os.Getenv("SKIFF_HTTP_DOMAIN")
+		if cfg.HTTP.DomainName == "" {
+			cfg.HTTP.DomainName = "localhost"
+		}
+	}
+
 	sk, err := io.ReadAll(io.LimitReader(rand.Reader, 32))
 	if err != nil {
 		panic(xerrors.Errorf("generating storage rpc secret: %w", err))
 	}
 	cfg.Apis.StorageRPCSecret = base64.StdEncoding.EncodeToString(sk)
+	cfg.Apis.ChainBackend = config.ChainBackendLantern
 	return cfg
 }
 
@@ -34,7 +51,11 @@ func applySkiffDefaults(cfg *config.CurioConfig) {
 	if !cfg.Subsystems.EnableWebGui {
 		cfg.Subsystems.EnableWebGui = true
 	}
-	if cfg.Subsystems.GuiAddress == "" || cfg.Subsystems.GuiAddress == "0.0.0.0:4701" {
+	if skiffDockerMode() {
+		if cfg.Subsystems.GuiAddress == "" || cfg.Subsystems.GuiAddress == "127.0.0.1:4701" {
+			cfg.Subsystems.GuiAddress = "0.0.0.0:4701"
+		}
+	} else if cfg.Subsystems.GuiAddress == "" || cfg.Subsystems.GuiAddress == "0.0.0.0:4701" {
 		cfg.Subsystems.GuiAddress = "127.0.0.1:4701"
 	}
 	if cfg.Apis.StorageRPCSecret == "" {
@@ -43,6 +64,9 @@ func applySkiffDefaults(cfg *config.CurioConfig) {
 			panic(xerrors.Errorf("generating storage rpc secret: %w", err))
 		}
 		cfg.Apis.StorageRPCSecret = base64.StdEncoding.EncodeToString(sk)
+	}
+	if cfg.Apis.ChainBackend == "" {
+		cfg.Apis.ChainBackend = config.ChainBackendLantern
 	}
 }
 
