@@ -5,10 +5,9 @@ import (
 	"os"
 
 	"github.com/fatih/color"
+	logging "github.com/ipfs/go-log/v2"
 	"github.com/mitchellh/go-homedir"
 	"github.com/urfave/cli/v2"
-
-	logging "github.com/ipfs/go-log/v2"
 
 	curiobuild "github.com/filecoin-project/curio/build"
 	curiodeps "github.com/filecoin-project/curio/deps"

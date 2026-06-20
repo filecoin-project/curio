@@ -10,13 +10,12 @@ import (
 	"sync"
 	"time"
 
+	lanternd "github.com/Reiers/lantern/pkg/daemon"
+	lanternwallet "github.com/Reiers/lantern/wallet"
 	"github.com/ethereum/go-ethereum/common"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/xerrors"
-
-	lanternd "github.com/Reiers/lantern/pkg/daemon"
-	lanternwallet "github.com/Reiers/lantern/wallet"
 
 	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps/config"

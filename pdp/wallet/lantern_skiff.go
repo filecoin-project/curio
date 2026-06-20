@@ -8,10 +8,9 @@ import (
 	"os"
 	"path/filepath"
 
+	lanternwallet "github.com/Reiers/lantern/wallet"
 	"github.com/mitchellh/go-homedir"
 	"golang.org/x/xerrors"
-
-	lanternwallet "github.com/Reiers/lantern/wallet"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 )

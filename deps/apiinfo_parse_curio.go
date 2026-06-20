@@ -4,6 +4,7 @@ package deps
 
 import (
 	"github.com/filecoin-project/curio/lib/apiconn"
+
 	cliutil "github.com/filecoin-project/lotus/cli/util"
 )
 

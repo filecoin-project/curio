@@ -3,8 +3,9 @@ package webrpc
 import (
 	"context"
 
-	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"golang.org/x/xerrors"
+
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 )
 
 // SQLQuery runs arbitrary SQL against the HarmonyDB for the admin console.

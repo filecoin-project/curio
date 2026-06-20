@@ -339,7 +339,7 @@ func (al *alerts) getAddresses() error {
 	type machineDetail struct {
 		ID          int
 		HostAndPort string
-		Layers      string
+		Layers      sql.NullString // NULL when harmony_machine_details row is missing
 	}
 	var machineDetails []machineDetail
 
@@ -359,8 +359,11 @@ func (al *alerts) getAddresses() error {
 
 	// Get unique layers in use
 	for _, machine := range machineDetails {
+		if !machine.Layers.Valid {
+			continue
+		}
 		// Split the Layers field into individual layers
-		layers := strings.SplitSeq(machine.Layers, ",")
+		layers := strings.SplitSeq(machine.Layers.String, ",")
 		for layer := range layers {
 			layer = strings.TrimSpace(layer)
 			if _, exists := layerMap[layer]; !exists && layer != "" {

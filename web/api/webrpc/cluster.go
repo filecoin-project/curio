@@ -67,21 +67,33 @@ func (a *WebRPC) ClusterMachines(ctx context.Context) ([]MachineSummary, error) 
 		var m MachineSummary
 		var lastContact time.Duration
 		var ram int64
-		var uptime time.Time
 		var restartRequest *time.Time
-		var version sql.NullString
+		var name, tasks, layers, version sql.NullString
+		var uptime sql.NullTime
 
-		if err := rows.Scan(&m.ID, &m.Address, &lastContact, &m.Cpu, &ram, &m.Gpu, &m.Unschedulable, &restartRequest, &m.Name, &m.Tasks, &m.Layers, &uptime, &version); err != nil {
+		if err := rows.Scan(&m.ID, &m.Address, &lastContact, &m.Cpu, &ram, &m.Gpu, &m.Unschedulable, &restartRequest, &name, &tasks, &layers, &uptime, &version); err != nil {
 			return nil, err // Handle error
+		}
+		if name.Valid {
+			m.Name = name.String
+		}
+		if m.Name == "" {
+			m.Name = m.Address
 		}
 		if version.Valid {
 			m.Version = version.String
 		}
 		m.SinceContact = lastContact.Round(time.Second).String()
 		m.RamHumanized = humanize.Bytes(uint64(ram))
-		m.Uptime = humanize.Time(uptime)
-		m.Tasks = strings.TrimSuffix(strings.TrimPrefix(m.Tasks, ","), ",")
-		m.Layers = strings.TrimSuffix(strings.TrimPrefix(m.Layers, ","), ",")
+		if uptime.Valid {
+			m.Uptime = humanize.Time(uptime.Time)
+		}
+		if tasks.Valid {
+			m.Tasks = strings.TrimSuffix(strings.TrimPrefix(tasks.String, ","), ",")
+		}
+		if layers.Valid {
+			m.Layers = strings.TrimSuffix(strings.TrimPrefix(layers.String, ","), ",")
+		}
 
 		if m.Unschedulable {
 			var runningTasks int
@@ -266,9 +278,30 @@ func (a *WebRPC) ClusterNodeInfo(ctx context.Context, id int64) (*MachineInfo, e
 	if rows.Next() {
 		var m MachineInfo
 		var lastContact time.Time
+		var name, layers, tasks, miners sql.NullString
+		var startupTime sql.NullTime
 
-		if err := rows.Scan(&m.Info.ID, &m.Info.Host, &lastContact, &m.Info.CPU, &m.Info.Memory, &m.Info.GPU, &m.Info.Unschedulable, &m.Info.RestartRequest, &m.Info.Name, &m.Info.Layers, &m.Info.Tasks, &m.Info.Miners, &m.Info.StartupTime); err != nil {
+		if err := rows.Scan(&m.Info.ID, &m.Info.Host, &lastContact, &m.Info.CPU, &m.Info.Memory, &m.Info.GPU, &m.Info.Unschedulable, &m.Info.RestartRequest, &name, &layers, &tasks, &miners, &startupTime); err != nil {
 			return nil, err
+		}
+		if name.Valid {
+			m.Info.Name = name.String
+		}
+		if m.Info.Name == "" {
+			m.Info.Name = m.Info.Host
+		}
+		if layers.Valid {
+			m.Info.Layers = layers.String
+		}
+		if tasks.Valid {
+			m.Info.Tasks = tasks.String
+		}
+		if miners.Valid {
+			m.Info.Miners = miners.String
+		}
+		if startupTime.Valid {
+			t := startupTime.Time
+			m.Info.StartupTime = &t
 		}
 
 		m.Info.LastContact = time.Since(lastContact).Round(time.Second).String()

@@ -35,7 +35,7 @@ COPY go.mod go.sum .gitmodules ./
 RUN git clone --filter=blob:none --sparse --depth 1 \
       https://github.com/filecoin-project/filecoin-ffi.git extern/filecoin-ffi \
     && cd extern/filecoin-ffi \
-    && git sparse-checkout set go.mod go.sum version.go
+    && git sparse-checkout set --no-cone /go.mod /go.sum /version.go
 
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \

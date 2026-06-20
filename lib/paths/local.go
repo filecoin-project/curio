@@ -1160,4 +1160,3 @@ func (st *Local) FsStat(ctx context.Context, id storiface.ID) (fsutil.FsStat, er
 	stat, _, err := p.stat(st.localStorage)
 	return stat, err
 }
-

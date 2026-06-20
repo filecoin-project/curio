@@ -19,6 +19,7 @@ import (
 	"github.com/filecoin-project/curio/lib/cachedreader"
 	"github.com/filecoin-project/curio/lib/curiochain"
 	"github.com/filecoin-project/curio/lib/ethchain"
+	"github.com/filecoin-project/curio/lib/lazy"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/pieceprovider"
 	"github.com/filecoin-project/curio/lib/piecestore"
@@ -26,8 +27,6 @@ import (
 	"github.com/filecoin-project/curio/market/ipni/chunker"
 	pdpwallet "github.com/filecoin-project/curio/pdp/wallet"
 	"github.com/filecoin-project/curio/tasks/message"
-
-	"github.com/filecoin-project/curio/lib/lazy"
 )
 
 var log = logging.Logger("pdpnode")

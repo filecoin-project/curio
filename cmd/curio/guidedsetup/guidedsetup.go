@@ -38,9 +38,9 @@ import (
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/curio/pdp/wallet"
 	"github.com/filecoin-project/curio/lib/createminer"
 	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/pdp/wallet"
 
 	lapi "github.com/filecoin-project/lotus/api"
 	cliutil "github.com/filecoin-project/lotus/cli/util"

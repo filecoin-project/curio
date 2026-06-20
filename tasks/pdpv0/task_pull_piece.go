@@ -22,8 +22,8 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
-	"github.com/filecoin-project/curio/lib/piecestore"
 	"github.com/filecoin-project/curio/lib/parkpiece"
+	"github.com/filecoin-project/curio/lib/piecestore"
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/lib/robusthttp"
 	"github.com/filecoin-project/curio/lib/storiface"
@@ -137,7 +137,7 @@ var (
 // the local piece file best-effort. Cleanup errors are logged and do not replace
 // the main task error.
 type PDPPullPieceTask struct {
-	db *harmonydb.DB
+	db  *harmonydb.DB
 	pio piecestore.PieceIO
 
 	TF promise.Promise[harmonytask.AddTaskFunc]

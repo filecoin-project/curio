@@ -397,7 +397,7 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
 
                 ${this.keyStatusLoading ? '' : !this.keyStatus?.configured ? html`
                     <div class="alert alert-danger">
-                        PDP wallet not configured. Create or assign a key on the PDP page before registering.
+                        PDP wallet not configured. Create or assign a key on the Wallets page before registering.
                     </div>
                 ` : ''}
 

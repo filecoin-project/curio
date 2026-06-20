@@ -10,3 +10,32 @@ extern/supraseal
 
 docker/data
 docker/skiff/data
+
+# Local build outputs (rebuilt inside the image; often hundreds of MB).
+/curio
+/skiff
+/cuzk
+/sptool
+/pdptool
+/docgen-md
+/docgen-openrpc
+/deps.json
+/metricsdocgen
+/bin/
+
+# CI / dev workspaces (synapse-sdk checkout is ~1GB).
+.synapse-sdk
+
+# Docs and tests (not compiled into binaries).
+/documentation
+/itests
+/shouldtest
+
+# Misc dev artifacts.
+/coverage
+/scratchpad
+/vendor
+/node_modules
+**/.venv
+/.venv
+/itests/*.test

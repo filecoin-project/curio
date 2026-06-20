@@ -280,6 +280,13 @@ description: The default curio configuration
   # type: bool
   #EnablePDP = false
 
+  # DataPath is the root directory Curio-PDP scans for writable storage locations.
+  # The node treats this directory and every subdirectory as a candidate store path.
+  # Overridden by the DATA_STORAGE env var and the --data CLI flag. (Default: /data)
+  #
+  # type: string
+  #DataPath = ""
+
   # PDPPullPieceMaxTasks is the maximum number of PDPv0 pull-piece download tasks that can run simultaneously.
   # Set 0 for unlimited. (Default: 20)
   #
@@ -999,6 +1006,14 @@ description: The default curio configuration
 #
 # type: ApisConfig
 [Apis]
+
+  # ChainBackend selects the chain JSON-RPC provider.
+  # "lantern"  — embed Lantern (skiff; default for skiff base config)
+  # "external" — use ChainApiInfo / FULLNODE_API_INFO
+  # When ChainApiInfo is set it takes precedence over ChainBackend.
+  #
+  # type: string
+  #ChainBackend = ""
 
   # API auth secret for the Curio nodes to use. This value should only be set on the bade layer.
   #
