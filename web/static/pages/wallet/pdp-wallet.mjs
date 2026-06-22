@@ -1,12 +1,12 @@
 import { LitElement, html } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs';
-import { isSkiffUI } from '/lib/ui-variant.mjs';
+import { isMaxBoomUI } from '/lib/ui-variant.mjs';
 
 customElements.define('pdp-wallet', class PDPWalletElement extends LitElement {
     static properties = {
         keys: { type: Array },
         keyStatus: { type: Object },
-        isSkiff: { type: Boolean },
+        isMaxBoom: { type: Boolean },
         showAddKeyForm: { type: Boolean },
         showCreatedKeyModal: { type: Boolean },
         createdKey: { type: Object },
@@ -17,14 +17,14 @@ customElements.define('pdp-wallet', class PDPWalletElement extends LitElement {
         super();
         this.keys = [];
         this.keyStatus = { configured: false };
-        this.isSkiff = false;
+        this.isMaxBoom = false;
         this.showAddKeyForm = false;
         this.showCreatedKeyModal = false;
         this.createdKey = null;
         this.creating = false;
         this.loadKeys();
         this.loadKeyStatus();
-        isSkiffUI().then((v) => { this.isSkiff = v; });
+        isMaxBoomUI().then((v) => { this.isMaxBoom = v; });
     }
 
     async loadKeys() {
@@ -162,7 +162,7 @@ customElements.define('pdp-wallet', class PDPWalletElement extends LitElement {
                         @click="${() => this.createKey('CreatePDPKey')}">
                     ${this.creating ? 'Creating…' : 'Create Key'}
                 </button>
-                ${this.isSkiff ? html`
+                ${this.isMaxBoom ? html`
                     <button class="btn btn-primary me-2 mb-2" ?disabled=${this.creating}
                             @click="${() => this.createKey('CreatePDPKeyLantern')}">
                         ${this.creating ? 'Creating…' : 'Create Delegated Key (Lantern)'}

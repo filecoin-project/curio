@@ -9,8 +9,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 #####################################
-# Builder: compile the FFI-free skiff (PDP-only curio) binary.
-FROM ubuntu-base AS skiff-builder
+# Builder: compile the FFI-free maxboom (PDP-only curio) binary.
+FROM ubuntu-base AS maxboom-builder
 ARG GO_VERSION
 LABEL Maintainer="Curio Dev Team"
 
@@ -28,7 +28,7 @@ ENV PATH="/usr/local/go/bin:${PATH}" \
 
 WORKDIR /opt/curio
 
-# Pre-fetch modules. filecoin-ffi is a local `replace`; skiff does not link the
+# Pre-fetch modules. filecoin-ffi is a local `replace`; maxboom does not link the
 # native libraries. Sparse-clone default branch tip (Go module metadata only, not rust/, ~9GB).
 COPY go.mod go.sum .gitmodules ./
 
@@ -43,53 +43,53 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 COPY . .
 
-# Network build target. Skiff embeds the Lantern chain backend for mainnet and
+# Network build target. MaxBoom embeds the Lantern chain backend for mainnet and
 # calibration builds. For 2k/debug builds set ChainApiInfo / FULLNODE_API_INFO.
-#   skiff (mainnet, default) | calibnet-skiff | 2k-skiff
-ARG SKIFF_MAKE_TARGET=skiff
+#   maxboom (mainnet, default) | calibnet-maxboom | 2k-maxboom
+ARG MAXBOOM_MAKE_TARGET=maxboom
 ARG CURIO_BUILD_COMMIT=unknown
 
 RUN --mount=type=cache,target=/go/pkg/mod \
-    make ${SKIFF_MAKE_TARGET} CURIO_BUILD_COMMIT=${CURIO_BUILD_COMMIT} \
-    && mv curio skiff
+    make ${MAXBOOM_MAKE_TARGET} CURIO_BUILD_COMMIT=${CURIO_BUILD_COMMIT} \
+    && mv curio maxboom
 
 #####################################
 # Runtime image.
-FROM ubuntu-base AS skiff
+FROM ubuntu-base AS maxboom
 
 ARG BUILD_VERSION=0.1
 
 LABEL org.opencontainers.image.version=$BUILD_VERSION \
       org.opencontainers.image.authors="Curio Dev Team" \
-      name="skiff" \
+      name="maxboom" \
       maintainer="Curio Dev Team" \
       vendor="Curio Dev Team" \
       version=$BUILD_VERSION \
       release=$BUILD_VERSION \
-      summary="Skiff PDP storage service" \
-      description="Lightweight PDP-only Curio (skiff) node" \
-      io.curio.skiff.ports='[{"port":4701,"protocol":"tcp","purpose":"Admin GUI (webrpc, config editor)"},{"port":80,"protocol":"tcp","purpose":"Public PDP HTTP API when HTTP.DelegateTLS=true"},{"port":443,"protocol":"tcp","purpose":"Public PDP HTTPS API when HTTP.DelegateTLS=false (autocert)"}]'
+      summary="MaxBoom PDP storage service" \
+      description="Lightweight PDP-only Curio (maxboom) node" \
+      io.curio.maxboom.ports='[{"port":4701,"protocol":"tcp","purpose":"Admin GUI (webrpc, config editor)"},{"port":80,"protocol":"tcp","purpose":"Public PDP HTTP API when HTTP.DelegateTLS=true"},{"port":443,"protocol":"tcp","purpose":"Public PDP HTTPS API when HTTP.DelegateTLS=false (autocert)"}]'
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Repo holds Lantern chain state + node identity; /data is scanned for storage.
-ENV CURIO_REPO_PATH=/var/lib/skiff \
-    SKIFF_DATA=/data \
-    SKIFF_DOCKER=1
+ENV CURIO_REPO_PATH=/var/lib/maxboom \
+    MAXBOOM_DATA=/data \
+    MAXBOOM_DOCKER=1
 
-RUN mkdir -p /var/lib/skiff /data /app
+RUN mkdir -p /var/lib/maxboom /data /app
 
-COPY --from=skiff-builder /opt/curio/skiff /usr/local/bin/skiff
-COPY docker/skiff/entrypoint.sh /app/entrypoint.sh
+COPY --from=maxboom-builder /opt/curio/maxboom /usr/local/bin/maxboom
+COPY docker/maxboom/entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
 EXPOSE 4701/tcp
 EXPOSE 80/tcp
 EXPOSE 443/tcp
 
-VOLUME ["/var/lib/skiff", "/data"]
+VOLUME ["/var/lib/maxboom", "/data"]
 
 WORKDIR /app
 ENTRYPOINT ["./entrypoint.sh"]

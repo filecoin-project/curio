@@ -1,4 +1,4 @@
-//go:build skiff
+//go:build maxboom
 
 package pdpnode
 
@@ -9,14 +9,14 @@ import (
 	"github.com/filecoin-project/curio/deps/config"
 )
 
-func skiffDockerLog(format string, args ...interface{}) {
-	if skiffDockerMode() {
-		_, _ = fmt.Fprintf(os.Stderr, "[skiff] "+format+"\n", args...)
+func maxboomDockerLog(format string, args ...interface{}) {
+	if maxboomDockerMode() {
+		_, _ = fmt.Fprintf(os.Stderr, "[maxboom] "+format+"\n", args...)
 	}
 }
 
-func applySkiffDockerListen(cfg *config.CurioConfig) {
-	if !skiffDockerMode() {
+func applyMaxBoomDockerListen(cfg *config.CurioConfig) {
+	if !maxboomDockerMode() {
 		return
 	}
 	if cfg.Subsystems.GuiAddress == "" || cfg.Subsystems.GuiAddress == "127.0.0.1:4701" {

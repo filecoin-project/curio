@@ -1,4 +1,4 @@
-//go:build skiff
+//go:build maxboom
 
 package wallet
 

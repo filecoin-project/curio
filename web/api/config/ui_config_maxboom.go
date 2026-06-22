@@ -1,4 +1,4 @@
-//go:build skiff
+//go:build maxboom
 
 package config
 
@@ -12,11 +12,11 @@ import (
 )
 
 func uiSchemaRoot() any {
-	return depsconfig.UnwrapDynamics(depsconfig.SkiffConfig{})
+	return depsconfig.UnwrapDynamics(depsconfig.MaxBoomConfig{})
 }
 
 func uiDefaultJSON() (map[string]any, error) {
-	return structToJSONMap(depsconfig.DefaultSkiffUIConfig())
+	return structToJSONMap(depsconfig.DefaultMaxBoomUIConfig())
 }
 
 func uiLayerJSON(layerToml string) (map[string]any, error) {
@@ -26,7 +26,7 @@ func uiLayerJSON(layerToml string) (map[string]any, error) {
 			return nil, err
 		}
 	}
-	return structToJSONMap(depsconfig.SkiffConfigFromCurio(curioCfg))
+	return structToJSONMap(depsconfig.MaxBoomConfigFromCurio(curioCfg))
 }
 
 func uiPrepareLayerSave(layer string, submitted map[string]any, existingToml string) (string, error) {
@@ -37,11 +37,11 @@ func uiPrepareLayerSave(layer string, submitted map[string]any, existingToml str
 		}
 	}
 
-	skiffCfg := depsconfig.DefaultSkiffUIConfig()
-	if err := decodeJSONMap(submitted, skiffCfg); err != nil {
+	maxboomCfg := depsconfig.DefaultMaxBoomUIConfig()
+	if err := decodeJSONMap(submitted, maxboomCfg); err != nil {
 		return "", err
 	}
-	depsconfig.ApplySkiffConfigToCurio(curioCfg, skiffCfg)
+	depsconfig.ApplyMaxBoomConfigToCurio(curioCfg, maxboomCfg)
 
 	if _, err := deps.LoadConfigWithUpgrades(mustEncodeTOML(curioCfg), curioCfg); err != nil {
 		return "", err

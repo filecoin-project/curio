@@ -24,8 +24,8 @@ func TestIsWritableDir(t *testing.T) {
 func TestDiscoverWritableStoragePaths(t *testing.T) {
 	root := t.TempDir()
 
-	require.NoError(t, os.MkdirAll(filepath.Join(root, skiffHotDataDirName), 0o755))
-	require.NoError(t, os.MkdirAll(filepath.Join(root, "nested", skiffHotDataDirName), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, maxboomHotDataDirName), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "nested", maxboomHotDataDirName), 0o755))
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "other"), 0o755))
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "nested", "other"), 0o755))
 
@@ -33,8 +33,8 @@ func TestDiscoverWritableStoragePaths(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []string{
 		mustCanon(t, root),
-		mustCanon(t, filepath.Join(root, skiffHotDataDirName)),
-		mustCanon(t, filepath.Join(root, "nested", skiffHotDataDirName)),
+		mustCanon(t, filepath.Join(root, maxboomHotDataDirName)),
+		mustCanon(t, filepath.Join(root, "nested", maxboomHotDataDirName)),
 	}, got)
 }
 
@@ -55,7 +55,7 @@ func TestDiscoverWritableStoragePathsSkipsSectorLayoutDirs(t *testing.T) {
 func TestDiscoverWritableStoragePathsRespectsMaxDepth(t *testing.T) {
 	root := t.TempDir()
 
-	deep := filepath.Join(root, "l1", "l2", "l3", skiffHotDataDirName)
+	deep := filepath.Join(root, "l1", "l2", "l3", maxboomHotDataDirName)
 	require.NoError(t, os.MkdirAll(deep, 0o755))
 
 	got, err := discoverWritableStoragePaths(root)
@@ -78,7 +78,7 @@ func TestDiscoverWritableStoragePathsIgnoresUnreadableSubtree(t *testing.T) {
 
 func TestDiscoverWritableStoragePathsDedupesSymlinks(t *testing.T) {
 	root := t.TempDir()
-	hot := filepath.Join(root, skiffHotDataDirName)
+	hot := filepath.Join(root, maxboomHotDataDirName)
 	require.NoError(t, os.MkdirAll(hot, 0o755))
 	link := filepath.Join(root, "link")
 	require.NoError(t, os.Symlink(hot, link))

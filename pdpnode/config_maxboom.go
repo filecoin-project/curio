@@ -1,4 +1,4 @@
-//go:build skiff
+//go:build maxboom
 
 package pdpnode
 
@@ -15,23 +15,23 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 )
 
-func skiffDockerMode() bool {
-	return os.Getenv("SKIFF_DOCKER") != ""
+func maxboomDockerMode() bool {
+	return os.Getenv("MAXBOOM_DOCKER") != ""
 }
 
-func defaultSkiffBaseConfig() *config.CurioConfig {
+func defaultMaxBoomBaseConfig() *config.CurioConfig {
 	cfg := config.DefaultCurioConfig()
 	cfg.Subsystems.EnablePDP = true
 	cfg.Subsystems.EnableWebGui = true
 	cfg.Subsystems.GuiAddress = "127.0.0.1:4701"
 	cfg.HTTP.Enable = false
 
-	if skiffDockerMode() {
+	if maxboomDockerMode() {
 		cfg.Subsystems.GuiAddress = "0.0.0.0:4701"
 		cfg.HTTP.Enable = true
 		cfg.HTTP.DelegateTLS = true
 		cfg.HTTP.ListenAddress = "0.0.0.0:80"
-		cfg.HTTP.DomainName = os.Getenv("SKIFF_HTTP_DOMAIN")
+		cfg.HTTP.DomainName = os.Getenv("MAXBOOM_HTTP_DOMAIN")
 		if cfg.HTTP.DomainName == "" {
 			cfg.HTTP.DomainName = "localhost"
 		}
@@ -46,12 +46,12 @@ func defaultSkiffBaseConfig() *config.CurioConfig {
 	return cfg
 }
 
-func applySkiffDefaults(cfg *config.CurioConfig) {
+func applyMaxBoomDefaults(cfg *config.CurioConfig) {
 	cfg.Subsystems.EnablePDP = true
 	if !cfg.Subsystems.EnableWebGui {
 		cfg.Subsystems.EnableWebGui = true
 	}
-	if skiffDockerMode() {
+	if maxboomDockerMode() {
 		if cfg.Subsystems.GuiAddress == "" || cfg.Subsystems.GuiAddress == "127.0.0.1:4701" {
 			cfg.Subsystems.GuiAddress = "0.0.0.0:4701"
 		}
@@ -114,11 +114,11 @@ func mergeConfigLayers(baseText string, overlayTexts ...string) (*config.CurioCo
 	if err := config.ApplyLayers(context.Background(), cfg, layers, config.FixTOML); err != nil {
 		return nil, err
 	}
-	applySkiffDefaults(cfg)
+	applyMaxBoomDefaults(cfg)
 	return cfg, nil
 }
 
-func ensureSkiffBaseLayer(ctx context.Context, db *harmonydb.DB) error {
+func ensureMaxBoomBaseLayer(ctx context.Context, db *harmonydb.DB) error {
 	hasBase, err := layerExists(ctx, db, "base")
 	if err != nil {
 		return xerrors.Errorf("checking base layer: %w", err)
@@ -138,7 +138,7 @@ func ensureSkiffBaseLayer(ctx context.Context, db *harmonydb.DB) error {
 		if err != nil {
 			return xerrors.Errorf("loading pdp layer: %w", err)
 		}
-		baseText, err := configToTOML(defaultSkiffBaseConfig())
+		baseText, err := configToTOML(defaultMaxBoomBaseConfig())
 		if err != nil {
 			return err
 		}
@@ -146,10 +146,10 @@ func ensureSkiffBaseLayer(ctx context.Context, db *harmonydb.DB) error {
 		if err != nil {
 			return xerrors.Errorf("merging pdp into new base: %w", err)
 		}
-		log.Info("created skiff base layer from defaults merged with existing pdp layer")
+		log.Info("created maxboom base layer from defaults merged with existing pdp layer")
 	} else {
-		cfg = defaultSkiffBaseConfig()
-		log.Info("created skiff base configuration layer")
+		cfg = defaultMaxBoomBaseConfig()
+		log.Info("created maxboom base configuration layer")
 	}
 
 	text, err := configToTOML(cfg)
@@ -157,7 +157,7 @@ func ensureSkiffBaseLayer(ctx context.Context, db *harmonydb.DB) error {
 		return err
 	}
 	if err := writeConfigLayer(ctx, db, "base", text); err != nil {
-		return xerrors.Errorf("inserting skiff base layer: %w", err)
+		return xerrors.Errorf("inserting maxboom base layer: %w", err)
 	}
 	return nil
 }

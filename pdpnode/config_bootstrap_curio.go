@@ -1,4 +1,4 @@
-//go:build !skiff
+//go:build !maxboom
 
 package pdpnode
 
@@ -8,6 +8,6 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 )
 
-func ensureSkiffBaseLayer(_ context.Context, _ *harmonydb.DB) error {
+func ensureMaxBoomBaseLayer(_ context.Context, _ *harmonydb.DB) error {
 	return nil
 }

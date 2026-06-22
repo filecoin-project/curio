@@ -1,8 +1,8 @@
 # Curio-PDP operator runbook
 
-Curio-PDP is the lightweight PDP storage provider build (`make curio-pdp`, Go tag `skiff`). It runs PDP proving and the FWSS registration flow without PoRep/sealing, MK20 market code, or `filecoin-ffi`.
+Curio-PDP is the lightweight PDP storage provider build (`make curio-pdp`, Go tag `maxboom`). It runs PDP proving and the FWSS registration flow without PoRep/sealing, MK20 market code, or `filecoin-ffi`.
 
-For the skiff binary overview and build flags, see [Skiff binary](skiff-binary.md). For full-stack Curio with Yugabyte and optional PDP alongside sealing, see [Enable PDP](experimental-features/Enable-PDP.md).
+For the maxboom binary overview and build flags, see [MaxBoom binary](maxboom-binary.md). For full-stack Curio with Yugabyte and optional PDP alongside sealing, see [Enable PDP](experimental-features/Enable-PDP.md).
 
 ## Architecture and data stores
 
@@ -10,7 +10,7 @@ For the skiff binary overview and build flags, see [Skiff binary](skiff-binary.m
 |------------|--------------------------------------|----------------------------------|
 | **Full Curio** | Yugabyte (YSQL) | Yugabyte YCQL / Cassandra-compatible |
 | **Tests / CI** | Postgres | Scylla (CQL) |
-| **Curio-PDP (skiff)** | **Postgres** | **Disk-based indexing** (target; see note below) |
+| **Curio-PDP (maxboom)** | **Postgres** | **Disk-based indexing** (target; see note below) |
 
 Curio-PDP is intentionally lighter: no Yugabyte requirement and no separate CQL/Scylla service for operators who only run PDP.
 
@@ -40,7 +40,7 @@ export CURIO_DB_USER=curio
 export CURIO_DB_PASSWORD=...
 export CURIO_DB_NAME=curio
 export CURIO_REPO_PATH=~/.curio
-export SKIFF_MACHINE_HOST=127.0.0.1:skiff
+export MAXBOOM_MACHINE_HOST=127.0.0.1:maxboom
 ```
 
 HarmonyDB migrations run on connect and create the same `curio` schema as full Curio.
@@ -51,7 +51,7 @@ HarmonyDB migrations run on connect and create the same `curio` schema as full C
 ./curio   # curio-pdp build
 ```
 
-On first start, skiff **auto-seeds the `base` config layer** with PDP defaults (`EnablePDP`, `EnableWebGui`, `GuiAddress`, `StorageRPCSecret`). If a separate `pdp` layer already exists from a prior full-Curio setup, it is merged into `base` once at startup.
+On first start, maxboom **auto-seeds the `base` config layer** with PDP defaults (`EnablePDP`, `EnableWebGui`, `GuiAddress`, `StorageRPCSecret`). If a separate `pdp` layer already exists from a prior full-Curio setup, it is merged into `base` once at startup.
 
 ### 3. Admin GUI — wallet
 
@@ -60,7 +60,7 @@ Open **http://127.0.0.1:4701** → **PDP** page.
 | Action | When to use |
 |--------|-------------|
 | **Create Key** | Generate a new secp256k1 key; private key shown once |
-| **Create Delegated Key (Lantern)** | Skiff only — creates a delegated Filecoin address via embedded Lantern |
+| **Create Delegated Key (Lantern)** | MaxBoom only — creates a delegated Filecoin address via embedded Lantern |
 | **Assign Existing Key** | Import a hex private key you already control |
 
 Only one `eth_keys` row with `role=pdp` is allowed. Fund the **0x address** with enough FIL/tFIL for registration and ongoing messages before proceeding.
@@ -75,7 +75,7 @@ pdptool ping --service-url https://your-domain.com --service-name public
 
 ## Configuration model
 
-Skiff reads **only the `base` layer** at runtime. Do not rely on separate `pdp` or `gui` layers — put operational settings in `base` (or let auto-seed populate defaults and edit via the GUI).
+MaxBoom reads **only the `base` layer** at runtime. Do not rely on separate `pdp` or `gui` layers — put operational settings in `base` (or let auto-seed populate defaults and edit via the GUI).
 
 Typical `base` values:
 
@@ -109,7 +109,7 @@ To move **relational PDP state**:
 1. Export the `curio` schema from the source DB (`pg_dump`, `ysql_dump`, etc.; see [Yugabyte backup](administration/yugabyte-backup.md)).
 2. Restore into the target Postgres (or Yugabyte YSQL) instance.
 3. Copy **piece files** and **on-disk index data** separately; neither is in the SQL dump.
-4. If the imported DB has a separate `pdp` config layer, skiff merges it into `base` on next startup.
+4. If the imported DB has a separate `pdp` config layer, maxboom merges it into `base` on next startup.
 
 There is no dedicated migration tool — SQL export/import plus file copy is sufficient.
 

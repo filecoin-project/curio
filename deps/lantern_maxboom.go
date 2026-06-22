@@ -1,4 +1,4 @@
-//go:build skiff
+//go:build maxboom
 
 package deps
 
@@ -22,7 +22,7 @@ import (
 	"github.com/filecoin-project/curio/pdp/contract"
 )
 
-var lanternLog = logging.Logger("skiff/lantern")
+var lanternLog = logging.Logger("maxboom/lantern")
 
 type embeddedLantern struct {
 	daemon  *lanternd.Daemon
@@ -95,8 +95,8 @@ func startEmbeddedLantern(cctx *cli.Context) (*embeddedLantern, error) {
 		if d.Started() && d.RPCAddr() != "" {
 			break
 		}
-		if os.Getenv("SKIFF_DOCKER") != "" && i > 0 && i%100 == 0 {
-			_, _ = fmt.Fprintf(os.Stderr, "[skiff] waiting for embedded Lantern RPC (%ds)...\n", i/10)
+		if os.Getenv("MAXBOOM_DOCKER") != "" && i > 0 && i%100 == 0 {
+			_, _ = fmt.Fprintf(os.Stderr, "[maxboom] waiting for embedded Lantern RPC (%ds)...\n", i/10)
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
@@ -151,7 +151,7 @@ func fevmPrefetchAddrs() []string {
 	return addrs
 }
 
-// SkiffChainAPIInfoHint documents how skiff resolves its chain backend.
-func SkiffChainAPIInfoHint() string {
-	return fmt.Sprintf("Skiff embeds Lantern on %s when ChainApiInfo is unset", build.BuildTypeString())
+// MaxBoomChainAPIInfoHint documents how maxboom resolves its chain backend.
+func MaxBoomChainAPIInfoHint() string {
+	return fmt.Sprintf("MaxBoom embeds Lantern on %s when ChainApiInfo is unset", build.BuildTypeString())
 }

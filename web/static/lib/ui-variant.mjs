@@ -2,24 +2,24 @@ import RPCCall from '/lib/jsonrpc.mjs';
 
 let variantPromise;
 
-/** @returns {Promise<'skiff'|'curio'>} */
+/** @returns {Promise<'maxboom'|'curio'>} */
 export function getUIVariant() {
     if (!variantPromise) {
         variantPromise = RPCCall('UIVariant')
-            .then((v) => (v === 'skiff' ? 'skiff' : 'curio'))
+            .then((v) => (v === 'maxboom' ? 'maxboom' : 'curio'))
             .catch(() => 'curio');
     }
     return variantPromise;
 }
 
-export async function isSkiffUI() {
-    return (await getUIVariant()) === 'skiff';
+export async function isMaxBoomUI() {
+    return (await getUIVariant()) === 'maxboom';
 }
 
-export function applySkiffDocumentClass(variant) {
-    if (variant === 'skiff') {
-        document.documentElement.classList.add('skiff-mode');
+export function applyMaxBoomDocumentClass(variant) {
+    if (variant === 'maxboom') {
+        document.documentElement.classList.add('maxboom-mode');
     } else {
-        document.documentElement.classList.remove('skiff-mode');
+        document.documentElement.classList.remove('maxboom-mode');
     }
 }

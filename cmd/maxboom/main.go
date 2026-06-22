@@ -16,7 +16,7 @@ import (
 
 func main() {
 	app := &cli.App{
-		Name:    "skiff",
+		Name:    "maxboom",
 		Usage:   "PDP storage service",
 		Version: curiobuild.UserVersion(),
 		Flags: []cli.Flag{
@@ -69,19 +69,19 @@ func main() {
 			},
 			&cli.StringFlag{
 				Name:    "data",
-				EnvVars: []string{"DATA_STORAGE", "SKIFF_DATA", "CURIO_DATA"},
+				EnvVars: []string{"DATA_STORAGE", "MAXBOOM_DATA", "CURIO_DATA"},
 				Value:   "/data",
 				Usage:   "root directory to scan for writable storage (this path and all subdirectories)",
 			},
 			&cli.StringFlag{
 				Name:    "machine-host",
-				EnvVars: []string{"SKIFF_MACHINE_HOST", "PDP_MACHINE_HOST"},
+				EnvVars: []string{"MAXBOOM_MACHINE_HOST", "PDP_MACHINE_HOST"},
 				Usage:   "harmony machine identity (not a public listener)",
-				Value:   "127.0.0.1:skiff",
+				Value:   "127.0.0.1:maxboom",
 			},
 			&cli.StringFlag{
 				Name:    "name",
-				EnvVars: []string{"SKIFF_NODE_NAME", "PDP_NODE_NAME"},
+				EnvVars: []string{"MAXBOOM_NODE_NAME", "PDP_NODE_NAME"},
 				Usage:   "custom node name",
 			},
 			&cli.BoolFlag{

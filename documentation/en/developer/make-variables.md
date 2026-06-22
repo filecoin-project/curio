@@ -55,18 +55,18 @@ These targets share the same pipeline and differ only in tags:
   - Builds: `curio`, `sptool` (dev-net / 2k)
   - Tag behavior: appends `2k` to `CURIO_TAGS` then runs `build`.
 
-- `make curio-pdp` (synonym: `make skiff`)
-  - Builds: `curio` (PDP-only daemon from `./cmd/skiff`; no worker RPC or deal market)
-  - Uses `SKIFF_TAGS` (`CURIO_TAGS` + `nosupraseal` + `skiff`) and skips filecoin-ffi `BUILD_DEPS`.
+- `make curio-pdp` (synonym: `make maxboom`)
+  - Builds: `curio` (PDP-only daemon from `./cmd/maxboom`; no worker RPC or deal market)
+  - Uses `MAXBOOM_TAGS` (`CURIO_TAGS` + `nosupraseal` + `maxboom`) and skips filecoin-ffi `BUILD_DEPS`.
   - Overwrites the `curio` binary produced by `make curio`.
 
 Equivalent one-off forms are also available:
 
 - `make calibnet-curio`
 - `make calibnet-sptool`
-- `make calibnet-curio-pdp` (synonym: `make calibnet-skiff`)
+- `make calibnet-curio-pdp` (synonym: `make calibnet-maxboom`)
 - `make cu2k`
-- `make 2k-curio-pdp` (synonym: `make 2k-skiff`)
+- `make 2k-curio-pdp` (synonym: `make 2k-maxboom`)
 
 ## Important default context
 

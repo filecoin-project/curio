@@ -1,4 +1,4 @@
-//go:build skiff
+//go:build maxboom
 
 package pdpnode
 
@@ -8,7 +8,7 @@ import (
 	logging "github.com/ipfs/go-log/v2"
 )
 
-var ulimitLog = logging.Logger("skiff/ulimit")
+var ulimitLog = logging.Logger("maxboom/ulimit")
 
 func manageFdLimit() {
 	var rLimit syscall.Rlimit

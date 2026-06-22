@@ -31,12 +31,12 @@ import (
 
 var log = logging.Logger("pdpnode")
 
-const defaultMachineHost = "127.0.0.1:skiff"
+const defaultMachineHost = "127.0.0.1:maxboom"
 
-// Skiff does not expose the curio /remote storage handler; paths.NewLocal still
+// MaxBoom does not expose the curio /remote storage handler; paths.NewLocal still
 // needs a syntactically valid URL for the sector index. Machine-host is an
 // opaque harmony identity and is not used here.
-const skiffLocalStorageURL = "http://127.0.0.1:0/remote"
+const maxboomLocalStorageURL = "http://127.0.0.1:0/remote"
 
 // Deps holds PDP-node runtime dependencies.
 type Deps struct {
@@ -65,7 +65,7 @@ type Deps struct {
 
 // Open initializes PDP-node dependencies from CLI flags and a single base config layer.
 func Open(ctx context.Context, cctx *cli.Context) (*Deps, error) {
-	skiffDockerLog("opening database connection")
+	maxboomDockerLog("opening database connection")
 	repoPath := cctx.String(curiodeps.FlagRepoPath)
 	if err := ensureRepo(repoPath); err != nil {
 		return nil, err
@@ -76,8 +76,8 @@ func Open(ctx context.Context, cctx *cli.Context) (*Deps, error) {
 		return nil, err
 	}
 
-	if err := ensureSkiffBaseLayer(ctx, db); err != nil {
-		return nil, xerrors.Errorf("ensure skiff base config: %w", err)
+	if err := ensureMaxBoomBaseLayer(ctx, db); err != nil {
+		return nil, xerrors.Errorf("ensure maxboom base config: %w", err)
 	}
 
 	cfg, err := curiodeps.GetConfig(ctx, nil, db)
@@ -88,8 +88,8 @@ func Open(ctx context.Context, cctx *cli.Context) (*Deps, error) {
 	if !cfg.Subsystems.EnablePDP {
 		cfg.Subsystems.EnablePDP = true
 	}
-	applySkiffDockerListen(cfg)
-	if !skiffDockerMode() && (cfg.Subsystems.GuiAddress == "" || strings.HasPrefix(cfg.Subsystems.GuiAddress, "0.0.0.0")) {
+	applyMaxBoomDockerListen(cfg)
+	if !maxboomDockerMode() && (cfg.Subsystems.GuiAddress == "" || strings.HasPrefix(cfg.Subsystems.GuiAddress, "0.0.0.0")) {
 		port := "4701"
 		if parts := strings.Split(cfg.Subsystems.GuiAddress, ":"); len(parts) == 2 && parts[1] != "" {
 			port = parts[1]
@@ -102,12 +102,12 @@ func Open(ctx context.Context, cctx *cli.Context) (*Deps, error) {
 		machineHost = defaultMachineHost
 	}
 
-	skiffDockerLog("initializing storage")
+	maxboomDockerLog("initializing storage")
 
 	al := curioalerting.NewAlertingSystem()
 	si := paths.NewDBIndex(al, db)
 
-	localPaths, err := newLocalStorage(skiffStorageRoot(cctx, cfg, repoPath))
+	localPaths, err := newLocalStorage(maxboomStorageRoot(cctx, cfg, repoPath))
 	if err != nil {
 		return nil, err
 	}
@@ -117,7 +117,7 @@ func Open(ctx context.Context, cctx *cli.Context) (*Deps, error) {
 		return nil, xerrors.Errorf("storage auth: %w", err)
 	}
 
-	localStore, err := paths.NewLocal(ctx, localPaths, si, skiffLocalStorageURL)
+	localStore, err := paths.NewLocal(ctx, localPaths, si, maxboomLocalStorageURL)
 	if err != nil {
 		return nil, err
 	}
@@ -127,7 +127,7 @@ func Open(ctx context.Context, cctx *cli.Context) (*Deps, error) {
 		return nil, xerrors.Errorf("remote store: %w", err)
 	}
 
-	skiffDockerLog("connecting to chain API (embedded Lantern may take a minute on first start)")
+	maxboomDockerLog("connecting to chain API (embedded Lantern may take a minute on first start)")
 	chain, chainCloser, err := curiodeps.GetFullNodeAPIV1Curio(cctx, cfg.Apis)
 	if err != nil {
 		return nil, err
@@ -137,7 +137,7 @@ func Open(ctx context.Context, cctx *cli.Context) (*Deps, error) {
 	if dbHost == "" {
 		dbHost = cctx.String("db-host")
 	}
-	skiffDockerLog("starting index store on %s:%d", dbHost, cctx.Int("db-cassandra-port"))
+	maxboomDockerLog("starting index store on %s:%d", dbHost, cctx.Int("db-cassandra-port"))
 	indexStore, err := indexstore.NewIndexStore(strings.Split(dbHost, ","), cctx.Int("db-cassandra-port"), cfg)
 	if err != nil {
 		return nil, xerrors.Errorf("index store: %w", err)
@@ -191,7 +191,7 @@ func Open(ctx context.Context, cctx *cli.Context) (*Deps, error) {
 	sender, _ := message.NewSender(chain, chain, db, cfg.Fees.MaximizeFeeCap)
 	d.Sender = sender
 
-	skiffDockerLog("startup dependencies ready")
+	maxboomDockerLog("startup dependencies ready")
 	return d, nil
 }
 

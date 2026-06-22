@@ -753,7 +753,7 @@ type SlackWebhookConfig struct {
 }
 
 const (
-	// ChainBackendLantern embeds Lantern as the chain JSON-RPC provider (skiff mainnet/calibnet).
+	// ChainBackendLantern embeds Lantern as the chain JSON-RPC provider (maxboom mainnet/calibnet).
 	ChainBackendLantern = "lantern"
 	// ChainBackendExternal uses ChainApiInfo or FULLNODE_API_INFO for an external Lotus-compatible node.
 	ChainBackendExternal = "external"
@@ -761,7 +761,7 @@ const (
 
 type ApisConfig struct {
 	// ChainBackend selects the chain JSON-RPC provider.
-	//   "lantern"  — embed Lantern (skiff; default for skiff base config)
+	//   "lantern"  — embed Lantern (maxboom; default for maxboom base config)
 	//   "external" — use ChainApiInfo / FULLNODE_API_INFO
 	// When ChainApiInfo is set it takes precedence over ChainBackend.
 	ChainBackend string

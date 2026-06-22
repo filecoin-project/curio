@@ -57,14 +57,14 @@ BINS += pdptool
 curio-pdp: setup-cgo-env ffi-version-check
 	rm -f curio
 	CGO_LDFLAGS_ALLOW=$(CGO_LDFLAGS_ALLOW) $(GOCC) build $(GOFLAGS) \
-	-tags "$(SKIFF_TAGS)" \
+	-tags "$(MAXBOOM_TAGS)" \
 	-o curio -ldflags " -s -w \
 	-X github.com/filecoin-project/curio/build.CurrentCommit=+git_$(CURIO_BUILD_COMMIT)" \
-	./cmd/skiff
+	./cmd/maxboom
 .PHONY: curio-pdp
 
-skiff: curio-pdp
-.PHONY: skiff
+maxboom: curio-pdp
+.PHONY: maxboom
 
 ## CUZK PROVING DAEMON (Rust, requires CUDA)
 ## cuzk is a persistent GPU-resident SNARK proving daemon. It is built separately
@@ -128,8 +128,8 @@ calibnet-curio-pdp: curio-pdp
 2k-curio-pdp: CURIO_TAGS += 2k
 2k-curio-pdp: curio-pdp
 
-calibnet-skiff: calibnet-curio-pdp
-2k-skiff: 2k-curio-pdp
+calibnet-maxboom: calibnet-curio-pdp
+2k-maxboom: 2k-curio-pdp
 
 install: install-curio install-sptool
 .PHONY: install

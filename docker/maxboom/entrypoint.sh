@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Skiff entrypoint.
+# MaxBoom entrypoint.
 #
 # 1. Wait until the Yugabyte (Postgres-wire) endpoint accepts connections.
-# 2. Hand off to the skiff binary, which auto-seeds its `base` config layer,
-#    runs DB migrations, scans $SKIFF_DATA (/data) for writable storage, and
+# 2. Hand off to the maxboom binary, which auto-seeds its `base` config layer,
+#    runs DB migrations, scans $MAXBOOM_DATA (/data) for writable storage, and
 #    serves the PDP API + admin GUI.
 
 DB_HOST="${CURIO_DB_HOST:-${CURIO_HARMONYDB_HOSTS:-yugabyte}}"
@@ -32,8 +32,8 @@ done
 exec 3>&- 2>/dev/null || true
 echo "Yugabyte is reachable."
 
-echo "CURIO_REPO_PATH=${CURIO_REPO_PATH:-} SKIFF_DATA=${SKIFF_DATA:-/data}"
+echo "CURIO_REPO_PATH=${CURIO_REPO_PATH:-} MAXBOOM_DATA=${MAXBOOM_DATA:-/data}"
 export GOLOG_LOG_LEVEL="${GOLOG_LOG_LEVEL:-info}"
 export GOLOG_LOG_FMT="${GOLOG_LOG_FMT:-stderr}"
-echo "Starting skiff ..."
-exec skiff "$@"
+echo "Starting maxboom ..."
+exec maxboom "$@"

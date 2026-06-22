@@ -1,12 +1,8 @@
-import { getUIVariant, applySkiffDocumentClass } from '/lib/ui-variant.mjs';
+import { getUIVariant, applyMaxBoomDocumentClass } from '/lib/ui-variant.mjs';
 
 const variant = await getUIVariant();
-const isSkiff = variant === 'skiff';
-applySkiffDocumentClass(variant);
-
-if (isSkiff && document.title.includes('Curio')) {
-    document.title = document.title.replace(/Curio/g, 'Skiff');
-}
+const isMaxBoom = variant === 'maxboom';
+applyMaxBoomDocumentClass(variant);
 
 const shared = [
     './chain-connectivity.mjs',
@@ -32,7 +28,7 @@ const curioOnly = [
 for (const mod of shared) {
     await import(mod);
 }
-if (!isSkiff) {
+if (!isMaxBoom) {
     for (const mod of curioOnly) {
         await import(mod);
     }

@@ -7,7 +7,7 @@ description: >-
 # Enable PDP
 
 {% hint style="info" %}
-For a lightweight Postgres-only PDP node without Yugabyte or sealing, see the [Curio-PDP runbook](../curio-pdp.md) and [Skiff binary](../skiff-binary.md).
+For a lightweight Postgres-only PDP node without Yugabyte or sealing, see the [Curio-PDP runbook](../curio-pdp.md) and [MaxBoom binary](../maxboom-binary.md).
 {% endhint %}
 
 {% hint style="danger" %}

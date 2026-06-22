@@ -1,6 +1,6 @@
 # Docker build context trims. Paths re-fetched inside the image when needed:
 # - full curio/devnet: `git submodule update --init` restores filecoin-ffi
-# - skiff: sparse-clones filecoin-ffi default branch (Go module stubs only, no rust/)
+# - maxboom: sparse-clones filecoin-ffi default branch (Go module stubs only, no rust/)
 
 .git
 **/.git
@@ -9,11 +9,11 @@ extern/filecoin-ffi
 extern/supraseal
 
 docker/data
-docker/skiff/data
+docker/maxboom/data
 
 # Local build outputs (rebuilt inside the image; often hundreds of MB).
 /curio
-/skiff
+/maxboom
 /cuzk
 /sptool
 /pdptool

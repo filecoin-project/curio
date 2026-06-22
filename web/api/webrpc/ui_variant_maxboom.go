@@ -1,9 +1,9 @@
-//go:build skiff
+//go:build maxboom
 
 package webrpc
 
 import "context"
 
 func (a *Handler) UIVariant(context.Context) (string, error) {
-	return "skiff", nil
+	return "maxboom", nil
 }

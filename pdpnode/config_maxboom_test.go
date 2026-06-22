@@ -1,4 +1,4 @@
-//go:build skiff
+//go:build maxboom
 
 package pdpnode
 
@@ -10,8 +10,8 @@ import (
 	"github.com/filecoin-project/curio/deps/config"
 )
 
-func TestDefaultSkiffBaseConfig(t *testing.T) {
-	cfg := defaultSkiffBaseConfig()
+func TestDefaultMaxBoomBaseConfig(t *testing.T) {
+	cfg := defaultMaxBoomBaseConfig()
 	require.True(t, cfg.Subsystems.EnablePDP)
 	require.True(t, cfg.Subsystems.EnableWebGui)
 	require.Equal(t, "127.0.0.1:4701", cfg.Subsystems.GuiAddress)
@@ -19,9 +19,9 @@ func TestDefaultSkiffBaseConfig(t *testing.T) {
 	require.NotEmpty(t, cfg.Apis.StorageRPCSecret)
 }
 
-func TestApplySkiffDefaults(t *testing.T) {
+func TestApplyMaxBoomDefaults(t *testing.T) {
 	cfg := config.DefaultCurioConfig()
-	applySkiffDefaults(cfg)
+	applyMaxBoomDefaults(cfg)
 	require.True(t, cfg.Subsystems.EnablePDP)
 	require.True(t, cfg.Subsystems.EnableWebGui)
 	require.Equal(t, "127.0.0.1:4701", cfg.Subsystems.GuiAddress)

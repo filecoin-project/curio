@@ -1,11 +1,11 @@
-//go:build !skiff
+//go:build !maxboom
 
 package pdpnode
 
 import "github.com/filecoin-project/curio/deps/config"
 
-func skiffDockerMode() bool { return false }
+func maxboomDockerMode() bool { return false }
 
-func skiffDockerLog(_ string, _ ...interface{}) {}
+func maxboomDockerLog(_ string, _ ...interface{}) {}
 
-func applySkiffDockerListen(_ *config.CurioConfig) {}
+func applyMaxBoomDockerListen(_ *config.CurioConfig) {}
