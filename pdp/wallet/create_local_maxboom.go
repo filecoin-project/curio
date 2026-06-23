@@ -15,7 +15,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 )
 
-func CreatePDPKeyLantern(ctx context.Context, db *harmonydb.DB) (*CreatedKey, error) {
+func createPDPKeyLocal(ctx context.Context, db *harmonydb.DB) (*CreatedKey, error) {
 	repoPath := os.Getenv("CURIO_REPO_PATH")
 	if repoPath == "" {
 		repoPath = "~/.curio"
@@ -33,12 +33,12 @@ func CreatePDPKeyLantern(ctx context.Context, db *harmonydb.DB) (*CreatedKey, er
 
 	filAddr, err := w.NewAddress(ctx, lanternwallet.KTDelegated)
 	if err != nil {
-		return nil, xerrors.Errorf("creating delegated lantern address: %w", err)
+		return nil, xerrors.Errorf("creating delegated address: %w", err)
 	}
 
 	ki, err := w.Export(ctx, filAddr)
 	if err != nil {
-		return nil, xerrors.Errorf("exporting lantern key: %w", err)
+		return nil, xerrors.Errorf("exporting key: %w", err)
 	}
 
 	address, err := InsertPDPKey(ctx, db, ki.PrivateKey)

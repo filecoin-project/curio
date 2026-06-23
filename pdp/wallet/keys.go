@@ -23,6 +23,8 @@ type CreatedKey struct {
 type Status struct {
 	Configured bool   `json:"configured"`
 	Address    string `json:"address,omitempty"`
+	Balance    string `json:"balance,omitempty"`
+	Funded     bool   `json:"funded"`
 }
 
 func NormalizeHexPrivateKey(hexPrivateKey string) (string, error) {
@@ -102,6 +104,12 @@ func ImportPDPKeyHex(ctx context.Context, db *harmonydb.DB, hexPrivateKey string
 }
 
 func CreatePDPKey(ctx context.Context, db *harmonydb.DB) (*CreatedKey, error) {
+	if created, err := createPDPKeyLocal(ctx, db); err != nil {
+		return nil, err
+	} else if created != nil {
+		return created, nil
+	}
+
 	privateKey, err := crypto.GenerateKey()
 	if err != nil {
 		return nil, xerrors.Errorf("generating private key: %w", err)

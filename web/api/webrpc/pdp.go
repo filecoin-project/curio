@@ -21,6 +21,8 @@ import (
 	"github.com/filecoin-project/curio/pdp/contract"
 	pdpwallet "github.com/filecoin-project/curio/pdp/wallet"
 	"github.com/filecoin-project/curio/tasks/indexing"
+
+	"github.com/filecoin-project/lotus/chain/types"
 )
 
 // PDPService represents a PDP service
@@ -154,17 +156,34 @@ func (a *WebRPC) CreatePDPKey(ctx context.Context) (*pdpwallet.CreatedKey, error
 	return created, nil
 }
 
-func (a *WebRPC) CreatePDPKeyLantern(ctx context.Context) (*pdpwallet.CreatedKey, error) {
-	created, err := pdpwallet.CreatePDPKeyLantern(ctx, a.Deps.DB)
+func (a *WebRPC) PDPKeyStatus(ctx context.Context) (pdpwallet.Status, error) {
+	status, err := pdpwallet.PDPKeyStatus(ctx, a.Deps.DB)
 	if err != nil {
-		log.Errorf("CreatePDPKeyLantern: %v", err)
-		return nil, err
+		return status, err
 	}
-	return created, nil
+	return a.enrichPDPKeyStatus(ctx, status)
 }
 
-func (a *WebRPC) PDPKeyStatus(ctx context.Context) (pdpwallet.Status, error) {
-	return pdpwallet.PDPKeyStatus(ctx, a.Deps.DB)
+func (a *WebRPC) enrichPDPKeyStatus(ctx context.Context, status pdpwallet.Status) (pdpwallet.Status, error) {
+	if !status.Configured || status.Address == "" {
+		return status, nil
+	}
+
+	client, err := a.Deps.EthClient.Val()
+	if err != nil {
+		log.Warnf("PDPKeyStatus: eth client unavailable: %v", err)
+		return status, nil
+	}
+
+	balance, err := client.BalanceAt(ctx, common.HexToAddress(status.Address), nil)
+	if err != nil {
+		log.Warnf("PDPKeyStatus: balance lookup failed for %s: %v", status.Address, err)
+		return status, nil
+	}
+
+	status.Balance = types.FIL(types.BigFromBytes(balance.Bytes())).Short()
+	status.Funded = balance.Sign() > 0
+	return status, nil
 }
 
 func (a *WebRPC) ListPDPKeys(ctx context.Context) ([]string, error) {

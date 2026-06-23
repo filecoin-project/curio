@@ -397,7 +397,13 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
 
                 ${this.keyStatusLoading ? '' : !this.keyStatus?.configured ? html`
                     <div class="alert alert-danger">
-                        PDP wallet not configured. Create or assign a key on the Wallets page before registering.
+                        PDP wallet not configured. Create or import a key on the Wallets page before registering.
+                    </div>
+                ` : !this.keyStatus?.funded ? html`
+                    <div class="alert alert-warning">
+                        PDP wallet has no funds. Send FIL/tFIL to
+                        <code>${this.keyStatus.address}</code>
+                        before registering.
                     </div>
                 ` : ''}
 
@@ -411,7 +417,7 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
                 ` : html`${this.status === null ? html`
                     <div class="alert alert-warning">This provider is not registered.</div>
                     <button class="btn btn-primary" @click=${this.openRegister}
-                            ?disabled=${!this.keyStatus?.configured}>Register Provider</button>
+                            ?disabled=${!this.keyStatus?.configured || !this.keyStatus?.funded}>Register Provider</button>
                 ` : html`
                     <div class="card bg-dark text-light mb-3">
                         <div class="card-header">Current Status</div>
