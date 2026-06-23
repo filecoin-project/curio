@@ -15,7 +15,7 @@ import (
 
 const (
 	defaultPDPStorageWeight = 10
-	maxboomHotDataDirName     = "filecoin-hot-data"
+	maxboomHotDataDirName   = "filecoin-hot-data"
 	maxStorageScanDepth     = 3
 )
 
@@ -24,7 +24,7 @@ var skipStorageDirNames = func() map[string]struct{} {
 		paths.FetchTempSubdir: {},
 		paths.StashDirName:    {},
 		"yugabyte":            {}, // maxboom docker compose DB data dir under MAXBOOM_DATA
-		"maxboom":               {}, // maxboom docker compose repo dir under MAXBOOM_DATA
+		"maxboom":             {}, // maxboom docker compose repo dir under MAXBOOM_DATA
 	}
 	for _, ft := range storiface.PathTypes {
 		out[ft.String()] = struct{}{}
