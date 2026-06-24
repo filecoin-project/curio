@@ -305,9 +305,8 @@ func (p *PDPService) handleGetPieceStatus(w http.ResponseWriter, r *http.Request
 			SELECT
 				MIN(i.ad_cid) as ad_cid,
 				MIN(i.provider) as provider,
-				MIN(af.fetched_at) as fetched_at
+				MIN((SELECT MIN(af.fetched_at) FROM ipni_ad_fetches af WHERE af.ad_cid = i.ad_cid)) as fetched_at
 			FROM ipni i
-			LEFT JOIN ipni_ad_fetches af ON af.ad_cid = i.ad_cid
 			WHERE i.piece_cid = pr.piece_cid
 				AND i.provider = (SELECT peer_id FROM ipni_peerid WHERE sp_id = $3)
 				AND i.is_rm = FALSE
