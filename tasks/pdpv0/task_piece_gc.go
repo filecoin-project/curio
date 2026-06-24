@@ -141,7 +141,7 @@ func processIndexingAndIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *c
 										    JOIN parked_piece_refs ppr ON pr.piece_ref = ppr.ref_id
 										    JOIN parked_pieces pp ON ppr.piece_id = pp.id
 										WHERE pr.data_set_refcount = 0
-										  AND pr.created_at <= TIMEZONE('UTC', NOW()) - INTERVAL '24 hours'
+										  AND pr.created_at <= TIMEZONE('UTC', NOW()) - INTERVAL '14 days'
 										  AND NOT EXISTS (
 										      SELECT 1 FROM pdp_data_set_piece_adds a
 										      WHERE a.pdp_pieceref = pr.id
@@ -182,7 +182,8 @@ func processIndexingAndIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *c
 		}
 		pcidV2, err := commcid.PieceCidV2FromV1(pcid1, uint64(piece.RawSize))
 		if err != nil {
-			return xerrors.Errorf("failed to construct piece cid v2: %w", err)
+			log.Warnw("skipping piece with invalid commp v2; continuing GC run", "piece_cid", piece.PieceCID, "raw_size", piece.RawSize, "error", err)
+			continue
 		}
 
 		var skipLoop bool
