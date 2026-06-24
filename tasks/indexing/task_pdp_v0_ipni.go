@@ -325,6 +325,12 @@ func (P *PDPV0IPNITask) TypeDetails() harmonytask.TaskTypeDetails {
 }
 
 func (P *PDPV0IPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFunc) error {
+	if _, err := P.db.Exec(ctx, `UPDATE pdp_piecerefs SET ipni_task_id = NULL
+		WHERE needs_ipni = TRUE AND ipni_task_id IS NOT NULL
+		  AND NOT EXISTS (SELECT 1 FROM harmony_task t WHERE t.id = ipni_task_id)`); err != nil {
+		return xerrors.Errorf("reclaiming stranded PDP IPNI piecerefs: %w", err)
+	}
+
 	// schedule submits
 	var stop bool
 	for !stop {
