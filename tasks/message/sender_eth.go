@@ -284,7 +284,9 @@ func (s *SenderETH) Send(ctx context.Context, fromAddress common.Address, tx *ty
 			Data:  tx.Data(),
 		}
 
-		gasLimit, err := s.client.EstimateGas(ctx, msg)
+		ethCtx, cancel := context.WithTimeout(ctx, defaultEthCallTimeout)
+		gasLimit, err := s.client.EstimateGas(ethCtx, msg)
+		cancel()
 		if err != nil {
 			return common.Hash{}, fmt.Errorf("failed to estimate gas: %w", err)
 		}
