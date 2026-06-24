@@ -6,6 +6,7 @@
 - Preserve existing architecture boundaries unless change is explicitly requested.
 - Treat Curio as clustered software; avoid single-node assumptions.
 - State assumptions and uncertainty explicitly when facts are incomplete.
+- Keep comments brief omitting when possible. Comments should only be used to describe complex, unintuitive and dense code. Avoid adding comments that describe only the rationale for the latest diff.
 
 ## Go preferences
 - Keep changes idiomatic and straightforward; optimize for maintainability over cleverness.
