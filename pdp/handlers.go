@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"math/big"
 	"net/http"
 	"strconv"
@@ -56,6 +57,8 @@ const (
 
 	// MaxDeletePieceExtraDataSize defines the limit for extraData size in DeletePiece calls (256B).
 	MaxDeletePieceExtraDataSize = 256
+
+	MaxDeletePiecesBatchSize = 500
 )
 
 // PDPService represents the service for managing data sets and pieces
@@ -953,6 +956,25 @@ func (p *PDPService) handleGetPieceAdditionStatus(w http.ResponseWriter, r *http
 	}
 }
 
+func normalizeDeletePieceIDs(ids []uint64) ([]int64, error) {
+	if len(ids) > MaxDeletePiecesBatchSize {
+		return nil, fmt.Errorf("piece count (%d) exceeds the maximum allowed per DeletePiece call (%d)", len(ids), MaxDeletePiecesBatchSize)
+	}
+	seen := make(map[uint64]struct{}, len(ids))
+	out := make([]int64, 0, len(ids))
+	for _, id := range ids {
+		if id > math.MaxInt64 {
+			return nil, fmt.Errorf("piece ID %d is out of range", id)
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, int64(id))
+	}
+	return out, nil
+}
+
 func (p *PDPService) handleDeleteDataSetPiece(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	// Step 1: Verify that the request is authorized using ECDSA JWT
@@ -1044,13 +1066,19 @@ func (p *PDPService) handleDeleteDataSetPiece(w http.ResponseWriter, r *http.Req
 		pieceIDs = payload.PieceIDs
 	}
 
+	pieceIDsI64, err := normalizeDeletePieceIDs(pieceIDs)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
 	var foundCount int
-	err = p.db.QueryRow(ctx, `SELECT COUNT(DISTINCT piece_id) FROM pdp_data_set_pieces WHERE data_set = $1 AND piece_id = ANY($2)`, dataSetId, pieceIDs).Scan(&foundCount)
+	err = p.db.QueryRow(ctx, `SELECT COUNT(DISTINCT piece_id) FROM pdp_data_set_pieces WHERE data_set = $1 AND piece_id = ANY($2::bigint[])`, dataSetId, pieceIDsI64).Scan(&foundCount)
 	if err != nil {
 		httpServerError(w, http.StatusInternalServerError, "Failed to query piece existence", err)
 		return
 	}
-	if foundCount != len(pieceIDs) {
+	if foundCount != len(pieceIDsI64) {
 		http.Error(w, "Piece not found", http.StatusNotFound)
 		return
 	}
@@ -1062,9 +1090,9 @@ func (p *PDPService) handleDeleteDataSetPiece(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	pieceIDArgs := make([]*big.Int, len(pieceIDs))
-	for i, id := range pieceIDs {
-		pieceIDArgs[i] = new(big.Int).SetUint64(id)
+	pieceIDArgs := make([]*big.Int, len(pieceIDsI64))
+	for i, id := range pieceIDsI64 {
+		pieceIDArgs[i] = big.NewInt(id)
 	}
 
 	// Pack the method call data
@@ -1123,13 +1151,13 @@ func (p *PDPService) handleDeleteDataSetPiece(w http.ResponseWriter, r *http.Req
 		_, err = tx.Exec(`
 			UPDATE pdp_data_set_pieces
 			SET rm_message_hash = $1
-			WHERE data_set = $2 AND piece_id = ANY($3)`,
-			txHashLower, dataSetId, pieceIDs)
+			WHERE data_set = $2 AND piece_id = ANY($3::bigint[])`,
+			txHashLower, dataSetId, pieceIDsI64)
 		if err != nil {
-			log.Errorw("Failed to update rm_message_hash in pdp_data_set_pieces", "dataSetId", dataSetId, "pieceID", pieceID, "error", err)
+			log.Errorw("Failed to update rm_message_hash in pdp_data_set_pieces", "dataSetId", dataSetId, "pieceIDs", pieceIDsI64, "error", err)
 			return false, err
 		}
-		log.Infow("scheduled user requested deletion", "dataSetId", dataSetId, "pieceID", pieceID, "txHash", txHashLower)
+		log.Infow("scheduled user requested deletion", "dataSetId", dataSetId, "pieceIDs", pieceIDsI64, "txHash", txHashLower)
 
 		return true, nil
 	}, harmonydb.OptionRetry())
