@@ -26,8 +26,9 @@ import (
 )
 
 type SubPieceEntry struct {
-	SubPieceCID   string `json:"subPieceCid"`
-	subPieceCIDv1 string
+	SubPieceCID    string `json:"subPieceCid"`
+	subPieceCIDv1  string
+	subPieceOffset uint64
 }
 
 type AddPieceRequest struct {
@@ -39,13 +40,12 @@ type PieceData struct {
 	Data []byte // CID
 }
 
-// Map to store subPieceCID -> [pieceInfo, pdp_pieceref.id, subPieceOffset]
+// Map to store subPieceCID -> [pieceInfo, pdp_pieceref.id]
 type SubPieceInfo struct {
-	PieceCIDv1     cid.Cid
-	PaddedSize     abi.PaddedPieceSize
-	RawSize        uint64 // RawSize is the size of the piece with no padding applied
-	PDPPieceRefID  int64
-	SubPieceOffset uint64
+	PieceCIDv1    cid.Cid
+	PaddedSize    abi.PaddedPieceSize
+	RawSize       uint64 // RawSize is the size of the piece with no padding applied
+	PDPPieceRefID int64
 }
 
 func (p *PDPService) transformAddPiecesRequest(ctx context.Context, serviceLabel string, pieces []AddPieceRequest) ([]PieceData, map[string]*SubPieceInfo, error) {
@@ -56,8 +56,8 @@ func (p *PDPService) transformAddPiecesRequest(ctx context.Context, serviceLabel
 			return nil, nil, errors.New("PieceCID is required for each piece")
 		}
 
-		if len(addPieceReq.SubPieces) == 0 {
-			return nil, nil, errors.New("at least one subPiece is required per piece")
+		if len(addPieceReq.SubPieces) != 1 {
+			return nil, nil, errors.New("one subPiece is required per piece")
 		}
 
 		for i, subPieceEntry := range addPieceReq.SubPieces {
@@ -73,7 +73,7 @@ func (p *PDPService) transformAddPiecesRequest(ctx context.Context, serviceLabel
 			addPieceReq.SubPieces[i].subPieceCIDv1 = pieceCidString // save it for to query subPieceInfoMap later
 
 			if _, exists := subPieceCidSet[pieceCidString]; exists {
-				return nil, nil, errors.New("duplicate subPieceCid in request")
+				continue
 			}
 
 			subPieceCidSet[pieceCidString] = struct{}{}
@@ -127,11 +127,10 @@ func (p *PDPService) transformAddPiecesRequest(ctx context.Context, serviceLabel
 			}
 
 			subPieceInfoMap[pieceCIDStr] = &SubPieceInfo{
-				PieceCIDv1:     pieceCID,
-				PaddedSize:     abi.PaddedPieceSize(piecePaddedSize),
-				RawSize:        pieceRawSize,
-				PDPPieceRefID:  pdpPieceRefID,
-				SubPieceOffset: 0, // Will compute offset later
+				PieceCIDv1:    pieceCID,
+				PaddedSize:    abi.PaddedPieceSize(piecePaddedSize),
+				RawSize:       pieceRawSize,
+				PDPPieceRefID: pdpPieceRefID,
 			}
 
 			foundSubPieces[pieceCIDStr] = struct{}{}
@@ -156,9 +155,7 @@ func (p *PDPService) transformAddPiecesRequest(ctx context.Context, serviceLabel
 					return false, fmt.Errorf("subPiece CID %s not found in subPiece info map", subPieceEntry.subPieceCIDv1)
 				}
 
-				// Update SubPieceOffset
-				subPieceInfo.SubPieceOffset = totalOffset
-				subPieceInfoMap[subPieceEntry.subPieceCIDv1] = subPieceInfo // Update the map
+				pieces[i].SubPieces[j].subPieceOffset = totalOffset
 
 				pieceInfos[j] = abi.PieceInfo{
 					Size:     subPieceInfo.PaddedSize,
@@ -326,7 +323,6 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 		httpServerError(w, http.StatusBadRequest, errMsg, err)
 		return
 	}
-
 	subPieceCidV1List, err := subPieceCidV1ListFromPieces(payload.Pieces)
 	if err != nil {
 		httpServerError(w, http.StatusBadRequest, "Invalid subPieceCid: "+err.Error(), err)
@@ -517,7 +513,7 @@ func (p *PDPService) insertPieceAdds(txdb *harmonydb.Tx, dataSetId *uint64, txHa
 				txHash,
 				addMessageIndex,
 				subPieceEntry.subPieceCIDv1,
-				subPieceInfo.SubPieceOffset,
+				subPieceEntry.subPieceOffset,
 				subPieceInfo.PaddedSize,
 				subPieceInfo.PDPPieceRefID,
 			)

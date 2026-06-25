@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -72,6 +73,7 @@ type mockValidator struct {
 	err        error
 	payer      common.Address
 	payerErr   error
+	payerMu    sync.Mutex
 	payerCalls []uint64
 }
 
@@ -86,7 +88,10 @@ func (m *mockValidator) ValidateAddPieces(ctx context.Context, params *AddPieces
 }
 
 func (m *mockValidator) GetDataSetPayer(ctx context.Context, dataSetId uint64) (common.Address, error) {
+	m.payerMu.Lock()
 	m.payerCalls = append(m.payerCalls, dataSetId)
+	m.payerMu.Unlock()
+
 	if m.payerErr != nil {
 		return common.Address{}, m.payerErr
 	}
@@ -94,6 +99,13 @@ func (m *mockValidator) GetDataSetPayer(ctx context.Context, dataSetId uint64) (
 		return m.payer, nil
 	}
 	return common.HexToAddress("0x1111111111111111111111111111111111111111"), nil
+}
+
+func (m *mockValidator) recordedPayerCalls() []uint64 {
+	m.payerMu.Lock()
+	defer m.payerMu.Unlock()
+
+	return append([]uint64(nil), m.payerCalls...)
 }
 
 // Valid test PieceCIDv2s
@@ -342,7 +354,7 @@ func TestHandlePull_ExistingDataSetUsesFWSSPayer(t *testing.T) {
 	require.True(t, store.createPullCalled)
 	require.NotNil(t, store.createdPull)
 	require.Equal(t, payer.Hex(), store.createdPull.ClientAddress)
-	require.Equal(t, []uint64{testDataSetId}, validator.payerCalls)
+	require.Equal(t, []uint64{testDataSetId}, validator.recordedPayerCalls())
 }
 
 func TestHandlePull_CreateNew_MissingRecordKeeper(t *testing.T) {

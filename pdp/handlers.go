@@ -769,6 +769,24 @@ type PieceEntry struct {
 	SubPieceOffset int64  `json:"subPieceOffset"`
 }
 
+type pieceAdditionStatusInfo struct {
+	Piece           string `db:"piece"`
+	AddMessageIndex int    `db:"add_message_index"`
+	SubPiece        string `db:"sub_piece"`
+	SubPieceOffset  int64  `db:"sub_piece_offset"`
+	SubPieceSize    int64  `db:"sub_piece_size"`
+	AddMessageOK    *bool  `db:"add_message_ok"`
+	PiecesAdded     bool   `db:"pieces_added"`
+}
+
+func countPieceAddIndexes(pieceAdds []pieceAdditionStatusInfo) int {
+	indexes := make(map[int]struct{}, len(pieceAdds))
+	for _, pieceAdd := range pieceAdds {
+		indexes[pieceAdd.AddMessageIndex] = struct{}{}
+	}
+	return len(indexes)
+}
+
 // handleGetPieceAdditionStatus handles GET /pdp/data-sets/{dataSetId}/pieces/added/{txHash}
 func (p *PDPService) handleGetPieceAdditionStatus(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -839,17 +857,7 @@ func (p *PDPService) handleGetPieceAdditionStatus(w http.ResponseWriter, r *http
 	}
 
 	// Step 4: Query pdp_data_set_piece_adds for this transaction
-	type PieceAddInfo struct {
-		Piece           string `db:"piece"`
-		AddMessageIndex int    `db:"add_message_index"`
-		SubPiece        string `db:"sub_piece"`
-		SubPieceOffset  int64  `db:"sub_piece_offset"`
-		SubPieceSize    int64  `db:"sub_piece_size"`
-		AddMessageOK    *bool  `db:"add_message_ok"`
-		PiecesAdded     bool   `db:"pieces_added"`
-	}
-
-	var pieceAdds []PieceAddInfo
+	var pieceAdds []pieceAdditionStatusInfo
 	err = p.db.Select(ctx, &pieceAdds, `
 		SELECT piece, add_message_index, sub_piece, sub_piece_offset,
 		       sub_piece_size, add_message_ok, pieces_added
@@ -881,11 +889,7 @@ func (p *PDPService) handleGetPieceAdditionStatus(w http.ResponseWriter, r *http
 		return
 	}
 
-	// Determine unique pieces list
-	uniquePieceMap := make(map[string]bool)
-	for _, ra := range pieceAdds {
-		uniquePieceMap[ra.Piece] = true
-	}
+	pieceCount := countPieceAddIndexes(pieceAdds)
 
 	// Step 6: If transaction is confirmed and successful, get assigned piece IDs
 	var confirmedPieceIds []uint64
@@ -905,8 +909,8 @@ func (p *PDPService) handleGetPieceAdditionStatus(w http.ResponseWriter, r *http
 		}
 	}
 
-	if confirmedPieceIds != nil && len(confirmedPieceIds) != len(pieceAdds) {
-		msg := fmt.Sprintf("Mismatch in confirmed piece IDs count (%d) vs number of pieces added (%d) for tx %s", len(confirmedPieceIds), len(pieceAdds), txHash)
+	if confirmedPieceIds != nil && len(confirmedPieceIds) != pieceCount {
+		msg := fmt.Sprintf("Mismatch in confirmed piece IDs count (%d) vs number of pieces added (%d) for tx %s", len(confirmedPieceIds), pieceCount, txHash)
 		log.Error(msg)
 		http.Error(w, msg, http.StatusInternalServerError)
 		return
@@ -940,7 +944,7 @@ func (p *PDPService) handleGetPieceAdditionStatus(w http.ResponseWriter, r *http
 		TxHash:            txHash,
 		TxStatus:          txStatus,
 		DataSetId:         dataSetId,
-		PieceCount:        len(uniquePieceMap),
+		PieceCount:        pieceCount,
 		AddMessageOK:      pieceAdds[0].AddMessageOK,
 		PiecesAdded:       allPiecesProcessed,
 		ConfirmedPieceIds: confirmedPieceIds,
