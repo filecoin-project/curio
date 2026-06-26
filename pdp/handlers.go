@@ -1079,7 +1079,7 @@ func (p *PDPService) handleDeleteDataSetPiece(w http.ResponseWriter, r *http.Req
 		return
 	}
 	if foundCount != len(pieceIDsI64) {
-		http.Error(w, "Piece not found", http.StatusNotFound)
+		http.Error(w, "One or more piece not found", http.StatusNotFound)
 		return
 	}
 
