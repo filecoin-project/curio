@@ -77,5 +77,5 @@ func TestHandleDeleteDataSetPiece_MissingPiece404(t *testing.T) {
 	p.handleDeleteDataSetPiece(rec, req)
 
 	require.Equal(t, http.StatusNotFound, rec.Code)
-	require.Contains(t, rec.Body.String(), "Piece not found")
+	require.Contains(t, rec.Body.String(), "One or more piece not found")
 }
