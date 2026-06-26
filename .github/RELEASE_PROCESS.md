@@ -72,12 +72,12 @@ When releasing from a source other than `main`, document the release-source rati
 8. Complete review and CI for the version upgrade PR.
 9. Merge the version upgrade PR. The release tag is not created until publish time, so the version PR merges before release notes exist; release notes are generated from the merged changes.
 10. Create release notes from the merged changes (see [Release Notes](#release-notes)).
-11. Review the release notes with the team.
+11. Review the release notes with the team. The draft release and it's notes can be found in [release page](https://github.com/filecoin-project/curio/releases).
 12. Publish the release. Creating the GitHub release is what creates the tag.
 13. Announce the release on the appropriate channels (see [Release Announcements](#release-announcements)).
 14. Monitor operator feedback after publication.
 
-## Release Checklist
+### Release Checklist
 
 Run this checklist for every release. It is written for a stable release, which is the default. If, and only if, an RC is justified (see [Release Principles](#release-principles)), apply the RC Delta below instead of the stable-specific lines it overrides.
 
