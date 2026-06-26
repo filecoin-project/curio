@@ -141,7 +141,7 @@ func processIndexingAndIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *c
 										    JOIN parked_piece_refs ppr ON pr.piece_ref = ppr.ref_id
 										    JOIN parked_pieces pp ON ppr.piece_id = pp.id
 										WHERE pr.data_set_refcount = 0
-										  AND pr.created_at <= TIMEZONE('UTC', NOW()) - INTERVAL '14 days'
+										  AND pr.created_at <= TIMEZONE('UTC', NOW()) - INTERVAL '24 hours'
 										  AND NOT EXISTS (
 										      SELECT 1 FROM pdp_data_set_piece_adds a
 										      WHERE a.pdp_pieceref = pr.id
