@@ -251,12 +251,14 @@ func (t *TaskPDPSaveCache) scheduleMigrationCleanup(_ context.Context, taskFunc 
 	// trivially will not populate the cache because they are too small
 	_, err := t.db.Exec(context.Background(), `
             UPDATE pdp_piecerefs pr SET needs_save_cache = FALSE, caching_task_completed = NOW()
-            FROM parked_piece_refs pprf
-            JOIN parked_pieces pp ON pp.id = pprf.piece_id
-            WHERE pprf.ref_id = pr.piece_ref
-            AND pr.needs_save_cache = TRUE
+            WHERE pr.needs_save_cache = TRUE
             AND pr.save_cache_task_id IS NULL
-            AND pp.piece_raw_size <= $1`, MaxRawSizeForSkip)
+            AND EXISTS (
+                SELECT 1 FROM parked_piece_refs pprf
+                JOIN parked_pieces pp ON pp.id = pprf.piece_id
+                WHERE pprf.ref_id = pr.piece_ref
+                AND pp.piece_raw_size <= $1
+            )`, MaxRawSizeForSkip)
 	if err != nil {
 		return xerrors.Errorf("bulk clearing small pieces: %w", err)
 	}

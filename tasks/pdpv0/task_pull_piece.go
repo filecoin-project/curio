@@ -249,12 +249,16 @@ func (t *PDPPullPieceTask) completeAlreadyParkedItems(ctx context.Context) error
 				fi.parked_piece_ref
 			FROM pdp_piece_pull_items fi
 			JOIN pdp_piece_pulls pp ON pp.id = fi.fetch_id
-			JOIN parked_pieces parked
-				ON parked.piece_cid = fi.piece_cid
+			CROSS JOIN LATERAL (
+				SELECT parked.id, parked.created_at
+				FROM parked_pieces parked
+				WHERE parked.piece_cid = fi.piece_cid
 				AND parked.piece_raw_size = fi.piece_raw_size
 				AND parked.long_term = TRUE
 				AND parked.complete = TRUE
 				AND parked.cleanup_task_id IS NULL
+				OFFSET 0
+			) parked
 			WHERE fi.complete = FALSE
 				AND fi.failed = FALSE
 			ORDER BY fi.fetch_id, fi.piece_cid, fi.source_url, parked.created_at ASC, parked.id ASC
