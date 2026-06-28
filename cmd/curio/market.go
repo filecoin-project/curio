@@ -1,9 +1,10 @@
 package main
 
 import (
-	"bufio"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"strconv"
@@ -101,16 +102,24 @@ var marketAddOfflineURLCmd = &cli.Command{
 			Usage:   translations.T("Custom `HEADER` to include in the HTTP request"),
 		},
 		&cli.StringFlag{
-			Name:     "url",
-			Aliases:  []string{"u"},
-			Usage:    translations.T("`URL` to send the request to"),
-			Required: true,
+			Name:    "url",
+			Aliases: []string{"u"},
+			Usage:   translations.T("`URL` to send the request to"),
 		},
 	},
 	ArgsUsage: "<deal UUID> <raw size/car size>",
 	Action: func(cctx *cli.Context) error {
-		if !cctx.IsSet("file") && cctx.Args().Len() != 2 {
-			return xerrors.Errorf("incorrect number of arguments")
+		if cctx.IsSet("file") {
+			if cctx.Args().Len() != 0 {
+				return xerrors.Errorf("--file mode does not accept positional arguments")
+			}
+		} else {
+			if cctx.Args().Len() != 2 {
+				return xerrors.Errorf("incorrect number of arguments")
+			}
+			if !cctx.IsSet("url") || cctx.String("url") == "" {
+				return xerrors.Errorf("--url is required when not using --file")
+			}
 		}
 
 		ctx := reqcontext.ReqContext(cctx)
@@ -119,94 +128,14 @@ var marketAddOfflineURLCmd = &cli.Command{
 			return err
 		}
 
-		if cctx.IsSet("file") {
-			// Read file line by line
-			fileStr := cctx.String("file")
-			loc, err := homedir.Expand(fileStr)
-			if err != nil {
-				return err
-			}
-			file, err := os.Open(loc)
-			if err != nil {
-				return err
-			}
-			defer func() {
-				_ = file.Close()
-			}()
-			scanner := bufio.NewScanner(file)
-			for scanner.Scan() {
-				line := scanner.Text()
-				// Extract pieceCid, pieceSize and MinerAddr from line
-				parts := strings.SplitN(line, ",", 4)
-				if parts[0] == "" || parts[1] == "" || parts[2] == "" {
-					return fmt.Errorf("empty column value in the input file at %s", line)
-				}
-
-				uuid := parts[0]
-				size, err := strconv.ParseInt(parts[1], 10, 64)
-				if err != nil {
-					return fmt.Errorf("failed to parse size %w", err)
-				}
-
-				url := parts[2]
-
-				if parts[3] != "" {
-					header := http.Header{}
-					for s := range strings.SplitSeq(parts[3], ",") {
-						key, value, found := strings.Cut(s, ":")
-						if !found {
-							return fmt.Errorf("invalid header format, expected key:value")
-						}
-						header.Set(strings.TrimSpace(key), strings.TrimSpace(value))
-					}
-
-					hdr, err := json.Marshal(header)
-					if err != nil {
-						return xerrors.Errorf("marshalling headers: %w", err)
-					}
-					_, err = dep.DB.Exec(ctx, `INSERT INTO market_offline_urls (
-								uuid,
-								url,
-								headers,
-								raw_size
-							) VALUES ($1, $2, $3, $4);`,
-						uuid, url, hdr, size)
-					if err != nil {
-						return xerrors.Errorf("adding details to DB: %w", err)
-					}
-				} else {
-					_, err = dep.DB.Exec(ctx, `INSERT INTO market_offline_urls (
-								uuid,
-								url,
-								raw_size
-							) VALUES ($1, $2, $3, $4);`,
-						uuid, url, size)
-					if err != nil {
-						return xerrors.Errorf("adding details to DB: %w", err)
-					}
-				}
-
-				if err := scanner.Err(); err != nil {
-					return err
-				}
-			}
-		}
-
-		url := cctx.String("url")
-
-		uuid := cctx.Args().First()
-
-		sizeStr := cctx.Args().Get(1)
-		size, err := strconv.ParseInt(sizeStr, 10, 64)
-		if err != nil {
-			return xerrors.Errorf("parsing size: %w", err)
-		}
-
-		if cctx.IsSet("header") {
-			// Split the header into key-value
+		addOfflineURL := func(uuidStr, url string, size int64, headerValues []string) error {
 			header := http.Header{}
-			headerValue := cctx.StringSlice("header")
-			for _, s := range headerValue {
+			for _, s := range headerValues {
+				s = strings.TrimSpace(s)
+				if s == "" {
+					continue
+				}
+
 				key, value, found := strings.Cut(s, ":")
 				if !found {
 					return fmt.Errorf("invalid header format, expected key:value")
@@ -225,21 +154,83 @@ var marketAddOfflineURLCmd = &cli.Command{
 								headers,
 								raw_size
 							) VALUES ($1, $2, $3, $4);`,
-				uuid, url, hdr, size)
+				uuidStr, url, hdr, size)
 			if err != nil {
 				return xerrors.Errorf("adding details to DB: %w", err)
 			}
-		} else {
-			_, err = dep.DB.Exec(ctx, `INSERT INTO market_offline_urls (
-								uuid,
-								url,
-                                headers,
-								raw_size
-							) VALUES ($1, $2, $3, $4);`,
-				uuid, url, []byte("{}"), size)
+
+			return nil
+		}
+
+		if cctx.IsSet("file") {
+			fileStr := cctx.String("file")
+			loc, err := homedir.Expand(fileStr)
 			if err != nil {
-				return xerrors.Errorf("adding details to DB: %w", err)
+				return err
 			}
+
+			file, err := os.Open(loc)
+			if err != nil {
+				return err
+			}
+			defer func() {
+				_ = file.Close()
+			}()
+
+			reader := csv.NewReader(file)
+			reader.FieldsPerRecord = -1
+			reader.TrimLeadingSpace = true
+
+			lineNo := 0
+			for {
+				record, err := reader.Read()
+				if err == io.EOF {
+					break
+				}
+				if err != nil {
+					return xerrors.Errorf("reading CSV line %d: %w", lineNo+1, err)
+				}
+				lineNo++
+
+				if len(record) == 1 && strings.TrimSpace(record[0]) == "" {
+					continue
+				}
+
+				if len(record) < 3 {
+					return fmt.Errorf("expected at least 3 columns in CSV line %d", lineNo)
+				}
+
+				uuidStr := strings.TrimSpace(record[0])
+				sizeStr := strings.TrimSpace(record[1])
+				url := strings.TrimSpace(record[2])
+				if uuidStr == "" || sizeStr == "" || url == "" {
+					return fmt.Errorf("empty uuid, size, or url in CSV line %d", lineNo)
+				}
+
+				size, err := strconv.ParseInt(sizeStr, 10, 64)
+				if err != nil {
+					return xerrors.Errorf("parsing size in CSV line %d: %w", lineNo, err)
+				}
+
+				if err := addOfflineURL(uuidStr, url, size, record[3:]); err != nil {
+					return xerrors.Errorf("adding details from CSV line %d: %w", lineNo, err)
+				}
+			}
+
+			return nil
+		}
+
+		url := cctx.String("url")
+		uuidStr := cctx.Args().First()
+
+		sizeStr := cctx.Args().Get(1)
+		size, err := strconv.ParseInt(sizeStr, 10, 64)
+		if err != nil {
+			return xerrors.Errorf("parsing size: %w", err)
+		}
+
+		if err := addOfflineURL(uuidStr, url, size, cctx.StringSlice("header")); err != nil {
+			return err
 		}
 
 		return nil
