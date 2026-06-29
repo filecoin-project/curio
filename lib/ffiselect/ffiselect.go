@@ -187,12 +187,26 @@ func call(ctx context.Context, body []byte) (io.ReadCloser, error) {
 	cmd.ExtraFiles = []*os.File{outFile}
 
 	cmd.Stdin = bytes.NewReader(body)
-	err = cmd.Run()
+
+	localDoneChan := make(chan struct{})
+	err = cmd.Start()
+	if err == nil {
+		go func() {
+			select {
+			case <-localDoneChan:
+				return
+			case <-ctx.Done():
+				_ = cmd.Process.Kill()
+			}
+		}()
+	}
+	err = cmd.Wait()
 	if err != nil {
 		_ = outFile.Close()
 		_ = os.Remove(outFile.Name())
 		return nil, err
 	}
+	close(localDoneChan)
 
 	// seek to start
 	if _, err := outFile.Seek(0, io.SeekStart); err != nil {

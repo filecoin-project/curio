@@ -36,9 +36,11 @@ import (
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/deps/stats"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/lib/cachedreader"
 	"github.com/filecoin-project/curio/lib/curiochain"
 	"github.com/filecoin-project/curio/lib/ethchain"
+	harmonypeerhttp "github.com/filecoin-project/curio/lib/harmony_peer_http"
 	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/pieceprovider"
@@ -172,12 +174,15 @@ type Deps struct {
 	Name              string
 	MachineID         *int64
 	Alert             *alertmanager.AlertNow
+	TaskEngine        *harmonytask.TaskEngine
 	IndexStore        *indexstore.IndexStore
 	SectorReader      *pieceprovider.SectorReader
 	CachedPieceReader *cachedreader.CachedPieceReader
 	ServeChunker      *chunker.ServeChunker
 	EthClient         *lazy.Lazy[ethchain.EthClient]
 	Sender            *message.Sender
+	PeerHTTP          *harmonypeerhttp.PeerHTTP
+	WakeDealPoller    func()
 }
 
 const (
@@ -321,6 +326,10 @@ func (deps *Deps) PopulateRemainingDeps(ctx context.Context, cctx *cli.Context, 
 				deps.ListenAddr = ip.String() + ":" + addressSlice[1]
 			}
 		}
+	}
+
+	if deps.PeerHTTP == nil {
+		deps.PeerHTTP = harmonypeerhttp.New(deps.ListenAddr)
 	}
 
 	if deps.Alert == nil {

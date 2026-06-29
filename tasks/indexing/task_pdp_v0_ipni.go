@@ -29,6 +29,7 @@ import (
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/ipni/chunker"
 	"github.com/filecoin-project/curio/market/ipni/ipniculib"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 const (
@@ -51,9 +52,7 @@ func NewPDPV0IPNITask(db *harmonydb.DB, cfg *config.CurioConfig, max taskhelp.Li
 	}
 }
 
-func (P *PDPV0IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
-
+func (P *PDPV0IPNITask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	var tasks []struct {
 		ID       int64  `db:"id"`
 		PieceCID string `db:"piece_cid"`
@@ -311,7 +310,8 @@ func (P *PDPV0IPNITask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.
 
 func (P *PDPV0IPNITask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name: "PDPv0_IPNI",
+		Name:      tasknames.PDPv0_IPNI,
+		MayFollow: []string{tasknames.PDPv0_Indexing},
 		Cost: resources.Resources{
 			Cpu: 0,
 			Ram: 1 << 30,

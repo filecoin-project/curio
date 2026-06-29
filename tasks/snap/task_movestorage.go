@@ -19,8 +19,10 @@ import (
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/lib/paths"
+	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/tasks/seal"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 type MoveStorageTask struct {
@@ -28,6 +30,8 @@ type MoveStorageTask struct {
 
 	sc *ffi.SealCalls
 	db *harmonydb.DB
+
+	adder promise.Promise[harmonytask.AddTaskFunc]
 }
 
 func NewMoveStorageTask(sc *ffi.SealCalls, db *harmonydb.DB, max int) *MoveStorageTask {
@@ -38,8 +42,7 @@ func NewMoveStorageTask(sc *ffi.SealCalls, db *harmonydb.DB, max int) *MoveStora
 	}
 }
 
-func (m *MoveStorageTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (m *MoveStorageTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	var sectorParamsArr []struct {
 		SpID         int64 `db:"sp_id"`
@@ -124,8 +127,9 @@ func (m *MoveStorageTask) TypeDetails() harmonytask.TaskTypeDetails {
 	}
 
 	return harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(m.max),
-		Name: "UpdateStore",
+		Max:       taskhelp.Max(m.max),
+		Name:      tasknames.UpdateStore,
+		MayFollow: []string{tasknames.UpdateEncode},
 		Cost: resources.Resources{
 			Cpu:     0,
 			Ram:     128 << 20,
@@ -178,6 +182,23 @@ func (m *MoveStorageTask) schedule(ctx context.Context, taskFunc harmonytask.Add
 }
 
 func (m *MoveStorageTask) Adder(taskFunc harmonytask.AddTaskFunc) {
+	m.adder.Set(taskFunc)
+}
+
+// Wake triggers an immediate schedule() pass without waiting for the next
+// IAmBored tick. Call this when an upstream task (e.g. UpdateEncode) completes
+// so MoveStorage picks up newly eligible sectors right away.
+func (m *MoveStorageTask) Wake() {
+	if m == nil || !m.adder.IsSet() {
+		return
+	}
+	taskFunc := m.adder.Val(context.Background())
+	if taskFunc == nil {
+		return
+	}
+	if err := m.schedule(context.Background(), taskFunc); err != nil {
+		log.Errorf("snap move-storage wake schedule: %s", err)
+	}
 }
 
 func (m *MoveStorageTask) taskToSector(id harmonytask.TaskID) (ffi.SectorRef, error) {

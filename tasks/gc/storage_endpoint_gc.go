@@ -17,6 +17,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 
 	"github.com/filecoin-project/lotus/lib/result"
 	"github.com/filecoin-project/lotus/storage/sealer/fsutil"
@@ -42,7 +43,7 @@ func NewStorageEndpointGC(si paths.SectorIndex, remote *paths.Remote, db *harmon
 	}
 }
 
-func (s *StorageEndpointGC) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
+func (s *StorageEndpointGC) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	/*
 		1. Get all storage paths + urls (endpoints)
 		2. Ping each url, record results
@@ -51,8 +52,6 @@ func (s *StorageEndpointGC) Do(taskID harmonytask.TaskID, stillOwned func() bool
 		4.2 Remove storage paths with no URLs remaining
 		4.2.1 in the same transaction remove sector refs to the dead path
 	*/
-
-	ctx := context.Background()
 
 	var pathRefs []struct {
 		StorageID     storiface.ID `db:"storage_id"`
@@ -273,8 +272,9 @@ func (s *StorageEndpointGC) CanAccept(ids []harmonytask.TaskID, engine *harmonyt
 
 func (s *StorageEndpointGC) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(1),
-		Name: "StorageMetaGC",
+		Max:       taskhelp.Max(1),
+		Name:      tasknames.StorageMetaGC,
+		MayFollow: []string{tasknames.MoveStorage, tasknames.UpdateStore},
 		Cost: resources.Resources{
 			Cpu: 0,
 			Ram: 64 << 20,

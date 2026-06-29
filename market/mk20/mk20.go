@@ -62,6 +62,11 @@ type MK20 struct {
 	sc                 *ffi.SealCalls
 	maxParallelUploads *atomic.Int64
 	backpressure       *backpressure.CachedBackPressure
+
+	// OnDealInserted is called after a deal is successfully committed to the
+	// waiting/pipeline table. Wire this to CurioStorageDealMarket.WakeDealPoller
+	// so the poller picks up the new deal without waiting for the idle timer.
+	OnDealInserted func()
 }
 
 func NewMK20Handler(
@@ -207,6 +212,10 @@ func (m *MK20) ExecuteDeal(ctx context.Context, deal *Deal, auth string) (result
 		}
 
 		log.Debugw("deal inserted in DB", "deal", deal.Identifier.String())
+
+		if m.OnDealInserted != nil {
+			m.OnDealInserted()
+		}
 
 		return &ProviderDealRejectionInfo{
 			HTTPCode: Ok,

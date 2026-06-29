@@ -64,8 +64,7 @@ func NewSDRTask(api SDRAPI, db *harmonydb.DB, sp *SealPoller, sc *ffi2.SealCalls
 	}
 }
 
-func (s *SDRTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (s *SDRTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	var sectorParamsArr []struct {
 		SpID         int64                   `db:"sp_id"`
@@ -85,6 +84,7 @@ func (s *SDRTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bo
 		return false, xerrors.Errorf("expected 1 sector params, got %d", len(sectorParamsArr))
 	}
 	sectorParams := sectorParamsArr[0]
+	harmonytask.SetMeta(ctx, PoRepPipelineKey, [2]int64{sectorParams.SpID, sectorParams.SectorNumber})
 
 	dealData, err := dealdata.DealDataSDRPoRep(ctx, s.db, s.sc, sectorParams.SpID, sectorParams.SectorNumber, sectorParams.RegSealProof, true)
 	if err != nil {
@@ -192,6 +192,9 @@ func (s *SDRTask) TypeDetails() harmonytask.TaskTypeDetails {
 	res := harmonytask.TaskTypeDetails{
 		Max:  s.max,
 		Name: tasknames.SDR,
+		// sectors_sdr_pipeline rows are created when deals are ingested into a sector (see storageingest).
+		// SupraSeal uses dynamic task names (BatchNN-<size>) and may insert rows from its own scheduler.
+		MayFollow: []string{tasknames.AggregateDeals},
 		Cost: resources.Resources{
 			Cpu:     4, // todo multicore sdr
 			Gpu:     0,
@@ -199,7 +202,6 @@ func (s *SDRTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Storage: s.sc.Storage(s.taskToSector, storiface.FTCache, storiface.FTNone, ssize, storiface.PathSealing, paths.MinFreeStoragePercentage),
 		},
 		MaxFailures: 2,
-		Follows:     nil,
 	}
 
 	if IsDevnet {

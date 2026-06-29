@@ -13,6 +13,7 @@ import (
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 type CleanupPieceTask struct {
@@ -21,17 +22,30 @@ type CleanupPieceTask struct {
 	sc  *ffi.SealCalls
 
 	TF promise.Promise[harmonytask.AddTaskFunc]
+
+	wake chan struct{}
 }
 
 func NewCleanupPieceTask(db *harmonydb.DB, sc *ffi.SealCalls, max int) *CleanupPieceTask {
 	pt := &CleanupPieceTask{
-		db: db,
-		sc: sc,
-
-		max: max,
+		db:   db,
+		sc:   sc,
+		max:  max,
+		wake: make(chan struct{}, 1),
 	}
 	go pt.pollCleanupTasks(context.Background())
 	return pt
+}
+
+// WakePoll nudges pollCleanupTasks to run soon.
+func (c *CleanupPieceTask) WakePoll() {
+	if c == nil || c.wake == nil {
+		return
+	}
+	select {
+	case c.wake <- struct{}{}:
+	default:
+	}
 }
 
 // cleanupCandidateBatch caps how many candidate pieces the poller pulls per
@@ -43,18 +57,17 @@ const cleanupCandidateBatch = 256
 func (c *CleanupPieceTask) pollCleanupTasks(ctx context.Context) {
 	ticker := time.NewTicker(PieceParkPollInterval)
 	defer ticker.Stop()
-
 	for {
-		err := c.schedule(ctx)
-		if err != nil {
-			log.Errorf("failed to schedule cleanup piece task: %s", err)
-		}
-
 		select {
 		case <-ctx.Done():
 			return
+		case <-c.wake:
 		case <-ticker.C:
-			continue
+		}
+
+		err := c.schedule(ctx)
+		if err != nil {
+			log.Errorf("failed to schedule cleanup piece task: %s", err)
 		}
 	}
 }
@@ -103,8 +116,7 @@ func (c *CleanupPieceTask) schedule(ctx context.Context) error {
 	return nil
 }
 
-func (c *CleanupPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (c *CleanupPieceTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	// select by cleanup_task_id
 	var pieceID int64
@@ -188,12 +200,14 @@ func (c *CleanupPieceTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.Ta
 
 func (c *CleanupPieceTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(c.max),
-		Name: "DropPiece",
+		Max:       taskhelp.Max(c.max),
+		Name:      tasknames.DropPiece,
+		MayFollow: []string{tasknames.MoveStorage, tasknames.UpdateStore},
 		Cost: resources.Resources{
-			Cpu: 0,
-			Gpu: 0,
-			Ram: 64 << 20,
+			Cpu:     0,
+			Gpu:     0,
+			Ram:     64 << 20,
+			Storage: nil,
 		},
 		MaxFailures: 10,
 	}

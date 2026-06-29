@@ -36,9 +36,11 @@ import (
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/lib/pieceprovider"
+	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/mk20"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 var log = logging.Logger("indexing")
@@ -53,6 +55,11 @@ type IndexingTask struct {
 	insertConcurrency int
 	insertBatchSize   int
 	max               taskhelp.Limiter
+
+	// Stored by Adder() so Wake() can dispatch a schedule pass on demand
+	// (e.g. CommitBatch/UpdateBatch task completion) without waiting for the
+	// next IAmBored cycle.
+	adder promise.Promise[harmonytask.AddTaskFunc]
 }
 
 func NewIndexingTask(db *harmonydb.DB, sc *ffi.SealCalls, indexStore *indexstore.IndexStore, pieceProvider *pieceprovider.SectorReader, cpr *cachedreader.CachedPieceReader, cfg *config.CurioConfig, max taskhelp.Limiter) *IndexingTask {
@@ -94,11 +101,9 @@ type itask struct {
 	IsRM        bool `db:"is_rm"`        // used less frequently
 }
 
-func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
+func (i *IndexingTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	var tasks []itask
-
-	ctx := context.Background()
 
 	err = i.db.Select(ctx, &tasks, `SELECT 
 										  p.uuid, 
@@ -741,7 +746,8 @@ func (i *IndexingTask) TypeDetails() harmonytask.TaskTypeDetails {
 	//chanSize := dealCfg.Indexing.InsertConcurrency * dealCfg.Indexing.InsertBatchSize * 56 // (56 = size of each index.Record)
 
 	return harmonytask.TaskTypeDetails{
-		Name: "Indexing",
+		Name:      tasknames.Indexing,
+		MayFollow: []string{tasknames.CommitBatch, tasknames.UpdateBatch},
 		Cost: resources.Resources{
 			Cpu: 0,
 			Ram: uint64(i.insertBatchSize * i.insertConcurrency * 56 * 2),
@@ -772,7 +778,8 @@ func (i *IndexingTask) schedule(ctx context.Context, taskFunc harmonytask.AddTas
             										WHERE sealed = TRUE
             										AND indexing_task_id IS NULL
             										AND indexed = FALSE
-													ORDER BY indexing_created_at ASC LIMIT 1;`)
+            										AND indexing_created_at IS NOT NULL
+												ORDER BY indexing_created_at ASC LIMIT 1;`)
 			if err != nil {
 				return false, xerrors.Errorf("getting pending mk12 indexing tasks: %w", err)
 			}
@@ -798,7 +805,8 @@ func (i *IndexingTask) schedule(ctx context.Context, taskFunc harmonytask.AddTas
             										WHERE sealed = TRUE
             										AND indexing_task_id IS NULL
             										AND indexed = FALSE
-													ORDER BY indexing_created_at ASC LIMIT 1;`)
+            										AND indexing_created_at IS NOT NULL
+												ORDER BY indexing_created_at ASC LIMIT 1;`)
 			if err != nil {
 				return false, xerrors.Errorf("getting mk20 pending indexing tasks: %w", err)
 			}
@@ -823,6 +831,24 @@ func (i *IndexingTask) schedule(ctx context.Context, taskFunc harmonytask.AddTas
 }
 
 func (i *IndexingTask) Adder(taskFunc harmonytask.AddTaskFunc) {
+	i.adder.Set(taskFunc)
+}
+
+// Wake triggers an immediate schedule() pass without waiting for the next IAmBored
+// tick. It is safe to call from any goroutine; if the adder is not yet ready (e.g.
+// during startup) the call is a no-op and the periodic IAmBored cycle will pick up
+// the work as before.
+func (i *IndexingTask) Wake() {
+	if i == nil || !i.adder.IsSet() {
+		return
+	}
+	taskFunc := i.adder.Val(context.Background())
+	if taskFunc == nil {
+		return
+	}
+	if err := i.schedule(context.Background(), taskFunc); err != nil {
+		log.Errorf("indexing wake schedule: %s", err)
+	}
 }
 
 func (i *IndexingTask) GetSpid(db *harmonydb.DB, taskID int64) string {

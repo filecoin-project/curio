@@ -26,6 +26,7 @@ import (
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/mk20"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 type AggregateDealTask struct {
@@ -46,8 +47,7 @@ func NewAggregateTask(sm *CurioStorageDealMarket, db *harmonydb.DB, sc *ffi.Seal
 	}
 }
 
-func (a *AggregateDealTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (a *AggregateDealTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	var pieces []struct {
 		Pcid        string `db:"piece_cid"`
@@ -83,6 +83,7 @@ func (a *AggregateDealTask) Do(taskID harmonytask.TaskID, stillOwned func() bool
 	if len(pieces) == 0 {
 		return false, xerrors.Errorf("no pieces to aggregate for task %d", taskID)
 	}
+	harmonytask.SetMeta(ctx, MarketPipelineKey, MarketRef{ID: pieces[0].ID, IsMK12: false})
 
 	if len(pieces) == 1 {
 		n, err := a.db.Exec(ctx, `UPDATE market_mk20_pipeline SET aggregated = TRUE, agg_task_id = NULL 
@@ -356,8 +357,9 @@ func (a *AggregateDealTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.T
 
 func (a *AggregateDealTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(50),
-		Name: "AggregateDeals",
+		Max:       taskhelp.Max(50),
+		Name:      tasknames.AggregateDeals,
+		MayFollow: []string{tasknames.FindDeal},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 4 << 30,

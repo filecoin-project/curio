@@ -613,9 +613,7 @@ func (t *PDPPullPieceTask) assignGroup(tx *harmonydb.Tx, taskID harmonytask.Task
 	return n > 0, nil
 }
 
-func (t *PDPPullPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
-
+func (t *PDPPullPieceTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	var sources []pullSource
 	// Load by assigned group, then expand back to all active rows for that
 	// group. This picks up rows that arrived after the scheduler assigned task_id.
@@ -1349,8 +1347,9 @@ func (t *PDPPullPieceTask) CanAccept(ids []harmonytask.TaskID, engine *harmonyta
 
 func (t *PDPPullPieceTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name: tasknames.PDPv0_PullPiece,
-		Max:  taskhelp.Max(t.max),
+		Name:      tasknames.PDPv0_PullPiece,
+		Max:       taskhelp.Max(t.max),
+		MayFollow: []string{tasknames.PDPv0_Notify},
 		Cost: resources.Resources{
 			Cpu:     0,
 			Gpu:     0,

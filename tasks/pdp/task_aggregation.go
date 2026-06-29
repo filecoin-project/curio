@@ -40,8 +40,7 @@ func NewAggregatePDPDealTask(db *harmonydb.DB, sc *ffi.SealCalls) *AggregatePDPD
 	}
 }
 
-func (a *AggregatePDPDealTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (a *AggregatePDPDealTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	var pieces []struct {
 		PieceCidV2  string `db:"piece_cid_v2"`
@@ -321,8 +320,9 @@ func (a *AggregatePDPDealTask) CanAccept(ids []harmonytask.TaskID, engine *harmo
 
 func (a *AggregatePDPDealTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(50),
-		Name: tasknames.AggregatePDPDeal,
+		Max:       taskhelp.Max(50),
+		Name:      tasknames.AggregatePDPDeal,
+		MayFollow: []string{tasknames.PDPAddPiece},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 4 << 30,

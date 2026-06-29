@@ -44,8 +44,7 @@ func NewPDPTaskAddPiece(db *harmonydb.DB, sender *message.SenderETH, ethClient e
 	}
 }
 
-func (p *PDPTaskAddPiece) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (p *PDPTaskAddPiece) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	var addPieces []struct {
 		ID        string `db:"id"`
@@ -172,8 +171,9 @@ func (p *PDPTaskAddPiece) CanAccept(ids []harmonytask.TaskID, engine *harmonytas
 
 func (p *PDPTaskAddPiece) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(50),
-		Name: tasknames.PDPAddPiece,
+		Max:       taskhelp.Max(50),
+		Name:      tasknames.PDPAddPiece,
+		MayFollow: []string{tasknames.PDPCommP},
 		Cost: resources.Resources{
 			Cpu: 0,
 			Ram: 64 << 20,

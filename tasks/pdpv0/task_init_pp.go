@@ -97,9 +97,7 @@ func NewInitProvingPeriodTask(db *harmonydb.DB, ethClient ethchain.EthClient, fi
 	return ipp
 }
 
-func (ipp *InitProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
-
+func (ipp *InitProvingPeriodTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	// Select the data set where challenge_request_task_id = taskID
 	var dataSetId int64
 
@@ -276,6 +274,10 @@ func (ipp *InitProvingPeriodTask) CanAccept(ids []harmonytask.TaskID, engine *ha
 func (ipp *InitProvingPeriodTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Name: tasknames.PDPv0_InitPP,
+		// Handoff from data onboarding (PDPv0_Notify → PDPv0_PullPiece → PDPv0_SaveCache).
+		// InitPP checks on-chain leaf count before the first challenge request; proving
+		// continues PDPv0_InitPP → PDPv0_Prove.
+		MayFollow: []string{tasknames.PDPv0_SaveCache},
 		Cost: resources.Resources{
 			Cpu: 0,
 			Gpu: 0,

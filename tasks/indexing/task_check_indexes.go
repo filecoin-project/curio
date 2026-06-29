@@ -23,6 +23,7 @@ import (
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/mk20"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 const CheckIndexInterval = time.Hour * 6
@@ -41,8 +42,7 @@ func NewCheckIndexesTask(db *harmonydb.DB, indexStore *indexstore.IndexStore) *C
 	}
 }
 
-func (c *CheckIndexesTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (c *CheckIndexesTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	{
 		/* if market_mk12_deal_pipeline_migration has entries don't run checks */
@@ -788,7 +788,8 @@ func (c *CheckIndexesTask) CanAccept(ids []harmonytask.TaskID, engine *harmonyta
 
 func (c *CheckIndexesTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name: "CheckIndex",
+		Name:      tasknames.CheckIndex,
+		MayFollow: []string{tasknames.Indexing, tasknames.IPNI},
 		Cost: resources.Resources{
 			Cpu: 0,
 			Gpu: 0,

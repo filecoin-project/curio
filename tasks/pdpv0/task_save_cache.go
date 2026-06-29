@@ -47,9 +47,7 @@ func NewTaskPDPSaveCache(db *harmonydb.DB, cpr *cachedreader.CachedPieceReader, 
 	}
 }
 
-func (t *TaskPDPSaveCache) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
-
+func (t *TaskPDPSaveCache) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	var tasks []struct {
 		ID       int64  `db:"id"`
 		PieceCID string `db:"piece_cid"`
@@ -183,8 +181,9 @@ func (t *TaskPDPSaveCache) CanAccept(ids []harmonytask.TaskID, engine *harmonyta
 
 func (t *TaskPDPSaveCache) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(50),
-		Name: tasknames.PDPv0_SaveCache,
+		Max:       taskhelp.Max(50),
+		Name:      tasknames.PDPv0_SaveCache,
+		MayFollow: []string{tasknames.PDPv0_PullPiece},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 64 << 20,

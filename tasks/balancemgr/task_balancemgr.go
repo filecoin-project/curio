@@ -15,6 +15,7 @@ import (
 	"github.com/filecoin-project/curio/lib/chainsched"
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/tasks/message"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/types"
@@ -176,8 +177,7 @@ func (b *BalanceMgrTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask
 }
 
 // Do implements harmonytask.TaskInterface.
-func (b *BalanceMgrTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (b *BalanceMgrTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	// select task info
 	var id int64
@@ -245,7 +245,8 @@ func (b *BalanceMgrTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 // TypeDetails implements harmonytask.TaskInterface.
 func (b *BalanceMgrTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name: "BalanceMgr",
+		Name:      tasknames.BalanceMgr,
+		MayFollow: []string{tasknames.SendMessage, tasknames.SendTransaction},
 		Cost: resources.Resources{
 			Cpu: 0,
 			Gpu: 0,

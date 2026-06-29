@@ -18,6 +18,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/node/modules/dtypes"
@@ -66,9 +67,9 @@ func NewF3Task(db *harmonydb.DB, api F3ParticipationAPI, actors *config.Dynamic[
 	}
 }
 
-func (f *F3Task) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
+func (f *F3Task) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	// Ensure that all chain calls are made on the same node (the first call will determine the node)
-	ctx := deps.OnSingleNode(context.Background())
+	ctx = deps.OnSingleNode(ctx)
 
 	var spID int64
 	err = f.db.QueryRow(ctx, "SELECT sp_id FROM f3_tasks WHERE task_id = $1", taskID).Scan(&spID)
@@ -196,7 +197,8 @@ func (f *F3Task) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEng
 
 func (f *F3Task) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name: taskhelp.BackgroundTask("F3Participate"),
+		Name:      taskhelp.BackgroundTask("F3Participate"),
+		MayFollow: []string{tasknames.WinPost},
 		Cost: resources.Resources{
 			Cpu: 0,
 			Gpu: 0,

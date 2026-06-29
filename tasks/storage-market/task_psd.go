@@ -24,6 +24,7 @@ import (
 	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/tasks/message"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors"
@@ -63,8 +64,7 @@ func NewPSDTask(sm *CurioStorageDealMarket, db *harmonydb.DB, sender *message.Se
 	}
 }
 
-func (p *PSDTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (p *PSDTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	var bdeals []struct {
 		Prop  json.RawMessage `db:"proposal"`
@@ -291,8 +291,9 @@ func (p *PSDTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEngine)
 
 func (p *PSDTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(10),
-		Name: "PSD",
+		Max:       taskhelp.Max(10),
+		Name:      tasknames.PSD,
+		MayFollow: []string{tasknames.CommP},
 		Cost: resources.Resources{
 			Cpu: 0,
 			Gpu: 0,

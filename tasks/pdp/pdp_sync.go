@@ -14,6 +14,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/pdp/contract"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 type PDPSyncTask struct {
@@ -28,8 +29,7 @@ func NewPDPSyncTask(db *harmonydb.DB, ethClient ethchain.EthClient) *PDPSyncTask
 	}
 }
 
-func (P *PDPSyncTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (P *PDPSyncTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	// Fetch all proving pieces from DB
 	var provingPieces []struct {
@@ -165,8 +165,9 @@ func (P *PDPSyncTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Ta
 
 func (P *PDPSyncTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(1),
-		Name: "PDPSync",
+		Max:       taskhelp.Max(1),
+		Name:      tasknames.PDPSync,
+		MayFollow: []string{tasknames.PDPProve},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 64 << 20,

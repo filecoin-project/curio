@@ -39,14 +39,12 @@ func NewMoveStorageTask(sp *SealPoller, sc *ffi2.SealCalls, db *harmonydb.DB, ma
 	}
 }
 
-func (m *MoveStorageTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
+func (m *MoveStorageTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	var tasks []struct {
 		SpID         int64 `db:"sp_id"`
 		SectorNumber int64 `db:"sector_number"`
 		RegSealProof int64 `db:"reg_seal_proof"`
 	}
-
-	ctx := context.Background()
 
 	err = m.db.Select(ctx, &tasks, `
 		SELECT sp_id, sector_number, reg_seal_proof FROM sectors_sdr_pipeline WHERE task_id_move_storage = $1`, taskID)
@@ -57,6 +55,7 @@ func (m *MoveStorageTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 		return false, xerrors.Errorf("expected one task")
 	}
 	task := tasks[0]
+	harmonytask.SetMeta(ctx, PoRepPipelineKey, [2]int64{task.SpID, task.SectorNumber})
 
 	sector := storiface.SectorRef{
 		ID: abi.SectorID{
@@ -187,8 +186,9 @@ func (m *MoveStorageTask) TypeDetails() harmonytask.TaskTypeDetails {
 	}
 
 	return harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(m.max),
-		Name: tasknames.MoveStorage,
+		Max:       taskhelp.Max(m.max),
+		Name:      tasknames.MoveStorage,
+		MayFollow: []string{tasknames.Finalize},
 		Cost: resources.Resources{
 			Cpu:     cpu,
 			Gpu:     0,
@@ -242,6 +242,16 @@ func (m *MoveStorageTask) taskToSector(id harmonytask.TaskID) (ffi2.SectorRef, e
 
 func (m *MoveStorageTask) Adder(taskFunc harmonytask.AddTaskFunc) {
 	m.sp.pollers[pollerMoveStorage].Set(taskFunc)
+}
+
+// Wake nudges the seal poller to run poll() sooner than the idle ticker so
+// MoveStorage tasks can be assigned right after Finalize flips after_finalize
+// (same role as snap.MoveStorageTask.Wake after UpdateEncode).
+func (m *MoveStorageTask) Wake() {
+	if m == nil || m.sp == nil {
+		return
+	}
+	m.sp.WakePoll()
 }
 
 var _ harmonytask.TaskInterface = &MoveStorageTask{}

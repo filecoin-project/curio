@@ -19,6 +19,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/lib/proofsvc"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 
 	"github.com/filecoin-project/lotus/chain/types"
 )
@@ -128,8 +129,8 @@ func (t *TaskClientPoll) CanAccept(ids []harmonytask.TaskID, engine *harmonytask
 }
 
 // Do implements harmonytask.TaskInterface.
-func (t *TaskClientPoll) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx, cancel := context.WithCancel(context.Background())
+func (t *TaskClientPoll) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
+	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	var clientRequest ClientRequest
@@ -221,8 +222,9 @@ func (t *TaskClientPoll) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 // TypeDetails implements harmonytask.TaskInterface.
 func (t *TaskClientPoll) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name:     "PSClientPoll",
-		CanYield: true,
+		Name:      tasknames.PSClientPoll,
+		MayFollow: []string{tasknames.PSPutVanilla},
+		CanYield:  true,
 		Cost: resources.Resources{
 			Cpu: 0,
 			Ram: 4 << 20,

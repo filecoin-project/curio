@@ -22,6 +22,7 @@ import (
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/mk20"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 type PDPIndexingTask struct {
@@ -49,8 +50,7 @@ func NewPDPIndexingTask(db *harmonydb.DB, sc *ffi.SealCalls, indexStore *indexst
 	}
 }
 
-func (P *PDPIndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (P *PDPIndexingTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	var tasks []struct {
 		ID         string `db:"id"`
@@ -295,7 +295,8 @@ func (P *PDPIndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytas
 
 func (P *PDPIndexingTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name: "PDPIndexing",
+		Name:      tasknames.PDPIndexing,
+		MayFollow: []string{tasknames.PDPProve, tasknames.AggregatePDPDeal},
 		Cost: resources.Resources{
 			Cpu: 0,
 			Ram: uint64(P.insertBatchSize * P.insertConcurrency * 56 * 2),

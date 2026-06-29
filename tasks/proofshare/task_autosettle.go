@@ -15,6 +15,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/proofsvc/cuhelper"
 	"github.com/filecoin-project/curio/tasks/message"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/types"
@@ -42,8 +43,7 @@ func (t *TaskAutosettle) CanAccept(ids []harmonytask.TaskID, engine *harmonytask
 	return ids, nil
 }
 
-func (t *TaskAutosettle) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (t *TaskAutosettle) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	// 1. check that autosettle is enabled
 	var enabled bool
@@ -268,8 +268,9 @@ func (t *TaskAutosettle) trackSettlement(ctx context.Context, providerID int64, 
 // TypeDetails implements harmonytask.TaskInterface.
 func (t *TaskAutosettle) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(1),
-		Name: "PSAutoSettle",
+		Max:       taskhelp.Max(1),
+		Name:      tasknames.PSAutoSettle,
+		MayFollow: []string{tasknames.PShareSubmit, tasknames.SendMessage},
 		Cost: resources.Resources{
 			Cpu: 0,
 			Ram: 64 << 20,

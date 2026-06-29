@@ -21,6 +21,7 @@ import (
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/mk20"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 type PieceCleanupTask struct {
@@ -36,11 +37,9 @@ func NewPieceCleanupTask(db *harmonydb.DB, indexStore *indexstore.IndexStore) *P
 	}
 }
 
-func (p *PieceCleanupTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
+func (p *PieceCleanupTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	// TODO: Plug this into PoRep 1.2 and 2.0 clean up as well
 	// TODO: Remove Deal from MK12 and Mk20?
-
-	ctx := context.Background()
 
 	var tasks []struct {
 		ID       string        `db:"id"`
@@ -431,8 +430,9 @@ func (p *PieceCleanupTask) CanAccept(ids []harmonytask.TaskID, engine *harmonyta
 
 func (p *PieceCleanupTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(50),
-		Name: "PieceCleanup",
+		Max:       taskhelp.Max(50),
+		Name:      tasknames.PieceCleanup,
+		MayFollow: []string{tasknames.Indexing, tasknames.PDPIndexing, tasknames.PDPv0_Indexing},
 		Cost: resources.Resources{
 			Cpu: 0,
 			Ram: 64 << 20,

@@ -14,6 +14,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/chainsched"
 	"github.com/filecoin-project/curio/tasks/message"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 
 	"github.com/filecoin-project/lotus/api"
 )
@@ -39,8 +40,7 @@ func NewExpMgrTask(db *harmonydb.DB, chain api.FullNode, pcs *chainsched.CurioCh
 	}
 }
 
-func (e *ExpMgrTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (e *ExpMgrTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	log.Infow("starting expiration manager task", "task_id", taskID)
 
@@ -248,8 +248,9 @@ func (e *ExpMgrTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Tas
 
 func (e *ExpMgrTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(1),
-		Name: "ExpMgr",
+		Max:       taskhelp.Max(1),
+		Name:      tasknames.ExpMgr,
+		MayFollow: []string{tasknames.WdPost, tasknames.SectorMetadata},
 		Cost: resources.Resources{
 			Cpu: 0,
 			Gpu: 0,

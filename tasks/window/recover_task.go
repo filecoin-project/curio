@@ -20,6 +20,7 @@ import (
 	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/tasks/message"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors"
@@ -87,14 +88,12 @@ func NewWdPostRecoverDeclareTask(sender *message.Sender,
 	return t, nil
 }
 
-func (w *WdPostRecoverDeclareTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
+func (w *WdPostRecoverDeclareTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	log.Debugw("WdPostRecoverDeclareTask.Do()", "taskID", taskID)
-	ctx := context.Background()
 
 	var spID, pps, dlIdx, partIdx uint64
 
-	err = w.db.QueryRow(context.Background(),
-		`Select sp_id, proving_period_start, deadline_index, partition_index
+	err = w.db.QueryRow(ctx, `Select sp_id, proving_period_start, deadline_index, partition_index
 			from wdpost_recovery_tasks 
 			where task_id = $1`, taskID).Scan(
 		&spID, &pps, &dlIdx, &partIdx,
@@ -104,7 +103,7 @@ func (w *WdPostRecoverDeclareTask) Do(taskID harmonytask.TaskID, stillOwned func
 		return false, err
 	}
 
-	head, err := w.api.ChainHead(context.Background())
+	head, err := w.api.ChainHead(ctx)
 	if err != nil {
 		log.Errorf("WdPostRecoverDeclareTask.Do() failed to get chain head: %v", err)
 		return false, err
@@ -123,7 +122,7 @@ func (w *WdPostRecoverDeclareTask) Do(taskID harmonytask.TaskID, stillOwned func
 		return false, err
 	}
 
-	partitions, err := w.api.StateMinerPartitions(context.Background(), maddr, dlIdx, head.Key())
+	partitions, err := w.api.StateMinerPartitions(ctx, maddr, dlIdx, head.Key())
 	if err != nil {
 		log.Errorf("WdPostRecoverDeclareTask.Do() failed to get partitions: %v", err)
 		return false, err
@@ -219,8 +218,9 @@ func (w *WdPostRecoverDeclareTask) CanAccept(ids []harmonytask.TaskID, _ *harmon
 
 func (w *WdPostRecoverDeclareTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(128),
-		Name: "WdPostRecover",
+		Max:       taskhelp.Max(128),
+		Name:      tasknames.WdPostRecover,
+		MayFollow: []string{tasknames.WdPost},
 		Cost: resources.Resources{
 			Cpu: 0,
 			Gpu: 0,

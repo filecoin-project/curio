@@ -23,6 +23,7 @@ import (
 	"github.com/filecoin-project/curio/lib/curiochain"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 
 	"github.com/filecoin-project/lotus/chain/actors/adt"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
@@ -57,8 +58,7 @@ func NewStorageGCMark(si paths.SectorIndex, remote *paths.Remote, db *harmonydb.
 	}
 }
 
-func (s *StorageGCMark) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (s *StorageGCMark) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	/*
 		CREATE TABLE storage_removal_marks (
@@ -483,8 +483,9 @@ func (s *StorageGCMark) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.
 
 func (s *StorageGCMark) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(1),
-		Name: "StorageGCMark",
+		Max:       taskhelp.Max(1),
+		Name:      tasknames.StorageGCMark,
+		MayFollow: []string{tasknames.MoveStorage, tasknames.UpdateStore},
 		Cost: resources.Resources{
 			Cpu: 0,
 			Ram: 64 << 20,

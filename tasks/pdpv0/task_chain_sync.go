@@ -34,9 +34,7 @@ func NewTaskChainSync(db *harmonydb.DB, ethClient ethchain.EthClient, sender *me
 	}
 }
 
-func (t *TaskChainSync) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
-
+func (t *TaskChainSync) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	if !stillOwned() {
 		return false, nil
 	}

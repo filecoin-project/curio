@@ -17,6 +17,7 @@ import (
 	"github.com/filecoin-project/go-address"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/market/mk20"
 
 	"github.com/filecoin-project/lotus/chain/types"
@@ -1084,151 +1085,123 @@ func (a *WebRPC) MK20PDPPipelineFailedTasks(ctx context.Context) (*MK20PDPPipeli
 }
 
 func (a *WebRPC) MK20BulkRestartFailedPDPTasks(ctx context.Context, taskType string) error {
-	didCommit, err := a.deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
-		var rows *harmonydb.Query
-		var err error
+	if a.deps.TaskEngine == nil {
+		return fmt.Errorf("task engine not available")
+	}
 
-		switch taskType {
-		case "downloading":
-			rows, err = tx.Query(`
-							SELECT
-							  t.task_id
-							FROM pdp_pipeline dp
-							LEFT JOIN market_mk20_download_pipeline mdp
-							  ON mdp.id = dp.id
-							 AND mdp.piece_cid_v2 = dp.piece_cid_v2
-							 AND mdp.product = $1
-							LEFT JOIN LATERAL (
-							  SELECT pp.task_id
-							  FROM unnest(mdp.ref_ids) AS r(ref_id)
-							  JOIN parked_piece_refs pr ON pr.ref_id = r.ref_id
-							  JOIN parked_pieces pp     ON pp.id = pr.piece_id
-							  WHERE pp.complete = FALSE
-							  LIMIT 1
-							) AS t ON TRUE
-							LEFT JOIN harmony_task h ON h.id = t.task_id
-							WHERE dp.downloaded = FALSE
-							  AND h.id IS NULL;
-						`, mk20.ProductNamePDPV1)
-		case "commp":
-			rows, err = tx.Query(`
-							SELECT dp.commp_task_id
-							FROM pdp_pipeline dp
-							LEFT JOIN harmony_task h ON h.id = dp.commp_task_id
-							WHERE dp.complete = false
-							  AND dp.downloaded = true
-							  AND dp.commp_task_id IS NOT NULL
-							  AND dp.after_commp = false
-							  AND h.id IS NULL
-						`)
-		case "aggregate":
-			rows, err = tx.Query(`
-							SELECT dp.agg_task_id
-							FROM pdp_pipeline dp
-							LEFT JOIN harmony_task h ON h.id = dp.agg_task_id
-							WHERE dp.complete = false
-							  AND dp.after_commp = true
-							  AND dp.agg_task_id IS NOT NULL
-							  AND dp.aggregated = false
-							  AND h.id IS NULL
-						`)
-		case "add_piece":
-			rows, err = tx.Query(`
-							SELECT dp.add_piece_task_id
-							FROM pdp_pipeline dp
-							LEFT JOIN harmony_task h ON h.id = dp.add_piece_task_id
-							WHERE dp.complete = false
-							  AND dp.aggregated = true
-							  AND dp.add_piece_task_id IS NOT NULL
-							  AND dp.after_add_piece = false
-							  AND h.id IS NULL
-						`)
-		case "save_cache":
-			rows, err = tx.Query(`
-							SELECT dp.save_cache_task_id
-							FROM pdp_pipeline dp
-							LEFT JOIN harmony_task h ON h.id = dp.save_cache_task_id
-							WHERE dp.complete = false
-							  AND dp.after_add_piece = true
-							  AND dp.after_add_piece_msg = true
-							  AND dp.save_cache_task_id IS NOT NULL
-							  AND dp.after_save_cache = false
-							  AND h.id IS NULL
-						`)
-		case "index":
-			rows, err = tx.Query(`
-							SELECT dp.indexing_task_id
-							FROM pdp_pipeline dp
-							LEFT JOIN harmony_task h ON h.id = dp.indexing_task_id
-							WHERE dp.complete = false
-							  AND dp.indexing_task_id IS NOT NULL
-							  AND dp.after_save_cache = true
-							  AND h.id IS NULL
-						`)
-		default:
-			return false, fmt.Errorf("unknown task type: %s", taskType)
-		}
+	var taskIDs []int64
+	var err error
 
-		if err != nil {
-			return false, fmt.Errorf("failed to query failed tasks: %w", err)
-		}
-		defer rows.Close()
-
-		var taskIDs []int64
-		for rows.Next() {
-			var tid int64
-			if err := rows.Scan(&tid); err != nil {
-				return false, fmt.Errorf("failed to scan task_id: %w", err)
-			}
-			taskIDs = append(taskIDs, tid)
-		}
-
-		if err := rows.Err(); err != nil {
-			return false, fmt.Errorf("row iteration error: %w", err)
-		}
-
-		for _, taskID := range taskIDs {
-			var name string
-			var posted time.Time
-			var result bool
-			err = tx.QueryRow(`
-							SELECT name, posted, result 
-							FROM harmony_task_history 
-							WHERE task_id = $1 
-							ORDER BY id DESC LIMIT 1
-						`, taskID).Scan(&name, &posted, &result)
-			if errors.Is(err, pgx.ErrNoRows) {
-				// No history means can't restart this task
-				continue
-			} else if err != nil {
-				return false, fmt.Errorf("failed to query history: %w", err)
-			}
-
-			// If result=true means the task ended successfully, no restart needed
-			if result {
-				continue
-			}
-
-			log.Infow("restarting task", "task_id", taskID, "name", name)
-
-			_, err = tx.Exec(`
-							INSERT INTO harmony_task (id, initiated_by, update_time, posted_time, owner_id, added_by, previous_task, name)
-							VALUES ($1, NULL, NOW(), $2, NULL, $3, NULL, $4)
-						`, taskID, posted, a.deps.MachineID, name)
-			if err != nil {
-				return false, fmt.Errorf("failed to insert harmony_task for task_id %d: %w", taskID, err)
-			}
-		}
-
-		// All done successfully, commit the transaction
-		return true, nil
-	}, harmonydb.OptionRetry())
+	switch taskType {
+	case "downloading":
+		err = a.deps.DB.Select(ctx, &taskIDs, `
+			SELECT
+			  t.task_id
+			FROM pdp_pipeline dp
+			LEFT JOIN market_mk20_download_pipeline mdp
+			  ON mdp.id = dp.id
+			 AND mdp.piece_cid_v2 = dp.piece_cid_v2
+			 AND mdp.product = $1
+			LEFT JOIN LATERAL (
+			  SELECT pp.task_id
+			  FROM unnest(mdp.ref_ids) AS r(ref_id)
+			  JOIN parked_piece_refs pr ON pr.ref_id = r.ref_id
+			  JOIN parked_pieces pp     ON pp.id = pr.piece_id
+			  WHERE pp.complete = FALSE
+			  LIMIT 1
+			) AS t ON TRUE
+			LEFT JOIN harmony_task h ON h.id = t.task_id
+			WHERE dp.downloaded = FALSE
+			  AND h.id IS NULL
+		`, mk20.ProductNamePDPV1)
+	case "commp":
+		err = a.deps.DB.Select(ctx, &taskIDs, `
+			SELECT dp.commp_task_id
+			FROM pdp_pipeline dp
+			LEFT JOIN harmony_task h ON h.id = dp.commp_task_id
+			WHERE dp.complete = false
+			  AND dp.downloaded = true
+			  AND dp.commp_task_id IS NOT NULL
+			  AND dp.after_commp = false
+			  AND h.id IS NULL
+		`)
+	case "aggregate":
+		err = a.deps.DB.Select(ctx, &taskIDs, `
+			SELECT dp.agg_task_id
+			FROM pdp_pipeline dp
+			LEFT JOIN harmony_task h ON h.id = dp.agg_task_id
+			WHERE dp.complete = false
+			  AND dp.after_commp = true
+			  AND dp.agg_task_id IS NOT NULL
+			  AND dp.aggregated = false
+			  AND h.id IS NULL
+		`)
+	case "add_piece":
+		err = a.deps.DB.Select(ctx, &taskIDs, `
+			SELECT dp.add_piece_task_id
+			FROM pdp_pipeline dp
+			LEFT JOIN harmony_task h ON h.id = dp.add_piece_task_id
+			WHERE dp.complete = false
+			  AND dp.aggregated = true
+			  AND dp.add_piece_task_id IS NOT NULL
+			  AND dp.after_add_piece = false
+			  AND h.id IS NULL
+		`)
+	case "save_cache":
+		err = a.deps.DB.Select(ctx, &taskIDs, `
+			SELECT dp.save_cache_task_id
+			FROM pdp_pipeline dp
+			LEFT JOIN harmony_task h ON h.id = dp.save_cache_task_id
+			WHERE dp.complete = false
+			  AND dp.after_add_piece = true
+			  AND dp.after_add_piece_msg = true
+			  AND dp.save_cache_task_id IS NOT NULL
+			  AND dp.after_save_cache = false
+			  AND h.id IS NULL
+		`)
+	case "index":
+		err = a.deps.DB.Select(ctx, &taskIDs, `
+			SELECT dp.indexing_task_id
+			FROM pdp_pipeline dp
+			LEFT JOIN harmony_task h ON h.id = dp.indexing_task_id
+			WHERE dp.complete = false
+			  AND dp.indexing_task_id IS NOT NULL
+			  AND dp.after_save_cache = true
+			  AND h.id IS NULL
+		`)
+	default:
+		return fmt.Errorf("unknown task type: %s", taskType)
+	}
 
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to query failed tasks: %w", err)
 	}
-	if !didCommit {
-		return fmt.Errorf("transaction did not commit")
+
+	for _, taskID := range taskIDs {
+		var name string
+		var posted time.Time
+		var result bool
+		err = a.deps.DB.QueryRow(ctx, `
+			SELECT name, posted, result
+			FROM harmony_task_history
+			WHERE task_id = $1
+			ORDER BY id DESC LIMIT 1
+		`, taskID).Scan(&name, &posted, &result)
+		if errors.Is(err, pgx.ErrNoRows) {
+			continue
+		} else if err != nil {
+			return fmt.Errorf("failed to query history for task_id %d: %w", taskID, err)
+		}
+
+		if result {
+			continue
+		}
+
+		log.Infow("restarting task", "task_id", taskID, "name", name)
+
+		if err := a.deps.TaskEngine.RestartTaskByID(harmonytask.TaskID(taskID), name, posted); err != nil {
+			return fmt.Errorf("failed to restart task_id %d: %w", taskID, err)
+		}
 	}
 
 	return nil

@@ -35,9 +35,7 @@ func NewSettleTask(db *harmonydb.DB, ethClient ethchain.EthClient, sender *messa
 	}
 }
 
-func (s *SettleTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
-
+func (s *SettleTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	var sender string
 	err = s.db.QueryRow(ctx, `SELECT address FROM eth_keys WHERE role = 'pdp' ORDER BY address ASC`).Scan(&sender)
 	if err != nil {
@@ -93,7 +91,8 @@ func (s *SettleTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Tas
 
 func (s *SettleTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name: tasknames.Settle,
+		Name:      tasknames.Settle,
+		MayFollow: []string{tasknames.SendTransaction},
 		Cost: resources.Resources{
 			Cpu: 0,
 			Gpu: 0,

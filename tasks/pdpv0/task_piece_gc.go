@@ -44,11 +44,11 @@ func NewPieceGCTask(cfg *config.HTTPConfig, db *harmonydb.DB, idx *indexstore.In
 	}
 }
 
-func (t *PieceGCTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
+func (t *PieceGCTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	if !stillOwned() {
 		return false, nil
 	}
-	if err := processIndexingAndIPNICleanup(context.Background(), t.db, t.cfg, t.idx); err != nil {
+	if err := processIndexingAndIPNICleanup(ctx, t.db, t.cfg, t.idx); err != nil {
 		return false, err
 	}
 	return true, nil

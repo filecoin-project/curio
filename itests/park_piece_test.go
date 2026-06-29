@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -23,6 +24,16 @@ import (
 	marketmk20 "github.com/filecoin-project/curio/market/mk20"
 	"github.com/filecoin-project/curio/tasks/piece"
 )
+
+// noopPeerConnector implements harmonytask.PeerConnectorInterface for tests
+// that need a TaskEngine but not cluster peering (harmonytask.New requires a
+// non-nil connector; nil panics in startPeering).
+type noopPeerConnector struct{}
+
+func (noopPeerConnector) ConnectToPeer(string) (harmonytask.PeerConnection, error) {
+	return nil, fmt.Errorf("noop: no peers")
+}
+func (noopPeerConnector) SetOnConnect(func(string, harmonytask.PeerConnection)) {}
 
 // TestParkPieceCanAccept_SliceBounds is a regression test for a panic in
 // ParkPieceTask.CanAccept where capacity (maxInPark - count - running) could
@@ -44,7 +55,7 @@ func TestParkPieceCanAccept_SliceBounds(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create a real TaskEngine so RunningCount works.
-	engine, err := harmonytask.New(db, []harmonytask.TaskInterface{ppt}, "testhost:1234")
+	engine, err := harmonytask.New(db, []harmonytask.TaskInterface{ppt}, "testhost:1234", noopPeerConnector{})
 	require.NoError(t, err)
 	t.Cleanup(func() { engine.GracefullyTerminate() })
 
@@ -764,7 +775,7 @@ func TestFixParkPieceTask_RepairsDuplicateRefs(t *testing.T) {
 			// Active rows in a group block index creation; the task returns
 			// success and leaves the index absent for the next pass.
 			fixTask := piece.NewFixParkPieceTask(db, sc)
-			done, err := fixTask.Do(0, func() bool { return true })
+			done, err := fixTask.Do(ctx, 0, func() bool { return true })
 			require.True(t, done)
 			require.NoError(t, err)
 
@@ -811,7 +822,7 @@ func TestFixParkPieceTask_RecoversInvalidIndex(t *testing.T) {
 	require.False(t, parkedPieceIndexExists(t, ctx, db))
 
 	fixTask := piece.NewFixParkPieceTask(db, sc)
-	done, err := fixTask.Do(0, func() bool { return true })
+	done, err := fixTask.Do(ctx, 0, func() bool { return true })
 	require.True(t, done)
 	require.NoError(t, err)
 

@@ -19,6 +19,7 @@ import (
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/lib/pieceprovider"
 	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 type FixRawSize struct {
@@ -37,8 +38,7 @@ func NewFixRawSize(db *harmonydb.DB, sc *ffi.SealCalls, pieceProvider *pieceprov
 	}
 }
 
-func (f *FixRawSize) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (f *FixRawSize) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	var id, pieceCidStr string
 	var spID, sectorNumer, pieceOffset, pieceSize, proof int64
@@ -143,8 +143,9 @@ func (f *FixRawSize) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Tas
 
 func (f *FixRawSize) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(16),
-		Name: "FixRawSize",
+		Max:       taskhelp.Max(16),
+		Name:      tasknames.FixRawSize,
+		MayFollow: []string{tasknames.Indexing},
 		Cost: resources.Resources{
 			Cpu: 0,
 			Gpu: 0,
@@ -155,7 +156,6 @@ func (f *FixRawSize) TypeDetails() harmonytask.TaskTypeDetails {
 			if time.Since(f.startTime) < time.Hour {
 				return nil
 			}
-
 			return f.schedule(context.Background(), taskFunc)
 		}),
 	}

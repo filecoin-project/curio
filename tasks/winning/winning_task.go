@@ -38,6 +38,7 @@ import (
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/tasks/seal"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors/policy"
@@ -102,10 +103,10 @@ func NewWinPostTask(max int, db *harmonydb.DB, remote *paths.Remote, verifier st
 	return t
 }
 
-func (t *WinPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
+func (t *WinPostTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	log.Debugw("WinPostTask.Do()", "taskID", taskID)
 
-	ctx := deps.OnSingleNode(context.Background())
+	ctx = deps.OnSingleNode(ctx)
 
 	type BlockCID struct {
 		CID string
@@ -589,7 +590,7 @@ func (t *WinPostTask) TypeDetails() harmonytask.TaskTypeDetails {
 	}
 
 	return harmonytask.TaskTypeDetails{
-		Name:          "WinPost",
+		Name:          tasknames.WinPost,
 		Max:           maxLimiter,
 		TimeSensitive: true,
 

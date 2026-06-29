@@ -19,6 +19,7 @@ import (
 	"github.com/filecoin-project/curio/lib/cachedreader"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/market/indexstore"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 type PDPIndexingV0Task struct {
@@ -44,9 +45,7 @@ func NewPDPV0IndexingTask(db *harmonydb.DB, indexStore *indexstore.IndexStore, c
 	}
 }
 
-func (P *PDPIndexingV0Task) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
-
+func (P *PDPIndexingV0Task) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	var tasks []struct {
 		ID        int64               `db:"id"`
 		PieceCID  string              `db:"piece_cid"`
@@ -192,7 +191,8 @@ func (P *PDPIndexingV0Task) TypeDetails() harmonytask.TaskTypeDetails {
 	const indexingTaskRAM = 128 << 20 // 128 MiB
 
 	return harmonytask.TaskTypeDetails{
-		Name: "PDPv0_Indexing",
+		Name:      tasknames.PDPv0_Indexing,
+		MayFollow: []string{tasknames.PDPv0_PullPiece, tasknames.PDPv0_Prove},
 		Cost: resources.Resources{
 			Cpu: 0, // I/O bound (storage read, CQL write), not CPU bound
 			Ram: indexingTaskRAM,

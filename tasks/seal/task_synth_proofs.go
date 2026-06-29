@@ -20,6 +20,7 @@ import (
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 type SyntheticProofTask struct {
@@ -38,8 +39,7 @@ func NewSyntheticProofTask(sp *SealPoller, db *harmonydb.DB, sc *ffi.SealCalls, 
 	}
 }
 
-func (s *SyntheticProofTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (s *SyntheticProofTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	var sectorParamsArr []struct {
 		SpID         int64                   `db:"sp_id"`
@@ -62,6 +62,7 @@ func (s *SyntheticProofTask) Do(taskID harmonytask.TaskID, stillOwned func() boo
 		return false, xerrors.Errorf("expected 1 sector params, got %d", len(sectorParamsArr))
 	}
 	sectorParams := sectorParamsArr[0]
+	harmonytask.SetMeta(ctx, PoRepPipelineKey, [2]int64{sectorParams.SpID, sectorParams.SectorNumber})
 
 	// Exit here successfully if synthetic proofs are not required
 	_, ok := abi.Synthetic[sectorParams.RegSealProof]
@@ -204,8 +205,9 @@ func (s *SyntheticProofTask) TypeDetails() harmonytask.TaskTypeDetails {
 	}
 
 	res := harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(s.max),
-		Name: "SyntheticProofs",
+		Max:       taskhelp.Max(s.max),
+		Name:      tasknames.SyntheticProofs,
+		MayFollow: []string{tasknames.TreeRC},
 		Cost: resources.Resources{
 			Cpu:     1,
 			Gpu:     0,
@@ -213,7 +215,6 @@ func (s *SyntheticProofTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Storage: s.sc.Storage(s.taskToSector, storiface.FTNone, storiface.FTCache|storiface.FTSealed, ssize, storiface.PathSealing, paths.MinFreeStoragePercentage),
 		},
 		MaxFailures: 5,
-		Follows:     nil,
 	}
 
 	return res
