@@ -84,6 +84,8 @@ github.com/Reiers/lantern v1.7.16 h1:OIsLZQPpczTVQR98uocOpfeWsQ1bCgzB3dQBnWDgk0U
 github.com/Reiers/lantern v1.7.16/go.mod h1:SJU9xjD3jbRGjCJH0AN1havJScFkU1vbslhWrKmR5Rg=
 github.com/Reiers/lantern v1.8.2 h1:oxAqvXA6e3Hobx0LCS9Qy/n4BEqEsyDr64TKlE+3kzI=
 github.com/Reiers/lantern v1.8.2/go.mod h1:SJU9xjD3jbRGjCJH0AN1havJScFkU1vbslhWrKmR5Rg=
+github.com/Reiers/lantern v1.8.3 h1:f6KGOvCvm3aI92tWczMjhaHhEaqmWrAD9uBTtXDTjpw=
+github.com/Reiers/lantern v1.8.3/go.mod h1:SJU9xjD3jbRGjCJH0AN1havJScFkU1vbslhWrKmR5Rg=
 github.com/Stebalien/go-bitfield v0.0.1/go.mod h1:GNjFpasyUVkHMsfEOk8EFLJ9syQ6SI+XWrX9Wf2XH0s=
 github.com/VictoriaMetrics/fastcache v1.13.0 h1:AW4mheMR5Vd9FkAPUv+NH6Nhw+fmbTMGMsNAoA/+4G0=
 github.com/VictoriaMetrics/fastcache v1.13.0/go.mod h1:hHXhl4DA2fTL2HTZDJFXWgW0LNjo6B+4aj2Wmng3TjU=
