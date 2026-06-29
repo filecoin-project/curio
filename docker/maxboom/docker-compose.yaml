@@ -73,9 +73,9 @@ services:
     labels:
       <<: *maxboom-ports
     ports:
-      - "4701:4701" # Admin GUI
-      - "80:80"     # Public PDP HTTP (default when DelegateTLS=true)
-      - "443:443"   # Public PDP HTTPS (when DelegateTLS=false)
+      - "127.0.0.1:4701:4701" # Admin GUI (localhost only — not for public internet)
+      - "80:80"               # Public PDP HTTP (default when DelegateTLS=true)
+      - "443:443"             # Public PDP HTTPS (when DelegateTLS=false)
     volumes:
       - ${MAXBOOM_REPO_DATA:-./data/maxboom}:/var/lib/maxboom
       - ${MAXBOOM_STORAGE:-./data}:/data

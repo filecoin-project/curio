@@ -32,6 +32,7 @@ WORKDIR /opt/curio
 # native libraries. Sparse-clone default branch tip (Go module metadata only, not rust/, ~9GB).
 COPY go.mod go.sum .gitmodules ./
 
+# for 3 metadata files REPLACE resolution and ffi-version-check insist on
 RUN git clone --filter=blob:none --sparse --depth 1 \
       https://github.com/filecoin-project/filecoin-ffi.git extern/filecoin-ffi \
     && cd extern/filecoin-ffi \

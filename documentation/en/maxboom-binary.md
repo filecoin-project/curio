@@ -25,9 +25,11 @@ Curio (`make build`) is unchanged and still builds with full FFI support.
 
 With defaults:
 
-- **Admin GUI**: `http://127.0.0.1:4701` (webrpc + config editor)
-- **Public PDP API**: `HTTP.ListenAddress` / `HTTP.DomainName` from the `base` config layer
+- **Admin GUI**: `http://127.0.0.1:4701` (webrpc + config editor; local access only)
+- **Public PDP API**: `HTTP.ListenAddress` / `HTTP.DomainName` from the `base` config layer (`80`/`443` only)
 - **Machine identity**: `127.0.0.1:maxboom` (harmony task scheduling; not a public listener)
+
+Open **only TCP 80 and 443** on your public firewall for the PDP API. The admin GUI on port `4701` is unauthenticated — keep it on localhost (`127.0.0.1:4701`) and never expose it to the internet.
 
 The admin GUI hides PoRep, sealing, and storage-market navigation when running MaxBoom. It shows PDP-focused pages (overview, PDP, config, wallets, IPNI, alerts) and displays **Curio PDP** as the product name in the navigation chrome.
 
@@ -36,7 +38,7 @@ The admin GUI hides PoRep, sealing, and storage-market navigation when running M
 | Flag | Env | Default | Purpose |
 |------|-----|---------|---------|
 | `--repo` | `CURIO_REPO_PATH` | `~/.curio` | Local data directory (Lantern chain state) |
-| `--db-host` | `CURIO_DB_HOST` | `127.0.0.1` | Yugabyte/Postgres host |
+| `--db-host` | `CURIO_DB_HOST` | `127.0.0.1` | Yugabyte YSQL host (YCQL index uses same host, port `9042`) |
 | `--machine-host` | `MAXBOOM_MACHINE_HOST` | `127.0.0.1:maxboom` | Harmony machine ID |
 
 ## Architecture
@@ -55,7 +57,7 @@ Use a single `base` config layer. On first start, maxboom **auto-seeds `base`** 
 - `Subsystems.EnableWebGui = true` for the admin UI
 - `HTTP.Enable = true` for the public `/pdp/*` API
 
-See [Enable PDP](experimental-features/Enable-PDP.md) for full-stack Curio deployment, or the [Curio-PDP runbook](curio-pdp.md) for the lightweight Postgres-based maxboom build.
+See [Enable PDP](experimental-features/Enable-PDP.md) for full-stack Curio deployment, or the [Curio-PDP runbook](curio-pdp.md) for the maxboom PDP-only deployment (Dockerized Yugabyte).
 
 ### Chain backend (Lantern)
 
