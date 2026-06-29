@@ -519,21 +519,32 @@ func oldestFirstSeq(taskTypes map[string]*taskTypeHandler, ts taskSource, prefer
 
 	var result []*taskTypeHandler
 	alreadySeen := make(map[string]bool)
+	appendType := func(name string) {
+		if alreadySeen[name] {
+			return
+		}
+		alreadySeen[name] = true
+		result = append(result, taskTypes[name])
+	}
+
+	// Time-sensitive task types always come first (oldest-first among them),
+	// so a battering-ram task (e.g. WindowPost/WinningPost) is attempted ahead
+	// of ordinary pipeline work whenever it has something queued.
+	for _, na := range oldestInOrder {
+		if h := taskTypes[na.name]; h != nil && h.TimeSensitive {
+			appendType(na.name)
+		}
+	}
+
 	for _, na := range oldestInOrder {
 		if alreadySeen[na.name] {
 			continue
 		}
 		// Run downstream pipeline stages (pipeline end first), then this type.
 		for _, name := range preferredTaskRunOrder[na.name] {
-			if !alreadySeen[name] {
-				alreadySeen[name] = true
-				result = append(result, taskTypes[name])
-			}
+			appendType(name)
 		}
-		if !alreadySeen[na.name] {
-			alreadySeen[na.name] = true
-			result = append(result, taskTypes[na.name])
-		}
+		appendType(na.name)
 	}
 	return result
 }

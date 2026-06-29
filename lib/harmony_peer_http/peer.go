@@ -71,10 +71,15 @@ func (p *PeerHTTP) SetOnConnect(onConnect func(peerAddr string, conn harmonytask
 //
 // Message flow:
 //  1. Extract X-Peer-ID header to identify the sender.
-//  2. Look up or create a peerHTTPConnection for this sender.
+//  2. Look up the existing peerHTTPConnection for this sender, or create one
+//     if this is the first message from this peer.
 //  3. Push the message body into the connection's buffered channel.
-//  4. If this is the first message from this peer, trigger OnConnect
-//     which starts the peering layer's handlePeer goroutine for it.
+//  4. Only when the connection is newly created, trigger OnConnect which
+//     starts the peering layer's handlePeer goroutine for it. Subsequent POSTs
+//     from the same peer reuse the connection and do NOT re-run the handshake —
+//     otherwise every message would spawn a new handlePeer goroutine (which
+//     sends an identity message back and runs DB queries), producing an
+//     unbounded identity ping-pong and goroutine/DB-query storm between peers.
 //
 // The 100-slot buffer prevents a burst of messages from blocking HTTP
 // responses. If the buffer is full, the message is dropped with 503 —
@@ -102,22 +107,32 @@ func (p *PeerHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	log.Debugw("received peer message", "peer", peerAddr, "size", len(body))
 
+	// connMu only guards the connections map. Look up or create the connection,
+	// then release the lock before touching the connection's channel so we never
+	// hold the shared lock during delivery.
 	p.connMu.Lock()
-
-	conn := &peerHTTPConnection{
-		parent:   p,
-		peerAddr: peerAddr,
-		incoming: make(chan []byte, 100),
+	conn, exists := p.connections[peerAddr]
+	if !exists {
+		conn = &peerHTTPConnection{
+			parent:   p,
+			peerAddr: peerAddr,
+			incoming: make(chan []byte, 100),
+			done:     make(chan struct{}),
+		}
+		p.connections[peerAddr] = conn
 	}
-	p.connections[peerAddr] = conn
 	p.connMu.Unlock()
 
-	log.Infow("new peer connection via HTTP", "peer", peerAddr)
-
-	if p.onConnect != nil {
+	// Only fire OnConnect for a freshly-created connection; reusing an existing
+	// connection must not re-run the peering handshake.
+	if !exists && p.onConnect != nil {
+		log.Infow("new peer connection via HTTP", "peer", peerAddr)
 		go p.onConnect(peerAddr, conn)
 	}
 
+	// Deliver without holding connMu. incoming is never closed (drops are
+	// signalled via done), so the non-blocking send can neither block on a
+	// gone-away peer nor panic on a closed channel.
 	select {
 	case conn.incoming <- body:
 		w.WriteHeader(http.StatusOK)
@@ -143,6 +158,7 @@ func (p *PeerHTTP) ConnectToPeer(peerID string) (harmonytask.PeerConnection, err
 		parent:   p,
 		peerAddr: peerID,
 		incoming: make(chan []byte, 100),
+		done:     make(chan struct{}),
 	}
 	p.connections[peerID] = conn
 
@@ -151,9 +167,9 @@ func (p *PeerHTTP) ConnectToPeer(peerID string) (harmonytask.PeerConnection, err
 	return conn, nil
 }
 
-// dropPeer removes a peer from the connection registry and closes its
-// incoming channel, which causes the peering layer's receive loop to exit
-// and trigger cleanup of routing tables.
+// dropPeer removes a peer from the connection registry and signals its
+// done channel, which causes the peering layer's receive loop to exit and
+// trigger cleanup of routing tables.
 func (p *PeerHTTP) dropPeer(peerAddr string, conn *peerHTTPConnection) {
 	p.connMu.Lock()
 	if p.connections[peerAddr] == conn {
@@ -161,20 +177,27 @@ func (p *PeerHTTP) dropPeer(peerAddr string, conn *peerHTTPConnection) {
 	}
 	p.connMu.Unlock()
 
+	// Signal closure via done rather than closing incoming, so a concurrent
+	// ServeHTTP send (done without holding connMu) can never panic on a closed
+	// channel. Buffered-but-unread messages are simply abandoned; the DB poll
+	// fallback covers them.
 	conn.closeOnce.Do(func() {
-		close(conn.incoming)
-		log.Warnw("dropped peer", "peer", peerAddr)
+		close(conn.done)
 	})
+
+	log.Warnw("dropped peer", "peer", peerAddr)
 }
 
 // peerHTTPConnection implements harmonytask.PeerConnection for HTTP POST.
 // Outbound messages are sent as individual HTTP POSTs. Inbound messages
 // arrive via ServeHTTP and are buffered in the incoming channel, which
-// the peering layer's receive loop reads from via ReceiveMessage.
+// the peering layer's receive loop reads from via ReceiveMessage. incoming
+// is never closed; a drop is signalled by closing done.
 type peerHTTPConnection struct {
 	parent    *PeerHTTP
 	peerAddr  string
 	incoming  chan []byte
+	done      chan struct{}
 	closeOnce sync.Once
 }
 
@@ -214,20 +237,28 @@ func (pc *peerHTTPConnection) SendMessage(message []byte) error {
 	return nil
 }
 
-// ReceiveMessage blocks until the next message arrives from the peer.
-// Returns an error when the peer is dropped (channel closed), which
+// ReceiveMessage blocks until the next message arrives from the peer or the
+// connection is dropped. Buffered messages are drained before a drop is
+// reported. Returns an error when the peer is dropped (done closed), which
 // signals the peering layer to remove this peer from routing tables.
 func (pc *peerHTTPConnection) ReceiveMessage() ([]byte, error) {
-	msg, ok := <-pc.incoming
-	if !ok {
-		return nil, fmt.Errorf("peer %s was dropped", pc.peerAddr)
+	select {
+	case msg := <-pc.incoming:
+		return msg, nil
+	case <-pc.done:
+		// Drain any message that beat the drop signal before reporting closure.
+		select {
+		case msg := <-pc.incoming:
+			return msg, nil
+		default:
+			return nil, fmt.Errorf("peer %s was dropped", pc.peerAddr)
+		}
 	}
-	return msg, nil
 }
 
 // Close is a no-op for HTTP connections. Peers are dropped automatically
-// on send failure via dropPeer, which closes the incoming channel and
-// triggers cleanup in the peering layer.
+// on send failure via dropPeer, which signals the done channel and triggers
+// cleanup in the peering layer.
 func (pc *peerHTTPConnection) Close() error {
 	return nil
 }

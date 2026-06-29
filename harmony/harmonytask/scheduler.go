@@ -223,7 +223,7 @@ func (e *TaskEngine) startScheduler() {
 						}
 						availableTasks[taskName] = &taskSchedule{
 							hasID:  newHas,
-							choked: len(tasks) > chokePoint,
+							choked: len(tasks) >= chokePoint,
 						}
 					}
 
@@ -260,7 +260,7 @@ func (e *TaskEngine) startScheduler() {
 					if !ok {
 						continue
 					}
-					if len(t.hasID) > chokePoint {
+					if len(t.hasID) >= chokePoint {
 						t.choked = true
 						continue
 					}
@@ -339,6 +339,11 @@ type taskSource interface {
 func (e *TaskEngine) tryStartTask(taskName string, taskSource taskSource, eventEmitter eventEmitter) error {
 	h := e.taskMap[taskName]
 	if h != nil && h.TimeSensitive {
+		// When the machine is already full, free room by preempting cheaper
+		// non-time-sensitive work. When there is capacity, fall through to the
+		// waterfall below so the task starts immediately (oldestFirstSeq orders
+		// time-sensitive types first); otherwise a lone time-sensitive task on
+		// an idle node would wait for the next fallback poll before starting.
 		cap, capErr := h.AssertMachineHasCapacity()
 		if cap == 0 || capErr != nil {
 			if tasks := taskSource.GetTasks(taskName); len(tasks) > 0 {
@@ -346,8 +351,8 @@ func (e *TaskEngine) tryStartTask(taskName string, taskSource taskSource, eventE
 					go e.preemptForTimeSensitive(h, t.ID)
 				}
 			}
+			return nil
 		}
-		return nil
 	}
 	err := e.pollerTryAllWork(taskSource, eventEmitter)
 	if err != nil {
@@ -456,7 +461,7 @@ func (e *TaskEngine) pollAllTaskTypes() map[string][]task {
 		if _, ok := result[r.Name]; !ok {
 			continue
 		}
-		if len(result[r.Name]) > chokePoint {
+		if len(result[r.Name]) >= chokePoint {
 			continue
 		}
 		result[r.Name] = append(result[r.Name], task{
@@ -482,31 +487,36 @@ const bundleCollectionTimeout = time.Millisecond * 10
 // an event; the returned channel fires when the quiet period expires.
 //
 // Thread safety: the bundler func is called from the scheduler goroutine
-// (single-threaded), but the timer goroutines access the timers map
+// (single-threaded), but the AfterFunc callbacks access the timers map
 // concurrently, hence the mutex.
+//
+// The whole check-and-(reset|create) is done under the lock, closing the
+// window where a callback could delete a timer between the map read and the
+// Reset (which, with a manual <-t.C goroutine, would lose the wake). Using
+// time.AfterFunc means a Reset on an already-fired timer simply re-runs the
+// callback, and the callback only deletes its own entry, so the worst case is
+// a harmless duplicate wake (pollerTryAllWork is idempotent) — never a lost one.
 func bundler() (bundler func(string), bundleSleep <-chan string) {
 	timers := make(map[string]*time.Timer)
 	timerMx := sync.Mutex{}
 	output := make(chan string)
 	return func(taskType string) {
 		timerMx.Lock()
-		t, ok := timers[taskType]
-		timerMx.Unlock()
-		if !ok {
-			t = time.NewTimer(bundleCollectionTimeout)
-			timerMx.Lock()
-			timers[taskType] = t
-			timerMx.Unlock()
-			go func() {
-				<-t.C
-				timerMx.Lock()
-				delete(timers, taskType)
-				timerMx.Unlock()
-				output <- taskType
-			}()
-		} else {
+		defer timerMx.Unlock()
+		if t, ok := timers[taskType]; ok {
 			t.Reset(bundleCollectionTimeout)
+			return
 		}
+		var t *time.Timer
+		t = time.AfterFunc(bundleCollectionTimeout, func() {
+			timerMx.Lock()
+			if timers[taskType] == t {
+				delete(timers, taskType)
+			}
+			timerMx.Unlock()
+			output <- taskType
+		})
+		timers[taskType] = t
 	}, output
 }
 

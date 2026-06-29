@@ -249,7 +249,14 @@ func (h *taskTypeHandler) considerWork(from string, tasks []task, eventEmitter e
 	//   - On failure, emits TaskNew to re-add the task for retry
 	i := 0
 	for _, tID := range tIDs {
-		taskCtx, taskCancel := context.WithCancel(h.TaskEngine.cfg.ctx)
+		// Derive from context.Background(), not the engine ctx: a graceful
+		// shutdown (which cancels the engine ctx to stop picking up new work)
+		// must NOT cancel tasks already running, or in-flight time-sensitive
+		// work (WinningPost/WindowPost) would be aborted mid-flight even though
+		// GracefullyTerminate explicitly waits for it to finish. The only things
+		// that cancel a running task are preemption (handle.Preempt) and the
+		// task's own completion (the deferred taskCancel below).
+		taskCtx, taskCancel := context.WithCancel(context.Background())
 		meta := &completionMeta{vals: make(map[any]any)}
 		taskCtx = context.WithValue(taskCtx, completionMetaKey{}, meta)
 		handle := h.running.Start(int64(tID), taskCancel)
