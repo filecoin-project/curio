@@ -391,7 +391,7 @@ require (
 )
 
 require (
-	github.com/Reiers/lantern v1.7.16
+	github.com/Reiers/lantern v1.8.2
 	github.com/curiostorage/shouldtest v0.0.0-20260522222211-a06c87260eb5
 	golang.org/x/mod v0.35.0
 )

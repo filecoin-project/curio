@@ -160,6 +160,7 @@ func defaultPDPStorageMeta() storiface.LocalStorageMeta {
 		ID:       storiface.ID(uuid.New().String()),
 		Weight:   defaultPDPStorageWeight,
 		CanStore: true,
+		CanSeal:  true, // for uploads
 	}
 }
 
