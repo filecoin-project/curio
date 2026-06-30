@@ -186,22 +186,3 @@ func ensureSectorstoreJSON(storagePath string) error {
 	log.Infof("initialized %s at %s", paths.MetaFile, metaPath)
 	return nil
 }
-
-func pdpStorageConfig(dataRoot string) (storiface.StorageConfig, error) {
-	storagePaths, err := discoverWritableStoragePaths(dataRoot)
-	if err != nil {
-		return storiface.StorageConfig{}, err
-	}
-
-	cfg := storiface.StorageConfig{
-		StoragePaths: make([]storiface.LocalPath, 0, len(storagePaths)),
-	}
-	for _, p := range storagePaths {
-		if err := ensureSectorstoreJSON(p); err != nil {
-			return storiface.StorageConfig{}, err
-		}
-		cfg.StoragePaths = append(cfg.StoragePaths, storiface.LocalPath{Path: p})
-	}
-
-	return cfg, nil
-}
