@@ -10,7 +10,6 @@ import (
 
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
-
 	"github.com/filecoin-project/curio/lib/lazy"
 )
 

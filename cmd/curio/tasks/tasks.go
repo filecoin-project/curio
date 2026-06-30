@@ -34,6 +34,7 @@ import (
 	"github.com/filecoin-project/curio/lib/cuzk"
 	"github.com/filecoin-project/curio/lib/fastparamfetch"
 	"github.com/filecoin-project/curio/lib/ffi"
+	"github.com/filecoin-project/curio/lib/lazy"
 	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/proofsvc/common"
@@ -60,7 +61,6 @@ import (
 	"github.com/filecoin-project/curio/tasks/winning"
 
 	proofparams "github.com/filecoin-project/lotus/build/proof-params"
-	"github.com/filecoin-project/curio/lib/lazy"
 	"github.com/filecoin-project/lotus/lib/result"
 	"github.com/filecoin-project/lotus/node/modules/dtypes"
 )
