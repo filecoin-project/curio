@@ -23,7 +23,10 @@ if ! command -v pnpm >/dev/null 2>&1; then
 	exit 1
 fi
 
-pnpm install
+# synapse-sdk does not commit pnpm-lock.yaml; cached CI checkouts can carry a
+# stale lockfile that no longer matches workspace manifests (e.g. docs/).
+rm -f pnpm-lock.yaml
+pnpm install --no-frozen-lockfile --filter @filoz/synapse-core...
 pnpm -r --filter @filoz/synapse-core run generate-abi
 pnpm -r --filter @filoz/synapse-core run build
 
