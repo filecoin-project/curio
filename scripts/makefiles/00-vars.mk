@@ -100,8 +100,8 @@ CURIO_TAGS_BASE ?= cunative
 CURIO_NOSUPRASEAL = $(if $(filter 1,$(FFI_USE_OPENCL) $(DISABLE_SUPRASEAL)),1,)
 CURIO_TAGS_EXTRA = $(if $(CURIO_NOSUPRASEAL),nosupraseal,)
 CURIO_TAGS ?= $(strip $(CURIO_TAGS_BASE) $(CURIO_TAGS_EXTRA))
-# MaxBoom always uses network tags from CURIO_TAGS, skips supraseal, and adds maxboom.
-MAXBOOM_TAGS = $(strip $(CURIO_TAGS) nosupraseal maxboom)
+# Skiff always uses network tags from CURIO_TAGS, skips supraseal, and adds skiff.
+SKIFF_TAGS = $(strip $(CURIO_TAGS) nosupraseal skiff)
 # Convert space-separated tags to comma-separated for GOFLAGS (whitespace-split).
 CURIO_TAGS_CSV = $(shell echo "$(CURIO_TAGS)" | tr ' ' ',')
 

@@ -1,4 +1,4 @@
-//go:build maxboom
+//go:build skiff
 
 package config
 

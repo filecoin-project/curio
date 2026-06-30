@@ -1,8 +1,8 @@
-import { getUIVariant, applyMaxBoomDocumentClass } from '/lib/ui-variant.mjs';
+import { getUIVariant, applySkiffDocumentClass } from '/lib/ui-variant.mjs';
 
 const variant = await getUIVariant();
-const isMaxBoom = variant === 'maxboom';
-applyMaxBoomDocumentClass(variant);
+const isSkiff = variant === 'skiff';
+applySkiffDocumentClass(variant);
 
 const shared = [
     './chain-connectivity.mjs',
@@ -28,7 +28,7 @@ const curioOnly = [
 for (const mod of shared) {
     await import(mod);
 }
-if (!isMaxBoom) {
+if (!isSkiff) {
     for (const mod of curioOnly) {
         await import(mod);
     }

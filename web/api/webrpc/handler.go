@@ -11,14 +11,14 @@ import (
 	"github.com/filecoin-project/lotus/chain/store"
 )
 
-// Handler holds shared WebRPC state used by MaxBoom and Curio handlers.
+// Handler holds shared WebRPC state used by Skiff and Curio handlers.
 type Handler struct {
 	Deps      *deps.Deps
 	TaskSPIDs map[string]SpidGetter
 	Stor      adt.Store
 }
 
-// WebRPC is the JSON-RPC receiver for handlers shared by MaxBoom and Curio.
+// WebRPC is the JSON-RPC receiver for handlers shared by Skiff and Curio.
 type WebRPC = Handler
 
 func NewHandler(deps *deps.Deps) *Handler {

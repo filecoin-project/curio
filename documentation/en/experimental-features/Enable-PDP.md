@@ -7,7 +7,7 @@ description: >-
 # Enable PDP
 
 {% hint style="info" %}
-For a PDP-only node without PoRep/sealing (maxboom), see the [Curio-PDP runbook](../curio-pdp.md) and [MaxBoom binary](../maxboom-binary.md).
+For a PDP-only node without PoRep/sealing (skiff), see the [Curio-PDP runbook](../curio-pdp.md) and [Skiff binary](../skiff-binary.md).
 {% endhint %}
 
 {% hint style="danger" %}

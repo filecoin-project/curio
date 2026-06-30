@@ -1,4 +1,4 @@
-name: maxboom
+name: skiff
 
 x-logging:
   &default-logging
@@ -8,18 +8,18 @@ x-logging:
   driver: json-file
 
 # Port metadata for operators and tooling (`docker inspect` reads service labels).
-x-maxboom-ports: &maxboom-ports
-  io.curio.maxboom.port.4701: "Admin GUI (webrpc, config editor)"
-  io.curio.maxboom.port.80: "Public PDP HTTP API (HTTP.DelegateTLS=true)"
-  io.curio.maxboom.port.443: "Public PDP HTTPS API (HTTP.DelegateTLS=false, autocert)"
+x-skiff-ports: &skiff-ports
+  io.curio.skiff.port.4701: "Admin GUI (webrpc, config editor)"
+  io.curio.skiff.port.80: "Public PDP HTTP API (HTTP.DelegateTLS=true)"
+  io.curio.skiff.port.443: "Public PDP HTTPS API (HTTP.DelegateTLS=false, autocert)"
 
 networks:
-  maxboom-net:
+  skiff-net:
     driver: bridge
 
 services:
   yugabyte:
-    container_name: maxboom-yugabyte
+    container_name: skiff-yugabyte
     hostname: yugabyte
     image: ${YUGABYTE_IMAGE:-yugabytedb/yugabyte:2024.1.0.0-b129}
     init: true
@@ -42,42 +42,42 @@ services:
       retries: 30
       start_period: 30s
     networks:
-      - maxboom-net
+      - skiff-net
 
-  maxboom:
-    container_name: maxboom
-    image: ${MAXBOOM_IMAGE:-curio/maxboom:dev}
+  skiff:
+    container_name: skiff
+    image: ${SKIFF_IMAGE:-curio/skiff:dev}
     build:
       context: ../..
-      dockerfile: docker/maxboom/Dockerfile
+      dockerfile: docker/skiff/Dockerfile
       args:
-        MAXBOOM_MAKE_TARGET: ${MAXBOOM_MAKE_TARGET:-maxboom}
+        SKIFF_MAKE_TARGET: ${SKIFF_MAKE_TARGET:-skiff}
     init: true
     depends_on:
       yugabyte:
         condition: service_healthy
     environment:
-      - MAXBOOM_DOCKER=1
-      - MAXBOOM_HTTP_DOMAIN=${MAXBOOM_HTTP_DOMAIN:-localhost}
+      - SKIFF_DOCKER=1
+      - SKIFF_HTTP_DOMAIN=${SKIFF_HTTP_DOMAIN:-localhost}
       - CURIO_DB_HOST=yugabyte
       - CURIO_HARMONYDB_HOSTS=yugabyte
       - CURIO_DB_PORT=5433
       - CURIO_DB_NAME=yugabyte
       - CURIO_DB_USER=yugabyte
       - CURIO_DB_PASSWORD=yugabyte
-      - CURIO_REPO_PATH=/var/lib/maxboom
-      - MAXBOOM_DATA=/data
+      - CURIO_REPO_PATH=/var/lib/skiff
+      - SKIFF_DATA=/data
       # - FULLNODE_API_INFO=${FULLNODE_API_INFO:-}
     restart: unless-stopped
     logging: *default-logging
     labels:
-      <<: *maxboom-ports
+      <<: *skiff-ports
     ports:
       - "127.0.0.1:4701:4701" # Admin GUI (localhost only — not for public internet)
       - "80:80"               # Public PDP HTTP (default when DelegateTLS=true)
       - "443:443"             # Public PDP HTTPS (when DelegateTLS=false)
     volumes:
-      - ${MAXBOOM_REPO_DATA:-./data/maxboom}:/var/lib/maxboom
-      - ${MAXBOOM_STORAGE:-./data}:/data
+      - ${SKIFF_REPO_DATA:-./data/skiff}:/var/lib/skiff
+      - ${SKIFF_STORAGE:-./data}:/data
     networks:
-      - maxboom-net
+      - skiff-net

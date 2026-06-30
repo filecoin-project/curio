@@ -15,7 +15,7 @@ import (
 
 const (
 	defaultPDPStorageWeight = 10
-	maxboomHotDataDirName   = "filecoin-hot-data"
+	skiffHotDataDirName   = "filecoin-hot-data"
 	maxStorageScanDepth     = 3
 )
 
@@ -23,8 +23,8 @@ var skipStorageDirNames = func() map[string]struct{} {
 	out := map[string]struct{}{
 		paths.FetchTempSubdir: {},
 		paths.StashDirName:    {},
-		"yugabyte":            {}, // maxboom docker compose DB data dir under MAXBOOM_DATA
-		"maxboom":             {}, // maxboom docker compose repo dir under MAXBOOM_DATA
+		"yugabyte":            {}, // skiff docker compose DB data dir under SKIFF_DATA
+		"skiff":             {}, // skiff docker compose repo dir under SKIFF_DATA
 	}
 	for _, ft := range storiface.PathTypes {
 		out[ft.String()] = struct{}{}
@@ -61,7 +61,7 @@ func sameStoragePath(a, b string) bool {
 }
 
 func isWritableDir(dir string) bool {
-	f, err := os.CreateTemp(dir, ".maxboom-write-test-*")
+	f, err := os.CreateTemp(dir, ".skiff-write-test-*")
 	if err != nil {
 		return false
 	}
@@ -140,7 +140,7 @@ func discoverWritableStoragePaths(dataRoot string) ([]string, error) {
 			}
 
 			childPath := filepath.Join(entry.path, name)
-			if name == maxboomHotDataDirName {
+			if name == skiffHotDataDirName {
 				if isWritableDir(childPath) {
 					addPath(childPath)
 				}

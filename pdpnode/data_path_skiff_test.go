@@ -1,4 +1,4 @@
-//go:build maxboom
+//go:build skiff
 
 package pdpnode
 
@@ -14,10 +14,10 @@ import (
 	"github.com/filecoin-project/curio/deps/config"
 )
 
-func TestResolveMaxBoomDataPath(t *testing.T) {
+func TestResolveSkiffDataPath(t *testing.T) {
 	app := &cli.App{
 		Flags: []cli.Flag{
-			&cli.StringFlag{Name: "data", EnvVars: []string{"DATA_STORAGE", "MAXBOOM_DATA", "CURIO_DATA"}},
+			&cli.StringFlag{Name: "data", EnvVars: []string{"DATA_STORAGE", "SKIFF_DATA", "CURIO_DATA"}},
 		},
 	}
 
@@ -29,30 +29,30 @@ func TestResolveMaxBoomDataPath(t *testing.T) {
 	require.NoError(t, set.Parse([]string{}))
 	c := cli.NewContext(app, set, nil)
 
-	t.Setenv("MAXBOOM_DATA", "")
+	t.Setenv("SKIFF_DATA", "")
 	t.Setenv("CURIO_DATA", "")
 	t.Setenv("DATA_STORAGE", "")
-	require.Equal(t, "/from-config", resolveMaxBoomDataPath(c, cfg))
+	require.Equal(t, "/from-config", resolveSkiffDataPath(c, cfg))
 
 	t.Setenv("DATA_STORAGE", "/from-env")
-	require.Equal(t, "/from-env", resolveMaxBoomDataPath(c, cfg))
+	require.Equal(t, "/from-env", resolveSkiffDataPath(c, cfg))
 
 	setCLI := flag.NewFlagSet("test", flag.ContinueOnError)
 	setCLI.String("data", "/data", "")
 	require.NoError(t, setCLI.Parse([]string{"--data", "/from-cli"}))
 	cCLI := cli.NewContext(app, setCLI, nil)
 	t.Setenv("DATA_STORAGE", "/from-env")
-	require.Equal(t, "/from-cli", resolveMaxBoomDataPath(cCLI, cfg))
+	require.Equal(t, "/from-cli", resolveSkiffDataPath(cCLI, cfg))
 
-	t.Setenv("MAXBOOM_DATA", "")
+	t.Setenv("SKIFF_DATA", "")
 	t.Setenv("CURIO_DATA", "")
 	t.Setenv("DATA_STORAGE", "")
-	require.Equal(t, defaultMaxBoomDataPath, resolveMaxBoomDataPath(c, nil))
+	require.Equal(t, defaultSkiffDataPath, resolveSkiffDataPath(c, nil))
 }
 
 func TestPDPStorageConfigFromDataRoot(t *testing.T) {
 	root := t.TempDir()
-	hot := filepath.Join(root, maxboomHotDataDirName)
+	hot := filepath.Join(root, skiffHotDataDirName)
 	require.NoError(t, os.MkdirAll(hot, 0o755))
 
 	cfg, err := pdpStorageConfig(root)

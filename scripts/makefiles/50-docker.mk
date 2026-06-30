@@ -85,50 +85,50 @@ devnet/up:
 devnet/down:
 	docker compose -f ./docker/docker-compose.yaml down --rmi=local && sleep 2 && rm -rf ./docker/data
 
-##################### MaxBoom docker stack ##################
-maxboom_compose = docker compose -f ./docker/maxboom/docker-compose.yaml
-maxboom_git_commit = $(shell git log -1 --format=%h_%cI 2>/dev/null || echo unknown)
+##################### Skiff docker stack ##################
+skiff_compose = docker compose -f ./docker/skiff/docker-compose.yaml
+skiff_git_commit = $(shell git log -1 --format=%h_%cI 2>/dev/null || echo unknown)
 
-docker/maxboom:
-	DOCKER_BUILDKIT=1 docker build -f docker/maxboom/Dockerfile \
-		--build-arg MAXBOOM_MAKE_TARGET=maxboom \
-		--build-arg CURIO_BUILD_COMMIT=$(maxboom_git_commit) \
-		-t $(curio_docker_user)/maxboom:dev .
-.PHONY: docker/maxboom
+docker/skiff:
+	DOCKER_BUILDKIT=1 docker build -f docker/skiff/Dockerfile \
+		--build-arg SKIFF_MAKE_TARGET=skiff \
+		--build-arg CURIO_BUILD_COMMIT=$(skiff_git_commit) \
+		-t $(curio_docker_user)/skiff:dev .
+.PHONY: docker/skiff
 
-docker/maxboom-calibnet:
-	DOCKER_BUILDKIT=1 docker build -f docker/maxboom/Dockerfile \
-		--build-arg MAXBOOM_MAKE_TARGET=calibnet-maxboom \
-		--build-arg CURIO_BUILD_COMMIT=$(maxboom_git_commit) \
-		-t $(curio_docker_user)/maxboom:calibnet-dev .
-.PHONY: docker/maxboom-calibnet
+docker/skiff-calibnet:
+	DOCKER_BUILDKIT=1 docker build -f docker/skiff/Dockerfile \
+		--build-arg SKIFF_MAKE_TARGET=calibnet-skiff \
+		--build-arg CURIO_BUILD_COMMIT=$(skiff_git_commit) \
+		-t $(curio_docker_user)/skiff:calibnet-dev .
+.PHONY: docker/skiff-calibnet
 
-maxboom/up: docker/maxboom
-	MAXBOOM_MAKE_TARGET=maxboom MAXBOOM_IMAGE=$(curio_docker_user)/maxboom:dev \
-		$(maxboom_compose) up -d
-.PHONY: maxboom/up
+skiff/up: docker/skiff
+	SKIFF_MAKE_TARGET=skiff SKIFF_IMAGE=$(curio_docker_user)/skiff:dev \
+		$(skiff_compose) up -d
+.PHONY: skiff/up
 
-maxboom/down:
-	$(maxboom_compose) down
-.PHONY: maxboom/down
+skiff/down:
+	$(skiff_compose) down
+.PHONY: skiff/down
 
-maxboom/calibnet/up: docker/maxboom-calibnet
-	MAXBOOM_MAKE_TARGET=calibnet-maxboom MAXBOOM_IMAGE=$(curio_docker_user)/maxboom:calibnet-dev \
-		$(maxboom_compose) up -d
-.PHONY: maxboom/calibnet/up
+skiff/calibnet/up: docker/skiff-calibnet
+	SKIFF_MAKE_TARGET=calibnet-skiff SKIFF_IMAGE=$(curio_docker_user)/skiff:calibnet-dev \
+		$(skiff_compose) up -d
+.PHONY: skiff/calibnet/up
 
-maxboom/calibnet/down:
-	MAXBOOM_IMAGE=$(curio_docker_user)/maxboom:calibnet-dev $(maxboom_compose) down
-.PHONY: maxboom/calibnet/down
+skiff/calibnet/down:
+	SKIFF_IMAGE=$(curio_docker_user)/skiff:calibnet-dev $(skiff_compose) down
+.PHONY: skiff/calibnet/down
 
-# Wipe local maxboom/yugabyte state after changing yugabyte advertise/listen settings.
+# Wipe local skiff/yugabyte state after changing yugabyte advertise/listen settings.
 # Restart the stack afterward so Yugabyte re-initializes its data directory.
-maxboom/reset-db:
-	rm -rf ./docker/maxboom/data/yugabyte
-.PHONY: maxboom/reset-db
+skiff/reset-db:
+	rm -rf ./docker/skiff/data/yugabyte
+.PHONY: skiff/reset-db
 
-# Wipe all local maxboom stack state (database, repo, and storage).
-# Restart with `make maxboom/calibnet/up` (or `make maxboom/up`) afterward.
-maxboom/reset-all:
-	rm -rf ./docker/maxboom/data
-.PHONY: maxboom/reset-all
+# Wipe all local skiff stack state (database, repo, and storage).
+# Restart with `make skiff/calibnet/up` (or `make skiff/up`) afterward.
+skiff/reset-all:
+	rm -rf ./docker/skiff/data
+.PHONY: skiff/reset-all

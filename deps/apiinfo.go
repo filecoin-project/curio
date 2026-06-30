@@ -33,12 +33,12 @@ import (
 
 var clog = logging.Logger("curio/chain")
 
-func maxboomDockerMode() bool {
-	return os.Getenv("MAXBOOM_DOCKER") != ""
+func skiffDockerMode() bool {
+	return os.Getenv("SKIFF_DOCKER") != ""
 }
 
 func chainStartupContext(ctx context.Context) (context.Context, context.CancelFunc) {
-	if !maxboomDockerMode() {
+	if !skiffDockerMode() {
 		return ctx, func() {}
 	}
 	return context.WithTimeout(ctx, 30*time.Second)
@@ -89,7 +89,7 @@ func GetFullNodeAPIV1Curio(ctx *cli.Context, apis config.ApisConfig) (api.Chain,
 		networkName, err := v1api.StateNetworkName(netCtx)
 		netCancel()
 		if err != nil {
-			if maxboomDockerMode() && errors.Is(err, context.DeadlineExceeded) {
+			if skiffDockerMode() && errors.Is(err, context.DeadlineExceeded) {
 				clog.Warnf("Chain network check timed out for %s (embedded Lantern may still be syncing); continuing", head.addr)
 				fullNodes = append(fullNodes, v1api)
 				closers = append(closers, closer)
@@ -412,7 +412,7 @@ func GetEthClient(cctx *cli.Context, apis config.ApisConfig) (ethchain.EthClient
 		_, err = client.BlockNumber(ethCtx)
 		ethCancel()
 		if err != nil {
-			if maxboomDockerMode() && errors.Is(err, context.DeadlineExceeded) {
+			if skiffDockerMode() && errors.Is(err, context.DeadlineExceeded) {
 				log.Warnf("eth block number timed out for %s (Lantern may still be syncing); continuing", head.addr)
 				clients = append(clients, client)
 				continue

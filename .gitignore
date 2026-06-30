@@ -6,7 +6,7 @@
 /deps.json
 /pdptool
 /skiff
-/maxboom
+/skiff
 /.synapse-sdk
 
 extern/filecoin-ffi/rust/target

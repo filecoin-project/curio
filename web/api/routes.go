@@ -1,4 +1,4 @@
-//go:build !maxboom
+//go:build !skiff
 
 // Package api provides the HTTP API for the lotus curio web gui.
 package api

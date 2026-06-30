@@ -1,4 +1,4 @@
-//go:build maxboom
+//go:build skiff
 
 package pdpnode
 
@@ -8,6 +8,6 @@ import (
 	"github.com/filecoin-project/curio/deps/config"
 )
 
-func maxboomStorageRoot(cctx *cli.Context, cfg *config.CurioConfig, _ string) string {
-	return resolveMaxBoomDataPath(cctx, cfg)
+func skiffStorageRoot(cctx *cli.Context, cfg *config.CurioConfig, _ string) string {
+	return resolveSkiffDataPath(cctx, cfg)
 }

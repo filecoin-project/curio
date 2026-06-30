@@ -1,16 +1,16 @@
 package config
 
-// MaxBoomConfig is the subset of CurioConfig exposed in the MaxBoom configuration editor.
-type MaxBoomConfig struct {
-	Subsystems MaxBoomSubsystemsConfig
+// SkiffConfig is the subset of CurioConfig exposed in the Skiff configuration editor.
+type SkiffConfig struct {
+	Subsystems SkiffSubsystemsConfig
 	HTTP       HTTPConfig
 	Apis       ApisConfig
 	Alerting   CurioAlertingConfig
 }
 
-// MaxBoomSubsystemsConfig holds subsystem settings relevant to MaxBoom / PDP nodes.
-type MaxBoomSubsystemsConfig struct {
-	// EnableWebGui enables the web GUI on this node. (Default: true for maxboom)
+// SkiffSubsystemsConfig holds subsystem settings relevant to Skiff / PDP nodes.
+type SkiffSubsystemsConfig struct {
+	// EnableWebGui enables the web GUI on this node. (Default: true for skiff)
 	EnableWebGui bool
 
 	// The address that should listen for Web GUI requests. It should be in form "x.x.x.x:1234"
@@ -20,15 +20,15 @@ type MaxBoomSubsystemsConfig struct {
 	EnablePDP bool
 
 	// DataPath is the root directory scanned for writable storage locations.
-	// When empty, MAXBOOM_DATA or the repo path is used.
+	// When empty, SKIFF_DATA or the repo path is used.
 	DataPath string
 }
 
-// DefaultMaxBoomUIConfig returns defaults for the MaxBoom config editor (no generated secrets).
-func DefaultMaxBoomUIConfig() *MaxBoomConfig {
+// DefaultSkiffUIConfig returns defaults for the Skiff config editor (no generated secrets).
+func DefaultSkiffUIConfig() *SkiffConfig {
 	curio := DefaultCurioConfig()
-	return &MaxBoomConfig{
-		Subsystems: MaxBoomSubsystemsConfig{
+	return &SkiffConfig{
+		Subsystems: SkiffSubsystemsConfig{
 			EnablePDP:    true,
 			EnableWebGui: true,
 			GuiAddress:   "127.0.0.1:4701",
@@ -39,13 +39,13 @@ func DefaultMaxBoomUIConfig() *MaxBoomConfig {
 	}
 }
 
-// MaxBoomConfigFromCurio projects a CurioConfig onto the MaxBoom editor schema.
-func MaxBoomConfigFromCurio(c *CurioConfig) *MaxBoomConfig {
+// SkiffConfigFromCurio projects a CurioConfig onto the Skiff editor schema.
+func SkiffConfigFromCurio(c *CurioConfig) *SkiffConfig {
 	if c == nil {
-		return DefaultMaxBoomUIConfig()
+		return DefaultSkiffUIConfig()
 	}
-	return &MaxBoomConfig{
-		Subsystems: MaxBoomSubsystemsConfig{
+	return &SkiffConfig{
+		Subsystems: SkiffSubsystemsConfig{
 			EnableWebGui: c.Subsystems.EnableWebGui,
 			GuiAddress:   c.Subsystems.GuiAddress,
 			EnablePDP:    c.Subsystems.EnablePDP,
@@ -57,8 +57,8 @@ func MaxBoomConfigFromCurio(c *CurioConfig) *MaxBoomConfig {
 	}
 }
 
-// ApplyMaxBoomConfigToCurio copies MaxBoom editor fields onto a CurioConfig.
-func ApplyMaxBoomConfigToCurio(dst *CurioConfig, src *MaxBoomConfig) {
+// ApplySkiffConfigToCurio copies Skiff editor fields onto a CurioConfig.
+func ApplySkiffConfigToCurio(dst *CurioConfig, src *SkiffConfig) {
 	if dst == nil || src == nil {
 		return
 	}

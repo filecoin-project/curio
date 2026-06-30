@@ -1,4 +1,4 @@
-//go:build maxboom && !darwin
+//go:build skiff && !darwin
 
 package resources
 
