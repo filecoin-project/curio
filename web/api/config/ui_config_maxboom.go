@@ -3,9 +3,25 @@
 package config
 
 import (
+	"encoding/json"
+
 	"github.com/filecoin-project/curio/deps"
 	depsconfig "github.com/filecoin-project/curio/deps/config"
 )
+
+func structToJSONMap(v any) (map[string]any, error) {
+	return tomlToJSONMap(mustEncodeTOML(v))
+}
+
+// jsonRoundTrip marshals m to JSON and unmarshals the result into dst.
+// Used to transfer a map[string]any into a typed struct via the JSON codec.
+func jsonRoundTrip(m map[string]any, dst any) error {
+	b, err := json.Marshal(m)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(b, dst)
+}
 
 func uiSchemaRoot() any {
 	return depsconfig.UnwrapDynamics(depsconfig.MaxBoomConfig{})
