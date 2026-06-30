@@ -39,7 +39,7 @@ import (
 	"github.com/filecoin-project/lotus/chain/actors/policy"
 	"github.com/filecoin-project/lotus/chain/types"
 	lethtypes "github.com/filecoin-project/lotus/chain/types/ethtypes"
-	"github.com/filecoin-project/lotus/lib/lazy"
+	"github.com/filecoin-project/curio/lib/lazy"
 )
 
 type MK20API interface {

@@ -3,10 +3,6 @@
 package config
 
 import (
-	"bytes"
-
-	"github.com/BurntSushi/toml"
-
 	"github.com/filecoin-project/curio/deps"
 	depsconfig "github.com/filecoin-project/curio/deps/config"
 )
@@ -38,7 +34,7 @@ func uiPrepareLayerSave(layer string, submitted map[string]any, existingToml str
 	}
 
 	maxboomCfg := depsconfig.DefaultMaxBoomUIConfig()
-	if err := decodeJSONMap(submitted, maxboomCfg); err != nil {
+	if err := jsonRoundTrip(submitted, maxboomCfg); err != nil {
 		return "", err
 	}
 	depsconfig.ApplyMaxBoomConfigToCurio(curioCfg, maxboomCfg)
@@ -48,20 +44,4 @@ func uiPrepareLayerSave(layer string, submitted map[string]any, existingToml str
 	}
 
 	return formatLayerTOML(layer, curioCfg)
-}
-
-func decodeJSONMap(m map[string]any, dst any) error {
-	b, err := jsonMap(m)
-	if err != nil {
-		return err
-	}
-	return jsonUnmarshal(b, dst)
-}
-
-func mustEncodeTOML(cfg *depsconfig.CurioConfig) string {
-	var buf bytes.Buffer
-	if err := toml.NewEncoder(&buf).Encode(cfg); err != nil {
-		panic(err)
-	}
-	return buf.String()
 }

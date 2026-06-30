@@ -1,3 +1,5 @@
+//go:build !maxboom
+
 package cuhttp
 
 import (
@@ -7,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
-	logging "github.com/ipfs/go-log/v2"
 	"github.com/snadrus/must"
 	"golang.org/x/xerrors"
 
@@ -22,12 +23,8 @@ import (
 	storage_market "github.com/filecoin-project/curio/tasks/storage-market"
 )
 
-var log = logging.Logger("cu-http")
-
 // RouterMap is the map that allows the library user to pass in their own routes
 type RouterMap map[string]http.HandlerFunc
-
-type startTime string
 
 // libp2pConnMiddleware intercepts WebSocket upgrade requests to "/" and rewrites the path to "/libp2p"
 func libp2pConnMiddleware(next http.Handler) http.Handler {

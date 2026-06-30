@@ -48,33 +48,32 @@ func formatLayerTOML(layer string, curioCfg *depsconfig.CurioConfig) (string, er
 		return "", err
 	}
 
-	configStr := mustRawTOML(curioCfg)
+	configStr := mustEncodeTOML(curioCfg)
 	if layer == "base" {
 		configStr = string(cb)
 	}
 	return configStr, nil
 }
 
-func mustRawTOML(cfg *depsconfig.CurioConfig) string {
+// mustEncodeTOML serialises v to TOML or panics.
+func mustEncodeTOML(v any) string {
 	var buf bytes.Buffer
-	if err := toml.NewEncoder(&buf).Encode(cfg); err != nil {
+	if err := toml.NewEncoder(&buf).Encode(v); err != nil {
 		panic(err)
 	}
 	return buf.String()
 }
 
-func jsonMap(m map[string]any) ([]byte, error) {
-	return json.Marshal(m)
-}
-
-func jsonUnmarshal(b []byte, dst any) error {
-	return json.Unmarshal(b, dst)
-}
-
 func structToJSONMap(v any) (map[string]any, error) {
-	var buf bytes.Buffer
-	if err := toml.NewEncoder(&buf).Encode(v); err != nil {
-		return nil, err
+	return tomlToJSONMap(mustEncodeTOML(v))
+}
+
+// jsonRoundTrip marshals m to JSON and unmarshals the result into dst.
+// Used to transfer a map[string]any into a typed struct via the JSON codec.
+func jsonRoundTrip(m map[string]any, dst any) error {
+	b, err := json.Marshal(m)
+	if err != nil {
+		return err
 	}
-	return tomlToJSONMap(buf.String())
+	return json.Unmarshal(b, dst)
 }

@@ -2,7 +2,6 @@ package pdpnode
 
 import (
 	"context"
-	"sync"
 
 	"github.com/snadrus/must"
 	"golang.org/x/xerrors"
@@ -43,26 +42,16 @@ func buildPDPTasks(ctx context.Context, d *Deps, chainSched *chainsched.CurioCha
 	_, sendTask := message.NewSender(d.Chain, d.Chain, db, cfg.Fees.MaximizeFeeCap)
 	tasks = append(tasks, sendTask)
 
-	var senderEth *message.SenderETH
-	var senderEthOnce sync.Once
-	getSenderEth := func() *message.SenderETH {
-		senderEthOnce.Do(func() {
-			ec, err := d.EthClient.Val()
-			if err != nil {
-				log.Errorw("failed to get eth client", "error", err)
-				return
-			}
-			var ethSenderTask *message.SendTaskETH
-			senderEth, ethSenderTask = message.NewSenderETH(ec, db)
-			tasks = append(tasks, ethSenderTask)
-		})
-		return senderEth
+	// Obtain eth client once; PDP is entirely non-functional without it.
+	ethClient, err := d.EthClient.Val()
+	if err != nil {
+		return nil, xerrors.Errorf("eth client required for PDP: %w", err)
 	}
 
-	amTask := alertmanager.NewAlertTask(d.Chain, db, cfg.Alerting, d.Al)
+	senderEth, ethSenderTask := message.NewSenderETH(ethClient, db)
+	tasks = append(tasks, ethSenderTask)
 
-	ethClient := must.One(d.EthClient.Val())
-	es := getSenderEth()
+	amTask := alertmanager.NewAlertTask(d.Chain, db, cfg.Alerting, d.Al)
 
 	pdp.NewWatcherDataSetCreate(db, ethClient, chainSched)
 	pdp.NewWatcherPieceAdd(db, chainSched, ethClient)
@@ -71,16 +60,16 @@ func buildPDPTasks(ctx context.Context, d *Deps, chainSched *chainsched.CurioCha
 
 	tasks = append(tasks,
 		pdp.NewPDPNotifyTask(db),
-		pdp.NewProveTask(chainSched, db, ethClient, d.Chain, es, d.CachedPieceReader, d.IndexStore),
-		pdp.NewNextProvingPeriodTask(db, ethClient, d.Chain, chainSched, es),
-		pdp.NewInitProvingPeriodTask(db, ethClient, d.Chain, chainSched, es),
+		pdp.NewProveTask(chainSched, db, ethClient, d.Chain, senderEth, d.CachedPieceReader, d.IndexStore),
+		pdp.NewNextProvingPeriodTask(db, ethClient, d.Chain, chainSched, senderEth),
+		pdp.NewInitProvingPeriodTask(db, ethClient, d.Chain, chainSched, senderEth),
 		pdp.NewPDPCommpTask(db, d.PieceIO, cfg.Subsystems.CommPMaxTasks),
-		pdp.NewPDPTaskAddPiece(db, es, ethClient),
-		pdp.NewPDPTaskAddDataSet(db, es, ethClient, d.Chain),
+		pdp.NewPDPTaskAddPiece(db, senderEth, ethClient),
+		pdp.NewPDPTaskAddDataSet(db, senderEth, ethClient, d.Chain),
 		pdp.NewAggregatePDPDealTask(db, d.PieceIO),
 		pdp.NewTaskPDPSaveCache(db, d.CachedPieceReader, d.IndexStore),
-		pdp.NewPDPTaskDeletePiece(db, es, ethClient),
-		pdp.NewPDPTaskDeleteDataSet(db, es, ethClient, d.Chain),
+		pdp.NewPDPTaskDeletePiece(db, senderEth, ethClient),
+		pdp.NewPDPTaskDeleteDataSet(db, senderEth, ethClient, d.Chain),
 	)
 
 	pdpv0.NewDataSetWatch(db, ethClient, chainSched)
@@ -90,16 +79,16 @@ func buildPDPTasks(ctx context.Context, d *Deps, chainSched *chainsched.CurioCha
 	pdpv0.NewTerminateServiceWatcher(db, ethClient, chainSched)
 
 	tasks = append(tasks,
-		pdpv0.NewProveTask(chainSched, db, ethClient, d.Chain, es, d.CachedPieceReader, d.IndexStore),
+		pdpv0.NewProveTask(chainSched, db, ethClient, d.Chain, senderEth, d.CachedPieceReader, d.IndexStore),
 		pdpv0.NewPDPNotifyTask(ctx, db),
 		pdpv0.NewPDPPullPieceTask(ctx, db, d.PieceIO, cfg.Subsystems.PDPPullPieceMaxTasks),
-		pdpv0.NewNextProvingPeriodTask(db, ethClient, d.Chain, chainSched, es),
-		pdpv0.NewInitProvingPeriodTask(db, ethClient, d.Chain, chainSched, es),
-		pdpv0.NewTerminateServiceTask(db, ethClient, es),
-		pdpv0.NewDeleteDataSetTask(db, ethClient, es),
-		pdpv0.NewCleanupPiecesTask(db, ethClient, es),
-		pdpv0.NewTaskChainSync(db, ethClient, es),
-		pay.NewSettleTask(db, ethClient, es),
+		pdpv0.NewNextProvingPeriodTask(db, ethClient, d.Chain, chainSched, senderEth),
+		pdpv0.NewInitProvingPeriodTask(db, ethClient, d.Chain, chainSched, senderEth),
+		pdpv0.NewTerminateServiceTask(db, ethClient, senderEth),
+		pdpv0.NewDeleteDataSetTask(db, ethClient, senderEth),
+		pdpv0.NewCleanupPiecesTask(db, ethClient, senderEth),
+		pdpv0.NewTaskChainSync(db, ethClient, senderEth),
+		pay.NewSettleTask(db, ethClient, senderEth),
 		pdpv0.NewTaskPDPSaveCache(db, d.CachedPieceReader, d.IndexStore),
 		pdpv0.NewPieceGCTask(&cfg.HTTP, db, d.IndexStore),
 		pdpv0.NewReorgCheckTask(db, ethClient, d.Chain),
@@ -119,7 +108,7 @@ func buildPDPTasks(ctx context.Context, d *Deps, chainSched *chainsched.CurioCha
 	return &pdpTaskBundle{
 		tasks:     tasks,
 		amTask:    amTask,
-		ethSender: es,
+		ethSender: senderEth,
 	}, nil
 }
 
@@ -139,13 +128,13 @@ func RegisterTasks(ctx context.Context, d *Deps) (*TaskResult, error) {
 
 	d.MachineID = int64(ht.ResourcesAvailable().MachineID)
 
-	if bundle.ethSender != nil {
-		watcherEth, err := message.NewMessageWatcherEth(d.DB, ht, chainSched, must.One(d.EthClient.Val()))
-		if err != nil {
-			return nil, xerrors.Errorf("eth message watcher: %w", err)
-		}
-		_ = watcherEth
+	// NewMessageWatcherEth registers itself with ht for side effects; no
+	// external handle is needed after construction.
+	watcherEth, err := message.NewMessageWatcherEth(d.DB, ht, chainSched, must.One(d.EthClient.Val()))
+	if err != nil {
+		return nil, xerrors.Errorf("eth message watcher: %w", err)
 	}
+	_ = watcherEth
 
 	go chainSched.Run(ctx)
 
@@ -167,9 +156,8 @@ func AppendTasks(ctx context.Context, d *Deps, chainSched *chainsched.CurioChain
 		return nil, err
 	}
 	*active = append(*active, bundle.tasks...)
-	sd := &servicedeps.Deps{
+	return &servicedeps.Deps{
 		EthSender: bundle.ethSender,
 		AlertTask: bundle.amTask,
-	}
-	return sd, nil
+	}, nil
 }

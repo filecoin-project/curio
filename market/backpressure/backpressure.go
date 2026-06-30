@@ -11,7 +11,7 @@ import (
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 
-	"github.com/filecoin-project/lotus/lib/lazy"
+	"github.com/filecoin-project/curio/lib/lazy"
 )
 
 var log = logging.Logger("backpressure")

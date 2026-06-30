@@ -42,7 +42,7 @@ import (
 
 	lminer "github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/proofs"
-	"github.com/filecoin-project/lotus/lib/lazy"
+	"github.com/filecoin-project/curio/lib/lazy"
 	"github.com/filecoin-project/lotus/storage/pipeline/piece"
 )
 

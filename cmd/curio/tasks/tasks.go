@@ -60,7 +60,7 @@ import (
 	"github.com/filecoin-project/curio/tasks/winning"
 
 	proofparams "github.com/filecoin-project/lotus/build/proof-params"
-	"github.com/filecoin-project/lotus/lib/lazy"
+	"github.com/filecoin-project/curio/lib/lazy"
 	"github.com/filecoin-project/lotus/lib/result"
 	"github.com/filecoin-project/lotus/node/modules/dtypes"
 )

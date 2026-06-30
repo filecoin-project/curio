@@ -15,19 +15,33 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 )
 
+const (
+	adminAddrLocal  = "127.0.0.1:4701"
+	adminAddrDocker = "0.0.0.0:4701"
+)
+
 func maxboomDockerMode() bool {
 	return os.Getenv("MAXBOOM_DOCKER") != ""
+}
+
+// generateStorageRPCSecret creates a new random base64-encoded 32-byte secret.
+func generateStorageRPCSecret() string {
+	sk, err := io.ReadAll(io.LimitReader(rand.Reader, 32))
+	if err != nil {
+		panic(xerrors.Errorf("generating storage rpc secret: %w", err))
+	}
+	return base64.StdEncoding.EncodeToString(sk)
 }
 
 func defaultMaxBoomBaseConfig() *config.CurioConfig {
 	cfg := config.DefaultCurioConfig()
 	cfg.Subsystems.EnablePDP = true
 	cfg.Subsystems.EnableWebGui = true
-	cfg.Subsystems.GuiAddress = "127.0.0.1:4701"
+	cfg.Subsystems.GuiAddress = adminAddrLocal
 	cfg.HTTP.Enable = false
 
 	if maxboomDockerMode() {
-		cfg.Subsystems.GuiAddress = "0.0.0.0:4701"
+		cfg.Subsystems.GuiAddress = adminAddrDocker
 		cfg.HTTP.Enable = true
 		cfg.HTTP.DelegateTLS = true
 		cfg.HTTP.ListenAddress = "0.0.0.0:80"
@@ -37,11 +51,7 @@ func defaultMaxBoomBaseConfig() *config.CurioConfig {
 		}
 	}
 
-	sk, err := io.ReadAll(io.LimitReader(rand.Reader, 32))
-	if err != nil {
-		panic(xerrors.Errorf("generating storage rpc secret: %w", err))
-	}
-	cfg.Apis.StorageRPCSecret = base64.StdEncoding.EncodeToString(sk)
+	cfg.Apis.StorageRPCSecret = generateStorageRPCSecret()
 	cfg.Apis.ChainBackend = config.ChainBackendLantern
 	return cfg
 }
@@ -52,18 +62,14 @@ func applyMaxBoomDefaults(cfg *config.CurioConfig) {
 		cfg.Subsystems.EnableWebGui = true
 	}
 	if maxboomDockerMode() {
-		if cfg.Subsystems.GuiAddress == "" || cfg.Subsystems.GuiAddress == "127.0.0.1:4701" {
-			cfg.Subsystems.GuiAddress = "0.0.0.0:4701"
+		if cfg.Subsystems.GuiAddress == "" || cfg.Subsystems.GuiAddress == adminAddrLocal {
+			cfg.Subsystems.GuiAddress = adminAddrDocker
 		}
-	} else if cfg.Subsystems.GuiAddress == "" || cfg.Subsystems.GuiAddress == "0.0.0.0:4701" {
-		cfg.Subsystems.GuiAddress = "127.0.0.1:4701"
+	} else if cfg.Subsystems.GuiAddress == "" || cfg.Subsystems.GuiAddress == adminAddrDocker {
+		cfg.Subsystems.GuiAddress = adminAddrLocal
 	}
 	if cfg.Apis.StorageRPCSecret == "" {
-		sk, err := io.ReadAll(io.LimitReader(rand.Reader, 32))
-		if err != nil {
-			panic(xerrors.Errorf("generating storage rpc secret: %w", err))
-		}
-		cfg.Apis.StorageRPCSecret = base64.StdEncoding.EncodeToString(sk)
+		cfg.Apis.StorageRPCSecret = generateStorageRPCSecret()
 	}
 	if cfg.Apis.ChainBackend == "" {
 		cfg.Apis.ChainBackend = config.ChainBackendLantern
@@ -104,12 +110,8 @@ func layerExists(ctx context.Context, db *harmonydb.DB, title string) (bool, err
 func mergeConfigLayers(baseText string, overlayTexts ...string) (*config.CurioConfig, error) {
 	cfg := config.DefaultCurioConfig()
 	layers := []config.ConfigText{{Title: "base", Config: baseText}}
-	for i, text := range overlayTexts {
-		layers = append(layers, config.ConfigText{
-			Title:  "overlay",
-			Config: text,
-		})
-		_ = i
+	for _, text := range overlayTexts {
+		layers = append(layers, config.ConfigText{Title: "overlay", Config: text})
 	}
 	if err := config.ApplyLayers(context.Background(), cfg, layers, config.FixTOML); err != nil {
 		return nil, err

@@ -200,28 +200,3 @@ func (d *Deps) Close() {
 		d.chainCloser()
 	}
 }
-
-// CurioDeps builds a curio deps struct for shared web/cuhttp integrations.
-func (d *Deps) CurioDeps() *curiodeps.Deps {
-	return &curiodeps.Deps{
-		Cfg:               d.Cfg,
-		DB:                d.DB,
-		Chain:             d.Chain,
-		Bstore:            d.Bstore,
-		Stor:              d.Stor,
-		LocalStore:        d.LocalStore,
-		LocalPaths:        d.LocalPaths,
-		Si:                d.Si,
-		IndexStore:        d.IndexStore,
-		SectorReader:      d.SectorReader,
-		CachedPieceReader: d.CachedPieceReader,
-		ServeChunker:      d.ServeChunker,
-		EthClient:         d.EthClient,
-		Sender:            d.Sender,
-		Al:                d.Al,
-		Alert:             d.Alert,
-		ListenAddr:        d.MachineHost,
-		Name:              d.Name,
-		MachineID:         &d.MachineID,
-	}
-}
