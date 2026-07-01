@@ -8,20 +8,25 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/curio/lib/chainsched"
 	"github.com/filecoin-project/curio/lib/ethchain"
+	"github.com/filecoin-project/curio/lib/paths/alertinginterface"
 
 	chainTypes "github.com/filecoin-project/lotus/chain/types"
 )
 
-func NewCleanupPiecesWatcher(db *harmonydb.DB, ethClient ethchain.EthClient, pcs *chainsched.CurioChainSched) {
-	if err := pcs.AddHandler(func(ctx context.Context, revert, apply *chainTypes.TipSet) error {
+const alertNameCleanupPieces = "CleanupPieces"
+
+func NewCleanupPiecesWatcher(w *Watcher) {
+	if err := w.AddWatcher(func(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, al alertinginterface.AlertingInterface, revert, apply *chainTypes.TipSet) {
+		at := al.AddAlertType(alertNameCleanupPieces, alertType)
 		err := processPendingCleanupPieces(ctx, db, ethClient)
 		if err != nil {
 			log.Warnf("Failed to process pending PDP piece cleanup: %s", err)
+			al.Raise(at, map[string]interface{}{
+				"error": err.Error(),
+			})
 		}
-		return nil
-	}); err != nil {
+	}, WatcherOrderCleanupPieces); err != nil {
 		panic(err)
 	}
 }

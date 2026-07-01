@@ -12,12 +12,12 @@ import (
 	"github.com/filecoin-project/go-state-types/builtin"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/curio/lib/chainsched"
 	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/lib/filecoinpayment"
 	"github.com/filecoin-project/curio/lib/paths/alertinginterface"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/pdp/contract/FWSS"
+	"github.com/filecoin-project/curio/tasks/pdpv0"
 
 	chainTypes "github.com/filecoin-project/lotus/chain/types"
 )
@@ -42,15 +42,14 @@ type mwe struct {
 	Success *bool `db:"tx_success"`
 }
 
-func NewSettleWatcher(db *harmonydb.DB, ethClient ethchain.EthClient, pcs *chainsched.CurioChainSched, al alertinginterface.AlertingInterface) {
-	at := al.AddAlertType(alertName, alertType)
-	if err := pcs.AddHandler(func(ctx context.Context, revert, apply *chainTypes.TipSet) error {
+func NewSettleWatcher(w *pdpv0.Watcher) {
+	if err := w.AddWatcher(func(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, al alertinginterface.AlertingInterface, revert, apply *chainTypes.TipSet) {
+		at := al.AddAlertType(alertName, alertType)
 		err := processPendingTransactions(ctx, db, ethClient, al, at)
 		if err != nil {
 			log.Warnf("Failed to process pending settle transactions: %s", err)
 		}
-		return nil
-	}); err != nil {
+	}, pdpv0.WatcherOrderPaymentSettle); err != nil {
 		panic(err)
 	}
 }

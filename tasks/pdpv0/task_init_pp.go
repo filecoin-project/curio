@@ -16,8 +16,8 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
-	"github.com/filecoin-project/curio/lib/chainsched"
 	"github.com/filecoin-project/curio/lib/ethchain"
+	"github.com/filecoin-project/curio/lib/paths/alertinginterface"
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/tasks/message"
@@ -25,6 +25,8 @@ import (
 
 	chainTypes "github.com/filecoin-project/lotus/chain/types"
 )
+
+const alertNameInitPP = "InitProvingPeriod"
 
 type InitProvingPeriodTask struct {
 	db        *harmonydb.DB
@@ -40,7 +42,7 @@ type InitProvingPeriodTaskChainApi interface {
 	ChainHead(context.Context) (*chainTypes.TipSet, error)
 }
 
-func NewInitProvingPeriodTask(db *harmonydb.DB, ethClient ethchain.EthClient, fil NextProvingPeriodTaskChainApi, chainSched *chainsched.CurioChainSched, sender *message.SenderETH) *InitProvingPeriodTask {
+func NewInitProvingPeriodTask(db *harmonydb.DB, ethClient ethchain.EthClient, fil NextProvingPeriodTaskChainApi, w *Watcher, sender *message.SenderETH) *InitProvingPeriodTask {
 	ipp := &InitProvingPeriodTask{
 		db:        db,
 		ethClient: ethClient,
@@ -48,9 +50,11 @@ func NewInitProvingPeriodTask(db *harmonydb.DB, ethClient ethchain.EthClient, fi
 		fil:       fil,
 	}
 
-	_ = chainSched.AddHandler(func(ctx context.Context, revert, apply *chainTypes.TipSet) error {
+	_ = w.AddWatcher(func(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, al alertinginterface.AlertingInterface, revert, apply *chainTypes.TipSet) {
+		at := al.AddAlertType(alertNameInitPP, alertType)
+
 		if apply == nil {
-			return nil
+			return
 		}
 
 		// Now query the db for data sets needing nextProvingPeriod inital call
@@ -68,7 +72,10 @@ func NewInitProvingPeriodTask(db *harmonydb.DB, ethClient ethchain.EthClient, fi
                   AND (next_prove_attempt_at IS NULL OR next_prove_attempt_at <= $1)
             `, currentHeight)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return xerrors.Errorf("failed to select data sets needing nextProvingPeriod: %w", err)
+			al.Raise(at, map[string]interface{}{
+				"err": xerrors.Errorf("failed to select data sets needing nextProvingPeriod: %w", err).Error(),
+			})
+			return
 		}
 
 		for _, ps := range toCallInit {
@@ -90,9 +97,7 @@ func NewInitProvingPeriodTask(db *harmonydb.DB, ethClient ethchain.EthClient, fi
 				return true, nil
 			})
 		}
-
-		return nil
-	})
+	}, WatcherOrderProving)
 
 	return ipp
 }

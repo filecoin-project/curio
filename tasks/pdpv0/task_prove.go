@@ -31,8 +31,8 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/lib/cachedreader"
-	"github.com/filecoin-project/curio/lib/chainsched"
 	"github.com/filecoin-project/curio/lib/ethchain"
+	"github.com/filecoin-project/curio/lib/paths/alertinginterface"
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/lib/proof"
 	"github.com/filecoin-project/curio/market/indexstore"
@@ -64,7 +64,7 @@ type ProveTaskChainApi interface {
 	ChainHead(context.Context) (*chainTypes.TipSet, error)                                                                              //perm:read
 }
 
-func NewProveTask(chainSched *chainsched.CurioChainSched, db *harmonydb.DB, ethClient ethchain.EthClient, fil ProveTaskChainApi, sender *message.SenderETH, cpr *cachedreader.CachedPieceReader, idx *indexstore.IndexStore) *ProveTask {
+func NewProveTask(db *harmonydb.DB, ethClient ethchain.EthClient, fil ProveTaskChainApi, w *Watcher, sender *message.SenderETH, cpr *cachedreader.CachedPieceReader, idx *indexstore.IndexStore) *ProveTask {
 	pt := &ProveTask{
 		db:        db,
 		ethClient: ethClient,
@@ -77,9 +77,9 @@ func NewProveTask(chainSched *chainsched.CurioChainSched, db *harmonydb.DB, ethC
 	// ProveTasks are created on pdp_data_sets entries where
 	// challenge_request_msg_hash is not null (=not yet landed)
 
-	err := chainSched.AddHandler(func(ctx context.Context, revert, apply *chainTypes.TipSet) error {
+	err := w.AddWatcher(func(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, al alertinginterface.AlertingInterface, revert, apply *chainTypes.TipSet) {
 		if apply == nil {
-			return nil
+			return
 		}
 
 		pt.head.Store(apply)
@@ -153,9 +153,7 @@ func NewProveTask(chainSched *chainsched.CurioChainSched, db *harmonydb.DB, ethC
 				break
 			}
 		}
-
-		return nil
-	})
+	}, WatcherOrderProving)
 	if err != nil {
 		// Handler registration failed
 		panic(err)
