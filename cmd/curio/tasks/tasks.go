@@ -3,6 +3,7 @@ package tasks
 
 import (
 	"context"
+	"net/http"
 	"os"
 	"slices"
 	"sort"
@@ -94,7 +95,8 @@ func WindowPostScheduler(ctx context.Context, fc config.CurioFees, pc config.Cur
 	return computeTask, submitTask, recoverTask, nil
 }
 
-func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan struct{}) (*harmonytask.TaskEngine, error) {
+func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan struct{}) (*harmonytask.TaskEngine, *http.Server, error) {
+	var marketServer *http.Server
 	cfg := dependencies.Cfg
 	db := dependencies.DB
 	full := dependencies.Chain
@@ -194,7 +196,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 				as, maddrs, db, stor, si, cfg.Subsystems.WindowPostMaxTasks, cuzkClient)
 
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			activeTasks = append(activeTasks, wdPostTask, wdPoStSubmitTask, derlareRecoverTask)
 		}
@@ -240,7 +242,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 	if hasAnySealingTask {
 		sealingTasks, p2a, err := addSealingTasks(ctx, hasAnySealingTask, db, full, sender, as, cfg, slrLazy, asyncParams, si, stor, bstore, machine, prover, cuzkClient)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		activeTasks = append(activeTasks, sealingTasks...)
 		p2Active = p2a
@@ -251,7 +253,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		if cfg.Subsystems.EnableParkPiece {
 			parkPieceTask, err := piece2.NewParkPieceTask(db, must.One(slrLazy.Val()), stor, cfg.Subsystems.ParkPieceMaxTasks, cfg.Subsystems.ParkPieceMaxInPark, p2Active, cfg.Subsystems.ParkPieceMinFreeStoragePercent)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			cleanupPieceTask := piece2.NewCleanupPieceTask(db, must.One(slrLazy.Val()), 0)
 			aggregateChunksTask := piece2.NewAggregateChunksTask(db, stor, must.One(slrLazy.Val()))
@@ -279,7 +281,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 			dm = storage_market.NewCurioStorageDealMarket(miners, db, cfg, must.One(dependencies.EthClient.Val()), si, full, as, must.One(slrLazy.Val()))
 			err := dm.StartMarket(ctx)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 
 			sdeps.DealMarket = dm
@@ -306,7 +308,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		}
 		sc, err := slrLazy.Val()
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		// Enable PDP v1 subsystem
@@ -385,9 +387,9 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 			//if !cfg.Subsystems.EnableDealMarket {
 			//	return nil, xerrors.New("deal market must be enabled on HTTP server")
 			//}
-			err = cuhttp.StartHTTPServer(ctx, dependencies, &sdeps)
+			marketServer, err = cuhttp.NewHTTPServer(ctx, dependencies, &sdeps)
 			if err != nil {
-				return nil, xerrors.Errorf("failed to start the HTTP server: %w", err)
+				return nil, nil, xerrors.Errorf("failed to configure the HTTP server: %w", err)
 			}
 		}
 	}
@@ -403,7 +405,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 
 	ht, err := harmonytask.New(db, activeTasks, dependencies.ListenAddr)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	go machineDetails(dependencies, activeTasks, ht.ResourcesAvailable().MachineID, dependencies.Name)
 
@@ -412,7 +414,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 	if hasAnySealingTask {
 		watcher, err := message.NewMessageWatcher(db, ht, chainSched, full)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		_ = watcher
 	}
@@ -420,7 +422,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 	if senderEth != nil {
 		watcherEth, err := message.NewMessageWatcherEth(db, ht, chainSched, must.One(dependencies.EthClient.Val()))
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		_ = watcherEth
 
@@ -430,7 +432,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		go chainSched.Run(ctx)
 	}
 
-	return ht, nil
+	return ht, marketServer, nil
 }
 
 func addSealingTasks(

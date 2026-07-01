@@ -46,7 +46,8 @@ func SetupLogLevels() {
 func setupCloseHandler() {
 	c := make(chan os.Signal, 1)
 	// Register our handler first, before runApp's handler
-	signal.Notify(c, os.Interrupt, syscall.SIGTERM, syscall.SIGABRT)
+	// SIGTERM/SIGINT are handled by gracehttp during `curio run`.
+	signal.Notify(c, os.Interrupt, syscall.SIGABRT)
 	go func() {
 		<-c
 		fmt.Println("\r- Ctrl+C pressed in Terminal")

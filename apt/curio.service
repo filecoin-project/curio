@@ -4,6 +4,8 @@ After=network.target
 
 [Service]
 ExecStart=/usr/local/bin/curio run
+ExecReload=/bin/kill -USR2 $MAINPID
+KillSignal=SIGTERM
 Environment=GOLOG_FILE="/var/log/curio/curio.log"
 Environment=GOLOG_LOG_FMT="json"
 Environment=LD_LIBRARY_PATH="/usr/lib/x86_64-linux-gnu:/usr/lib64"

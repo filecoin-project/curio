@@ -18,6 +18,7 @@ require (
 	github.com/dustin/go-humanize v1.0.1
 	github.com/elastic/go-sysinfo v1.15.4
 	github.com/ethereum/go-ethereum v1.17.2
+	github.com/facebookgo/grace v0.0.0-20180706040059-75cf19382434
 	github.com/fatih/color v1.19.0
 	github.com/filecoin-project/filecoin-ffi v1.36.0
 	github.com/filecoin-project/go-address v1.2.0
@@ -181,6 +182,9 @@ require (
 	github.com/emicklei/dot v1.6.2 // indirect
 	github.com/etclabscore/go-jsonschema-walk v0.0.6 // indirect
 	github.com/ethereum/c-kzg-4844/v2 v2.1.7 // indirect
+	github.com/facebookgo/clock v0.0.0-20150410010913-600d898af40a // indirect
+	github.com/facebookgo/httpdown v0.0.0-20180706035922-5979d39b15c2 // indirect
+	github.com/facebookgo/stats v0.0.0-20151006221625-1b76add642e4 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/ferranbt/fastssz v0.1.4 // indirect
 	github.com/filecoin-project/go-amt-ipld/v2 v2.1.0 // indirect

@@ -3129,6 +3129,18 @@
       "translation": "目标状态：true（确保已解封）、false（确保无解封副本）",
       "message": "Target state: true (ensure unsealed), false (ensure no unsealed copy)",
       "placeholder": null
+    },
+    {
+      "id": "Gracefully restart a running Curio process",
+      "translation": "优雅重启正在运行的 Curio 进程",
+      "message": "Gracefully restart a running Curio process",
+      "placeholder": null
+    },
+    {
+      "id": "restart via local pid file instead of the RPC API",
+      "translation": "通过本地 pid 文件而非 RPC API 重启",
+      "message": "restart via local pid file instead of the RPC API",
+      "placeholder": null
     }
   ]
 }
