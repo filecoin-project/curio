@@ -1,5 +1,3 @@
-//go:build !skiff
-
 package wallet
 
 import (

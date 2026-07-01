@@ -52,7 +52,6 @@ func defaultSkiffBaseConfig() *config.CurioConfig {
 	}
 
 	cfg.Apis.StorageRPCSecret = generateStorageRPCSecret()
-	cfg.Apis.ChainBackend = config.ChainBackendLantern
 	return cfg
 }
 
@@ -70,9 +69,6 @@ func applySkiffDefaults(cfg *config.CurioConfig) {
 	}
 	if cfg.Apis.StorageRPCSecret == "" {
 		cfg.Apis.StorageRPCSecret = generateStorageRPCSecret()
-	}
-	if cfg.Apis.ChainBackend == "" {
-		cfg.Apis.ChainBackend = config.ChainBackendLantern
 	}
 }
 

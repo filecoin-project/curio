@@ -67,7 +67,7 @@ services:
       - CURIO_DB_PASSWORD=yugabyte
       - CURIO_REPO_PATH=/var/lib/skiff
       - SKIFF_DATA=/data
-      # - FULLNODE_API_INFO=${FULLNODE_API_INFO:-}
+      - FULLNODE_API_INFO=${FULLNODE_API_INFO:?set FULLNODE_API_INFO to a Lotus-compatible chain RPC endpoint}
     restart: unless-stopped
     logging: *default-logging
     labels:
@@ -79,5 +79,7 @@ services:
     volumes:
       - ${SKIFF_REPO_DATA:-./data/skiff}:/var/lib/skiff
       - ${SKIFF_STORAGE:-./data}:/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - skiff-net

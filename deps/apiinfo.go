@@ -90,7 +90,7 @@ func GetFullNodeAPIV1Curio(ctx *cli.Context, apis config.ApisConfig) (api.Chain,
 		netCancel()
 		if err != nil {
 			if skiffDockerMode() && errors.Is(err, context.DeadlineExceeded) {
-				clog.Warnf("Chain network check timed out for %s (embedded Lantern may still be syncing); continuing", head.addr)
+				clog.Warnf("Chain network check timed out for %s (chain node may still be syncing); continuing", head.addr)
 				fullNodes = append(fullNodes, v1api)
 				closers = append(closers, closer)
 				continue
@@ -413,7 +413,7 @@ func GetEthClient(cctx *cli.Context, apis config.ApisConfig) (ethchain.EthClient
 		ethCancel()
 		if err != nil {
 			if skiffDockerMode() && errors.Is(err, context.DeadlineExceeded) {
-				log.Warnf("eth block number timed out for %s (Lantern may still be syncing); continuing", head.addr)
+				log.Warnf("eth block number timed out for %s (chain node may still be syncing); continuing", head.addr)
 				clients = append(clients, client)
 				continue
 			}

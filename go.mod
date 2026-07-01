@@ -168,9 +168,7 @@ require (
 	github.com/deckarep/golang-set/v2 v2.6.0 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.1 // indirect
 	github.com/dgraph-io/badger/v2 v2.2007.4 // indirect
-	github.com/dgraph-io/badger/v4 v4.5.1 // indirect
 	github.com/dgraph-io/ristretto v0.2.0 // indirect
-	github.com/dgraph-io/ristretto/v2 v2.1.0 // indirect
 	github.com/dgryski/go-farm v0.0.0-20200201041132-a6ae2369ad13 // indirect
 	github.com/drand/drand/v2 v2.1.4 // indirect
 	github.com/drand/go-clients v0.2.3 // indirect
@@ -227,7 +225,6 @@ require (
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/golang/snappy v1.0.0 // indirect
-	github.com/google/flatbuffers v24.12.23+incompatible // indirect
 	github.com/google/gopacket v1.1.19 // indirect
 	github.com/hailocab/go-hostpool v0.0.0-20160125115350-e80d13ce29ed // indirect
 	github.com/hannahhoward/go-pubsub v1.0.0 // indirect
@@ -391,7 +388,6 @@ require (
 )
 
 require (
-	github.com/Reiers/lantern v1.8.3
 	github.com/curiostorage/shouldtest v0.0.0-20260522222211-a06c87260eb5
 	golang.org/x/mod v0.35.0
 )

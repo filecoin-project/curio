@@ -17,7 +17,7 @@ type ChainRPCEndpoint struct {
 	Layers  []string
 }
 
-// CollectChainRPCEndpoints returns chain RPC targets from env, config, and embedded Lantern.
+// CollectChainRPCEndpoints returns chain RPC targets from env and config.
 func CollectChainRPCEndpoints(ctx context.Context, db *harmonydb.DB) ([]ChainRPCEndpoint, error) {
 	if v := os.Getenv("FULLNODE_API_INFO"); v != "" {
 		return []ChainRPCEndpoint{{ApiInfo: v, Layers: []string{"FULLNODE_API_INFO"}}}, nil
@@ -25,7 +25,6 @@ func CollectChainRPCEndpoints(ctx context.Context, db *harmonydb.DB) ([]ChainRPC
 
 	type minimalApiInfo struct {
 		Apis struct {
-			ChainBackend string
 			ChainApiInfo []string
 		}
 	}
@@ -62,20 +61,6 @@ func CollectChainRPCEndpoints(ctx context.Context, db *harmonydb.DB) ([]ChainRPC
 			return cliutil.ParseApiInfo(out[i].ApiInfo).Addr < cliutil.ParseApiInfo(out[j].ApiInfo).Addr
 		})
 		return out, nil
-	}
-
-	cfg, err := GetConfig(ctx, nil, db)
-	if err != nil {
-		return nil, err
-	}
-
-	if useEmbeddedLanternBackend(cfg.Apis.ChainBackend) {
-		if info, ok := embeddedLanternAPIInfo(); ok {
-			return []ChainRPCEndpoint{{
-				ApiInfo: info,
-				Layers:  []string{config.ChainBackendLantern},
-			}}, nil
-		}
 	}
 
 	return nil, nil

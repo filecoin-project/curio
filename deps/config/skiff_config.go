@@ -34,7 +34,7 @@ func DefaultSkiffUIConfig() *SkiffConfig {
 			GuiAddress:   "127.0.0.1:4701",
 		},
 		HTTP:     curio.HTTP,
-		Apis:     ApisConfig{ChainBackend: ChainBackendLantern},
+		Apis:     curio.Apis,
 		Alerting: curio.Alerting,
 	}
 }

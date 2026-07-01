@@ -44,8 +44,8 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 COPY . .
 
-# Network build target. Skiff embeds the Lantern chain backend for mainnet and
-# calibration builds. For 2k/debug builds set ChainApiInfo / FULLNODE_API_INFO.
+# Network build target. Skiff requires an external chain node via ChainApiInfo /
+# FULLNODE_API_INFO. For 2k/debug builds use the matching 2k-skiff target.
 #   skiff (mainnet, default) | calibnet-skiff | 2k-skiff
 ARG SKIFF_MAKE_TARGET=skiff
 ARG CURIO_BUILD_COMMIT=unknown
@@ -75,7 +75,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Repo holds Lantern chain state + node identity; /data is scanned for storage.
+# Repo holds node identity; /data is scanned for storage.
 ENV CURIO_REPO_PATH=/var/lib/skiff \
     SKIFF_DATA=/data \
     SKIFF_DOCKER=1

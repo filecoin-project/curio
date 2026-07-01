@@ -10,7 +10,6 @@ import (
 
 	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/deps"
-	"github.com/filecoin-project/curio/deps/config"
 
 	cliutil "github.com/filecoin-project/lotus/cli/util"
 )
@@ -80,9 +79,6 @@ func (a *WebRPC) NetSummary(ctx context.Context) (NetSummaryResponse, error) {
 		dedup[ai.Addr] = struct{}{}
 
 		nodeLabel := ai.Addr
-		if len(endpoint.Layers) == 1 && endpoint.Layers[0] == config.ChainBackendLantern {
-			nodeLabel = "lantern (embedded) · " + ai.Addr
-		}
 
 		wg.Add(1)
 		go func(ai cliutil.APIInfo, nodeLabel string) {

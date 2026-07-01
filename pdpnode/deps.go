@@ -127,7 +127,7 @@ func Open(ctx context.Context, cctx *cli.Context) (*Deps, error) {
 		return nil, xerrors.Errorf("remote store: %w", err)
 	}
 
-	skiffDockerLog("connecting to chain API (embedded Lantern may take a minute on first start)")
+	skiffDockerLog("connecting to chain API")
 	chain, chainCloser, err := curiodeps.GetFullNodeAPIV1Curio(cctx, cfg.Apis)
 	if err != nil {
 		return nil, err

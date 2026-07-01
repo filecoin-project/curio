@@ -1007,13 +1007,10 @@ description: The default curio configuration
 # type: ApisConfig
 [Apis]
 
-  # ChainBackend selects the chain JSON-RPC provider.
-  # "lantern"  — embed Lantern (skiff; default for skiff base config)
-  # "external" — use ChainApiInfo / FULLNODE_API_INFO
-  # When ChainApiInfo is set it takes precedence over ChainBackend.
+  # ChainApiInfo is the API endpoint for an external Lotus-compatible daemon.
   #
-  # type: string
-  #ChainBackend = ""
+  # type: []string
+  #ChainApiInfo = []
 
   # API auth secret for the Curio nodes to use. This value should only be set on the bade layer.
   #

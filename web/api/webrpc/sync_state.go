@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -13,7 +12,6 @@ import (
 	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps"
-	"github.com/filecoin-project/curio/deps/config"
 
 	cliutil "github.com/filecoin-project/lotus/cli/util"
 )
@@ -46,9 +44,6 @@ func (a *WebRPC) SyncerState(ctx context.Context) ([]RpcInfo, error) {
 		dedup[ai.Addr] = true
 
 		displayAddr := ai.Addr
-		if len(endpoint.Layers) == 1 && endpoint.Layers[0] == config.ChainBackendLantern {
-			displayAddr = "lantern (embedded) · " + ai.Addr
-		}
 
 		wg.Go(func() {
 			clayers := append([]string(nil), endpoint.Layers...)
@@ -103,9 +98,6 @@ func (a *WebRPC) SyncerState(ctx context.Context) ([]RpcInfo, error) {
 			}
 
 			version := ver.Version
-			if strings.Contains(displayAddr, "lantern (embedded)") {
-				version = "lantern · " + version
-			}
 
 			myinfo = RpcInfo{
 				Address:   displayAddr,

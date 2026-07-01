@@ -37,7 +37,7 @@ The admin GUI hides PoRep, sealing, and storage-market navigation when running S
 
 | Flag | Env | Default | Purpose |
 |------|-----|---------|---------|
-| `--repo` | `CURIO_REPO_PATH` | `~/.curio` | Local data directory (Lantern chain state) |
+| `--repo` | `CURIO_REPO_PATH` | `~/.curio` | Local data directory (node identity) |
 | `--db-host` | `CURIO_DB_HOST` | `127.0.0.1` | Yugabyte YSQL host (YCQL index uses same host, port `9042`) |
 | `--machine-host` | `SKIFF_MACHINE_HOST` | `127.0.0.1:skiff` | Harmony machine ID |
 
@@ -57,22 +57,31 @@ Use a single `base` config layer. On first start, skiff **auto-seeds `base`** wi
 - `Subsystems.EnableWebGui = true` for the admin UI
 - `HTTP.Enable = true` for the public `/pdp/*` API
 
-See [Enable PDP](experimental-features/Enable-PDP.md) for full-stack Curio deployment, or the [Curio-PDP runbook](curio-pdp.md) for the skiff PDP-only deployment (Dockerized Yugabyte).
+See [Enable PDP](experimental-features/Enable-PDP.md) for full-stack Curio deployment, or the [Curio-PDP runbook](curio-pdp.md) for the skiff PDP-only deployment (Dockerized Yugabyte), including [PDP signing wallet setup via the admin GUI](curio-pdp.md#3-pdp-signing-wallet-admin-gui).
 
-### Chain backend (Lantern)
+### Chain API
 
-Skiff embeds [Lantern](https://github.com/Reiers/lantern) as its default chain backend when no external API is configured. State is stored under `<repo>/lantern`.
+Skiff requires an external Lotus-compatible chain node (for example [Lotus](https://lotus.filecoin.io/lotus/get-started/what-is-lotus/) or [Forest](https://docs.forest.chainsafe.io/)). Configure it via environment variable or the `base` config layer:
 
 | Source | Precedence |
 |--------|------------|
 | `FULLNODE_API_INFO` env | Highest |
-| `[APIs].ChainApiInfo` in config | Second (overrides ChainBackend) |
-| `[APIs].ChainBackend = "lantern"` | Default for skiff (embedded Lantern) |
-| Embedded Lantern | Used when ChainBackend is `lantern` and ChainApiInfo is unset |
+| `[APIs].ChainApiInfo` in config | Second |
 
-Set `[APIs].ChainBackend = "external"` and configure `ChainApiInfo` to use an external Lotus-compatible RPC instead of embedded Lantern.
+Example:
 
-Embedded Lantern supports **mainnet** and **calibration** builds only. For `2k` / debug builds, set `ChainBackend = "external"` and `ChainApiInfo` or `FULLNODE_API_INFO` to an external Lotus-compatible RPC endpoint.
+```bash
+export FULLNODE_API_INFO=/ip4/127.0.0.1/tcp/1234/http
+```
+
+Or in the `base` layer:
+
+```toml
+[Apis]
+ChainApiInfo = ["/ip4/127.0.0.1/tcp/1234/http"]
+```
+
+The chain node must match the skiff build network (mainnet, calibration, etc.).
 
 ## Storage
 

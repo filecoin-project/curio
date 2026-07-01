@@ -752,20 +752,7 @@ type SlackWebhookConfig struct {
 	WebHookURL string
 }
 
-const (
-	// ChainBackendLantern embeds Lantern as the chain JSON-RPC provider (skiff mainnet/calibnet).
-	ChainBackendLantern = "lantern"
-	// ChainBackendExternal uses ChainApiInfo or FULLNODE_API_INFO for an external Lotus-compatible node.
-	ChainBackendExternal = "external"
-)
-
 type ApisConfig struct {
-	// ChainBackend selects the chain JSON-RPC provider.
-	//   "lantern"  — embed Lantern (skiff; default for skiff base config)
-	//   "external" — use ChainApiInfo / FULLNODE_API_INFO
-	// When ChainApiInfo is set it takes precedence over ChainBackend.
-	ChainBackend string
-
 	// ChainApiInfo is the API endpoint for an external Lotus-compatible daemon.
 	ChainApiInfo []string
 

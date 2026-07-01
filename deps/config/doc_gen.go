@@ -11,15 +11,6 @@ type DocField struct {
 var Doc = map[string][]DocField{
 	"ApisConfig": {
 		{
-			Name: "ChainBackend",
-			Type: "string",
-
-			Comment: `ChainBackend selects the chain JSON-RPC provider.
-"lantern"  — embed Lantern (skiff; default for skiff base config)
-"external" — use ChainApiInfo / FULLNODE_API_INFO
-When ChainApiInfo is set it takes precedence over ChainBackend.`,
-		},
-		{
 			Name: "ChainApiInfo",
 			Type: "[]string",
 

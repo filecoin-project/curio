@@ -10,12 +10,10 @@ func TestSkiffConfigFromCurio(t *testing.T) {
 	curio := DefaultCurioConfig()
 	curio.Subsystems.EnablePDP = true
 	curio.Subsystems.DataPath = "/data"
-	curio.Apis.ChainBackend = ChainBackendLantern
 
 	sk := SkiffConfigFromCurio(curio)
 	require.True(t, sk.Subsystems.EnablePDP)
 	require.Equal(t, "/data", sk.Subsystems.DataPath)
-	require.Equal(t, ChainBackendLantern, sk.Apis.ChainBackend)
 }
 
 func TestApplySkiffConfigToCurio(t *testing.T) {
