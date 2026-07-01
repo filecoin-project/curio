@@ -147,25 +147,31 @@ func (m *MoveStorageTask) schedule(ctx context.Context, taskFunc harmonytask.Add
 		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
 			stop = true // assume we're done until we find a task to schedule
 
-			var tasks []struct {
-				SpID         int64 `db:"sp_id"`
-				SectorNumber int64 `db:"sector_number"`
-			}
-
-			err := tx.Select(&tasks, `SELECT sp_id, sector_number FROM sectors_snap_pipeline WHERE after_encode = TRUE AND after_move_storage = FALSE AND task_id_move_storage IS NULL ORDER BY start_time ASC LIMIT 1`)
-			if err != nil {
-				return false, xerrors.Errorf("getting tasks: %w", err)
-			}
-
-			if len(tasks) == 0 {
-				return false, nil
-			}
-
-			t := tasks[0]
-
-			_, err = tx.Exec(`UPDATE sectors_snap_pipeline SET task_id_move_storage = $1 WHERE sp_id = $2 AND sector_number = $3 AND after_encode = TRUE AND after_move_storage = FALSE AND task_id_move_storage IS NULL`, id, t.SpID, t.SectorNumber)
+			n, err := tx.Exec(`WITH pending AS (
+					SELECT sp_id, sector_number
+					FROM sectors_snap_pipeline
+					WHERE after_encode = TRUE
+					  AND after_move_storage = FALSE
+					  AND task_id_move_storage IS NULL
+					ORDER BY start_time ASC
+					LIMIT 1
+				)
+				UPDATE sectors_snap_pipeline s
+				SET task_id_move_storage = $1
+				FROM pending
+				WHERE s.sp_id = pending.sp_id
+				  AND s.sector_number = pending.sector_number
+				  AND s.after_encode = TRUE
+				  AND s.after_move_storage = FALSE
+				  AND s.task_id_move_storage IS NULL`, id)
 			if err != nil {
 				return false, xerrors.Errorf("updating task id: %w", err)
+			}
+			if n == 0 {
+				return false, nil
+			}
+			if n != 1 {
+				return false, xerrors.Errorf("updated %d rows assigning move storage task", n)
 			}
 
 			stop = false // we found a task to schedule, keep going
