@@ -1007,11 +1007,6 @@ description: The default curio configuration
 # type: ApisConfig
 [Apis]
 
-  # ChainApiInfo is the API endpoint for an external Lotus-compatible daemon.
-  #
-  # type: []string
-  #ChainApiInfo = []
-
   # API auth secret for the Curio nodes to use. This value should only be set on the bade layer.
   #
   # type: string
