@@ -3,10 +3,12 @@ package pdpv0
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -104,11 +106,19 @@ func processDataSetCreate(ctx context.Context, db *harmonydb.DB, psc DataSetCrea
 		return xerrors.Errorf("failed to get max proving period: %w", err)
 	}
 	_, err = db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		var payerAddress *string
+		err := tx.QueryRow(`
+			SELECT payer_address FROM pdp_data_set_creates WHERE create_message_hash = $1
+		`, psc.CreateMessageHash).Scan(&payerAddress)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return false, xerrors.Errorf("failed to load pending payer for tx %s: %w", psc.CreateMessageHash, err)
+		}
+
 		// Insert a new entry into pdp_data_sets
 		_, err = tx.Exec(`
-        INSERT INTO pdp_data_sets (id, create_message_hash, service, proving_period, challenge_window)
-        VALUES ($1, $2, $3, $4, $5)
-    `, dataSetId, psc.CreateMessageHash, psc.Service, provingPeriod, challengeWindow)
+        INSERT INTO pdp_data_sets (id, create_message_hash, service, proving_period, challenge_window, payer_address)
+        VALUES ($1, $2, $3, $4, $5, $6)
+    `, dataSetId, psc.CreateMessageHash, psc.Service, provingPeriod, challengeWindow, payerAddress)
 		if err != nil {
 			return false, xerrors.Errorf("failed to insert data set %d for tx %+v: %w", dataSetId, psc, err)
 		}

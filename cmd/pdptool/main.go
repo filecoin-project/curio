@@ -12,6 +12,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io"
+	"math/big"
 	"net"
 	"net/http"
 	"os"
@@ -34,6 +35,7 @@ import (
 
 	curiobuild "github.com/filecoin-project/curio/build"
 	curioproof "github.com/filecoin-project/curio/lib/proof"
+	"github.com/filecoin-project/curio/pdp"
 )
 
 // validateExtraData checks if the provided hex string is valid and within the size limit.
@@ -418,7 +420,22 @@ func startLocalNotifyServer() (string, chan struct{}, error) {
 	return serverAddr, notifyReceived, nil
 }
 
-func uploadOnePiece(client *http.Client, serviceURL string, reqBody []byte, jwtToken string, r io.ReadSeeker, pieceSize int64, localNotifWait bool, notifyReceived chan struct{}, verbose bool) error {
+func maybeUploadAuthHeader(dataSetID uint64, privateKeyHex string) (string, error) {
+	if privateKeyHex == "" {
+		return "", nil
+	}
+	if dataSetID == 0 {
+		return "", fmt.Errorf("--data-set-id is required when --upload-auth-key is set")
+	}
+	key, err := pdp.ParseUploadAuthPrivateKey(privateKeyHex)
+	if err != nil {
+		return "", err
+	}
+	nonce := big.NewInt(time.Now().UnixNano())
+	return pdp.NewPieceUploadAuthHeader(key, dataSetID, nonce, pdp.DefaultUploadAuthExpiry())
+}
+
+func uploadOnePiece(client *http.Client, serviceURL string, reqBody []byte, jwtToken string, uploadAuthHeader string, r io.ReadSeeker, pieceSize int64, localNotifWait bool, notifyReceived chan struct{}, verbose bool) error {
 	req, err := http.NewRequest("POST", serviceURL+"/pdp/piece", bytes.NewReader(reqBody))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %v", err)
@@ -478,6 +495,9 @@ func uploadOnePiece(client *http.Client, serviceURL string, reqBody []byte, jwtT
 		uploadReq.ContentLength = pieceSize
 		// Set the Content-Type header
 		uploadReq.Header.Set("Content-Type", "application/octet-stream")
+		if uploadAuthHeader != "" {
+			uploadReq.Header.Set(pdp.PieceUploadAuthHeader, uploadAuthHeader)
+		}
 
 		uploadResp, err := client.Do(uploadReq)
 		if err != nil {
@@ -537,6 +557,14 @@ var pieceUploadCmd = &cli.Command{
 			Name:  "local-notif-wait",
 			Usage: "Wait for server notification by spawning a temporary local HTTP server",
 		},
+		&cli.Uint64Flag{
+			Name:  "data-set-id",
+			Usage: "Data set id for upload auth gating (optional init body field)",
+		},
+		&cli.StringFlag{
+			Name:  "upload-auth-key",
+			Usage: "Hex secp256k1 private key used to sign X-PDP-Upload-Auth for bulk PUT",
+		},
 	},
 	Action: func(cctx *cli.Context) error {
 		inputFile := cctx.Args().Get(0)
@@ -550,6 +578,11 @@ var pieceUploadCmd = &cli.Command{
 		serviceName := cctx.String("service-name")
 		hashType := cctx.String("hash-type")
 		localNotifWait := cctx.Bool("local-notif-wait")
+		dataSetID := cctx.Uint64("data-set-id")
+		uploadAuthHeader, err := maybeUploadAuthHeader(dataSetID, cctx.String("upload-auth-key"))
+		if err != nil {
+			return err
+		}
 
 		if jwtToken == "" {
 			if serviceName == "" {
@@ -571,7 +604,6 @@ var pieceUploadCmd = &cli.Command{
 		}
 
 		var notifyReceived chan struct{}
-		var err error
 
 		if localNotifWait {
 			notifyURL, notifyReceived, err = startLocalNotifyServer()
@@ -629,12 +661,15 @@ var pieceUploadCmd = &cli.Command{
 		if notifyURL != "" {
 			reqData["notify"] = notifyURL
 		}
+		if dataSetID > 0 {
+			reqData["dataSetId"] = dataSetID
+		}
 		reqBody, err = json.Marshal(reqData)
 		if err != nil {
 			return fmt.Errorf("failed to marshal request data: %v", err)
 		}
 		client := &http.Client{}
-		if err := uploadOnePiece(client, serviceURL, reqBody, jwtToken, file, pieceSize, localNotifWait, notifyReceived, true); err != nil {
+		if err := uploadOnePiece(client, serviceURL, reqBody, jwtToken, uploadAuthHeader, file, pieceSize, localNotifWait, notifyReceived, true); err != nil {
 			return fmt.Errorf("failed to upload piece: %v", err)
 		}
 
@@ -829,7 +864,7 @@ var uploadFileCmd = &cli.Command{
 				}
 
 				// Upload the piece
-				err = uploadOnePiece(client, serviceURL, reqBody, jwtToken, chunkReader, int64(n), localNotifWait, notifyReceived, verbose)
+				err = uploadOnePiece(client, serviceURL, reqBody, jwtToken, "", chunkReader, int64(n), localNotifWait, notifyReceived, verbose)
 				if err != nil {
 					return fmt.Errorf("failed to upload piece: %v", err)
 				}
@@ -1544,6 +1579,14 @@ var streamingPieceUploadCmd = &cli.Command{
 			Name:  "local-notif-wait",
 			Usage: "Wait for server notification by spawning a temporary local HTTP server",
 		},
+		&cli.Uint64Flag{
+			Name:  "data-set-id",
+			Usage: "Data set id for upload auth gating (optional init body field)",
+		},
+		&cli.StringFlag{
+			Name:  "upload-auth-key",
+			Usage: "Hex secp256k1 private key used to sign X-PDP-Upload-Auth for bulk PUT",
+		},
 	},
 	Action: func(cctx *cli.Context) error {
 		inputFile := cctx.Args().Get(0)
@@ -1557,6 +1600,11 @@ var streamingPieceUploadCmd = &cli.Command{
 		serviceName := cctx.String("service-name")
 		hashType := cctx.String("hash-type")
 		localNotifWait := cctx.Bool("local-notif-wait")
+		dataSetID := cctx.Uint64("data-set-id")
+		uploadAuthHeader, err := maybeUploadAuthHeader(dataSetID, cctx.String("upload-auth-key"))
+		if err != nil {
+			return err
+		}
 
 		if jwtToken == "" {
 			if serviceName == "" {
@@ -1578,7 +1626,6 @@ var streamingPieceUploadCmd = &cli.Command{
 		}
 
 		var notifyReceived chan struct{}
-		var err error
 
 		if localNotifWait {
 			notifyURL, notifyReceived, err = startLocalNotifyServer()
@@ -1605,7 +1652,16 @@ var streamingPieceUploadCmd = &cli.Command{
 
 		client := &http.Client{}
 
-		req, err := http.NewRequest("POST", serviceURL+"/pdp/piece/uploads", nil)
+		var initBody io.Reader = http.NoBody
+		if dataSetID > 0 {
+			initBytes, err := json.Marshal(map[string]any{"dataSetId": dataSetID})
+			if err != nil {
+				return fmt.Errorf("failed to marshal init body: %v", err)
+			}
+			initBody = bytes.NewReader(initBytes)
+		}
+
+		req, err := http.NewRequest("POST", serviceURL+"/pdp/piece/uploads", initBody)
 		if err != nil {
 			return fmt.Errorf("failed to create upload request: %v", err)
 		}
@@ -1675,6 +1731,9 @@ var streamingPieceUploadCmd = &cli.Command{
 				req.Header.Set("Authorization", "Bearer "+jwtToken)
 			}
 			req.Header.Set("Content-Type", "application/octet-stream")
+			if uploadAuthHeader != "" {
+				req.Header.Set(pdp.PieceUploadAuthHeader, uploadAuthHeader)
+			}
 
 			// Execute the request
 			resp, err := client.Do(req)

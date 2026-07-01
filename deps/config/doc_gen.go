@@ -857,6 +857,13 @@ PDP deals allow the node to directly store and prove unsealed data with "PDP Ser
 This feature is BETA and should only be enabled on nodes which are part of a PDP network.`,
 		},
 		{
+			Name: "PDPUploadRequireAuth",
+			Type: "bool",
+
+			Comment: `PDPUploadRequireAuth requires JWT service auth, data set ownership, and a wallet
+possession proof header on piece upload endpoints. Defaults off for legacy behavior.`,
+		},
+		{
 			Name: "DataPath",
 			Type: "string",
 

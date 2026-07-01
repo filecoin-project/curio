@@ -46,11 +46,15 @@ func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 
 	// Parse request body
 	var req struct {
-		PieceCID string `json:"pieceCid"`
-		Notify   string `json:"notify,omitempty"`
+		PieceCID  string  `json:"pieceCid"`
+		Notify    string  `json:"notify,omitempty"`
+		DataSetID *uint64 `json:"dataSetId,omitempty"`
 	}
 	if err = json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httpServerError(w, http.StatusBadRequest, "Invalid request body: "+err.Error(), err)
+		return
+	}
+	if !p.validateUploadInit(w, r, serviceID, req.DataSetID) {
 		return
 	}
 	pieceInfo, err := ParsePieceCidV2(req.PieceCID)
@@ -163,6 +167,10 @@ func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPut {
 		httpServerError(w, http.StatusMethodNotAllowed, "Method Not Allowed", nil)
+		return
+	}
+
+	if !p.verifyUploadAuthHeader(w, r) {
 		return
 	}
 
@@ -409,6 +417,15 @@ func (p *PDPService) handleStreamingUploadURL(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	dataSetID, err := parseOptionalDataSetIDBody(r)
+	if err != nil {
+		httpServerError(w, http.StatusBadRequest, "Invalid request body: "+err.Error(), err)
+		return
+	}
+	if !p.validateUploadInit(w, r, serviceID, dataSetID) {
+		return
+	}
+
 	uploadUUID := uuid.New()
 	uploadURL := path.Join(PDPRoutePath, "/piece/uploads", uploadUUID.String())
 
@@ -438,6 +455,10 @@ func (p *PDPService) handleStreamingUpload(w http.ResponseWriter, r *http.Reques
 	serviceID, err := p.AuthService(r)
 	if err != nil {
 		httpServerError(w, http.StatusUnauthorized, "Unauthorized: "+err.Error(), err)
+		return
+	}
+
+	if !p.verifyUploadAuthHeader(w, r) {
 		return
 	}
 

@@ -147,7 +147,7 @@ func (p *PDPService) handleCreateDataSetAndAddPieces(w http.ResponseWriter, r *h
 		"recordKeeper", recordKeeperAddr.Hex())
 	// Begin a database transaction
 	comm, err := p.db.BeginTransaction(workCtx, func(tx *harmonydb.Tx) (bool, error) {
-		err := p.insertMessageWaitsAndDataSetCreate(tx, txHashLower, serviceLabel)
+		err := p.insertMessageWaitsAndDataSetCreate(tx, txHashLower, serviceLabel, optionalPayerAddress(extraDataBytes))
 		if err != nil {
 			return false, err
 		}
@@ -323,7 +323,7 @@ func (p *PDPService) handleCreateDataSet(w http.ResponseWriter, r *http.Request)
 
 	// Begin a database transaction
 	comm, err := p.db.BeginTransaction(workCtx, func(tx *harmonydb.Tx) (bool, error) {
-		err := p.insertMessageWaitsAndDataSetCreate(tx, txHashLower, serviceLabel)
+		err := p.insertMessageWaitsAndDataSetCreate(tx, txHashLower, serviceLabel, optionalPayerAddress(extraDataBytes))
 		if err != nil {
 			return false, err
 		}
@@ -348,7 +348,7 @@ func (p *PDPService) handleCreateDataSet(w http.ResponseWriter, r *http.Request)
 }
 
 // insertMessageWaitsAndDataSetCreate inserts records into message_waits_eth and pdp_data_set_creates
-func (p *PDPService) insertMessageWaitsAndDataSetCreate(tx *harmonydb.Tx, txHashHex string, serviceLabel string) error {
+func (p *PDPService) insertMessageWaitsAndDataSetCreate(tx *harmonydb.Tx, txHashHex string, serviceLabel string, payerAddress *string) error {
 	// Insert into message_waits_eth
 	log.Debugw("Inserting into message_waits_eth",
 		"txHash", txHashHex,
@@ -373,9 +373,9 @@ func (p *PDPService) insertMessageWaitsAndDataSetCreate(tx *harmonydb.Tx, txHash
 		"txHash", txHashHex,
 		"service", serviceLabel)
 	n, err = tx.Exec(`
-            INSERT INTO pdp_data_set_creates (create_message_hash, service)
-            VALUES ($1, $2)
-        `, txHashHex, serviceLabel)
+            INSERT INTO pdp_data_set_creates (create_message_hash, service, payer_address)
+            VALUES ($1, $2, $3)
+        `, txHashHex, serviceLabel, payerAddress)
 	if err != nil {
 		log.Errorw("Failed to insert into pdp_data_set_creates",
 			"txHash", txHashHex,

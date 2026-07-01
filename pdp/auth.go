@@ -25,6 +25,25 @@ func (a *NullAuth) AuthService(r *http.Request) (string, error) {
 	return "public", nil
 }
 
+// HybridAuth prefers verified JWT identity when Authorization is present and
+// falls back to the legacy anonymous "public" service label otherwise.
+type HybridAuth struct {
+	jwt *JWTAuth
+}
+
+var _ Auth = (*HybridAuth)(nil)
+
+func NewHybridAuth(db *harmonydb.DB) *HybridAuth {
+	return &HybridAuth{jwt: &JWTAuth{db: db}}
+}
+
+func (a *HybridAuth) AuthService(r *http.Request) (string, error) {
+	if r.Header.Get("Authorization") != "" {
+		return a.jwt.AuthService(r)
+	}
+	return "public", nil
+}
+
 type JWTAuth struct {
 	db *harmonydb.DB
 }

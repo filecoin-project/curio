@@ -101,3 +101,61 @@ func FWSSPayerFromExtraData(extraData []byte) (common.Address, error) {
 
 	return payload.Payer, nil
 }
+
+// PayerFromCreateExtraData extracts the FWSS payer from CreateDataSet extraData,
+// supporting both the simple create payload and the combined create-and-add format.
+func PayerFromCreateExtraData(extraData []byte) (common.Address, error) {
+	if len(extraData) == 0 {
+		return common.Address{}, fmt.Errorf("extraData is empty")
+	}
+
+	if payer, err := decodeSimpleCreatePayer(extraData); err == nil {
+		return payer, nil
+	}
+
+	return FWSSPayerFromExtraData(extraData)
+}
+
+func decodeSimpleCreatePayer(extraData []byte) (common.Address, error) {
+	addressType, err := abi.NewType("address", "", nil)
+	if err != nil {
+		return common.Address{}, fmt.Errorf("create address ABI type: %w", err)
+	}
+	uint256Type, err := abi.NewType("uint256", "", nil)
+	if err != nil {
+		return common.Address{}, fmt.Errorf("create uint256 ABI type: %w", err)
+	}
+	stringArrayType, err := abi.NewType("string[]", "", nil)
+	if err != nil {
+		return common.Address{}, fmt.Errorf("create string array ABI type: %w", err)
+	}
+	bytesType, err := abi.NewType("bytes", "", nil)
+	if err != nil {
+		return common.Address{}, fmt.Errorf("create bytes ABI type: %w", err)
+	}
+
+	createArgs := abi.Arguments{
+		{Type: addressType},
+		{Type: uint256Type},
+		{Type: stringArrayType},
+		{Type: stringArrayType},
+		{Type: bytesType},
+	}
+
+	decoded, err := createArgs.Unpack(extraData)
+	if err != nil {
+		return common.Address{}, err
+	}
+	if len(decoded) < 1 {
+		return common.Address{}, fmt.Errorf("createPayload too short")
+	}
+
+	payer, ok := decoded[0].(common.Address)
+	if !ok {
+		return common.Address{}, fmt.Errorf("payer is not an address")
+	}
+	if payer == (common.Address{}) {
+		return common.Address{}, fmt.Errorf("payer is zero address")
+	}
+	return payer, nil
+}

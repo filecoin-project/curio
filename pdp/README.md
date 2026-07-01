@@ -6,6 +6,150 @@ All endpoints are rooted at `/pdp`.
 
 ---
 
+## Upload authentication gating
+
+Piece upload endpoints support optional abuse protection controlled by a single node config flag:
+
+| Config key | Location | Default |
+|------------|----------|---------|
+| `PDPUploadRequireAuth` | `Subsystems.PDPUploadRequireAuth` in Curio config | `false` |
+
+When **`false`** (default), upload behavior matches the pre-gating API: anonymous callers are accepted, `dataSetId` and `X-PDP-Upload-Auth` are optional (validated when present, never required).
+
+When **`true`**, three layers are enforced together on the piece-upload surface:
+
+| Layer | Where enforced | What it proves |
+|-------|----------------|----------------|
+| **A — Service auth** | `POST /pdp/piece`, `POST /pdp/piece/uploads` | Caller holds a registered PDP service JWT (not the anonymous `"public"` label). |
+| **B — Data set ownership** | Same init endpoints | Declared `dataSetId` exists locally, belongs to the caller's JWT `service_label`, and is not terminated. |
+| **C — Wallet possession** | `PUT /pdp/piece/upload/{uuid}`, `PUT /pdp/piece/uploads/{uuid}` | Caller controls the data set's on-chain payer (or an authorized session key). Verified **before the request body is read**. |
+
+Layers A and B run at upload-session init (UUID mint). Layer C runs on the bulk PUT only. Init and PUT are not linked by a server-side `data_set_id` on the upload row; the PUT carries the signed `dataSetId` in `X-PDP-Upload-Auth`.
+
+### Service authentication (all `/pdp/*` routes)
+
+Curio uses **HybridAuth**:
+
+- **`Authorization` header absent** — caller is treated as service label `"public"` (legacy anonymous access).
+- **`Authorization: Bearer <JWT>` present** — JWT is verified against `pdp_services.pubkey`; `service_name` claim becomes the service label.
+- **Header present but JWT invalid** — `401 Unauthorized` (even when `PDPUploadRequireAuth=false`).
+
+Layer A when gating is on rejects service label `"public"` with:
+
+```text
+401 Unauthorized: anonymous piece uploads are disabled; provide a registered service JWT
+```
+
+### Data set ownership (Layer B)
+
+Init request bodies may include:
+
+```json
+{ "dataSetId": 12345 }
+```
+
+(`POST /pdp/piece` includes this field alongside `pieceCid`; `POST /pdp/piece/uploads` accepts a JSON body with only `dataSetId`, or an empty body.)
+
+Validation uses the same local DB check as `POST /pdp/data-sets/{id}/pieces`:
+
+- Data set row exists in `pdp_data_sets` with `service` matching the caller's JWT service label.
+- `unrecoverable_proving_failure_epoch IS NULL`
+- `terminated_at_epoch IS NULL`
+
+| Condition | HTTP status |
+|-----------|-------------|
+| Missing `dataSetId` when gating on | `400 Bad Request` — `dataSetId is required` |
+| Unknown or wrong-service data set | `404 Not Found` — `Data set not found` |
+| Terminated / unrecoverable failure | `409 Conflict` — `data set has been terminated due to unrecoverable proving failure` |
+| Repeated bad data set claims | IP offense throttle (`OffenseBadDataSetAdd`) may apply |
+
+When gating is **off**, omitting `dataSetId` is allowed. If `dataSetId` **is** sent, it is validated the same way (early feedback for new clients).
+
+**Important:** `dataSetId` is the **on-chain PDPVerifier data set id**. Upload gating cannot protect greenfield flows where bytes are uploaded **before** a data set exists on chain (e.g. upload → `create-and-add`). Those flows require gating off, or uploading only after the data set is created and the id is known.
+
+### Wallet possession (Layer C)
+
+**Header:** `X-PDP-Upload-Auth`
+
+**Value format (dot-separated, no spaces):**
+
+```text
+{dataSetId}.{nonce}.{expiry}.{signature}
+```
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `dataSetId` | decimal uint64 | On-chain data set id (must exist for payer lookup). |
+| `nonce` | decimal uint256 | Client-chosen replay distinguisher; not server-tracked. |
+| `expiry` | decimal uint64 | Unix seconds; must be ≥ server time. |
+| `signature` | 65-byte ECDSA hex | `0x`-prefixed; EIP-712 over `PieceUploadAuth`. |
+
+**EIP-712 domain** (read from FWSS `eip712Domain()` at runtime):
+
+```text
+name:              "FilecoinWarmStorageService"
+version:           "1"
+chainId:           <Filecoin chain id>
+verifyingContract: <FWSS proxy address>
+```
+
+**Primary type:**
+
+```solidity
+PieceUploadAuth(uint256 dataSetId, uint256 nonce, uint256 expiry)
+```
+
+Full type graph includes `MetadataEntry`, `CreateDataSet`, `Cid`, `PieceMetadata`, `AddPieces`, `SchedulePieceRemovals`, `TerminateService`, `Permit` (matches `@filoz/synapse-core` `EIP712Types`).
+
+**Verification (before body read):**
+
+1. Parse header; reject expired `expiry`.
+2. Recover signer via EIP-712 digest.
+3. Resolve payer: `pdp_data_sets.payer_address` if cached, else FWSS `GetDataSetPayer` eth_call (cached on success).
+4. Accept if `signer == payer`.
+5. Else treat signer as session key: `SessionKeyRegistry.authorizationExpiry(payer, signer, AddPiecesPermission)` must return a future timestamp. Result cached ~30s per `(payer, signer)`.
+
+`AddPiecesPermission` type hash: `0x954bdc254591a7eab1b73f03842464d9283a08352772737094d710a4428fd183`.
+
+When gating is **off**, the header is **ignored** (not parsed).
+
+| Condition | HTTP status |
+|-----------|-------------|
+| Gating on, header missing/malformed/expired | `401 Unauthorized` |
+| Signer neither payer nor authorized session key | `401 Unauthorized` |
+| Unknown data set / no payer | `401 Unauthorized` |
+
+### Endpoint auth matrix (piece upload only)
+
+| Endpoint | Gating off | Gating on |
+|----------|------------|-----------|
+| `POST /pdp/piece` | JWT optional → `"public"` OK; `dataSetId` optional | JWT required; `dataSetId` required + ownership check |
+| `PUT /pdp/piece/upload/{uuid}` | No JWT; no wallet header | `X-PDP-Upload-Auth` required |
+| `POST /pdp/piece/uploads` | JWT optional → `"public"` OK; body/`dataSetId` optional | JWT required; `dataSetId` required + ownership check |
+| `PUT /pdp/piece/uploads/{uuid}` | JWT optional → `"public"` OK; no wallet header | JWT required; `X-PDP-Upload-Auth` required |
+| `POST /pdp/piece/uploads/{uuid}` (finalize) | Unchanged | Unchanged (no new fields) |
+
+Classic `PUT /pdp/piece/upload/{uuid}` never inspects `Authorization` (only Layer C when gating on). Streaming `PUT` still calls HybridAuth for service-label matching on the upload session row.
+
+### Payer address caching
+
+Migration `20260701-pdp-v0-upload-auth.sql` adds:
+
+- `pdp_data_sets.payer_address` — populated when the data set is confirmed on chain (from create `extraData` captured in `pdp_data_set_creates`) or lazily via `GetDataSetPayer`.
+
+### Client integration status
+
+| Client | Gating off | Gating on |
+|--------|------------|-----------|
+| **Legacy / no JWT, no headers** | Works (anonymous `"public"` uploads). | **Blocked** (Layer A). |
+| **`pdptool`** (`--data-set-id`, `--upload-auth-key`, `--jwt-token` / `--service-name`) | Works. | Supported when all credentials provided. |
+| **`@filoz/synapse-sdk` `StorageContext.store()`** | Works (no upload auth when `_dataSetId` unset). | Sends `dataSetId` + signed header **only when `_dataSetId` is already set** (existing data set). Does **not** send PDP service JWT. Greenfield upload→create flows remain incompatible with gating on until JWT + pre-create data set id strategy is added. |
+| **`@filoz/synapse-core` `uploadPiece` / `uploadPieceStreaming`** | Works. | Callers must pass `dataSetId`, `uploadAuthHeader`, and arrange JWT at the HTTP layer themselves. |
+
+Rollout: deploy Curio + clients first with flag **off**; enable `PDPUploadRequireAuth` only when callers can supply JWT, on-chain `dataSetId`, and wallet proof on every bulk PUT.
+
+---
+
 ## Endpoints Summary
 
 | Method | Endpoint | Description |
@@ -51,19 +195,21 @@ All endpoints are rooted at `/pdp`.
 
 - **Endpoint:** `POST /pdp/piece`
 - **Description:** Initiate the process of uploading a piece using its Piece CID (CommP v2 format). If the piece already exists on the server, the server responds with `200 OK` and the piece CID.
-- **Authentication:** Requires a valid JWT token in the `Authorization` header.
+- **Authentication:** HybridAuth — see [Upload authentication gating](#upload-authentication-gating). JWT is optional when gating is off (`"public"` when omitted); required when gating is on.
 - **Request Body:**
 
 ```json
 {
   "pieceCid": "<CommP-v2-CID>",
-  "notify": "<optional-notification-URL>"
+  "notify": "<optional-notification-URL>",
+  "dataSetId": 12345
 }
 ```
 
 - **Fields:**
-    - `pieceCid`: The Piece CID in CommP **v2** format (CIDv1 with `fil-commitment-unsealed` codec and raw size encoded). This uniquely identifies the piece and encodes size information.
-    - `notify`: *(Optional)* A URL to be notified when the piece has been processed successfully.
+    - `pieceCid` *(required)*: CommP **v2** Piece CID.
+    - `notify` *(optional)*: Callback URL when the piece is processed.
+    - `dataSetId` *(optional)*: On-chain data set id. Required when `PDPUploadRequireAuth=true`; validated when present regardless of flag.
 
 #### Responses
 
@@ -86,21 +232,25 @@ All endpoints are rooted at `/pdp`.
 
 #### Errors
 
-- `400 Bad Request`: Invalid pieceCid format or piece size exceeds the maximum allowed size.
-- `401 Unauthorized`: Missing or invalid JWT token.
+- `400 Bad Request`: Invalid `pieceCid`, missing `dataSetId` (gating on), or piece size over limit.
+- `401 Unauthorized`: Invalid JWT when `Authorization` is sent; anonymous caller when gating on.
+- `404 Not Found`: `dataSetId` not found for this service (when validated).
+- `409 Conflict`: Data set terminated (when validated).
 
 ---
 
 #### 2.2. Upload Piece Data (Classic)
 
 - **Endpoint:** `PUT /pdp/piece/upload/{uploadUUID}`
-- **Description:** Upload the actual bytes of the piece to the server using the provided `uploadUUID` from the `Location` header of `POST /pdp/piece`.
+- **Description:** Upload the actual bytes of the piece using the `uploadUUID` from the `Location` header of `POST /pdp/piece`.
+- **Authentication:** No `Authorization` header is checked. When `PDPUploadRequireAuth=true`, **`X-PDP-Upload-Auth` is required** (verified before the body is read). See [Upload authentication gating](#upload-authentication-gating).
 - **URL Parameters:**
-    - `uploadUUID`: The UUID provided in the `Location` header from the previous `POST /pdp/piece` request.
-- **Request Body:** The raw bytes of the piece data.
+    - `uploadUUID`: UUID from the init `Location` header.
+- **Request Body:** Raw piece bytes.
 - **Headers:**
-    - `Content-Length`: The size of the piece.
-    - `Content-Type`: `application/octet-stream`.
+    - `Content-Type`: `application/octet-stream`
+    - `Content-Length`: Piece size (recommended)
+    - `X-PDP-Upload-Auth`: Wallet proof when gating is on.
 
 #### Response
 
@@ -108,11 +258,11 @@ All endpoints are rooted at `/pdp`.
 
 #### Errors
 
-- `400 Bad Request`: Piece size does not match the expected size or computed hash does not match the expected hash.
-- `401 Unauthorized`: Missing or invalid JWT token.
-- `404 Not Found`: The provided `uploadUUID` is not found.
-- `409 Conflict`: Data has already been uploaded for this `uploadUUID`.
-- `413 Payload Too Large`: Piece data exceeds the maximum allowed size.
+- `400 Bad Request`: Size/hash/CID mismatch.
+- `401 Unauthorized`: Missing or invalid `X-PDP-Upload-Auth` when gating is on.
+- `404 Not Found`: Unknown `uploadUUID`.
+- `409 Conflict`: Bytes already uploaded for this UUID.
+- `413 Payload Too Large`: Over size limit.
 
 ---
 
@@ -201,9 +351,13 @@ The streaming upload API provides a way to upload large pieces in a streaming fa
 #### 3.1. Create Streaming Upload Session
 
 - **Endpoint:** `POST /pdp/piece/uploads`
-- **Description:** Create a new streaming upload session and get an upload URL.
-- **Authentication:** Requires a valid JWT token in the `Authorization` header.
-- **Request Body:** Empty.
+- **Description:** Create a streaming upload session and receive an upload URL.
+- **Authentication:** HybridAuth on init — see [Upload authentication gating](#upload-authentication-gating).
+- **Request Body:** Empty, or JSON with optional/required `dataSetId`:
+
+```json
+{ "dataSetId": 12345 }
+```
 
 #### Response
 
@@ -213,18 +367,24 @@ The streaming upload API provides a way to upload large pieces in a streaming fa
 
 #### Errors
 
-- `401 Unauthorized`: Missing or invalid JWT token.
+- `400 Bad Request`: Invalid JSON body, or missing `dataSetId` when gating is on.
+- `401 Unauthorized`: Invalid JWT when `Authorization` is sent; anonymous caller when gating is on.
+- `404 Not Found` / `409 Conflict`: Data set ownership failures (same as classic init).
 
 ---
 
 #### 3.2. Stream Piece Data
 
 - **Endpoint:** `PUT /pdp/piece/uploads/{uploadUUID}`
-- **Description:** Stream raw piece bytes to the server. The server computes the CommP hash incrementally.
-- **Authentication:** Requires a valid JWT token in the `Authorization` header.
+- **Description:** Stream raw piece bytes; server computes CommP incrementally.
+- **Authentication:** HybridAuth (service label must match session row). When `PDPUploadRequireAuth=true`, **`X-PDP-Upload-Auth` is also required** before the body is read.
 - **URL Parameters:**
-    - `uploadUUID`: The UUID from the `Location` header of `POST /pdp/piece/uploads`.
-- **Request Body:** Raw bytes of the piece data.
+    - `uploadUUID`: UUID from init `Location` header.
+- **Request Body:** Raw bytes (chunked upload supported; 1 GiB unpadded max per session).
+- **Headers:**
+    - `Content-Type`: `application/octet-stream`
+    - `Authorization`: Optional when gating off; required when gating on.
+    - `X-PDP-Upload-Auth`: Required when gating is on.
 
 #### Response
 
@@ -233,8 +393,8 @@ The streaming upload API provides a way to upload large pieces in a streaming fa
 #### Errors
 
 - `400 Bad Request`: Invalid UUID.
-- `401 Unauthorized`: Missing or invalid JWT token.
-- `404 Not Found`: Upload session not found.
+- `401 Unauthorized`: JWT / service mismatch, or missing/invalid `X-PDP-Upload-Auth` when gating is on.
+- `404 Not Found`: Upload session not found for this service label.
 - `413 Payload Too Large`: Data exceeds size limit.
 
 ---

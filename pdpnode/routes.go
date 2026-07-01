@@ -15,12 +15,13 @@ import (
 // MountPDPRoutes attaches PDP HTTP routes using an existing IPNI provider.
 func MountPDPRoutes(ctx context.Context, r chi.Router, d *Deps, sd *servicedeps.Deps, ipp *ipni_provider.Provider) error {
 	return pdp.MountRoutes(ctx, r, pdp.MountDeps{
-		DB:         d.DB,
-		LocalStore: d.LocalStore,
-		EthClient:  must.One(d.EthClient.Val()),
-		Chain:      d.Chain,
-		EthSender:  sd.EthSender,
-		AlertTask:  sd.AlertTask,
+		DB:                   d.DB,
+		LocalStore:           d.LocalStore,
+		EthClient:            must.One(d.EthClient.Val()),
+		Chain:                d.Chain,
+		EthSender:            sd.EthSender,
+		AlertTask:            sd.AlertTask,
+		PDPUploadRequireAuth: d.Cfg.Subsystems.PDPUploadRequireAuth,
 	}, ipp)
 }
 

@@ -75,6 +75,10 @@ type PDPService struct {
 	ipp *ipni_provider.Provider
 
 	ipOffenseThrottle *IPOffenseThrottle
+
+	uploadRequireAuth  bool
+	uploadAuthVerifier *UploadAuthVerifier
+	addPiecesValidator AddPiecesValidator
 }
 
 type PDPServiceNodeApi interface {
@@ -90,8 +94,9 @@ func NewPDPService(
 	fc PDPServiceNodeApi,
 	sn *message.SenderETH,
 	alertTask *alertmanager.AlertTask,
-	ipp *ipni_provider.Provider) *PDPService {
-	auth := &NullAuth{}
+	ipp *ipni_provider.Provider,
+	uploadRequireAuth bool) *PDPService {
+	auth := NewHybridAuth(db)
 	pullStore := NewDBPullStore(db)
 	pullValidator := NewEthCallValidator(ec, db)
 
@@ -111,6 +116,10 @@ func NewPDPService(
 		ipp: ipp,
 
 		ipOffenseThrottle: NewIPOffenseThrottle(defaultIPOffensePolicies()),
+
+		uploadRequireAuth:    uploadRequireAuth,
+		uploadAuthVerifier:   NewUploadAuthVerifier(ec, db, pullValidator),
+		addPiecesValidator:   pullValidator,
 	}
 
 	go p.ipOffenseThrottle.RunCleanup(ctx)

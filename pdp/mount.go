@@ -17,12 +17,13 @@ import (
 
 // MountDeps holds dependencies for mounting PDP HTTP routes.
 type MountDeps struct {
-	DB         *harmonydb.DB
-	LocalStore paths.StashStore
-	EthClient  ethchain.EthClient
-	Chain      api.Chain
-	EthSender  *message.SenderETH
-	AlertTask  *alertmanager.AlertTask
+	DB                  *harmonydb.DB
+	LocalStore          paths.StashStore
+	EthClient           ethchain.EthClient
+	Chain               api.Chain
+	EthSender           *message.SenderETH
+	AlertTask           *alertmanager.AlertTask
+	PDPUploadRequireAuth bool
 }
 
 // MountRoutes registers PDP HTTP routes on an existing router.
@@ -31,7 +32,7 @@ func MountRoutes(ctx context.Context, r chi.Router, d MountDeps, ipp *ipni_provi
 		return xerrors.Errorf("eth sender required for PDP routes")
 	}
 
-	pdsvc := NewPDPService(ctx, d.DB, d.LocalStore, d.EthClient, d.Chain, d.EthSender, d.AlertTask, ipp)
+	pdsvc := NewPDPService(ctx, d.DB, d.LocalStore, d.EthClient, d.Chain, d.EthSender, d.AlertTask, ipp, d.PDPUploadRequireAuth)
 	Routes(r, pdsvc)
 	return nil
 }

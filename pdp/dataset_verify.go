@@ -18,15 +18,16 @@ var (
 )
 
 // verifyDataSetForService checks that dataSetId exists in pdp_data_sets, belongs to service,
-// and has not been terminated due to unrecoverable proving failure.
+// and has not been terminated due to unrecoverable proving failure or client/FWSS termination.
 func verifyDataSetForService(ctx context.Context, db *harmonydb.DB, service string, dataSetId uint64) error {
 	var dataSetService string
 	var unrecoverable *int64
+	var terminatedAt *int64
 	err := db.QueryRow(ctx, `
-		SELECT service, unrecoverable_proving_failure_epoch
+		SELECT service, unrecoverable_proving_failure_epoch, terminated_at_epoch
 		FROM pdp_data_sets
 		WHERE id = $1
-	`, dataSetId).Scan(&dataSetService, &unrecoverable)
+	`, dataSetId).Scan(&dataSetService, &unrecoverable, &terminatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrDataSetNotFound
@@ -38,7 +39,7 @@ func verifyDataSetForService(ctx context.Context, db *harmonydb.DB, service stri
 		return ErrDataSetNotFound
 	}
 
-	if unrecoverable != nil {
+	if unrecoverable != nil || terminatedAt != nil {
 		return ErrDataSetTerminated
 	}
 
