@@ -15,7 +15,7 @@ import (
 
 const (
 	defaultPDPStorageWeight = 10
-	skiffHotDataDirName   = "filecoin-hot-data"
+	skiffHotDataDirName     = "filecoin-hot-data"
 	maxStorageScanDepth     = 3
 )
 
@@ -24,7 +24,7 @@ var skipStorageDirNames = func() map[string]struct{} {
 		paths.FetchTempSubdir: {},
 		paths.StashDirName:    {},
 		"yugabyte":            {}, // skiff docker compose DB data dir under SKIFF_DATA
-		"skiff":             {}, // skiff docker compose repo dir under SKIFF_DATA
+		"skiff":               {}, // skiff docker compose repo dir under SKIFF_DATA
 	}
 	for _, ft := range storiface.PathTypes {
 		out[ft.String()] = struct{}{}
