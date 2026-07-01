@@ -182,8 +182,7 @@ func processIndexingAndIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *c
 		}
 		pcidV2, err := commcid.PieceCidV2FromV1(pcid1, uint64(piece.RawSize))
 		if err != nil {
-			log.Errorw("skipping piece with invalid commp v2; continuing GC run", "piece_cid", piece.PieceCID, "raw_size", piece.RawSize, "error", err)
-			continue
+			return xerrors.Errorf("failed to construct piece cid v2: %w", err)
 		}
 
 		var skipLoop bool
