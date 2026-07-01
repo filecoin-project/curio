@@ -3,6 +3,9 @@ package seal
 import (
 	"bytes"
 	"context"
+	"os"
+	"strconv"
+	"strings"
 
 	"go.opencensus.io/stats"
 	"go.opencensus.io/tag"
@@ -25,8 +28,6 @@ import (
 
 	"github.com/filecoin-project/lotus/chain/actors/policy"
 	"github.com/filecoin-project/lotus/chain/types"
-	"strconv"
-	"strings"
 )
 
 var IsDevnet = build.BlockDelaySecs < 30

@@ -51,6 +51,7 @@ CURIO_DB_CASSANDRA_PORT=9042
 CURIO_REPO_PATH=~/.curio
 CURIO_NODE_NAME=ChangeMe
 FIL_PROOFS_USE_MULTICORE_SDR=1
+FIL_PROOFS_MULTICORE_SDR_PRODUCERS=3
 ```
 
 | Variable | Description                                                                                                                                          | Example Value |
@@ -66,6 +67,7 @@ FIL_PROOFS_USE_MULTICORE_SDR=1
 | `CURIO_REPO_PATH` | Directory for Curio storage configuration `json` file                                                                                                | `~/.curio` |
 | `CURIO_NODE_NAME` | Name of the Curio node                                                                                                                               | `ChangeMe` |
 | `FIL_PROOFS_USE_MULTICORE_SDR` | Enables multi-core SDR in Filecoin                                                                                                                   | `1` |
+| `FIL_PROOFS_MULTICORE_SDR_PRODUCERS` | Controls the number of multicore SDR producer threads. Valid values are `1` to `3`; SDR CPU cost is derived from this value.                         | `3` |
 
 
 Ensure all variables are correctly set according to your environment. Additionally, you can also export the following variable for cache location.
