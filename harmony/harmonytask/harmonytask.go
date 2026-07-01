@@ -413,7 +413,7 @@ func (e *TaskEngine) pollerTryAllWork(schedulable bool) bool {
 		err := e.db.Select(e.ctx, &allUnownedTasks, `SELECT id, update_time, retries
 			FROM harmony_task
 			WHERE owner_id IS NULL AND name=$1
-			ORDER BY update_time`, v.Name)
+			ORDER BY update_time LIMIT 512`, v.Name)
 		if err != nil {
 			log.Error("Unable to read work ", err)
 			continue
