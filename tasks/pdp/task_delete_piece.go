@@ -164,32 +164,52 @@ func (p *PDPTaskDeletePiece) TypeDetails() harmonytask.TaskTypeDetails {
 func (p *PDPTaskDeletePiece) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFunc) error {
 	var stop bool
 	for !stop {
+		// Pick the next pending delete and read its data set's on-chain removal queue
+		// length *before* claiming the task, so the eth_call stays out of the DB tx.
+		var did string
+		var setID int64
+		err := p.db.QueryRow(ctx, `SELECT id, set_id FROM pdp_piece_delete
+								  WHERE task_id IS NULL
+									AND tx_hash IS NULL LIMIT 1`).Scan(&did, &setID)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil
+			}
+			return xerrors.Errorf("failed to query pdp_piece_delete: %w", err)
+		}
+
+		// Soft gate: if this data set's removal queue is already at our conservative
+		// ceiling, leave the row unclaimed and stop this tick. It will be retried on the
+		// next poll once the queue drains at the next proving period. Head-of-line
+		// blocking behind an over-limit data set is acceptable here.
+		pdpVerifier, err := contract.NewPDPVerifier(contract.ContractAddresses().PDPVerifier, p.ethClient)
+		if err != nil {
+			return xerrors.Errorf("failed to instantiate PDPVerifier: %w", err)
+		}
+		queued, err := pdpVerifier.GetScheduledRemovals(contract.EthCallOpts(ctx), big.NewInt(setID))
+		if err != nil {
+			return xerrors.Errorf("failed to get scheduled removals for data set %d: %w", setID, err)
+		}
+		if len(queued) >= contract.ConservativeEnqueuedRemovalsLimit {
+			log.Infow("deferring piece delete: data set removal queue at conservative limit",
+				"set_id", setID, "queued", len(queued), "limit", contract.ConservativeEnqueuedRemovalsLimit)
+			return nil
+		}
+
+		stop = true // assume we're done until we successfully claim this row
 		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-			stop = true // assume we're done until we find a task to schedule
-
-			var did string
-			err := tx.QueryRow(`SELECT id FROM pdp_piece_delete 
-								  WHERE task_id IS NULL 
-									AND tx_hash IS NULL LIMIT 1`).Scan(&did)
-			if err != nil {
-				if errors.Is(err, pgx.ErrNoRows) {
-					return false, nil
-				}
-				return false, xerrors.Errorf("failed to query pdp_piece_delete: %w", err)
-			}
-			if did == "" {
-				return false, xerrors.Errorf("no valid deal ID found for scheduling")
-			}
-
-			_, err = tx.Exec(`UPDATE pdp_piece_delete SET task_id = $1 WHERE id = $2 AND task_id IS NULL AND tx_hash IS NULL`, id, did)
+			n, err := tx.Exec(`UPDATE pdp_piece_delete SET task_id = $1 WHERE id = $2 AND task_id IS NULL AND tx_hash IS NULL`, id, did)
 			if err != nil {
 				return false, xerrors.Errorf("failed to update pdp_piece_delete: %w", err)
 			}
+			if n == 0 {
+				// Row was claimed by another scheduler between our SELECT and here; skip it.
+				return false, nil
+			}
 
-			stop = false // we found a task to schedule, keep going
+			stop = false // we claimed a task, keep going
 			return true, nil
 		})
-
 	}
 
 	return nil
