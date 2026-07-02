@@ -137,7 +137,7 @@ func kvUploadUUID(r *http.Request) []any {
 }
 
 // Routes registers the HTTP routes with the provided router.
-func Routes(r *chi.Mux, p *PDPService) {
+func Routes(r chi.Router, p *PDPService) {
 	r.Route(PDPRoutePath, func(r chi.Router) {
 		r.Use(p.ipOffenseThrottle.Middleware)
 

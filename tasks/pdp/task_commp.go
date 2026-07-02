@@ -20,8 +20,8 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
-	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/passcall"
+	"github.com/filecoin-project/curio/lib/piecestore"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/mk20"
 	"github.com/filecoin-project/curio/tasks/tasknames"
@@ -29,14 +29,14 @@ import (
 
 type PDPCommpTask struct {
 	db  *harmonydb.DB
-	sc  *ffi.SealCalls
+	pio piecestore.PieceIO
 	max int
 }
 
-func NewPDPCommpTask(db *harmonydb.DB, sc *ffi.SealCalls, max int) *PDPCommpTask {
+func NewPDPCommpTask(db *harmonydb.DB, pio piecestore.PieceIO, max int) *PDPCommpTask {
 	return &PDPCommpTask{
 		db:  db,
-		sc:  sc,
+		pio: pio,
 		max: max,
 	}
 }
@@ -84,7 +84,7 @@ func (c *PDPCommpTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 		return false, xerrors.Errorf("expected 1 pieceID, got %d", len(pieceID))
 	}
 
-	pr, err := c.sc.PieceReader(ctx, pieceID[0].PieceID)
+	pr, err := c.pio.PieceReader(ctx, pieceID[0].PieceID)
 	if err != nil {
 		return false, xerrors.Errorf("getting piece reader: %w", err)
 	}

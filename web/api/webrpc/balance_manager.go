@@ -36,7 +36,7 @@ func (a *WebRPC) BalanceMgrRules(ctx context.Context) ([]BalanceMgrRule, error) 
 	const q = `SELECT id, subject_address, second_address, action_type, subject_type, low_watermark_fil_balance, high_watermark_fil_balance,
         last_msg_cid, last_msg_sent_at, last_msg_landed_at, active_task_id FROM balance_manager_addresses ORDER BY id`
 
-	rows, err := a.deps.DB.Query(ctx, q)
+	rows, err := a.Deps.DB.Query(ctx, q)
 	if err != nil {
 		return nil, err
 	}
@@ -103,13 +103,13 @@ func (a *WebRPC) BalanceMgrRuleUpdate(ctx context.Context, id int64, lowWatermar
 		return err
 	}
 
-	_, err = a.deps.DB.Exec(ctx, `UPDATE balance_manager_addresses SET low_watermark_fil_balance = $1, high_watermark_fil_balance = $2 WHERE id = $3`, lowAmt.String(), highAmt.String(), id)
+	_, err = a.Deps.DB.Exec(ctx, `UPDATE balance_manager_addresses SET low_watermark_fil_balance = $1, high_watermark_fil_balance = $2 WHERE id = $3`, lowAmt.String(), highAmt.String(), id)
 	return err
 }
 
 // BalanceMgrRuleRemove deletes a balance-manager rule.
 func (a *WebRPC) BalanceMgrRuleRemove(ctx context.Context, id int64) error {
-	_, err := a.deps.DB.Exec(ctx, `DELETE FROM balance_manager_addresses WHERE id = $1`, id)
+	_, err := a.Deps.DB.Exec(ctx, `DELETE FROM balance_manager_addresses WHERE id = $1`, id)
 	return err
 }
 
@@ -154,6 +154,6 @@ func (a *WebRPC) BalanceMgrRuleAdd(ctx context.Context, subject, second, actionT
 		return xerrors.Errorf("invalid high watermark: %w", err)
 	}
 
-	_, err = a.deps.DB.Exec(ctx, `INSERT INTO balance_manager_addresses (subject_address, second_address, action_type, subject_type, low_watermark_fil_balance, high_watermark_fil_balance) VALUES ($1,$2,$3,$4,$5,$6)`, subject, second, actionType, subjectType, lowAmt.String(), highAmt.String())
+	_, err = a.Deps.DB.Exec(ctx, `INSERT INTO balance_manager_addresses (subject_address, second_address, action_type, subject_type, low_watermark_fil_balance, high_watermark_fil_balance) VALUES ($1,$2,$3,$4,$5,$6)`, subject, second, actionType, subjectType, lowAmt.String(), highAmt.String())
 	return err
 }

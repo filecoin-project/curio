@@ -1,3 +1,5 @@
+//go:build !skiff
+
 package mk20
 
 import (
@@ -12,7 +14,6 @@ import (
 	"time"
 
 	"github.com/ipfs/go-cid"
-	logging "github.com/ipfs/go-log/v2"
 	"github.com/oklog/ulid"
 	"github.com/samber/lo"
 	"github.com/yugabyte/pgx/v5"
@@ -29,6 +30,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/lib/ffi"
+	"github.com/filecoin-project/curio/lib/lazy"
 	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/lib/parkpiece"
 	"github.com/filecoin-project/curio/lib/paths"
@@ -38,10 +40,7 @@ import (
 	"github.com/filecoin-project/lotus/chain/actors/policy"
 	"github.com/filecoin-project/lotus/chain/types"
 	lethtypes "github.com/filecoin-project/lotus/chain/types/ethtypes"
-	"github.com/filecoin-project/lotus/lib/lazy"
 )
-
-var log = logging.Logger("mk20")
 
 type MK20API interface {
 	ChainHead(context.Context) (*types.TipSet, error)

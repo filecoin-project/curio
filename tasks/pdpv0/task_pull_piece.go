@@ -22,8 +22,8 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
-	ffi2 "github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/parkpiece"
+	"github.com/filecoin-project/curio/lib/piecestore"
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/lib/robusthttp"
 	"github.com/filecoin-project/curio/lib/storiface"
@@ -137,18 +137,18 @@ var (
 // the local piece file best-effort. Cleanup errors are logged and do not replace
 // the main task error.
 type PDPPullPieceTask struct {
-	db *harmonydb.DB
-	sc *ffi2.SealCalls
+	db  *harmonydb.DB
+	pio piecestore.PieceIO
 
 	TF promise.Promise[harmonytask.AddTaskFunc]
 
 	max int
 }
 
-func NewPDPPullPieceTask(ctx context.Context, db *harmonydb.DB, sc *ffi2.SealCalls, max int) *PDPPullPieceTask {
+func NewPDPPullPieceTask(ctx context.Context, db *harmonydb.DB, pio piecestore.PieceIO, max int) *PDPPullPieceTask {
 	t := &PDPPullPieceTask{
 		db:  db,
-		sc:  sc,
+		pio: pio,
 		max: max,
 	}
 
@@ -496,7 +496,7 @@ func (t *PDPPullPieceTask) expireStalePullItems(ctx context.Context) error {
 	}
 
 	for _, piece := range removedPieces {
-		if err := t.sc.RemovePiece(context.Background(), storiface.PieceNumber(piece.ID)); err != nil {
+		if err := t.pio.RemovePiece(context.Background(), storiface.PieceNumber(piece.ID)); err != nil {
 			log.Errorw("failed to remove expired pull piece", "piece_id", piece.ID, "error", err)
 		}
 	}
@@ -803,7 +803,7 @@ func (t *PDPPullPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 	}
 
 	for _, pieceID := range stalePullPiecesToRemove {
-		if err := t.sc.RemovePiece(context.Background(), storiface.PieceNumber(pieceID)); err != nil {
+		if err := t.pio.RemovePiece(context.Background(), storiface.PieceNumber(pieceID)); err != nil {
 			log.Errorw("failed to remove stale pull-owned piece", "piece_id", pieceID, "error", err)
 		}
 	}
@@ -844,7 +844,7 @@ func (t *PDPPullPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 		}
 
 		if removed {
-			if err := t.sc.RemovePiece(context.Background(), storiface.PieceNumber(ppid)); err != nil {
+			if err := t.pio.RemovePiece(context.Background(), storiface.PieceNumber(ppid)); err != nil {
 				log.Errorw("failed to remove piece", "task_id", taskID, "task_type", taskname, "piece_id", ppid, "error", err)
 			}
 		}
@@ -1017,7 +1017,7 @@ func (t *PDPPullPieceTask) tryPullSource(ctx context.Context, sourceURL string, 
 
 	// Storage/write errors are treated as transient because they can be caused
 	// by temporary local storage pressure or IO failures.
-	pieceInfo, readSize, err := t.sc.WriteUploadPiece(downloadCtx, storiface.PieceNumber(parkedPieceID), group.PieceRawSize, idleReader, storiface.PathStorage, true)
+	pieceInfo, readSize, err := t.pio.WriteUploadPiece(downloadCtx, storiface.PieceNumber(parkedPieceID), group.PieceRawSize, idleReader, storiface.PathStorage, true)
 	if err != nil {
 		return fail(pullSourceWrite, xerrors.Errorf("write pulled piece: %w", err))
 	}

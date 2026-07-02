@@ -34,6 +34,7 @@ import (
 
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/lazy"
 	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/lib/parkpiece"
 	"github.com/filecoin-project/curio/lib/paths"
@@ -42,7 +43,6 @@ import (
 
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/types"
-	"github.com/filecoin-project/lotus/lib/lazy"
 	"github.com/filecoin-project/lotus/storage/ctladdr"
 )
 

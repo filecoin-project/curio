@@ -17,7 +17,6 @@ import (
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/cachedreader"
-	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/indexstore"
@@ -28,20 +27,18 @@ type PDPIndexingTask struct {
 	db                *harmonydb.DB
 	indexStore        *indexstore.IndexStore
 	cpr               *cachedreader.CachedPieceReader
-	sc                *ffi.SealCalls
 	cfg               *config.CurioConfig
 	insertConcurrency int
 	insertBatchSize   int
 	max               taskhelp.Limiter
 }
 
-func NewPDPIndexingTask(db *harmonydb.DB, sc *ffi.SealCalls, indexStore *indexstore.IndexStore, cpr *cachedreader.CachedPieceReader, cfg *config.CurioConfig, max taskhelp.Limiter) *PDPIndexingTask {
+func NewPDPIndexingTask(db *harmonydb.DB, indexStore *indexstore.IndexStore, cpr *cachedreader.CachedPieceReader, cfg *config.CurioConfig, max taskhelp.Limiter) *PDPIndexingTask {
 
 	return &PDPIndexingTask{
 		db:                db,
 		indexStore:        indexStore,
 		cpr:               cpr,
-		sc:                sc,
 		cfg:               cfg,
 		insertConcurrency: cfg.Market.StorageMarketConfig.Indexing.InsertConcurrency,
 		insertBatchSize:   cfg.Market.StorageMarketConfig.Indexing.InsertBatchSize,

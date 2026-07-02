@@ -9,7 +9,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -23,7 +22,6 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/docker/go-units"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/manifoldco/promptui"
 	"github.com/mitchellh/go-homedir"
 	"github.com/samber/lo"
@@ -42,6 +40,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/createminer"
 	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/pdp/wallet"
 
 	lapi "github.com/filecoin-project/lotus/api"
 	cliutil "github.com/filecoin-project/lotus/cli/util"
@@ -1095,40 +1094,7 @@ func optionalPDPStep(d *MigrationData) {
 }
 
 func importPDPPrivateKey(d *MigrationData, hexPrivateKey string) {
-	hexPrivateKey = strings.TrimSpace(hexPrivateKey)
-	hexPrivateKey = strings.TrimPrefix(hexPrivateKey, "0x")
-	hexPrivateKey = strings.TrimPrefix(hexPrivateKey, "0X")
-
-	if hexPrivateKey == "" {
-		d.say(notice, "Private key cannot be empty")
-		return
-	}
-
-	// Decode hex private key
-	privateKeyBytes, err := hex.DecodeString(hexPrivateKey)
-	if err != nil {
-		d.say(notice, "Failed to decode private key: %s", err.Error())
-		return
-	}
-
-	// Convert to ECDSA and derive address
-	privateKey, err := crypto.ToECDSA(privateKeyBytes)
-	if err != nil {
-		d.say(notice, "Invalid private key: %s", err.Error())
-		return
-	}
-
-	address := crypto.PubkeyToAddress(privateKey.PublicKey).Hex()
-
-	// Insert or update eth_keys table
-	_, err = d.DB.BeginTransaction(d.ctx, func(tx *harmonydb.Tx) (bool, error) {
-		// Insert the new PDP key
-		_, err = tx.Exec(`INSERT INTO eth_keys (address, private_key, role) VALUES ($1, $2, 'pdp')`, address, privateKeyBytes)
-		if err != nil {
-			return false, fmt.Errorf("failed to insert PDP key: %v", err)
-		}
-		return true, nil
-	})
+	address, err := wallet.ImportPDPKeyHex(d.ctx, d.DB, hexPrivateKey)
 	if err != nil {
 		d.say(notice, "Failed to import PDP key: %s", err.Error())
 		return

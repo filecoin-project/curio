@@ -3,9 +3,11 @@ package resources
 import (
 	"bytes"
 	"context"
+	"os"
 	"os/exec"
 	"regexp"
 	"runtime"
+	"strconv"
 	"sync/atomic"
 	"time"
 
@@ -160,4 +162,16 @@ func DiskFree(path string) (uint64, error) {
 	}
 
 	return s.Bfree * uint64(s.Bsize), nil
+}
+
+func gpuOverrideCount() (float64, bool) {
+	if nstr := os.Getenv("HARMONY_OVERRIDE_GPUS"); nstr != "" {
+		n, err := strconv.ParseFloat(nstr, 64)
+		if err != nil {
+			logger.Errorf("parsing HARMONY_OVERRIDE_GPUS failed: %+v", err)
+			return 0, false
+		}
+		return n, true
+	}
+	return 0, false
 }
