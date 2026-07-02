@@ -36,7 +36,7 @@ func DropSectorPieceRefsSnap(ctx context.Context, db *harmonydb.DB, sid abi.Sect
 				continue
 			}
 
-			n, err := db.Exec(ctx, `DELETE FROM parked_piece_refs WHERE ref_id = $1`, refID)
+			n, err := db.Exec(ctx, `DELETE FROM parked_piece_refs WHERE ref_id = $1 AND long_term = FALSE`, refID)
 			if err != nil {
 				log.Errorw("failed to delete piece ref", "url", pu.URL, "error", err, "miner", sid.Miner, "sector", sid.Number)
 			}

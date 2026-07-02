@@ -223,8 +223,11 @@ func (c *Client) CreateDataSource(pieceCID cid.Cid, car, raw, aggregate, index, 
 	}
 
 	if aggregate {
-		if len(sub) <= 1 {
-			return nil, xerrors.Errorf("must provide at least two sub data source")
+		if len(sub) < 1 {
+			return nil, xerrors.Errorf("must provide at least one sub data source")
+		}
+		if aggregateType == mk20.AggregateTypeV1 && len(sub) < 2 {
+			return nil, xerrors.Errorf("aggregate type V1 requires at least two sub data sources")
 		}
 
 		if aggregateType == mk20.AggregateTypeNone {
@@ -254,7 +257,7 @@ func (c *Client) CreateDataSource(pieceCID cid.Cid, car, raw, aggregate, index, 
 func (c *Client) AddPieceWithHTTP(ctx context.Context, client, recordKeeper string, extraData []byte, dataSetID *uint64, pieceCID cid.Cid, car, raw, index, withCDN bool, aggregateType mk20.AggregateType, sub []mk20.DataSource, urls []mk20.HttpUrl) (ulid.ULID, error) {
 	var aggregate bool
 
-	if aggregateType == mk20.AggregateTypeV1 {
+	if aggregateType == mk20.AggregateTypeV1 || aggregateType == mk20.AggregateTypeV2 {
 		aggregate = true
 	}
 
@@ -288,7 +291,7 @@ func (c *Client) AddPieceWithAggregate(ctx context.Context, client, recordKeeper
 func (c *Client) AddPieceWithPut(ctx context.Context, client, recordKeeper string, extraData []byte, dataSetID *uint64, pieceCID cid.Cid, car, raw, index, withCDN bool, aggregateType mk20.AggregateType, sub []mk20.DataSource) (ulid.ULID, error) {
 	var aggregate bool
 
-	if aggregateType == mk20.AggregateTypeV1 {
+	if aggregateType == mk20.AggregateTypeV1 || aggregateType == mk20.AggregateTypeV2 {
 		aggregate = true
 	}
 

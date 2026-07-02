@@ -419,11 +419,11 @@ func insertPiecesInTransaction(ctx context.Context, tx *harmonydb.Tx, deal *mk20
 		n, err = tx.Exec(`INSERT INTO market_mk20_pipeline (
             id, sp_id, contract, client, piece_cid_v2, piece_cid,
             piece_size, raw_size, offline, indexing, announce,
-            allocation_id, duration, piece_aggregation, started) 
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, TRUE)`,
+            allocation_id, duration, piece_aggregation, deal_aggregation, started) 
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, TRUE)`,
 			dealID, spid, ddo.MarketAddress, deal.Client, data.PieceCID.String(), pi.PieceCIDV1.String(),
 			pi.Size, pi.RawSize, false, rev.Indexing, rev.AnnouncePayload,
-			allocationID, ddo.Duration, aggregation)
+			allocationID, ddo.Duration, aggregation, aggregation)
 		if err != nil {
 			return xerrors.Errorf("inserting mk20 pipeline: %w", err)
 		}
@@ -480,6 +480,12 @@ func insertPiecesInTransaction(ctx context.Context, tx *harmonydb.Tx, deal *mk20
 			}
 		}
 
+		// AggregateTypeV2 with a single piece: the download IS the final deal piece
+		// (no SP-side aggregation will occur), so store it long_term for retrieval.
+		// Multi-piece downloads stay short-term as they'll be replaced by the assembled aggregate.
+		longTerm := data.Format.Aggregate != nil &&
+			data.Format.Aggregate.Type == mk20.AggregateTypeV2 && len(toDownload) == 1
+
 		var downloadRefs []mk20.ParkedPieceDownloadRef
 		for k, v := range toDownload {
 			for _, src := range v {
@@ -498,7 +504,7 @@ func insertPiecesInTransaction(ctx context.Context, tx *harmonydb.Tx, deal *mk20
 					RawSize:    int64(k.RawSize),
 					URL:        src.URL,
 					Headers:    headers,
-					LongTerm:   false,
+					LongTerm:   longTerm,
 				})
 			}
 		}
@@ -1253,7 +1259,7 @@ func (d *CurioStorageDealMarket) migratePcid(ctx context.Context) {
 	// Add PieceCIDv2 to ipni table
 	var pieceInfos []struct {
 		PieceCID string `db:"piece_cid"`
-		Size     int64  `db:"size"`
+		Size     int64  `db:"piece_size"`
 		RawSize  int64  `db:"raw_size"`
 	}
 	err = d.db.Select(ctx, &pieceInfos, `SELECT

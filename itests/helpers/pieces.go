@@ -12,9 +12,12 @@ import (
 	"github.com/ipfs/go-cid"
 	carv2 "github.com/ipld/go-car/v2"
 	"github.com/ipld/go-car/v2/blockstore"
+	mh "github.com/multiformats/go-multihash"
+	_ "github.com/multiformats/go-multihash/register/blake3"
 	"github.com/stretchr/testify/require"
 
 	"github.com/filecoin-project/go-data-segment/datasegment"
+	"github.com/filecoin-project/go-data-segment/datasegmentv2"
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	commp "github.com/filecoin-project/go-fil-commp-hashhash"
 	"github.com/filecoin-project/go-state-types/abi"
@@ -187,6 +190,72 @@ func WriteUnsealedSectorFixture(dir string, miner abi.ActorID, sector abi.Sector
 		storiface.SectorName(abi.SectorID{Miner: miner, Number: sector}),
 	)
 	return os.WriteFile(sectorPath, sectorData, 0o644)
+}
+
+// V2AggregateFixture extends PieceFixture with V2-specific data needed for test verification.
+type V2AggregateFixture struct {
+	PieceFixture
+	// SubContents holds the raw byte content of each sub-piece (for retrieval verification).
+	SubContents [][]byte
+	// SubCIDs holds the content CID for each sub-piece (blake3/raw codec).
+	SubCIDs []cid.Cid
+	// SubSources holds the mk20 DataSource metadata for the deal's aggregate format.
+	SubSources []mk20.DataSource
+}
+
+// CreateV2AggregateFixture builds a V2 aggregate piece from raw content blobs.
+// The piece layout is: [content0][content1]...[indexBlob] where indexBlob contains
+// datasegmentv2 entries + descriptor. Each sub-piece gets a blake3/raw CID.
+func CreateV2AggregateFixture(t *testing.T, contents [][]byte) V2AggregateFixture {
+	t.Helper()
+	require.GreaterOrEqual(t, len(contents), 1, "V2 aggregate needs at least 1 content blob")
+
+	var pieceData []byte
+	var entries []*datasegmentv2.SegmentDesc
+	subCIDs := make([]cid.Cid, len(contents))
+	subSources := make([]mk20.DataSource, len(contents))
+
+	offset := uint64(0)
+	for i, content := range contents {
+		// Build blake3/raw CID for each sub-piece content.
+		cmh, err := mh.Sum(content, mh.BLAKE3, 32)
+		require.NoError(t, err)
+		c := cid.NewCidV1(cid.Raw, cmh)
+		subCIDs[i] = c
+
+		entry, err := datasegmentv2.NewDataSegmentIndexEntryFromCID(c, offset, uint64(len(content)))
+		require.NoError(t, err)
+		entry.WithUpdatedChecksum()
+		entries = append(entries, entry)
+
+		subSources[i] = mk20.DataSource{
+			PieceCID: c,
+			Format:   mk20.PieceDataFormat{Raw: &mk20.FormatBytes{}},
+		}
+
+		pieceData = append(pieceData, content...)
+		offset += uint64(len(content))
+	}
+
+	// Build the tail index at the end of the content.
+	idx := &datasegmentv2.IndexDataV2{
+		Entries: entries,
+		Offset:  int64(offset),
+	}
+	indexBlob, err := idx.MarshalBinary()
+	require.NoError(t, err)
+
+	pieceData = append(pieceData, indexBlob...)
+
+	// Compute CommP over the full piece data.
+	fixture := createRawPieceFixture(t, pieceData, cid.Undef)
+
+	return V2AggregateFixture{
+		PieceFixture: fixture,
+		SubContents:  contents,
+		SubCIDs:      subCIDs,
+		SubSources:   subSources,
+	}
 }
 
 func FR32PadFixture(raw []byte, pieceSize abi.PaddedPieceSize) []byte {

@@ -19,6 +19,7 @@ import (
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/cachedreader"
+	"github.com/filecoin-project/curio/lib/commcidv2"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/indexstore"
 )
@@ -114,30 +115,65 @@ func (ro *RemoteBlockstore) Get(ctx context.Context, c cid.Cid) (b blocks.Block,
 	// Get a reader over one of the pieces and extract the block data
 	var merr error
 	for _, piece := range pieces {
+		log.Debugw("trying piece for block retrieval",
+			"contentCid", c, "pieceCid", piece.PieceCid, "blockSize", piece.BlockSize,
+			"pieceCidIsV2", commcidv2.IsPieceCidV2(piece.PieceCid),
+			"pieceCidIsV1", commcidv2.IsCidV1PieceCid(piece.PieceCid))
+
 		data, err := func() ([]byte, error) {
 			reader, _, err := ro.cpr.GetSharedPieceReader(ctx, piece.PieceCid, true)
 			if err != nil {
-				return nil, fmt.Errorf("getting piece reader: %w", err)
+				return nil, fmt.Errorf("getting piece reader for piece %s (isV2=%v): %w",
+					piece.PieceCid, commcidv2.IsPieceCidV2(piece.PieceCid), err)
 			}
 			defer func(reader storiface.Reader) {
 				_ = reader.Close()
 			}(reader)
 
-			// Get the offset of the block within the piece (CAR file)
-			offset, err := ro.idxApi.GetOffset(ctx, piece.PieceCid, c.Hash()) // This can be pieceCidV2 or pieceCidV1, but we don't care because we are feeding back the db output
+			// Get the offset of the block within the piece (CAR file).
+			// GetOffset now has V2↔V1 fallback for legacy/mixed Cassandra indexes.
+			offset, err := ro.idxApi.GetOffset(ctx, piece.PieceCid, c.Hash())
 			if err != nil {
-				return nil, fmt.Errorf("getting offset/size for cid %s in piece %s: %w", c, piece.PieceCid, err)
+				return nil, fmt.Errorf("getting offset/size for cid %s in piece %s (isV2=%v): %w",
+					c, piece.PieceCid, commcidv2.IsPieceCidV2(piece.PieceCid), err)
 			}
 
-			// Seek to the section offset
+			// Try CAR block layout first (varint length + CID + payload).
 			readerAt := io.NewSectionReader(reader, int64(offset), int64(piece.BlockSize+MaxCarBlockPrefixSize))
 			readCid, data, err := util.ReadNode(bufio.NewReader(readerAt))
-			if err != nil {
+			if err == nil {
+				if !bytes.Equal(readCid.Hash(), c.Hash()) {
+					return nil, fmt.Errorf("read block %s from reader for piece %s, but expected block %s", readCid, piece.PieceCid, c)
+				}
+				return data, nil
+			}
+
+			// CAR parse failed. Data may be a raw blob (e.g. datasegmentv2 aggregates
+			// store pieces as raw bytes at offset, without CAR framing).
+			// Fall back to reading exactly BlockSize bytes and verifying the hash.
+			log.Debugw("CAR block parse failed, trying raw block fallback", "cid", c, "piece", piece.PieceCid, "err", err)
+			if piece.BlockSize == 0 {
 				return nil, fmt.Errorf("reading data for block %s from reader for piece %s: %w", c, piece.PieceCid, err)
 			}
-			if !bytes.Equal(readCid.Hash(), c.Hash()) {
-				return nil, fmt.Errorf("read block %s from reader for piece %s, but expected block %s", readCid, piece.PieceCid, c)
+
+			rawAt := io.NewSectionReader(reader, int64(offset), int64(piece.BlockSize))
+			data, readErr := io.ReadAll(rawAt)
+			if readErr != nil {
+				return nil, fmt.Errorf("reading raw block for %s from piece %s: %w", c, piece.PieceCid, readErr)
 			}
+			if uint64(len(data)) != piece.BlockSize {
+				return nil, fmt.Errorf("short read for block %s in piece %s: got %d, want %d", c, piece.PieceCid, len(data), piece.BlockSize)
+			}
+
+			// Verify the content hash matches the requested CID
+			mh, mhErr := multihash.Sum(data, c.Prefix().MhType, -1)
+			if mhErr != nil {
+				return nil, fmt.Errorf("hashing raw block for %s: %w", c, mhErr)
+			}
+			if !bytes.Equal(mh, c.Hash()) {
+				return nil, fmt.Errorf("raw block hash mismatch for %s in piece %s", c, piece.PieceCid)
+			}
+
 			return data, nil
 		}()
 		if err != nil {
@@ -149,6 +185,15 @@ func (ro *RemoteBlockstore) Get(ctx context.Context, c cid.Cid) (b blocks.Block,
 
 	if merr == nil {
 		merr = format.ErrNotFound{Cid: c}
+	} else {
+		// All pieces failed — this will result in an HTTP 500. Log details to help diagnose
+		// whether the issue is V1/V2 CID mismatch, missing sectors_meta, or sector read failure.
+		pieceCids := make([]string, len(pieces))
+		for i, p := range pieces {
+			pieceCids[i] = fmt.Sprintf("%s(v2=%v)", p.PieceCid, commcidv2.IsPieceCidV2(p.PieceCid))
+		}
+		log.Warnw("all pieces failed for block retrieval (will return 500)",
+			"contentCid", c, "numPieces", len(pieces), "pieces", pieceCids, "err", merr)
 	}
 
 	if ro.blockMetrics != nil {
