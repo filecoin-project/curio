@@ -50,7 +50,6 @@ func setupCloseHandler() {
 	go func() {
 		<-c
 		fmt.Println("\r- Ctrl+C pressed in Terminal")
-		panic(1)
 	}()
 }
 
