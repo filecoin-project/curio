@@ -25,7 +25,7 @@ customElements.define('harmony-task-counts', class HarmonyTaskStatsTable extends
     static get styles() {
         return [css`
         .row-error > td {
-            color: red;
+            color: var(--color-danger-fg, #f85149);
         }
     `];
     }

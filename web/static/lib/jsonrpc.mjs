@@ -1,14 +1,36 @@
+import { getMockResult } from '/debug/fixtures/index.mjs';
+
+function detectMockMode() {
+  if (typeof window === 'undefined') return false;
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('mock') === '1') {
+    sessionStorage.setItem('curio-mock', '1');
+    return true;
+  }
+  if (params.get('mock') === '0') {
+    sessionStorage.removeItem('curio-mock');
+    return false;
+  }
+  return sessionStorage.getItem('curio-mock') === '1';
+}
+
+export function isMockMode() {
+  return detectMockMode();
+}
+
 class JsonRpcClient {
     static instance = null;
 
     static async getInstance() {
+        if (detectMockMode()) {
+            return { call: (method, params) => Promise.resolve(getMockResult(method, params)) };
+        }
         if (!JsonRpcClient.instance) {
             JsonRpcClient.instance = (async () => {
                 const client = new JsonRpcClient('/api/webrpc/v0');
                 await client.connect();
                 return client;
             })().catch((err) => {
-                // Reset cached instance so future calls can retry cleanly
                 JsonRpcClient.instance = null;
                 throw err;
             });
@@ -25,7 +47,6 @@ class JsonRpcClient {
         this.requestId = 0;
         this.pendingRequests = new Map();
 
-        // Reconnection state
         this.connectPromise = null;
         this.reconnectTimer = null;
         this.shouldReconnect = true;
@@ -58,7 +79,6 @@ class JsonRpcClient {
                     console.log("Connection closed, attempting to reconnect...");
                     this.rejectAllPending(new Error('WebSocket disconnected'));
                     if (!hasOpened) {
-                        // Initial connection attempt failed: propagate error and stop reconnecting here
                         this.shouldReconnect = false;
                         this.clearReconnectTimer();
                         if (this.connectPromise) {
@@ -158,8 +178,16 @@ class JsonRpcClient {
 }
 
 async function init() {
-    const client = await JsonRpcClient.getInstance();
-    console.log("webrpc backend:", await client.call('Version', []))
+    if (detectMockMode()) {
+        console.log('[mock] RPC mock mode active — use ?mock=0 to disable');
+        return;
+    }
+    try {
+        const client = await JsonRpcClient.getInstance();
+        console.log("webrpc backend:", await client.call('Version', []));
+    } catch (_) {
+        // backend may be unavailable during static-only dev
+    }
 }
 
 init();

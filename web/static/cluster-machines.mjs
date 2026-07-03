@@ -62,9 +62,7 @@ customElements.define('cluster-machines', class ClusterMachines extends LitEleme
             />
             <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'">
 
-            <div class="row">
-                <div class="col-md-auto" style="max-width: 1000px">
-                    <div class="info-block">
+            <div class="info-block" style="max-width: 1000px">
                         <h2>Cluster Machines</h2>
                         <div class="form-check mb-3">
                             <input
@@ -192,9 +190,6 @@ customElements.define('cluster-machines', class ClusterMachines extends LitEleme
                                 `)}
                             </tbody>
                         </table>
-                    </div>
-                </div>
-                <div class="col-md-auto"></div>
             </div>
         `;
     }

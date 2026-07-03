@@ -1,0 +1,154 @@
+/* Bootstrap 5 dark theme overrides — maps BS variables to Curio tokens */
+
+[data-bs-theme="dark"] {
+    --bs-body-bg: var(--color-bg-canvas);
+    --bs-body-color: var(--color-text-primary);
+    --bs-emphasis-color: var(--color-text-primary);
+    --bs-secondary-color: var(--color-text-secondary);
+    --bs-secondary-bg: var(--color-bg-subtle);
+    --bs-tertiary-color: var(--color-text-muted);
+    --bs-tertiary-bg: var(--color-bg-elevated);
+    --bs-border-color: var(--color-border-default);
+    --bs-border-color-translucent: var(--color-border-subtle);
+    --bs-link-color: var(--color-accent-fg);
+    --bs-link-hover-color: var(--color-accent-fg);
+    --bs-heading-color: var(--color-text-primary);
+    --bs-primary: var(--color-accent-emphasis);
+    --bs-primary-rgb: 94, 106, 210;
+    --bs-success: var(--color-success-fg);
+    --bs-warning: var(--color-warning-fg);
+    --bs-danger: var(--color-danger-fg);
+    --bs-info: var(--color-info-fg);
+    --bs-font-sans-serif: var(--font-sans);
+    --bs-font-monospace: var(--font-mono);
+}
+
+[data-bs-theme="dark"] .form-control,
+[data-bs-theme="dark"] .form-select {
+    background-color: var(--color-bg-elevated);
+    border-color: var(--color-border-default);
+    color: var(--color-text-primary);
+}
+
+[data-bs-theme="dark"] .form-control:focus,
+[data-bs-theme="dark"] .form-select:focus {
+    background-color: var(--color-bg-elevated);
+    border-color: var(--color-accent-emphasis);
+    box-shadow: 0 0 0 3px var(--color-accent-muted);
+    color: var(--color-text-primary);
+}
+
+[data-bs-theme="dark"] .form-control::placeholder {
+    color: var(--color-text-muted);
+}
+
+[data-bs-theme="dark"] .form-check-input {
+    background-color: var(--color-bg-elevated);
+    border-color: var(--color-border-default);
+}
+
+[data-bs-theme="dark"] .form-check-input:checked {
+    background-color: var(--color-accent-emphasis);
+    border-color: var(--color-accent-emphasis);
+}
+
+[data-bs-theme="dark"] .btn-primary {
+    background-color: var(--color-accent-emphasis);
+    border-color: var(--color-accent-emphasis);
+    color: #fff;
+}
+
+[data-bs-theme="dark"] .btn-primary:hover {
+    background-color: #4c55a8;
+    border-color: #4c55a8;
+}
+
+[data-bs-theme="dark"] .btn-secondary,
+[data-bs-theme="dark"] .btn-outline-secondary {
+    background-color: var(--color-bg-elevated);
+    border-color: var(--color-border-default);
+    color: var(--color-text-primary);
+}
+
+[data-bs-theme="dark"] .btn-secondary:hover,
+[data-bs-theme="dark"] .btn-outline-secondary:hover {
+    background-color: var(--color-border-default);
+    border-color: var(--color-border-default);
+    color: var(--color-text-primary);
+}
+
+[data-bs-theme="dark"] .alert-primary {
+    background-color: var(--color-accent-muted);
+    border-color: var(--color-accent-emphasis);
+    color: var(--color-text-primary);
+}
+
+[data-bs-theme="dark"] .alert-success {
+    background-color: var(--color-success-muted);
+    border-color: var(--color-success-fg);
+    color: var(--color-text-primary);
+}
+
+[data-bs-theme="dark"] .alert-warning {
+    background-color: var(--color-warning-muted);
+    border-color: var(--color-warning-fg);
+    color: var(--color-text-primary);
+}
+
+[data-bs-theme="dark"] .alert-danger {
+    background-color: var(--color-danger-muted);
+    border-color: var(--color-danger-fg);
+    color: var(--color-text-primary);
+}
+
+[data-bs-theme="dark"] .nav-pills .nav-link {
+    color: var(--color-text-secondary);
+    border-radius: var(--radius-md);
+}
+
+[data-bs-theme="dark"] .nav-pills .nav-link:hover {
+    color: var(--color-text-primary);
+    background-color: var(--color-bg-elevated);
+}
+
+[data-bs-theme="dark"] .nav-pills .nav-link.active {
+    background-color: var(--color-bg-elevated);
+    color: var(--color-text-primary);
+}
+
+[data-bs-theme="dark"] hr {
+    border-color: var(--color-border-default);
+    opacity: 1;
+}
+
+[data-bs-theme="dark"] .table {
+    --bs-table-bg: var(--color-table-bg);
+    --bs-table-color: var(--color-text-primary);
+    --bs-table-border-color: var(--color-border-default);
+    --bs-table-hover-bg: var(--color-table-hover);
+    --bs-table-striped-bg: rgba(255, 255, 255, 0.015);
+}
+
+[data-bs-theme="dark"] .dropdown-menu {
+    background-color: var(--color-bg-subtle);
+    border-color: var(--color-border-default);
+}
+
+[data-bs-theme="dark"] .dropdown-item {
+    color: var(--color-text-primary);
+}
+
+[data-bs-theme="dark"] .dropdown-item:hover {
+    background-color: var(--color-bg-elevated);
+    color: var(--color-text-primary);
+}
+
+[data-bs-theme="dark"] .modal-content {
+    background-color: var(--color-bg-subtle);
+    border-color: var(--color-border-default);
+}
+
+[data-bs-theme="dark"] .modal-header,
+[data-bs-theme="dark"] .modal-footer {
+    border-color: var(--color-border-default);
+}

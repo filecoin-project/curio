@@ -17,14 +17,14 @@ class UploadStatus extends LitElement {
     .chunk-entry {
       width: 10px;
       height: 10px;
-      background-color: grey;
+      background-color: var(--color-border-default, #30363d);
       margin: 1px;
     }
     .chunk-complete {
-      background-color: green;
+      background-color: var(--color-success-fg, #3fb950);
     }
-    .chunk-missing
-      background-color: red;
+    .chunk-missing {
+      background-color: var(--color-danger-fg, #f85149);
     }
     `
 

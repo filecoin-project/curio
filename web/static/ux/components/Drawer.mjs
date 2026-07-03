@@ -112,7 +112,8 @@ Drawer.styles = [
     .open-btn {
       position: fixed;
       color: var(--color-text-primary);
-      background-color: var(--color-secondary-light);
+      background-color: var(--color-bg-elevated);
+      border: 1px solid var(--color-border-default);
       border-radius: 8px 8px 0 0;
       padding: 0.5rem 0.75rem;
       font-size: 0.9rem;
@@ -148,7 +149,7 @@ Drawer.styles = [
 
       &:hover, &:active {
         cursor: pointer;
-        background-color: var(--color-secondary-main);
+        background-color: var(--color-border-default);
       }
     }
     
@@ -156,7 +157,8 @@ Drawer.styles = [
       position: fixed;
       padding: 1rem;
       border: 0;
-      background-color: var(--color-fg);
+      background-color: var(--color-bg-subtle);
+      border: 1px solid var(--color-border-default);
       color: var(--color-text-primary);
       overflow-y: auto;
       z-index: 10;
