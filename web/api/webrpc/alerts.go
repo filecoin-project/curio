@@ -24,7 +24,7 @@ type AlertMute struct {
 // AlertMuteList returns all active and inactive alert mutes
 func (a *WebRPC) AlertMuteList(ctx context.Context) ([]AlertMute, error) {
 	var mutes []AlertMute
-	err := a.deps.DB.Select(ctx, &mutes, `
+	err := a.Deps.DB.Select(ctx, &mutes, `
 		SELECT id, alert_name, pattern, reason, muted_by, muted_at, expires_at, active
 		FROM alert_mutes
 		ORDER BY active DESC, muted_at DESC
@@ -42,7 +42,7 @@ func (a *WebRPC) AlertMuteAdd(ctx context.Context, alertName string, pattern *st
 		expiresAt = new(time.Now().Add(time.Duration(*expiresInHours) * time.Hour))
 	}
 
-	_, err := a.deps.DB.Exec(ctx, `
+	_, err := a.Deps.DB.Exec(ctx, `
 		INSERT INTO alert_mutes (alert_name, pattern, reason, muted_by, expires_at)
 		VALUES ($1, $2, $3, $4, $5)
 	`, alertName, pattern, reason, mutedBy, expiresAt)
@@ -54,7 +54,7 @@ func (a *WebRPC) AlertMuteAdd(ctx context.Context, alertName string, pattern *st
 
 // AlertMuteDeactivate deactivates an alert mute
 func (a *WebRPC) AlertMuteDeactivate(ctx context.Context, id int64) error {
-	_, err := a.deps.DB.Exec(ctx, `UPDATE alert_mutes SET active = FALSE WHERE id = $1`, id)
+	_, err := a.Deps.DB.Exec(ctx, `UPDATE alert_mutes SET active = FALSE WHERE id = $1`, id)
 	if err != nil {
 		return xerrors.Errorf("deactivating alert mute: %w", err)
 	}
@@ -63,7 +63,7 @@ func (a *WebRPC) AlertMuteDeactivate(ctx context.Context, id int64) error {
 
 // AlertMuteDelete deletes an alert mute
 func (a *WebRPC) AlertMuteDelete(ctx context.Context, id int64) error {
-	_, err := a.deps.DB.Exec(ctx, `DELETE FROM alert_mutes WHERE active = FALSE AND id = $1`, id)
+	_, err := a.Deps.DB.Exec(ctx, `DELETE FROM alert_mutes WHERE active = FALSE AND id = $1`, id)
 	if err != nil {
 		return xerrors.Errorf("deleting alert mute: %w", err)
 	}
@@ -72,7 +72,7 @@ func (a *WebRPC) AlertMuteDelete(ctx context.Context, id int64) error {
 
 // AlertMuteReactivate reactivates an alert mute
 func (a *WebRPC) AlertMuteReactivate(ctx context.Context, id int64) error {
-	_, err := a.deps.DB.Exec(ctx, `UPDATE alert_mutes SET active = TRUE WHERE id = $1`, id)
+	_, err := a.Deps.DB.Exec(ctx, `UPDATE alert_mutes SET active = TRUE WHERE id = $1`, id)
 	if err != nil {
 		return xerrors.Errorf("reactivating alert mute: %w", err)
 	}
@@ -88,7 +88,7 @@ func (a *WebRPC) AlertCategoriesList(ctx context.Context) ([]string, error) {
 // This is used for the sidebar indicator
 func (a *WebRPC) AlertPendingCount(ctx context.Context) (int, error) {
 	var count int
-	err := a.deps.DB.QueryRow(ctx, `SELECT COUNT(*) FROM alerts`).Scan(&count)
+	err := a.Deps.DB.QueryRow(ctx, `SELECT COUNT(*) FROM alerts`).Scan(&count)
 	if err != nil {
 		return 0, xerrors.Errorf("counting pending alerts: %w", err)
 	}
@@ -98,7 +98,7 @@ func (a *WebRPC) AlertPendingCount(ctx context.Context) (int, error) {
 // AlertSendTest inserts a test alert directly into alert_history
 // This makes it immediately visible in the UI and sidebar
 func (a *WebRPC) AlertSendTest(ctx context.Context) error {
-	_, err := a.deps.DB.Exec(ctx, `
+	_, err := a.Deps.DB.Exec(ctx, `
 		INSERT INTO alert_history (alert_name, message, machine_name, sent_to_plugins, sent_at)
 		VALUES ('TestAlert', 'Test alert from Curio Web UI - if you see this, your alerting system is working correctly.', 'web-ui', FALSE, NOW())
 	`)
@@ -144,12 +144,12 @@ func (a *WebRPC) alertHistoryList(ctx context.Context, limit int, offset int, in
 	// Get total count
 	var total int
 	if includeAcknowledged {
-		err := a.deps.DB.QueryRow(ctx, `SELECT COUNT(*) FROM alert_history`).Scan(&total)
+		err := a.Deps.DB.QueryRow(ctx, `SELECT COUNT(*) FROM alert_history`).Scan(&total)
 		if err != nil {
 			return nil, 0, xerrors.Errorf("counting alerts: %w", err)
 		}
 	} else {
-		err := a.deps.DB.QueryRow(ctx, `SELECT COUNT(*) FROM alert_history WHERE NOT acknowledged`).Scan(&total)
+		err := a.Deps.DB.QueryRow(ctx, `SELECT COUNT(*) FROM alert_history WHERE NOT acknowledged`).Scan(&total)
 		if err != nil {
 			return nil, 0, xerrors.Errorf("counting alerts: %w", err)
 		}
@@ -159,7 +159,7 @@ func (a *WebRPC) alertHistoryList(ctx context.Context, limit int, offset int, in
 	var alerts []AlertHistoryEntry
 	var err error
 	if includeAcknowledged {
-		err = a.deps.DB.Select(ctx, &alerts, `
+		err = a.Deps.DB.Select(ctx, &alerts, `
 			SELECT 
 				ah.id, ah.alert_name, ah.message, ah.machine_name, ah.created_at,
 				ah.acknowledged, ah.acknowledged_by, ah.acknowledged_at,
@@ -169,7 +169,7 @@ func (a *WebRPC) alertHistoryList(ctx context.Context, limit int, offset int, in
 			ORDER BY ah.created_at DESC LIMIT $1 OFFSET $2
 		`, limit, offset)
 	} else {
-		err = a.deps.DB.Select(ctx, &alerts, `
+		err = a.Deps.DB.Select(ctx, &alerts, `
 			SELECT 
 				ah.id, ah.alert_name, ah.message, ah.machine_name, ah.created_at,
 				ah.acknowledged, ah.acknowledged_by, ah.acknowledged_at,
@@ -207,7 +207,7 @@ func (a *WebRPC) AlertHistoryListPaginated(ctx context.Context, limit int, offse
 
 // AlertAcknowledge marks an alert as acknowledged
 func (a *WebRPC) AlertAcknowledge(ctx context.Context, id int64, acknowledgedBy string) error {
-	_, err := a.deps.DB.Exec(ctx, `
+	_, err := a.Deps.DB.Exec(ctx, `
 		UPDATE alert_history 
 		SET acknowledged = TRUE, acknowledged_by = $1, acknowledged_at = NOW()
 		WHERE id = $2
@@ -220,7 +220,7 @@ func (a *WebRPC) AlertAcknowledge(ctx context.Context, id int64, acknowledgedBy 
 
 // AlertAcknowledgeMultiple marks multiple alerts as acknowledged
 func (a *WebRPC) AlertAcknowledgeMultiple(ctx context.Context, ids []int64, acknowledgedBy string) error {
-	_, err := a.deps.DB.Exec(ctx, `
+	_, err := a.Deps.DB.Exec(ctx, `
 		UPDATE alert_history 
 		SET acknowledged = TRUE, acknowledged_by = $1, acknowledged_at = NOW()
 		WHERE id = ANY($2)
@@ -233,7 +233,7 @@ func (a *WebRPC) AlertAcknowledgeMultiple(ctx context.Context, ids []int64, ackn
 
 // AlertCommentAdd adds a comment to an alert
 func (a *WebRPC) AlertCommentAdd(ctx context.Context, alertID int64, comment string, createdBy string) error {
-	_, err := a.deps.DB.Exec(ctx, `
+	_, err := a.Deps.DB.Exec(ctx, `
 		INSERT INTO alert_comments (alert_id, comment, created_by)
 		VALUES ($1, $2, $3)
 	`, alertID, comment, createdBy)
@@ -246,7 +246,7 @@ func (a *WebRPC) AlertCommentAdd(ctx context.Context, alertID int64, comment str
 // AlertCommentList returns all comments for an alert
 func (a *WebRPC) AlertCommentList(ctx context.Context, alertID int64) ([]AlertComment, error) {
 	var comments []AlertComment
-	err := a.deps.DB.Select(ctx, &comments, `
+	err := a.Deps.DB.Select(ctx, &comments, `
 		SELECT id, alert_id, comment, created_by, created_at
 		FROM alert_comments
 		WHERE alert_id = $1
@@ -261,7 +261,7 @@ func (a *WebRPC) AlertCommentList(ctx context.Context, alertID int64) ([]AlertCo
 // AlertUnacknowledgedCount returns count of unacknowledged alerts (for sidebar)
 func (a *WebRPC) AlertUnacknowledgedCount(ctx context.Context) (int, error) {
 	var count int
-	err := a.deps.DB.QueryRow(ctx, `SELECT COUNT(*) FROM alert_history WHERE NOT acknowledged`).Scan(&count)
+	err := a.Deps.DB.QueryRow(ctx, `SELECT COUNT(*) FROM alert_history WHERE NOT acknowledged`).Scan(&count)
 	if err != nil {
 		return 0, xerrors.Errorf("counting unacknowledged alerts: %w", err)
 	}

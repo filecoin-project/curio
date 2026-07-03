@@ -55,7 +55,7 @@ func (a *WebRPC) GetAd(ctx context.Context, ad string) (*IpniAd, error) {
 
 	var ads []IpniAd
 
-	err = a.deps.DB.Select(ctx, &ads, `SELECT 
+	err = a.Deps.DB.Select(ctx, &ads, `SELECT 
 									ip.ad_cid, 
 									ip.context_id, 
 									ip.is_rm,
@@ -74,7 +74,7 @@ func (a *WebRPC) GetAd(ctx context.Context, ad string) (*IpniAd, error) {
 	if len(ads) == 0 {
 		// try to get as entry
 
-		err = a.deps.DB.Select(ctx, &ads, `SELECT
+		err = a.Deps.DB.Select(ctx, &ads, `SELECT
 											ip.ad_cid,
 											ip.context_id,
 											ip.is_rm,
@@ -127,7 +127,7 @@ func (a *WebRPC) GetAd(ctx context.Context, ad string) (*IpniAd, error) {
 
 		// Get RawSize from market_piece_deal to calculate PieceCidV2
 		var rawSize uint64
-		err = a.deps.DB.QueryRow(ctx, `SELECT raw_size FROM market_piece_deal WHERE piece_cid = $1 AND piece_length = $2 AND raw_size > 0 LIMIT 1;`, pi.PieceCID, pi.Size).Scan(&rawSize)
+		err = a.Deps.DB.QueryRow(ctx, `SELECT raw_size FROM market_piece_deal WHERE piece_cid = $1 AND piece_length = $2 AND raw_size > 0 LIMIT 1;`, pi.PieceCID, pi.Size).Scan(&rawSize)
 		if err != nil {
 			if !errors.Is(err, pgx.ErrNoRows) {
 				return nil, xerrors.Errorf("failed to get raw size: %w", err)
@@ -175,7 +175,7 @@ func (a *WebRPC) GetAd(ctx context.Context, ad string) (*IpniAd, error) {
 		CIDCount   int64 `db:"cid_count"`
 	}
 
-	err = a.deps.DB.Select(ctx, &adEntryInfo, `WITH entry AS (
+	err = a.Deps.DB.Select(ctx, &adEntryInfo, `WITH entry AS (
 													  SELECT is_pdp
 													  FROM ipni_chunks
 													  WHERE cid = $2
@@ -242,7 +242,7 @@ type ParsedResponse struct {
 func (a *WebRPC) IPNISummary(ctx context.Context) ([]*IPNI, error) {
 	var summary []*IPNI
 
-	err := a.deps.DB.Select(ctx, &summary, `SELECT 
+	err := a.Deps.DB.Select(ctx, &summary, `SELECT 
 												ipp.sp_id,
 												ipp.peer_id,
 												ih.head
@@ -276,7 +276,7 @@ func (a *WebRPC) IPNISummary(ctx context.Context) ([]*IPNI, error) {
 
 	var services []string
 
-	err = config.ForEachConfig[minimalIpniInfo](ctx, a.deps.DB, func(name string, info minimalIpniInfo) error {
+	err = config.ForEachConfig[minimalIpniInfo](ctx, a.Deps.DB, func(name string, info minimalIpniInfo) error {
 		services = append(services, info.Market.StorageMarketConfig.IPNI.ServiceURL...)
 		return nil
 	})
@@ -325,7 +325,7 @@ func (a *WebRPC) IPNISummary(ctx context.Context) ([]*IPNI, error) {
 			}
 			if parsed.LastAdvertisement.Slash != d.Head {
 				var diff int64
-				err := a.deps.DB.QueryRow(ctx, `WITH cte AS (
+				err := a.Deps.DB.QueryRow(ctx, `WITH cte AS (
 															SELECT ad_cid, order_number
 															FROM ipni
 															WHERE provider = $1
@@ -365,7 +365,7 @@ type EntryInfo struct {
 func (a *WebRPC) IPNIEntry(ctx context.Context, block cid.Cid) (*EntryInfo, error) {
 	var ipniChunks []EntryInfo
 
-	err := a.deps.DB.Select(ctx, &ipniChunks, `SELECT 
+	err := a.Deps.DB.Select(ctx, &ipniChunks, `SELECT 
 			current.piece_cid, 
 			current.from_car, 
 			current.first_cid, 
@@ -392,7 +392,7 @@ func (a *WebRPC) IPNIEntry(ctx context.Context, block cid.Cid) (*EntryInfo, erro
 
 	entry := ipniChunks[0]
 
-	b, err := a.deps.ServeChunker.GetEntry(ctx, block)
+	b, err := a.Deps.ServeChunker.GetEntry(ctx, block)
 	if err != nil {
 		entry.Err = new(err.Error())
 	} else {
@@ -403,7 +403,7 @@ func (a *WebRPC) IPNIEntry(ctx context.Context, block cid.Cid) (*EntryInfo, erro
 }
 
 func (a *WebRPC) IPNISetSkip(ctx context.Context, adCid cid.Cid, skip bool) error {
-	n, err := a.deps.DB.Exec(ctx, `UPDATE ipni SET is_skip = $1 WHERE ad_cid = $2`, skip, adCid.String())
+	n, err := a.Deps.DB.Exec(ctx, `UPDATE ipni SET is_skip = $1 WHERE ad_cid = $2`, skip, adCid.String())
 	if err != nil {
 		return xerrors.Errorf("updating ipni set: %w", err)
 	}

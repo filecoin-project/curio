@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"math/big"
 	"net/http"
 	"strconv"
@@ -56,6 +57,8 @@ const (
 
 	// MaxDeletePieceExtraDataSize defines the limit for extraData size in DeletePiece calls (256B).
 	MaxDeletePieceExtraDataSize = 256
+
+	MaxDeletePiecesBatchSize = contract.ConservativeEnqueuedRemovalsLimit
 )
 
 // PDPService represents the service for managing data sets and pieces
@@ -134,7 +137,7 @@ func kvUploadUUID(r *http.Request) []any {
 }
 
 // Routes registers the HTTP routes with the provided router.
-func Routes(r *chi.Mux, p *PDPService) {
+func Routes(r chi.Router, p *PDPService) {
 	r.Route(PDPRoutePath, func(r chi.Router) {
 		r.Use(p.ipOffenseThrottle.Middleware)
 
@@ -952,6 +955,25 @@ func (p *PDPService) handleGetPieceAdditionStatus(w http.ResponseWriter, r *http
 	}
 }
 
+func normalizeDeletePieceIDs(ids []uint64) ([]int64, error) {
+	if len(ids) > MaxDeletePiecesBatchSize {
+		return nil, fmt.Errorf("piece count (%d) exceeds the maximum allowed per DeletePiece call (%d)", len(ids), MaxDeletePiecesBatchSize)
+	}
+	seen := make(map[uint64]struct{}, len(ids))
+	out := make([]int64, 0, len(ids))
+	for _, id := range ids {
+		if id > math.MaxInt64 {
+			return nil, fmt.Errorf("piece ID %d is out of range", id)
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, int64(id))
+	}
+	return out, nil
+}
+
 func (p *PDPService) handleDeleteDataSetPiece(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	// Step 1: Verify that the request is authorized using ECDSA JWT
@@ -1007,7 +1029,8 @@ func (p *PDPService) handleDeleteDataSetPiece(w http.ResponseWriter, r *http.Req
 		return
 	}
 	type DeletePiecePayload struct {
-		ExtraData *string `json:"extraData"`
+		ExtraData *string  `json:"extraData"`
+		PieceIDs  []uint64 `json:"pieceIds"`
 	}
 	var payload DeletePiecePayload
 	err = json.NewDecoder(r.Body).Decode(&payload)
@@ -1037,15 +1060,43 @@ func (p *PDPService) handleDeleteDataSetPiece(w http.ResponseWriter, r *http.Req
 		}
 	}
 
-	// Check if we have this piece or not
-	var found bool
-	err = p.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pdp_data_set_pieces WHERE data_set = $1 AND piece_id = $2)`, dataSetId, pieceID).Scan(&found)
+	pieceIDs := []uint64{pieceID}
+	if len(payload.PieceIDs) > 0 {
+		pieceIDs = payload.PieceIDs
+	}
+
+	pieceIDsI64, err := normalizeDeletePieceIDs(pieceIDs)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	var foundCount int
+	err = p.db.QueryRow(ctx, `SELECT COUNT(DISTINCT piece_id) FROM pdp_data_set_pieces WHERE data_set = $1 AND piece_id = ANY($2::bigint[])`, dataSetId, pieceIDsI64).Scan(&foundCount)
 	if err != nil {
 		httpServerError(w, http.StatusInternalServerError, "Failed to query piece existence", err)
 		return
 	}
-	if !found {
-		http.Error(w, "Piece not found", http.StatusNotFound)
+	if foundCount != len(pieceIDsI64) {
+		http.Error(w, "One or more piece not found", http.StatusNotFound)
+		return
+	}
+
+	// Soft gate: refuse if the data set's on-chain removal queue is already at our
+	// conservative ceiling. This keeps us well clear of the on-chain MAX_ENQUEUED_REMOVALS.
+	pdpVerifier, err := contract.NewPDPVerifier(contract.ContractAddresses().PDPVerifier, p.ethClient)
+	if err != nil {
+		httpServerError(w, http.StatusInternalServerError, "Failed to instantiate PDPVerifier", err)
+		return
+	}
+	queued, err := pdpVerifier.GetScheduledRemovals(contract.EthCallOpts(ctx), big.NewInt(int64(dataSetId)))
+	if err != nil {
+		httpServerError(w, http.StatusInternalServerError, "Failed to read scheduled removals", err)
+		return
+	}
+	if len(queued) >= contract.ConservativeEnqueuedRemovalsLimit {
+		http.Error(w, fmt.Sprintf("data set %d already has %d scheduled removals queued (limit %d); retry after the next proving period flushes the queue",
+			dataSetId, len(queued), contract.ConservativeEnqueuedRemovalsLimit), http.StatusTooManyRequests)
 		return
 	}
 
@@ -1056,10 +1107,15 @@ func (p *PDPService) handleDeleteDataSetPiece(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	pieceIDArgs := make([]*big.Int, len(pieceIDsI64))
+	for i, id := range pieceIDsI64 {
+		pieceIDArgs[i] = big.NewInt(id)
+	}
+
 	// Pack the method call data
 	data, err := abiData.Pack("schedulePieceDeletions",
 		big.NewInt(int64(dataSetId)),
-		[]*big.Int{big.NewInt(int64(pieceID))},
+		pieceIDArgs,
 		[]byte(extraDataBytes),
 	)
 	if err != nil {
@@ -1112,13 +1168,13 @@ func (p *PDPService) handleDeleteDataSetPiece(w http.ResponseWriter, r *http.Req
 		_, err = tx.Exec(`
 			UPDATE pdp_data_set_pieces
 			SET rm_message_hash = $1
-			WHERE data_set = $2 AND piece_id = $3`,
-			txHashLower, dataSetId, pieceID)
+			WHERE data_set = $2 AND piece_id = ANY($3::bigint[])`,
+			txHashLower, dataSetId, pieceIDsI64)
 		if err != nil {
-			log.Errorw("Failed to update rm_message_hash in pdp_data_set_pieces", "dataSetId", dataSetId, "pieceID", pieceID, "error", err)
+			log.Errorw("Failed to update rm_message_hash in pdp_data_set_pieces", "dataSetId", dataSetId, "pieceIDs", pieceIDsI64, "error", err)
 			return false, err
 		}
-		log.Infow("scheduled user requested deletion", "dataSetId", dataSetId, "pieceID", pieceID, "txHash", txHashLower)
+		log.Infow("scheduled user requested deletion", "dataSetId", dataSetId, "pieceIDs", pieceIDsI64, "txHash", txHashLower)
 
 		return true, nil
 	}, harmonydb.OptionRetry())

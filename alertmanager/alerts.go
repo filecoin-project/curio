@@ -339,7 +339,7 @@ func (al *alerts) getAddresses() error {
 	type machineDetail struct {
 		ID          int
 		HostAndPort string
-		Layers      string
+		Layers      sql.NullString // NULL when harmony_machine_details row is missing
 	}
 	var machineDetails []machineDetail
 
@@ -359,8 +359,11 @@ func (al *alerts) getAddresses() error {
 
 	// Get unique layers in use
 	for _, machine := range machineDetails {
+		if !machine.Layers.Valid {
+			continue
+		}
 		// Split the Layers field into individual layers
-		layers := strings.SplitSeq(machine.Layers, ",")
+		layers := strings.SplitSeq(machine.Layers.String, ",")
 		for layer := range layers {
 			layer = strings.TrimSpace(layer)
 			if _, exists := layerMap[layer]; !exists && layer != "" {
@@ -1181,5 +1184,43 @@ func ipniSyncCheck(al *alerts) {
 				continue
 			}
 		}
+	}
+}
+
+func pdpKeyConfiguredCheck(al *alerts) {
+	Name := Name_PDPKeyConfigured
+	al.alertMap[Name] = &alertOut{}
+
+	pdpEnabled := false
+	err := config.ForEachConfig[struct {
+		Subsystems struct {
+			EnablePDP bool
+		}
+	}](al.ctx, al.db, func(_ string, cfg struct {
+		Subsystems struct {
+			EnablePDP bool
+		}
+	}) error {
+		if cfg.Subsystems.EnablePDP {
+			pdpEnabled = true
+		}
+		return nil
+	})
+	if err != nil {
+		al.alertMap[Name].err = xerrors.Errorf("checking PDP config: %w", err)
+		return
+	}
+	if !pdpEnabled {
+		return
+	}
+
+	var exists bool
+	err = al.db.QueryRow(al.ctx, `SELECT EXISTS(SELECT 1 FROM eth_keys WHERE role = 'pdp')`).Scan(&exists)
+	if err != nil {
+		al.alertMap[Name].err = xerrors.Errorf("checking PDP wallet: %w", err)
+		return
+	}
+	if !exists {
+		al.alertMap[Name].alertString = "PDP wallet not configured. Create or assign a key on the PDP page."
 	}
 }

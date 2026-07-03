@@ -280,6 +280,13 @@ description: The default curio configuration
   # type: bool
   #EnablePDP = false
 
+  # DataPath is the root directory Curio-PDP scans for writable storage locations.
+  # The node treats this directory and every subdirectory as a candidate store path.
+  # Overridden by the DATA_STORAGE env var and the --data CLI flag. (Default: /data)
+  #
+  # type: string
+  #DataPath = ""
+
   # PDPPullPieceMaxTasks is the maximum number of PDPv0 pull-piece download tasks that can run simultaneously.
   # Set 0 for unlimited. (Default: 20)
   #

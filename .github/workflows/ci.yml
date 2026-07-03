@@ -131,6 +131,49 @@ jobs:
         run: make 2k
         shell: bash
 
+  curio-pdp:
+    runs-on: ubuntu-latest
+    needs: [ci-lint]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: ./.github/actions/install-go
+
+      - name: Sync submodules
+        uses: ./.github/actions/install-deps
+        with:
+          skip: 'true'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: lts/*
+
+      - name: Enable pnpm
+        run: corepack enable
+        shell: bash
+
+      - name: Cache synapse-sdk checkout
+        uses: actions/cache@v4
+        with:
+          path: .synapse-sdk
+          key: synapse-sdk-${{ hashFiles('scripts/ci/synapse-sdk.ref') }}
+
+      - name: Build curio-pdp without CGO
+        env:
+          CGO_ENABLED: '0'
+        run: make curio-pdp
+        shell: bash
+
+      - name: Verify curio binary
+        run: ./curio --version
+        shell: bash
+
+      - name: Run Synapse SDK PDP API tests
+        run: ./scripts/ci/synapse-tests.sh
+        shell: bash
+
   build-forest:
     runs-on: ubuntu-latest
     needs: [ci-lint]
@@ -684,7 +727,7 @@ jobs:
           echo "### 📊 [View Coverage Report](https://artifact.ci/${{ github.repository }}/actions/runs/${{ github.run_id }}/coverage-merged/coverage.html)" >> $GITHUB_STEP_SUMMARY
 
   required-checks-passed:
-    needs: [ci-lint, build-mainnet, build-calibnet, build-debug, build-2k, build-forest, test, test-lib-proof, lint, gofmt, build-supraseal-ubuntu24, gen-check, mod-tidy-check, coverage-report]
+    needs: [ci-lint, build-mainnet, build-calibnet, build-debug, build-2k, curio-pdp, build-forest, test, test-lib-proof, lint, gofmt, build-supraseal-ubuntu24, gen-check, mod-tidy-check, coverage-report]
     runs-on: ubuntu-latest
     steps:
       - run: echo "All required checks passed"

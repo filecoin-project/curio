@@ -707,17 +707,21 @@ When you initiate an upload with the `notify` field specified, the PDP Service w
 - **Authentication:** Requires a valid JWT token in the `Authorization` header.
 - **URL Parameters:**
     - `dataSetId`: The ID of the data set.
-    - `pieceId`: The ID of the piece.
+    - `pieceId`: The ID of the piece. Used when no `pieceIds` array is supplied in the request body (see below).
 - **Request Body:** *(Optional)*
 
 ```json
 {
-  "extraData": "<optional-hex-encoded-extra-data>"
+  "extraData": "<optional-hex-encoded-extra-data>",
+  "pieceIds": [0, 1, 2]
 }
 ```
 
 - **Fields:**
     - `extraData`: *(Optional)* Hex-encoded additional data for the contract call (max 256 bytes decoded).
+    - `pieceIds`: *(Optional)* Array of piece IDs to delete in a single batched, on-chain `schedulePieceDeletions` call. When this array is present and non-empty, it **overrides** the `pieceId` from the URL — every ID in the array is scheduled for deletion and the URL `pieceId` is ignored. When the array is omitted or empty, only the URL `pieceId` is deleted. Duplicate IDs are removed before processing. A maximum of 500 piece IDs may be supplied per call.
+
+> **Note:** All requested pieces must belong to the data set. If any one of them is not found, the entire request fails with `404 Not Found` and no deletion is scheduled.
 
 #### Response
 
@@ -735,9 +739,9 @@ When you initiate an upload with the `notify` field specified, the PDP Service w
 
 #### Errors
 
-- `400 Bad Request`: Invalid request or `extraData` exceeds size limit.
+- `400 Bad Request`: Invalid request, `extraData` exceeds size limit, a piece ID is out of range, or `pieceIds` exceeds the maximum batch size of 500.
 - `401 Unauthorized`: Missing or invalid JWT token.
-- `404 Not Found`: Data set or piece not found.
+- `404 Not Found`: Data set not found, or one or more of the requested pieces not found ("One or more piece not found").
 - `500 Internal Server Error`: Failed to send on-chain transaction.
 
 ---
@@ -1206,6 +1210,19 @@ Authorization: Bearer <JWT-token>
 Content-Type: application/json
 
 {}
+```
+
+To delete several pieces from the data set in a single batched transaction, supply a `pieceIds` array in the body (which overrides the `pieceId` in the URL):
+
+```http
+DELETE /pdp/data-sets/{dataSetId}/pieces/{pieceId} HTTP/1.1
+Host: example.com
+Authorization: Bearer <JWT-token>
+Content-Type: application/json
+
+{
+  "pieceIds": [0, 1, 2]
+}
 ```
 
 **Response:**

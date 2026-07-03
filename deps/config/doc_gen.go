@@ -14,7 +14,7 @@ var Doc = map[string][]DocField{
 			Name: "ChainApiInfo",
 			Type: "[]string",
 
-			Comment: `ChainApiInfo is the API endpoint for the Lotus daemon.`,
+			Comment: `ChainApiInfo is the API endpoint for an external Lotus-compatible daemon.`,
 		},
 		{
 			Name: "StorageRPCSecret",
@@ -855,6 +855,14 @@ also be bounded by resources available on the machine. (Default: 0 - unlimited)`
 			Comment: `Enable handling for PDP (proof-of-data possession) deals / proving on this node.
 PDP deals allow the node to directly store and prove unsealed data with "PDP Services" like Storacha.
 This feature is BETA and should only be enabled on nodes which are part of a PDP network.`,
+		},
+		{
+			Name: "DataPath",
+			Type: "string",
+
+			Comment: `DataPath is the root directory Curio-PDP scans for writable storage locations.
+The node treats this directory and every subdirectory as a candidate store path.
+Overridden by the DATA_STORAGE env var and the --data CLI flag. (Default: /data)`,
 		},
 		{
 			Name: "PDPPullPieceMaxTasks",

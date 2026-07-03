@@ -412,6 +412,11 @@ type CurioSubsystemsConfig struct {
 	// This feature is BETA and should only be enabled on nodes which are part of a PDP network.
 	EnablePDP bool
 
+	// DataPath is the root directory Curio-PDP scans for writable storage locations.
+	// The node treats this directory and every subdirectory as a candidate store path.
+	// Overridden by the DATA_STORAGE env var and the --data CLI flag. (Default: /data)
+	DataPath string
+
 	// PDPPullPieceMaxTasks is the maximum number of PDPv0 pull-piece download tasks that can run simultaneously.
 	// Set 0 for unlimited. (Default: 20)
 	PDPPullPieceMaxTasks int
@@ -748,7 +753,7 @@ type SlackWebhookConfig struct {
 }
 
 type ApisConfig struct {
-	// ChainApiInfo is the API endpoint for the Lotus daemon.
+	// ChainApiInfo is the API endpoint for an external Lotus-compatible daemon.
 	ChainApiInfo []string
 
 	// API auth secret for the Curio nodes to use. This value should only be set on the bade layer.

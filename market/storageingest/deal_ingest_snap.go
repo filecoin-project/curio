@@ -357,14 +357,23 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, tx *harmo
 	rows, err := tx.Query(`
 			SELECT sm.sector_num, sm.reg_seal_proof, sm.expiration_epoch
 			FROM sectors_meta sm
-			LEFT JOIN sectors_snap_pipeline ssp on sm.sp_id = ssp.sp_id and sm.sector_num = ssp.sector_number
-			LEFT JOIN open_sector_pieces osp on sm.sp_id = osp.sp_id and sm.sector_num = osp.sector_number and osp.piece_index = 0
-			WHERE sm.is_cc = true AND ssp.start_time IS NULL AND osp.created_at IS NULL
-			  AND sm.sp_id = $4
+			WHERE sm.sp_id = $4
+			  AND sm.is_cc = TRUE
+			  AND sm.is_live = TRUE
+			  AND sm.is_faulty = FALSE
 			  AND sm.expiration_epoch IS NOT NULL
 			  AND sm.expiration_epoch > $1
-			  AND ($2 = 0 OR sm.expiration_epoch < $2)
-			  AND deadline IS NOT NULL AND deadline NOT IN ($5, $6, $7)
+			  AND sm.expiration_epoch < $2
+			  AND sm.deadline IS NOT NULL
+			  AND sm.deadline NOT IN ($5, $6, $7)
+			  AND NOT EXISTS (
+				SELECT 1 FROM sectors_snap_pipeline ssp
+				WHERE ssp.sp_id = sm.sp_id AND ssp.sector_number = sm.sector_num
+			  )
+			  AND NOT EXISTS (
+				SELECT 1 FROM open_sector_pieces osp
+				WHERE osp.sp_id = sm.sp_id AND osp.sector_number = sm.sector_num AND osp.piece_index = 0
+			  )
 			ORDER BY ABS(sm.expiration_epoch - ($1 + $3))
 		`, int64(piece.DealSchedule.EndEpoch), maxExpiration, IdealEndEpochBuffer, p.addToID[maddr], dlIdxImmutableCur, dlIdxImmutableNext, dlIdxImmutableNextNext)
 	if err != nil {
