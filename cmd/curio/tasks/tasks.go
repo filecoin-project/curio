@@ -357,7 +357,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 
 	}
 
-	if cfg.Subsystems.EnableWindowPost || hasAnySealingTask || senderEth != nil {
+	if chainSched.HasSubscribers() {
 		go chainSched.Run(ctx)
 	}
 

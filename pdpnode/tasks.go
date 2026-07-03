@@ -33,14 +33,16 @@ type pdpTaskBundle struct {
 	ethSender *message.SenderETH
 }
 
-func buildPDPTasks(ctx context.Context, d *Deps, chainSched *chainsched.CurioChainSched) (*pdpTaskBundle, error) {
+func buildPDPTasks(ctx context.Context, d *Deps, chainSched *chainsched.CurioChainSched, pdponly bool) (*pdpTaskBundle, error) {
 	cfg := d.Cfg
 	db := d.DB
 
 	var tasks []harmonytask.TaskInterface
 
-	_, sendTask := message.NewSender(d.Chain, d.Chain, db, cfg.Fees.MaximizeFeeCap)
-	tasks = append(tasks, sendTask)
+	if pdponly {
+		_, sendTask := message.NewSender(d.Chain, d.Chain, db, cfg.Fees.MaximizeFeeCap)
+		tasks = append(tasks, sendTask)
+	}
 
 	// Obtain eth client once; PDP is entirely non-functional without it.
 	ethClient, err := d.EthClient.Val()
@@ -50,8 +52,6 @@ func buildPDPTasks(ctx context.Context, d *Deps, chainSched *chainsched.CurioCha
 
 	senderEth, ethSenderTask := message.NewSenderETH(ethClient, db)
 	tasks = append(tasks, ethSenderTask)
-
-	amTask := alertmanager.NewAlertTask(d.Chain, db, cfg.Alerting, d.Al)
 
 	pdp.NewWatcherDataSetCreate(db, ethClient, chainSched)
 	pdp.NewWatcherPieceAdd(db, chainSched, ethClient)
@@ -72,27 +72,31 @@ func buildPDPTasks(ctx context.Context, d *Deps, chainSched *chainsched.CurioCha
 		pdp.NewPDPTaskDeleteDataSet(db, senderEth, ethClient, d.Chain),
 	)
 
-	pdpv0.NewDataSetWatch(db, ethClient, chainSched)
-	pay.NewSettleWatcher(db, ethClient, chainSched, d.Al)
-	pdpv0.NewDataSetDeleteWatcher(db, ethClient, chainSched)
-	pdpv0.NewCleanupPiecesWatcher(db, ethClient, chainSched)
-	pdpv0.NewTerminateServiceWatcher(db, ethClient, chainSched)
+	w := pdpv0.NewPDPv0Watcher(db, ethClient, chainSched, d.Al)
+	pdpv0.NewDataSetWatch(w)
+	pay.NewSettleWatcher(w)
+	pdpv0.NewDataSetDeleteWatcher(w)
+	pdpv0.NewCleanupPiecesWatcher(w)
+	pdpv0.NewTerminateServiceWatcher(w)
 
 	tasks = append(tasks,
-		pdpv0.NewProveTask(chainSched, db, ethClient, d.Chain, senderEth, d.CachedPieceReader, d.IndexStore),
+		pdpv0.NewProveTask(db, ethClient, d.Chain, w, senderEth, d.CachedPieceReader, d.IndexStore),
+		pdpv0.NewNextProvingPeriodTask(db, ethClient, d.Chain, w, senderEth),
+		pdpv0.NewInitProvingPeriodTask(db, ethClient, d.Chain, w, senderEth),
 		pdpv0.NewPDPNotifyTask(ctx, db),
 		pdpv0.NewPDPPullPieceTask(ctx, db, d.PieceIO, cfg.Subsystems.PDPPullPieceMaxTasks),
-		pdpv0.NewNextProvingPeriodTask(db, ethClient, d.Chain, chainSched, senderEth),
-		pdpv0.NewInitProvingPeriodTask(db, ethClient, d.Chain, chainSched, senderEth),
 		pdpv0.NewTerminateServiceTask(db, ethClient, senderEth),
 		pdpv0.NewDeleteDataSetTask(db, ethClient, senderEth),
 		pdpv0.NewCleanupPiecesTask(db, ethClient, senderEth),
 		pdpv0.NewTaskChainSync(db, ethClient, senderEth),
-		pay.NewSettleTask(db, ethClient, senderEth),
+		pay.NewSettleTask(db, ethClient, senderEth), // Move this to a common section once PDP v1 is live
 		pdpv0.NewTaskPDPSaveCache(db, d.CachedPieceReader, d.IndexStore),
 		pdpv0.NewPieceGCTask(&cfg.HTTP, db, d.IndexStore),
 		pdpv0.NewReorgCheckTask(db, ethClient, d.Chain),
 	)
+
+	// Start PDP watcher after all internal watcher are created
+	w.Run(ctx)
 
 	idxMax := taskhelp.Max(cfg.Subsystems.IndexingMaxTasks)
 	tasks = append(tasks,
@@ -102,12 +106,19 @@ func buildPDPTasks(ctx context.Context, d *Deps, chainSched *chainsched.CurioCha
 		indexing.NewPDPV0IPNITask(db, cfg, idxMax, d.IndexStore),
 	)
 
-	tasks = append(tasks, amTask)
-	tasks = append(tasks, gc.NewPieceCleanupTask(db, d.IndexStore))
+	if pdponly {
+		amTask := alertmanager.NewAlertTask(d.Chain, db, cfg.Alerting, d.Al)
+		tasks = append(tasks, amTask, gc.NewPieceCleanupTask(db, d.IndexStore))
+		return &pdpTaskBundle{
+			tasks:     tasks,
+			amTask:    amTask,
+			ethSender: senderEth,
+		}, nil
+	}
 
 	return &pdpTaskBundle{
 		tasks:     tasks,
-		amTask:    amTask,
+		amTask:    nil,
 		ethSender: senderEth,
 	}, nil
 }
@@ -116,7 +127,7 @@ func buildPDPTasks(ctx context.Context, d *Deps, chainSched *chainsched.CurioCha
 func RegisterTasks(ctx context.Context, d *Deps) (*TaskResult, error) {
 	chainSched := chainsched.New(d.Chain)
 
-	bundle, err := buildPDPTasks(ctx, d, chainSched)
+	bundle, err := buildPDPTasks(ctx, d, chainSched, true)
 	if err != nil {
 		return nil, err
 	}
@@ -151,7 +162,7 @@ func RegisterTasks(ctx context.Context, d *Deps) (*TaskResult, error) {
 
 // AppendTasks adds PDP tasks to a curio task list.
 func AppendTasks(ctx context.Context, d *Deps, chainSched *chainsched.CurioChainSched, active *[]harmonytask.TaskInterface) (*servicedeps.Deps, error) {
-	bundle, err := buildPDPTasks(ctx, d, chainSched)
+	bundle, err := buildPDPTasks(ctx, d, chainSched, false)
 	if err != nil {
 		return nil, err
 	}
