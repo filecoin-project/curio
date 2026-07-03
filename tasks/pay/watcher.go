@@ -11,10 +11,10 @@ import (
 
 	"github.com/filecoin-project/go-state-types/builtin"
 
+	"github.com/filecoin-project/curio/alertmanager/curioalerting"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/lib/filecoinpayment"
-	"github.com/filecoin-project/curio/lib/paths/alertinginterface"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/pdp/contract/FWSS"
 	"github.com/filecoin-project/curio/tasks/pdpv0"
@@ -43,9 +43,8 @@ type mwe struct {
 }
 
 func NewSettleWatcher(w *pdpv0.Watcher) {
-	if err := w.AddWatcher(func(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, al alertinginterface.AlertingInterface, revert, apply *chainTypes.TipSet) {
-		at := al.AddAlertType(alertName, alertType)
-		err := processPendingTransactions(ctx, db, ethClient, al, at)
+	if err := w.AddWatcher(func(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, al curioalerting.AlertingInterface, revert, apply *chainTypes.TipSet) {
+		err := processPendingTransactions(ctx, db, ethClient, al)
 		if err != nil {
 			log.Warnf("Failed to process pending settle transactions: %s", err)
 		}
@@ -54,7 +53,7 @@ func NewSettleWatcher(w *pdpv0.Watcher) {
 	}
 }
 
-func processPendingTransactions(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, al alertinginterface.AlertingInterface, at alertinginterface.AlertType) error {
+func processPendingTransactions(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, al curioalerting.AlertingInterface) error {
 	// Handle failed settlements first - log error and clean up
 	// This JOINLESS query structure is a critical optimization to prevent the query planner from iterating the entire
 	// massive mwe table on each filecoin head change.  We've observed that mwe gets selected as driving table if we
@@ -94,9 +93,10 @@ func processPendingTransactions(ctx context.Context, db *harmonydb.DB, ethClient
 		if mwe.Status == "failed" || (mwe.Status == "confirmed" && (mwe.Success == nil || !*mwe.Success)) {
 			delete(goodSettles, mwe.Hash)
 			log.Errorw("settlement transaction failed on chain", "txHash", mwe.Hash)
-			al.Raise(at, map[string]interface{}{
-				"txHash": mwe.Hash,
-				"error":  "settlement transaction failed on chain",
+			_ = al.EmitEvent(ctx, curioalerting.AlertEvent{
+				System:    alertType,
+				Subsystem: alertName,
+				Message:   fmt.Sprintf("settlement transaction failed on chain txHash:%s", mwe.Hash),
 			})
 			_, err = db.Exec(ctx, `DELETE FROM filecoin_payment_transactions WHERE tx_hash = $1`, mwe.Hash)
 			if err != nil {

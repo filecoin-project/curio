@@ -1083,14 +1083,16 @@ func ipniSyncCheck(al *alerts) {
 	Name := Name_IPNISync
 	al.alertMap[Name] = &alertOut{}
 
-	var summary []struct {
-		SpId   int64  `db:"sp_id"`
-		PeerID string `db:"peer_id"`
-		Head   string `db:"head"`
+	type ipniSummary struct {
+		SpId   int64          `db:"sp_id"`
+		PeerID string         `db:"peer_id"`
+		Head   sql.NullString `db:"head"`
 		Miner  string
 	}
 
-	err := al.db.Select(al.ctx, &summary, `SELECT 
+	var summaries []ipniSummary
+
+	err := al.db.Select(al.ctx, &summaries, `SELECT 
 												ipp.sp_id,
 												ipp.peer_id,
 												ih.head
@@ -1099,6 +1101,13 @@ func ipniSyncCheck(al *alerts) {
 	if err != nil {
 		al.alertMap[Name].err = xerrors.Errorf("failed to fetch the provider details from DB: %w", err)
 		return
+	}
+
+	var summary []ipniSummary
+	for i := range summaries {
+		if summaries[i].Head.Valid {
+			summary = append(summary, summaries[i])
+		}
 	}
 
 	for i := range summary {
@@ -1165,7 +1174,7 @@ func ipniSyncCheck(al *alerts) {
 				al.alertMap[Name].err = xerrors.Errorf("Failed to unmarshal IPNI service response: %w", err)
 				return
 			}
-			if parsed.LastAdvertisement.Slash == d.Head {
+			if parsed.LastAdvertisement.Slash == d.Head.String {
 				continue
 			}
 

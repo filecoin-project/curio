@@ -250,7 +250,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		})
 	})
 
-	amTask := alertmanager.NewAlertTask(full, db, cfg.Alerting, dependencies.Al)
+	amTask := alertmanager.NewAlertTask(full, db, cfg.Alerting)
 
 	{
 		var httpSD = servicedeps.Deps{

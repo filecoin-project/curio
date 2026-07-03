@@ -4,12 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/curio/alertmanager/curioalerting"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/ethchain"
-	"github.com/filecoin-project/curio/lib/paths/alertinginterface"
 
 	chainTypes "github.com/filecoin-project/lotus/chain/types"
 )
@@ -17,13 +18,14 @@ import (
 const alertNameCleanupPieces = "CleanupPieces"
 
 func NewCleanupPiecesWatcher(w *Watcher) {
-	if err := w.AddWatcher(func(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, al alertinginterface.AlertingInterface, revert, apply *chainTypes.TipSet) {
-		at := al.AddAlertType(alertNameCleanupPieces, alertType)
+	if err := w.AddWatcher(func(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, al curioalerting.AlertingInterface, revert, apply *chainTypes.TipSet) {
 		err := processPendingCleanupPieces(ctx, db, ethClient)
 		if err != nil {
 			log.Warnf("Failed to process pending PDP piece cleanup: %s", err)
-			al.Raise(at, map[string]interface{}{
-				"error": err.Error(),
+			_ = al.EmitEvent(ctx, curioalerting.AlertEvent{
+				System:    alertType,
+				Subsystem: alertNameCleanupPieces,
+				Message:   fmt.Sprintf("failed to process pending PDP piece cleanup: %s", err),
 			})
 		}
 	}, WatcherOrderCleanupPieces); err != nil {

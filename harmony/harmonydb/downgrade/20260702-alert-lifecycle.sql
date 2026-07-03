@@ -1,0 +1,1 @@
+-- no-op downgrade: alert lifecycle table, columns, constraints, and indexes are retained

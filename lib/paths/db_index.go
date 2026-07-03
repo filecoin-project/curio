@@ -20,8 +20,8 @@ import (
 
 	"github.com/filecoin-project/go-state-types/abi"
 
+	"github.com/filecoin-project/curio/alertmanager/curioalerting"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/curio/lib/paths/alertinginterface"
 	"github.com/filecoin-project/curio/lib/storiface"
 
 	"github.com/filecoin-project/lotus/metrics"
@@ -32,21 +32,26 @@ const NoMinerFilter = abi.ActorID(0)
 
 const URLSeparator = ","
 
+const (
+	alertSystemSectorIndex        = "sector-index"
+	alertConditionInvalidAllow    = "InvalidAllowTypes"
+	alertConditionInvalidDeny     = "InvalidDenyTypes"
+	alertStoragePathSubsystemPref = "storage-path:"
+)
+
 var errAlreadyLocked = errors.New("already locked")
 
 type DBIndex struct {
-	alerting   alertinginterface.AlertingInterface
-	pathAlerts map[storiface.ID]alertinginterface.AlertType
+	alerting curioalerting.AlertingInterface
 
 	harmonyDB *harmonydb.DB
 }
 
-func NewDBIndex(al alertinginterface.AlertingInterface, db *harmonydb.DB) *DBIndex {
+func NewDBIndex(al curioalerting.AlertingInterface, db *harmonydb.DB) *DBIndex {
 	return &DBIndex{
 		harmonyDB: db,
 
-		alerting:   al,
-		pathAlerts: map[storiface.ID]alertinginterface.AlertType{},
+		alerting: al,
 	}
 }
 
@@ -108,27 +113,22 @@ func splitString(str string) []string {
 func (dbi *DBIndex) StorageAttach(ctx context.Context, si storiface.StorageInfo, st fsutil.FsStat) error {
 	var allow, deny = make([]string, 0, len(si.AllowTypes)), make([]string, 0, len(si.DenyTypes))
 
-	if _, hasAlert := dbi.pathAlerts[si.ID]; dbi.alerting != nil && !hasAlert {
-		dbi.pathAlerts[si.ID] = dbi.alerting.AddAlertType("sector-index", "pathconf-"+string(si.ID))
-	}
-
-	var hasConfigIssues bool
+	var hasAllowConfigIssues, hasDenyConfigIssues bool
+	alertSubsystem := alertStoragePathSubsystemPref + string(si.ID)
 
 	for id, typ := range si.AllowTypes {
 		_, err := storiface.TypeFromString(typ)
 		if err != nil {
 			//No need to hard-fail here, just warn the user
 			//(note that even with all-invalid entries we'll deny all types, so nothing unexpected should enter the path)
-			hasConfigIssues = true
+			hasAllowConfigIssues = true
 
 			if dbi.alerting != nil {
-				dbi.alerting.Raise(dbi.pathAlerts[si.ID], map[string]any{
-					"message":   "bad path type in AllowTypes",
-					"path":      string(si.ID),
-					"idx":       id,
-					"path_type": typ,
-					"error":     err.Error(),
-				})
+				_ = dbi.alerting.ActivateCondition(ctx, curioalerting.AlertCondition{
+					System:    alertSystemSectorIndex,
+					Subsystem: alertSubsystem,
+					Condition: alertConditionInvalidAllow,
+				}, fmt.Sprintf("bad path type in AllowTypes path=%s idx=%d path_type=%s error=%s", si.ID, id, typ, err))
 			}
 
 			continue
@@ -139,16 +139,14 @@ func (dbi *DBIndex) StorageAttach(ctx context.Context, si storiface.StorageInfo,
 		_, err := storiface.TypeFromString(typ)
 		if err != nil {
 			//No need to hard-fail here, just warn the user
-			hasConfigIssues = true
+			hasDenyConfigIssues = true
 
 			if dbi.alerting != nil {
-				dbi.alerting.Raise(dbi.pathAlerts[si.ID], map[string]any{
-					"message":   "bad path type in DenyTypes",
-					"path":      string(si.ID),
-					"idx":       id,
-					"path_type": typ,
-					"error":     err.Error(),
-				})
+				_ = dbi.alerting.ActivateCondition(ctx, curioalerting.AlertCondition{
+					System:    alertSystemSectorIndex,
+					Subsystem: alertSubsystem,
+					Condition: alertConditionInvalidDeny,
+				}, fmt.Sprintf("bad path type in DenyTypes path=%s idx=%d path_type=%s error=%s", si.ID, id, typ, err))
 			}
 
 			continue
@@ -158,10 +156,21 @@ func (dbi *DBIndex) StorageAttach(ctx context.Context, si storiface.StorageInfo,
 	si.AllowTypes = allow
 	si.DenyTypes = deny
 
-	if dbi.alerting != nil && !hasConfigIssues && dbi.alerting.IsRaised(dbi.pathAlerts[si.ID]) {
-		dbi.alerting.Resolve(dbi.pathAlerts[si.ID], map[string]string{
-			"message": "path config is now correct",
-		})
+	if dbi.alerting != nil {
+		if !hasAllowConfigIssues {
+			_ = dbi.alerting.ResolveCondition(ctx, curioalerting.AlertCondition{
+				System:    alertSystemSectorIndex,
+				Subsystem: alertSubsystem,
+				Condition: alertConditionInvalidAllow,
+			})
+		}
+		if !hasDenyConfigIssues {
+			_ = dbi.alerting.ResolveCondition(ctx, curioalerting.AlertCondition{
+				System:    alertSystemSectorIndex,
+				Subsystem: alertSubsystem,
+				Condition: alertConditionInvalidDeny,
+			})
+		}
 	}
 
 	for _, u := range si.URLs {
