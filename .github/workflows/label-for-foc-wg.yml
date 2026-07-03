@@ -25,7 +25,7 @@ jobs:
           # A PAT is used instead of the default GITHUB_TOKEN because events triggered
           # by GITHUB_TOKEN do not cascade to trigger other workflows. Using a PAT allows
           # the label event emitted here to trigger add-issues-and-prs-to-fs-project-board.yml.
-          github-token: ${{ secrets.FILOZZY_CI_ADD_TO_PROJECT }}
+          github-token: ${{ secrets.FILOZZY_CI_ADD_TO_PROJECT_ALL_FILOZONE }}
           script: |
             const title = context.payload.issue?.title || context.payload.pull_request?.title || '';
             const body = context.payload.issue?.body || context.payload.pull_request?.body || '';
