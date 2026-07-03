@@ -300,6 +300,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 			if err := pdpnode.Attach(ctx, dependencies, &activeTasks, &httpSD, chainSched); err != nil {
 				return nil, err
 			}
+			senderEth = httpSD.EthSender
 		}
 
 		idxMax := taskhelp.Max(cfg.Subsystems.IndexingMaxTasks)
