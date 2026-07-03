@@ -4,22 +4,125 @@
 -- Ongoing conditions are tracked in alert_conditions while active. Resolution
 -- moves the condition lifecycle details into alert_history with kind='condition'.
 
-ALTER TABLE alert_history
-    ADD COLUMN IF NOT EXISTS kind TEXT,
-    ADD COLUMN IF NOT EXISTS system TEXT,
-    ADD COLUMN IF NOT EXISTS subsystem TEXT,
-    ADD COLUMN IF NOT EXISTS condition TEXT,
-    ADD COLUMN IF NOT EXISTS condition_created_at TIMESTAMP WITH TIME ZONE,
-    ADD COLUMN IF NOT EXISTS condition_last_seen_at TIMESTAMP WITH TIME ZONE,
-    ADD COLUMN IF NOT EXISTS condition_resolved_at TIMESTAMP WITH TIME ZONE,
-    ADD COLUMN IF NOT EXISTS condition_repeat_count BIGINT;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_name = 'alert_history'
+          AND table_schema = current_schema()
+          AND column_name = 'kind'
+    ) THEN
+        ALTER TABLE alert_history ADD COLUMN IF NOT EXISTS kind TEXT DEFAULT 'event';
+    ELSE
+        ALTER TABLE alert_history ALTER COLUMN kind SET DEFAULT 'event';
+    END IF;
+END
+$$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_name = 'alert_history'
+          AND table_schema = current_schema()
+          AND column_name = 'system'
+    ) THEN
+        ALTER TABLE alert_history ADD COLUMN IF NOT EXISTS system TEXT;
+    END IF;
+END
+$$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_name = 'alert_history'
+          AND table_schema = current_schema()
+          AND column_name = 'subsystem'
+    ) THEN
+        ALTER TABLE alert_history ADD COLUMN IF NOT EXISTS subsystem TEXT;
+    END IF;
+END
+$$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_name = 'alert_history'
+          AND table_schema = current_schema()
+          AND column_name = 'condition'
+    ) THEN
+        ALTER TABLE alert_history ADD COLUMN IF NOT EXISTS condition TEXT;
+    END IF;
+END
+$$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_name = 'alert_history'
+          AND table_schema = current_schema()
+          AND column_name = 'condition_created_at'
+    ) THEN
+        ALTER TABLE alert_history ADD COLUMN IF NOT EXISTS condition_created_at TIMESTAMP WITH TIME ZONE;
+    END IF;
+END
+$$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_name = 'alert_history'
+          AND table_schema = current_schema()
+          AND column_name = 'condition_last_seen_at'
+    ) THEN
+        ALTER TABLE alert_history ADD COLUMN IF NOT EXISTS condition_last_seen_at TIMESTAMP WITH TIME ZONE;
+    END IF;
+END
+$$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_name = 'alert_history'
+          AND table_schema = current_schema()
+          AND column_name = 'condition_resolved_at'
+    ) THEN
+        ALTER TABLE alert_history ADD COLUMN IF NOT EXISTS condition_resolved_at TIMESTAMP WITH TIME ZONE;
+    END IF;
+END
+$$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_name = 'alert_history'
+          AND table_schema = current_schema()
+          AND column_name = 'condition_repeat_count'
+    ) THEN
+        ALTER TABLE alert_history ADD COLUMN IF NOT EXISTS condition_repeat_count BIGINT;
+    END IF;
+END
+$$;
 
 UPDATE alert_history
 SET kind = 'event'
 WHERE kind IS NULL;
 
 ALTER TABLE alert_history
-    ALTER COLUMN kind SET DEFAULT 'event',
     ALTER COLUMN kind SET NOT NULL,
     DROP CONSTRAINT IF EXISTS alert_history_transition_check,
     DROP COLUMN IF EXISTS transition;
@@ -49,12 +152,6 @@ CREATE TABLE IF NOT EXISTS alert_conditions (
 
     PRIMARY KEY (system, subsystem, condition)
 );
-
-ALTER TABLE alert_conditions
-    ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-    ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-    ADD COLUMN IF NOT EXISTS repeat_count BIGINT NOT NULL DEFAULT 0,
-    ADD COLUMN IF NOT EXISTS last_notified_at TIMESTAMP WITH TIME ZONE;
 
 CREATE INDEX IF NOT EXISTS idx_alert_history_pending_events
     ON alert_history (created_at)
