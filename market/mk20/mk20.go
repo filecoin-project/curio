@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/big"
 	"runtime"
 	"runtime/debug"
 	"sync/atomic"
@@ -35,6 +36,7 @@ import (
 	"github.com/filecoin-project/curio/lib/parkpiece"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/market/backpressure"
+	"github.com/filecoin-project/curio/pdp/contract"
 
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors/policy"
@@ -729,6 +731,29 @@ func (m *MK20) sanitizePDPDeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 			return &ProviderDealRejectionInfo{
 				HTTPCode: ErrBadProposal,
 				Reason:   "dataset or one of the pieces does not exist for the client",
+			}, nil
+		}
+
+		// Soft gate: refuse if the data set's on-chain removal queue is already at our
+		// conservative ceiling. This keeps us well clear of the on-chain MAX_ENQUEUED_REMOVALS.
+		pdpVerifier, err := contract.NewPDPVerifier(contract.ContractAddresses().PDPVerifier, m.ethClient)
+		if err != nil {
+			return &ProviderDealRejectionInfo{
+				HTTPCode: ErrServerInternalError,
+				Reason:   "",
+			}, nil
+		}
+		queued, err := pdpVerifier.GetScheduledRemovals(contract.EthCallOpts(ctx), big.NewInt(int64(pid)))
+		if err != nil {
+			return &ProviderDealRejectionInfo{
+				HTTPCode: ErrServerInternalError,
+				Reason:   "",
+			}, nil
+		}
+		if len(queued) >= contract.ConservativeEnqueuedRemovalsLimit {
+			return &ProviderDealRejectionInfo{
+				HTTPCode: ErrServiceOverloaded,
+				Reason:   fmt.Sprintf("data set %d already has %d scheduled removals queued (limit %d); retry after the next proving period flushes the queue"),
 			}, nil
 		}
 	}

@@ -192,47 +192,40 @@ func (t *CleanupPiecesTask) schedule(ctx context.Context, addTaskFunc harmonytas
 		addTaskFunc(func(taskID harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
 			stop = true
 
-			var pendings []struct {
-				ID int64 `db:"id"`
-			}
-
-			err := tx.Select(&pendings, `SELECT id
-				FROM pdp_delete_data_set
-				WHERE cleanup_pieces_task_id IS NULL
-				  AND cleanup_pieces_tx_hash IS NULL
-				  AND after_delete_data_set = TRUE
-				  AND delete_tx_hash IS NULL
-				  AND service_termination_epoch IS NOT NULL
-				  AND terminated = FALSE
-				ORDER BY id`)
-			if err != nil {
-				return false, xerrors.Errorf("failed to select pending PDP cleanup data sets: %w", err)
-			}
-
-			if len(pendings) == 0 {
-				log.Debugw("no pending PDP data sets for piece cleanup")
-				return false, nil
-			}
-
-			pending := pendings[0]
-
-			n, err := tx.Exec(`UPDATE pdp_delete_data_set
+			n, err := tx.Exec(`WITH pending AS (
+					SELECT id
+					FROM pdp_delete_data_set
+					WHERE cleanup_pieces_task_id IS NULL
+					  AND cleanup_pieces_tx_hash IS NULL
+					  AND after_delete_data_set = TRUE
+					  AND delete_tx_hash IS NULL
+					  AND service_termination_epoch IS NOT NULL
+					  AND terminated = FALSE
+					ORDER BY id
+					LIMIT 1
+				)
+				UPDATE pdp_delete_data_set p
 				SET cleanup_pieces_task_id = $1
-				WHERE id = $2
-				  AND cleanup_pieces_task_id IS NULL
-				  AND cleanup_pieces_tx_hash IS NULL
-				  AND after_delete_data_set = TRUE
-				  AND delete_tx_hash IS NULL
-				  AND service_termination_epoch IS NOT NULL
-				  AND terminated = FALSE`, taskID, pending.ID)
+				FROM pending
+				WHERE p.id = pending.id
+				  AND p.cleanup_pieces_task_id IS NULL
+				  AND p.cleanup_pieces_tx_hash IS NULL
+				  AND p.after_delete_data_set = TRUE
+				  AND p.delete_tx_hash IS NULL
+				  AND p.service_termination_epoch IS NOT NULL
+				  AND p.terminated = FALSE`, taskID)
 			if err != nil {
 				return false, xerrors.Errorf("failed to assign PDP cleanup task: %w", err)
+			}
+			if n == 0 {
+				log.Debugw("no pending PDP data sets for piece cleanup")
+				return false, nil
 			}
 			if n != 1 {
 				return false, xerrors.Errorf("updated %d rows assigning PDP cleanup task", n)
 			}
 
-			log.Debugw("scheduled PDP cleanupPieces task", "dataSetId", pending.ID)
+			log.Debugw("scheduled PDP cleanupPieces task")
 			stop = false
 			return true, nil
 		})
