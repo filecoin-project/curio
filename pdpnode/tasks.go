@@ -51,7 +51,7 @@ func buildPDPTasks(ctx context.Context, d *Deps, chainSched *chainsched.CurioCha
 	}
 
 	senderEth, ethSenderTask := message.NewSenderETH(ethClient, db)
-	tasks = append(tasks, ethSenderTask)
+	tasks = append(tasks, ethSenderTask, message.NewMessageWaitsEthGCTask(db, ethClient))
 
 	pdp.NewWatcherDataSetCreate(db, ethClient, chainSched)
 	pdp.NewWatcherPieceAdd(db, chainSched, ethClient)
