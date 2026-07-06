@@ -7,7 +7,7 @@
 # This action adds all issues and PRs with a "team/fs-wg" label to the FS project board.
 # It is used to keep the FS project board up to date with the issues and PRs.
 # It is triggered by the issue and PR events.
-# It assumes a `FILOZZY_CI_ADD_TO_PROJECT_ALL_FILOZONE` secret is set in the repo.
+# It assumes a `FILOZZY_CI_ADD_TO_PROJECT` secret is set in the repo.
 # This secret should have the permissions outlined in https://github.com/actions/add-to-project?tab=readme-ov-file#creating-a-pat-and-adding-it-to-your-repository
 name: Add issues and PRs to FS project board
 
@@ -32,5 +32,5 @@ jobs:
         continue-on-error: true # Don't fail if item already exists in project. actions/add-to-project does not currently handle this case gracefully.
         with:
           project-url: https://github.com/orgs/FilOzone/projects/14
-          github-token: ${{ secrets.FILOZZY_CI_ADD_TO_PROJECT_ALL_FILOZONE }}
+          github-token: ${{ secrets.FILOZZY_CI_ADD_TO_PROJECT }}
           labeled: team/fs-wg
