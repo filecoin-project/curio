@@ -2,7 +2,6 @@ package pay
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"math/big"
@@ -31,7 +30,6 @@ const (
 type settled struct {
 	Hash            string        `db:"tx_hash"`
 	Rails           []int64       `db:"rail_ids"`
-	SettleUpToEpoch sql.NullInt64 `db:"settle_upto_epoch"`
 }
 
 type mwe struct {
@@ -62,7 +60,7 @@ func processPendingTransactions(ctx context.Context, db *harmonydb.DB, ethClient
 	// use JOIN or WHERE EXIST clauses.
 	var settles []settled
 	err := db.Select(ctx, &settles, `
-		SELECT tx_hash, rail_ids, settle_upto_epoch
+		SELECT tx_hash, rail_ids
 		FROM filecoin_payment_transactions`)
 	if err != nil {
 		return xerrors.Errorf("failed to get settlements from DB: %w", err)
@@ -217,30 +215,20 @@ func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthC
 				}
 			}
 
-			var railDefaulting bool
 
-			if settle.SettleUpToEpoch.Valid {
-				if view.SettledUpTo.Int64() < settle.SettleUpToEpoch.Int64 {
-					railDefaulting = true
-				}
-			} else {
-				// For live rails, check if we are fully unsettled 1 day before the lockup period ends.
-				// If so assume payer is in default and schedule deletion
-				threshold := big.NewInt(0).Add(view.SettledUpTo, view.LockupPeriod)
-				thresholdWithGrace := big.NewInt(0).Sub(threshold, big.NewInt(builtin.EpochsInDay))
+			// For live rails, check if we are fully unsettled 1 day before the lockup period ends.
+			// If so assume payer is in default and schedule deletion
+			threshold := big.NewInt(0).Add(view.SettledUpTo, view.LockupPeriod)
+			thresholdWithGrace := big.NewInt(0).Sub(threshold, big.NewInt(builtin.EpochsInDay))
 
-				if thresholdWithGrace.Uint64() < current {
-					railDefaulting = true
-				}
-			}
-
-			if railDefaulting {
+			if thresholdWithGrace.Uint64() < current {
 				log.Infow("Rail soon to default, terminating dataSet", "dataSetId", dataSet.Int64(), "railId", railId, "settleTxHash", settle.Hash)
 				if err := FWSS.EnsureServiceTermination(tx, dataSet.Int64()); err != nil {
 					log.Errorw("failed to ensure service termination for defaulting rail", "dataSetId", dataSet.Int64(), "railId", railId, "error", err)
 					return false, xerrors.Errorf("failed to ensure service termination for defaulting rail: %w", err)
 				}
 			}
+
 		}
 
 		// Delete the settle message from the DB

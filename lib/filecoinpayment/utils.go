@@ -192,7 +192,7 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchai
 			}
 
 			// Insert into filecoin_payment_transactions
-			n, err = tx.Exec(`INSERT INTO filecoin_payment_transactions (tx_hash, rail_ids, settle_upto_epoch) VALUES ($1, $2, $3)`, txHashHex, []int64{details.rail}, details.upTo)
+			n, err = tx.Exec(`INSERT INTO filecoin_payment_transactions (tx_hash, rail_ids) VALUES ($1, $2)`, txHashHex, []int64{details.rail})
 			if err != nil {
 				return false, xerrors.Errorf("failed to insert into filecoin_payment_transactions: %w", err)
 			}
