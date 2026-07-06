@@ -28,8 +28,8 @@ const (
 )
 
 type settled struct {
-	Hash            string        `db:"tx_hash"`
-	Rails           []int64       `db:"rail_ids"`
+	Hash  string  `db:"tx_hash"`
+	Rails []int64 `db:"rail_ids"`
 }
 
 type mwe struct {
@@ -214,7 +214,6 @@ func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthC
 					}
 				}
 			}
-
 
 			// For live rails, check if we are fully unsettled 1 day before the lockup period ends.
 			// If so assume payer is in default and schedule deletion
