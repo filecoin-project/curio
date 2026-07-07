@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"math/big"
 
+	"github.com/curiostorage/harmonyquery"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/hashicorp/go-multierror"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -41,20 +43,23 @@ func processPendingDataSetCreates(ctx context.Context, db *harmonydb.DB, ethClie
 
 	log.Infow("DataSetCreate watcher has pending data sets", "count", len(dataSetCreates))
 
+	var merr error
+
 	// Process each data set create
 	for _, psc := range dataSetCreates {
 		log.Infow("Processing data set create",
 			"txHash", psc.CreateMessageHash,
 			"service", psc.Service)
-		err := processDataSetCreate(ctx, db, psc, ethClient)
-		if err != nil {
-			log.Warnf("Failed to process data set create for tx %s: %v", psc.CreateMessageHash, err)
+		cerr := processDataSetCreate(ctx, db, psc, ethClient)
+		if cerr != nil {
+			log.Warnf("Failed to process data set create for tx %s: %v", psc.CreateMessageHash, cerr)
+			merr = multierror.Append(merr, cerr)
 			continue
 		}
 		log.Infow("Successfully processed data set create", "txHash", psc.CreateMessageHash)
 	}
 
-	return nil
+	return merr
 }
 
 func processDataSetCreate(ctx context.Context, db *harmonydb.DB, psc DataSetCreate, ethClient ethchain.EthClient) error {
@@ -103,9 +108,9 @@ func processDataSetCreate(ctx context.Context, db *harmonydb.DB, psc DataSetCrea
 	if err != nil {
 		return xerrors.Errorf("failed to get max proving period: %w", err)
 	}
-	_, err = db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+	comm, err := db.BeginTransaction(ctx, func(tx *harmonyquery.Tx) (commit bool, err error) {
 		// Insert a new entry into pdp_data_sets
-		_, err = tx.Exec(`
+		n, err := tx.Exec(`
         INSERT INTO pdp_data_sets (id, create_message_hash, service, proving_period, challenge_window)
         VALUES ($1, $2, $3, $4, $5)
     `, dataSetId, psc.CreateMessageHash, psc.Service, provingPeriod, challengeWindow)
@@ -113,21 +118,31 @@ func processDataSetCreate(ctx context.Context, db *harmonydb.DB, psc DataSetCrea
 			return false, xerrors.Errorf("failed to insert data set %d for tx %+v: %w", dataSetId, psc, err)
 		}
 
+		if n != 1 {
+			return false, xerrors.Errorf("expected to insert 1 row but inserted: %d", n)
+		}
+
 		// Update pdp_data_set_creates to set data_set_created = TRUE
-		_, err = tx.Exec(`
-        UPDATE pdp_data_set_creates
-        SET data_set_created = TRUE
-        WHERE create_message_hash = $1
-        	AND data_set_created = FALSE;
-    `, psc.CreateMessageHash)
+		n, err = tx.Exec(`
+				UPDATE pdp_data_set_creates
+				SET data_set_created = TRUE
+				WHERE create_message_hash = $1
+					AND data_set_created = FALSE`, psc.CreateMessageHash)
 		if err != nil {
 			return false, xerrors.Errorf("failed to update data_set_creates for tx %s: %w", psc.CreateMessageHash, err)
 		}
+		if n != 1 {
+			return false, xerrors.Errorf("expected to update 1 row but updated: %d", n)
+		}
 		return true, nil
-	})
+	}, harmonydb.OptionRetry())
 
 	if err != nil {
 		return xerrors.Errorf("failed to create data set %d for tx %+v: %w", dataSetId, psc, err)
+	}
+
+	if !comm {
+		return xerrors.Errorf("failed to commit DB transaction for data set %d for tx hash %s", dataSetId, psc.CreateMessageHash)
 	}
 
 	return nil

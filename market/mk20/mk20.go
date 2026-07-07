@@ -753,7 +753,8 @@ func (m *MK20) sanitizePDPDeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 		if len(queued) >= contract.ConservativeEnqueuedRemovalsLimit {
 			return &ProviderDealRejectionInfo{
 				HTTPCode: ErrServiceOverloaded,
-				Reason:   fmt.Sprintf("data set %d already has %d scheduled removals queued (limit %d); retry after the next proving period flushes the queue"),
+				Reason: fmt.Sprintf("data set %d already has %d scheduled removals queued (limit %d); retry after the next proving period flushes the queue",
+					pid, len(queued), contract.ConservativeEnqueuedRemovalsLimit),
 			}, nil
 		}
 	}

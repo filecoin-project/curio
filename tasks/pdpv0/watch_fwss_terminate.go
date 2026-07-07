@@ -8,13 +8,15 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/curio/lib/chainsched"
 	"github.com/filecoin-project/curio/lib/ethchain"
+	"github.com/filecoin-project/curio/lib/paths/alertinginterface"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/pdp/contract/FWSS"
 
 	chainTypes "github.com/filecoin-project/lotus/chain/types"
 )
+
+const alertNameTerminateFWSSService = "TerminateFWSSService"
 
 type pendingServiceTermination struct {
 	DataSetId       int64  `db:"id"`
@@ -28,14 +30,17 @@ type serviceTerminationMessageWait struct {
 	Success sql.NullBool `db:"tx_success"`
 }
 
-func NewTerminateServiceWatcher(db *harmonydb.DB, ethClient ethchain.EthClient, pcs *chainsched.CurioChainSched) {
-	if err := pcs.AddHandler(func(ctx context.Context, revert, apply *chainTypes.TipSet) error {
+func NewTerminateServiceWatcher(w *Watcher) {
+	if err := w.AddWatcher(func(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, al alertinginterface.AlertingInterface, revert, apply *chainTypes.TipSet) {
+		at := al.AddAlertType(alertNameTerminateFWSSService, alertType)
 		err := processTerminations(ctx, db, ethClient)
 		if err != nil {
 			log.Warnf("Failed to process pending service termination transactions: %s", err)
+			al.Raise(at, map[string]interface{}{
+				"error": err.Error(),
+			})
 		}
-		return nil
-	}); err != nil {
+	}, WatcherOrderTerminate); err != nil {
 		panic(err)
 	}
 }
