@@ -209,8 +209,6 @@ jobs:
         test-suite:
           - name: test-all
             target: "`go list ./... | grep -v curio/itests | grep -v -E 'github.com/filecoin-project/curio/lib/proof($|/)'`"
-          - name: test-itest-alertnow
-            target: "./itests/alertnow_test.go"
           - name: test-itest-batching
             target: "./itests/batching_test.go"
           - name: test-itest-curio

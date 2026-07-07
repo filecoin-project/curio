@@ -2,10 +2,11 @@ package pdpv0
 
 import (
 	"context"
+	"fmt"
 
+	"github.com/filecoin-project/curio/alertmanager/curioalerting"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/ethchain"
-	"github.com/filecoin-project/curio/lib/paths/alertinginterface"
 
 	chainTypes "github.com/filecoin-project/lotus/chain/types"
 )
@@ -20,22 +21,24 @@ const (
 // These two are run in sequence to allow for combined create-and-add flow to first
 // create the data set, then add the pieces to it.
 func NewDataSetWatch(w *Watcher) {
-	if err := w.AddWatcher(func(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, al alertinginterface.AlertingInterface, revert, apply *chainTypes.TipSet) {
-		cat := al.AddAlertType(alertNameCreateDataSet, alertType)
+	if err := w.AddWatcher(func(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, al curioalerting.AlertingInterface, revert, apply *chainTypes.TipSet) {
 		err := processPendingDataSetCreates(ctx, db, ethClient)
 		if err != nil {
 			log.Errorf("Failed to process pending data set creates: %v", err)
-			al.Raise(cat, map[string]interface{}{
-				"error": err.Error(),
+			_ = al.EmitEvent(ctx, curioalerting.AlertEvent{
+				System:    alertType,
+				Subsystem: alertNameCreateDataSet,
+				Message:   fmt.Sprintf("failed to process pending data set creates: %s", err),
 			})
 		}
 
-		adat := al.AddAlertType(alertNameAddPiece, alertType)
 		err = processPendingDataSetPieceAdds(ctx, db, ethClient)
 		if err != nil {
 			log.Errorf("Failed to process pending data set piece adds: %v", err)
-			al.Raise(adat, map[string]interface{}{
-				"error": err.Error(),
+			_ = al.EmitEvent(ctx, curioalerting.AlertEvent{
+				System:    alertType,
+				Subsystem: alertNameAddPiece,
+				Message:   fmt.Sprintf("failed to process pending data set piece adds: %s", err),
 			})
 		}
 	}, WatcherOrderCreateAndAdd); err != nil {

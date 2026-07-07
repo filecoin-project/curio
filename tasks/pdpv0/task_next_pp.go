@@ -14,12 +14,12 @@ import (
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/curio/alertmanager/curioalerting"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/ethchain"
-	"github.com/filecoin-project/curio/lib/paths/alertinginterface"
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/tasks/message"
@@ -52,9 +52,7 @@ func NewNextProvingPeriodTask(db *harmonydb.DB, ethClient ethchain.EthClient, fi
 		fil:       fil,
 	}
 
-	_ = w.AddWatcher(func(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, al alertinginterface.AlertingInterface, revert, apply *chainTypes.TipSet) {
-		at := al.AddAlertType(alertNameNextPP, alertType)
-
+	_ = w.AddWatcher(func(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, al curioalerting.AlertingInterface, revert, apply *chainTypes.TipSet) {
 		if apply == nil {
 			return
 		}
@@ -72,10 +70,12 @@ func NewNextProvingPeriodTask(db *harmonydb.DB, ethClient ethchain.EthClient, fi
                   AND (prove_at_epoch + challenge_window) <= $1
                   AND unrecoverable_proving_failure_epoch IS NULL
                   AND (next_prove_attempt_at IS NULL OR next_prove_attempt_at <= $1)
-            `, currentHeight)
+	            `, currentHeight)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			al.Raise(at, map[string]interface{}{
-				"message": xerrors.Errorf("failed to select data sets needing nextProvingPeriod: %w", err).Error(),
+			_ = al.EmitEvent(ctx, curioalerting.AlertEvent{
+				System:    alertType,
+				Subsystem: alertNameNextPP,
+				Message:   fmt.Sprintf("failed to select data sets needing nextProvingPeriod: %s", err),
 			})
 			return
 		}

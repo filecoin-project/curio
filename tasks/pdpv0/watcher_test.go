@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/filecoin-project/curio/alertmanager/curioalerting"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/ethchain"
-	"github.com/filecoin-project/curio/lib/paths/alertinginterface"
 
 	chainTypes "github.com/filecoin-project/lotus/chain/types"
 )
@@ -22,7 +22,7 @@ func testWatcher() *Watcher {
 }
 
 func testUpdate(fn func()) update {
-	return func(context.Context, *harmonydb.DB, ethchain.EthClient, alertinginterface.AlertingInterface, *chainTypes.TipSet, *chainTypes.TipSet) {
+	return func(context.Context, *harmonydb.DB, ethchain.EthClient, curioalerting.AlertingInterface, *chainTypes.TipSet, *chainTypes.TipSet) {
 		fn()
 	}
 }

@@ -14,8 +14,10 @@ class AlertsManage extends StyledLitElement {
         newExpiresHours: { type: Number },
         
         // Alert history
+        ongoingAlerts: { type: Array },
         alerts: { type: Array },
         alertsTotal: { type: Number },
+        alertsUnacknowledgedTotal: { type: Number },
         alertsPage: { type: Number },
         includeAcknowledged: { type: Boolean },
         
@@ -44,8 +46,10 @@ class AlertsManage extends StyledLitElement {
         this.newExpiresHours = 0;
         
         // Alert history
+        this.ongoingAlerts = [];
         this.alerts = [];
         this.alertsTotal = 0;
+        this.alertsUnacknowledgedTotal = 0;
         this.alertsPage = 0;
         this.includeAcknowledged = false;
         
@@ -75,11 +79,27 @@ class AlertsManage extends StyledLitElement {
             ]);
             this.mutes = mutes || [];
             this.categories = categories || [];
-            await this.loadAlerts();
+            await this.loadAlertData();
             this.loading = false;
         } catch (e) {
             this.error = e.message || 'Failed to load alert data';
             this.loading = false;
+        }
+    }
+
+    async loadAlertData() {
+        await Promise.all([
+            this.loadOngoingAlerts(),
+            this.loadAlerts(),
+        ]);
+    }
+
+    async loadOngoingAlerts() {
+        try {
+            this.ongoingAlerts = await RPCCall('AlertOngoingList') || [];
+        } catch (e) {
+            console.error('Failed to load ongoing alerts:', e);
+            this.ongoingAlerts = [];
         }
     }
 
@@ -93,6 +113,7 @@ class AlertsManage extends StyledLitElement {
             ]);
             this.alerts = result?.Alerts || [];
             this.alertsTotal = result?.Total || 0;
+            this.alertsUnacknowledgedTotal = result?.UnacknowledgedTotal || 0;
         } catch (e) {
             console.error('Failed to load alerts:', e);
         }
@@ -161,7 +182,7 @@ class AlertsManage extends StyledLitElement {
     async sendTestAlert() {
         try {
             await RPCCall('AlertSendTest');
-            await this.loadAlerts(); // Refresh to show the new alert
+            await this.loadAlertData(); // Refresh to show the new alert
             alert('Test alert created! It should now appear in the Alert History tab and sidebar indicator.');
         } catch (e) {
             alert('Failed to send test alert: ' + e.message);
@@ -171,22 +192,34 @@ class AlertsManage extends StyledLitElement {
     async acknowledgeAlert(id) {
         try {
             await RPCCall('AlertAcknowledge', [id, 'web-ui']);
-            await this.loadAlerts();
+            await this.loadAlertData();
         } catch (e) {
             alert('Failed to acknowledge alert: ' + e.message);
         }
     }
 
-    async acknowledgeAll() {
+    async acknowledgeAllOnPage() {
         const unacked = this.alerts.filter(a => !a.Acknowledged);
         if (unacked.length === 0) return;
-        
+
         if (!confirm(`Acknowledge all ${unacked.length} alerts on this page?`)) return;
-        
+
         try {
             const ids = unacked.map(a => a.ID);
             await RPCCall('AlertAcknowledgeMultiple', [ids, 'web-ui']);
-            await this.loadAlerts();
+            await this.loadAlertData();
+        } catch (e) {
+            alert('Failed to acknowledge alerts: ' + e.message);
+        }
+    }
+
+    async acknowledgeAll() {
+        if (!confirm(`Acknowledge all alerts?`)) return;
+
+        try {
+            await RPCCall('AlertAcknowledgeAll', ['web-ui']);
+            this.alertsPage = 0;
+            await this.loadAlertData();
         } catch (e) {
             alert('Failed to acknowledge alerts: ' + e.message);
         }
@@ -217,7 +250,7 @@ class AlertsManage extends StyledLitElement {
             await RPCCall('AlertCommentAdd', [this.commentAlertId, this.newComment.trim(), 'web-ui']);
             this.newComment = '';
             this.comments = await RPCCall('AlertCommentList', [this.commentAlertId]) || [];
-            await this.loadAlerts(); // Refresh comment count
+            await this.loadAlertData(); // Refresh comment count
         } catch (e) {
             alert('Failed to add comment: ' + e.message);
         }
@@ -276,6 +309,8 @@ class AlertsManage extends StyledLitElement {
             `;
         }
 
+        const activeAlertCount = this.alertsUnacknowledgedTotal + this.ongoingAlerts.length;
+
         return html`
             <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous">
             <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'">
@@ -288,7 +323,7 @@ class AlertsManage extends StyledLitElement {
                     <button class="tab ${this.activeTab === 'history' ? 'active' : ''}" 
                             @click="${() => this.activeTab = 'history'}">
                         Alert History
-                        ${this.alertsTotal > 0 ? html`<span class="tab-badge">${this.alertsTotal}</span>` : ''}
+                        ${activeAlertCount > 0 ? html`<span class="tab-badge">${activeAlertCount}</span>` : ''}
                     </button>
                     <button class="tab ${this.activeTab === 'mutes' ? 'active' : ''}" 
                             @click="${() => this.activeTab = 'mutes'}">
@@ -325,35 +360,84 @@ class AlertsManage extends StyledLitElement {
                         Show acknowledged alerts
                     </label>
                     ${unackedCount > 0 ? html`
-                        <button class="btn btn-small" @click="${this.acknowledgeAll}">
-                            Acknowledge All (${unackedCount})
+                        <button class="btn btn-small" @click="${this.acknowledgeAllOnPage}">
+                            Acknowledge All On Page (${unackedCount})
                         </button>
                     ` : ''}
-                    <button class="btn btn-small" @click="${() => this.loadAlerts()}">Refresh</button>
+                    ${this.alertsUnacknowledgedTotal > 0 ? html`
+                        <button class="btn btn-small" @click="${this.acknowledgeAll}">
+                            Acknowledge All (${this.alertsUnacknowledgedTotal})
+                        </button>
+                    ` : ''}
+                    <button class="btn btn-small" @click="${() => this.loadAlertData()}">Refresh</button>
                 </div>
 
-                ${this.alerts.length === 0 ? html`
-                    <div class="empty-state">
-                        <p>No alerts found.</p>
-                        <p style="color: #666; font-size: 0.9em;">
-                            ${this.includeAcknowledged ? 'No alerts have been recorded yet.' : 'All alerts have been acknowledged.'}
-                        </p>
+                ${this.renderOngoingAlerts()}
+
+                <section class="ongoing-alerts">
+                    <div class="section-header">
+                        <h3>Alerts (${this.alertsTotal})</h3>
+                    </div>
+                    ${this.alerts.length === 0 ? html`
+                        <div class="empty-state">
+                            <p>No alerts found.</p>
+                            <p style="color: #666; font-size: 0.9em;">
+                                ${this.includeAcknowledged ? 'No alerts have been recorded yet.' : 'All alerts have been acknowledged.'}
+                            </p>
+                        </div>
+                    ` : html`
+                        <div class="alert-list">
+                            ${this.alerts.map(alert => this.renderAlert(alert))}
+                        </div>
+
+                        <div class="pagination">
+                            <button class="btn btn-small"
+                                    ?disabled="${this.alertsPage === 0}"
+                                    @click="${() => this.changePage(-1)}">Previous</button>
+                            <span>Page ${this.alertsPage + 1} of ${totalPages || 1}</span>
+                            <button class="btn btn-small"
+                                    ?disabled="${(this.alertsPage + 1) * pageSize >= this.alertsTotal}"
+                                    @click="${() => this.changePage(1)}">Next</button>
+                        </div>
+                    `}
+                </section>
+            </div>
+        `;
+    }
+
+    renderOngoingAlerts() {
+        return html`
+            <section class="ongoing-alerts">
+                <div class="section-header">
+                    <h3>Ongoing Alerts (${this.ongoingAlerts.length})</h3>
+                </div>
+                ${this.ongoingAlerts.length === 0 ? html`
+                    <div class="empty-state compact">
+                        <p>No ongoing alerts.</p>
                     </div>
                 ` : html`
                     <div class="alert-list">
-                        ${this.alerts.map(alert => this.renderAlert(alert))}
-                    </div>
-                    
-                    <div class="pagination">
-                        <button class="btn btn-small" 
-                                ?disabled="${this.alertsPage === 0}"
-                                @click="${() => this.changePage(-1)}">Previous</button>
-                        <span>Page ${this.alertsPage + 1} of ${totalPages || 1}</span>
-                        <button class="btn btn-small" 
-                                ?disabled="${(this.alertsPage + 1) * pageSize >= this.alertsTotal}"
-                                @click="${() => this.changePage(1)}">Next</button>
+                        ${this.ongoingAlerts.map(alert => this.renderOngoingAlert(alert))}
                     </div>
                 `}
+            </section>
+        `;
+    }
+
+    renderOngoingAlert(alert) {
+        return html`
+            <div class="alert-card">
+                <div class="alert-header">
+                    <div class="alert-title">
+                        <span class="alert-name">${alert.AlertName}</span>
+                        <span class="alert-time">${this.formatTimeAgo(alert.LastUpdatedAt)}</span>
+                    </div>
+                </div>
+                <div class="alert-message">${alert.Message}</div>
+                <div class="alert-meta">
+                    Created At: ${this.formatDate(alert.CreatedAt)} |
+                    Last Updated At: ${this.formatDate(alert.LastUpdatedAt)}
+                </div>
             </div>
         `;
     }
@@ -570,6 +654,7 @@ class AlertsManage extends StyledLitElement {
                         <li><strong>ChainSync</strong> - Chain synchronization status</li>
                         <li><strong>MissingSectors</strong> - Missing sector data</li>
                         <li><strong>PendingMessages</strong> - Stuck messages</li>
+                        <li><strong>Others</strong> - Other issues</li>
                     </ul>
                 </div>
             </div>
@@ -641,6 +726,23 @@ AlertsManage.styles = css`
         padding: 40px;
         color: #aaa;
     }
+    .empty-state.compact {
+        padding: 15px;
+        text-align: left;
+    }
+    .ongoing-alerts {
+        margin-bottom: 25px;
+    }
+    .section-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 10px;
+    }
+    .section-header h3 {
+        margin: 0;
+        font-size: 1.1em;
+    }
     .alert-list {
         display: flex;
         flex-direction: column;
@@ -655,6 +757,9 @@ AlertsManage.styles = css`
     .alert-card.acknowledged {
         border-left-color: #4BB543;
         opacity: 0.7;
+    }
+    .alert-card.ongoing-alert-card {
+        border-left-color: #FFC107;
     }
     .alert-header {
         display: flex;

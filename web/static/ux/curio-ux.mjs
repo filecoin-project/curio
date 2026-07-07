@@ -182,7 +182,7 @@ class CurioUX extends LitElement {
 
   async loadAlertStatus() {
     try {
-      const count = await RPCCall('AlertUnacknowledgedCount');
+      const count = await RPCCall('AlertTotalCount');
       this.alertCount = count || 0;
     } catch (e) {
       // Silently fail - alerts endpoint may not exist yet

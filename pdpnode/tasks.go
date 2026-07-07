@@ -107,7 +107,7 @@ func buildPDPTasks(ctx context.Context, d *Deps, chainSched *chainsched.CurioCha
 	)
 
 	if pdponly {
-		amTask := alertmanager.NewAlertTask(d.Chain, db, cfg.Alerting, d.Al)
+		amTask := alertmanager.NewAlertTask(d.Chain, db, cfg.Alerting)
 		tasks = append(tasks, amTask, gc.NewPieceCleanupTask(db, d.IndexStore))
 		return &pdpTaskBundle{
 			tasks:     tasks,

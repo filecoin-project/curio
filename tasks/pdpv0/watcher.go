@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/filecoin-project/curio/alertmanager/curioalerting"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/chainsched"
 	"github.com/filecoin-project/curio/lib/ethchain"
-	"github.com/filecoin-project/curio/lib/paths/alertinginterface"
 
 	chainTypes "github.com/filecoin-project/lotus/chain/types"
 )
@@ -41,7 +41,7 @@ type Watcher struct {
 	db       *harmonydb.DB
 	eth      ethchain.EthClient
 	pcs      *chainsched.CurioChainSched
-	al       alertinginterface.AlertingInterface
+	al       curioalerting.AlertingInterface
 	chain    chan *tipset
 	watchers map[WatcherOrder][]update
 	started  bool
@@ -53,9 +53,9 @@ type tipset struct {
 	apply  *chainTypes.TipSet
 }
 
-type update func(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, al alertinginterface.AlertingInterface, revert, apply *chainTypes.TipSet)
+type update func(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, al curioalerting.AlertingInterface, revert, apply *chainTypes.TipSet)
 
-func NewPDPv0Watcher(db *harmonydb.DB, ethClient ethchain.EthClient, pcs *chainsched.CurioChainSched, al alertinginterface.AlertingInterface) *Watcher {
+func NewPDPv0Watcher(db *harmonydb.DB, ethClient ethchain.EthClient, pcs *chainsched.CurioChainSched, al curioalerting.AlertingInterface) *Watcher {
 	w := &Watcher{
 		db:       db,
 		eth:      ethClient,
