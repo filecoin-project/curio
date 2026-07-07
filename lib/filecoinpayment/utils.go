@@ -6,6 +6,8 @@ import (
 	"math/big"
 	"strings"
 
+	"github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -15,6 +17,7 @@ import (
 
 	"github.com/filecoin-project/go-state-types/builtin"
 
+	"github.com/filecoin-project/curio/alertmanager/curioalerting"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/pdp/contract"
@@ -23,7 +26,7 @@ import (
 
 var log = logging.Logger("filecoin-pay")
 
-func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, sender *message.SenderETH, from common.Address, payees []common.Address, operators []common.Address) error {
+func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, sender *message.SenderETH, from common.Address, payees []common.Address, operators []common.Address, al curioalerting.AlertingInterface, system, subsystem string) error {
 	paymentContractAddr, err := PaymentContractAddress()
 	if err != nil {
 		return fmt.Errorf("failed to get payment contract address: %w", err)
@@ -65,7 +68,12 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchai
 
 	}
 
-	var toSettle []*big.Int
+	type toSettleRail struct {
+		railId      *big.Int
+		settledUpTo *big.Int
+	}
+
+	var toSettle []toSettleRail
 	for _, rail := range railIds {
 		view, err := payment.GetRail(&bind.CallOpts{Context: ctx}, rail)
 		if err != nil {
@@ -80,7 +88,10 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchai
 		// If rail is terminated but not settled yet, settle it
 		if view.EndEpoch.Int64() > 0 {
 			if view.SettledUpTo.Cmp(view.EndEpoch) == -1 {
-				toSettle = append(toSettle, rail)
+				toSettle = append(toSettle, toSettleRail{
+					railId:      rail,
+					settledUpTo: view.SettledUpTo,
+				})
 			}
 		} else {
 			// could be a constant, or a config variable this is the important tunable
@@ -90,7 +101,10 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchai
 			if gracedLockup.Sign() <= 0 {
 				// special case, lockup period is <= 1 day so settle every run
 				// alternatively adjust the grace down from a day to something smaller
-				toSettle = append(toSettle, rail)
+				toSettle = append(toSettle, toSettleRail{
+					railId:      rail,
+					settledUpTo: view.SettledUpTo,
+				})
 				continue
 			} else if gracedLockup.Cmp(settleInterval) < 0 {
 				settleInterval = gracedLockup
@@ -98,7 +112,9 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchai
 
 			nextSettle := new(big.Int).Add(view.SettledUpTo, settleInterval)
 			if nextSettle.Uint64() < current {
-				toSettle = append(toSettle, rail)
+				toSettle = append(toSettle, toSettleRail{
+					settledUpTo: view.SettledUpTo,
+					railId:      rail})
 			}
 		}
 	}
@@ -110,9 +126,25 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchai
 		return xerrors.Errorf("failed to get Payments ABI: %w", err)
 	}
 
-	transactionsToSend := make(map[*types.Transaction][]int64)
-	for _, id := range toSettle {
-		data, err := pabi.Pack("settleRail", id, big.NewInt(int64(current)))
+	type settleRailTx struct {
+		rail int64
+		upTo int64
+	}
+
+	transactionsToSend := make(map[*types.Transaction]settleRailTx)
+	for _, detail := range toSettle {
+		settleUpTo, err := calculateSettleUpTo(ctx, pabi, &paymentContractAddr, ethClient, detail.railId, from, detail.settledUpTo, big.NewInt(int64(current)))
+		if err != nil {
+			log.Errorf("failed to gas estimate settle transaction: %s", err)
+			_ = al.EmitEvent(ctx, curioalerting.AlertEvent{
+				System:    system,
+				Subsystem: subsystem,
+				Message:   fmt.Sprintf("failed to gas estimate settle transaction: %s", err.Error()),
+			})
+			continue
+		}
+
+		data, err := pabi.Pack("settleRail", detail.railId, big.NewInt(settleUpTo))
 		if err != nil {
 			return xerrors.Errorf("failed to pack data: %w", err)
 		}
@@ -127,18 +159,26 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchai
 			Data:     data,
 		})
 
-		transactionsToSend[txEth] = []int64{id.Int64()}
+		transactionsToSend[txEth] = settleRailTx{
+			rail: detail.railId.Int64(),
+			upTo: settleUpTo,
+		}
 	}
 
-	for txToSend, railIDs := range transactionsToSend {
+	for txToSend, details := range transactionsToSend {
 		txHash, err := sender.Send(ctx, from, txToSend, "settleRail")
 		if err != nil {
-			log.Errorw("failed to send settle transaction", "railIDs", railIDs, "error", err)
+			log.Errorw("failed to send settle transaction", "railIDs", details.rail, "settleUpTo", details.upTo, "error", err)
+			_ = al.EmitEvent(ctx, curioalerting.AlertEvent{
+				System:    system,
+				Subsystem: subsystem,
+				Message:   fmt.Sprintf("failed to send settle transaction: %s", err.Error()),
+			})
 			continue
 		}
 
 		txHashHex := strings.ToLower(txHash.Hex())
-		log.Infow("sent settle transaction", "txHash", txHashHex, "railIDs", railIDs)
+		log.Infow("sent settle transaction", "txHash", txHashHex, "railIDs", details.rail, "settleUpTo", details.upTo)
 
 		// Insert into message_waits_eth and filecoin_payment_transactions atomically
 		committed, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
@@ -152,7 +192,7 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchai
 			}
 
 			// Insert into filecoin_payment_transactions
-			n, err = tx.Exec(`INSERT INTO filecoin_payment_transactions (tx_hash, rail_ids) VALUES ($1, $2)`, txHashHex, railIDs)
+			n, err = tx.Exec(`INSERT INTO filecoin_payment_transactions (tx_hash, rail_ids) VALUES ($1, $2)`, txHashHex, []int64{details.rail})
 			if err != nil {
 				return false, xerrors.Errorf("failed to insert into filecoin_payment_transactions: %w", err)
 			}
@@ -171,4 +211,45 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchai
 	}
 
 	return nil
+}
+
+func calculateSettleUpTo(ctx context.Context, pabi *abi.ABI, paymentContractAddr *common.Address, ethClient ethchain.EthClient, id *big.Int, from common.Address, settledUpTo, currentEpoch *big.Int) (int64, error) {
+	next := currentEpoch
+	for {
+		data, err := pabi.Pack("settleRail", id, next)
+		if err != nil {
+			return 0, xerrors.Errorf("failed to pack data: %w", err)
+		}
+
+		_, err = ethClient.EstimateGas(ctx, ethereum.CallMsg{
+			From:  from,
+			To:    paymentContractAddr,
+			Value: big.NewInt(0),
+			Data:  data,
+		})
+
+		if err != nil {
+			if isGasEstimateOutOfGas(err) {
+				delta := big.NewInt(0).Sub(next, settledUpTo)
+				halfDelta := big.NewInt(0).Div(delta, big.NewInt(2))
+				next = big.NewInt(0).Add(settledUpTo, halfDelta)
+				if next.Cmp(settledUpTo) <= 0 {
+					return 0, xerrors.Errorf("failed to estimate gas: %w", err)
+				}
+				continue
+			}
+			return 0, xerrors.Errorf("failed to estimate gas: %w", err)
+		}
+
+		return next.Int64(), nil
+	}
+}
+
+func isGasEstimateOutOfGas(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := strings.ToLower(err.Error())
+	return strings.Contains(errStr, "call ran out of gas") ||
+		strings.Contains(errStr, "out of gas (7)")
 }

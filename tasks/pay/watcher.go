@@ -227,6 +227,7 @@ func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthC
 					return false, xerrors.Errorf("failed to ensure service termination for defaulting rail: %w", err)
 				}
 			}
+
 		}
 
 		// Delete the settle message from the DB
