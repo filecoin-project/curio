@@ -12,7 +12,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	logging "github.com/ipfs/go-log/v2"
-	"github.com/samber/lo"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-state-types/builtin"
@@ -26,12 +25,17 @@ import (
 
 var log = logging.Logger("filecoin-pay")
 
+// SettleTargetResolver returns the highest epoch a rail should settle to.
+// ok=false means the rail is valid but should not be settled in this pass.
+// Implementation must ensure that PaymentsRailView is not mutated
+type SettleTargetResolver func(ctx context.Context, railID *big.Int, rail PaymentsRailView, currentEpoch *big.Int) (target *big.Int, ok bool, err error)
+
 // gasOverestimation is applied on top of the eth_estimateGas result when
 // sending settleRail transactions, since it has been observed to fall short
 // at execution time and burn the whole gas limit.
 const gasOverestimation = 1.1
 
-func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, sender *message.SenderETH, from common.Address, payees []common.Address, operators []common.Address, al curioalerting.AlertingInterface, system, subsystem string) error {
+func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, sender *message.SenderETH, from common.Address, payees []common.Address, resolvers map[common.Address]SettleTargetResolver, al curioalerting.AlertingInterface, system, subsystem string) error {
 	paymentContractAddr, err := PaymentContractAddress()
 	if err != nil {
 		return fmt.Errorf("failed to get payment contract address: %w", err)
@@ -76,27 +80,27 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchai
 	type toSettleRail struct {
 		railId      *big.Int
 		settledUpTo *big.Int
+		target      *big.Int
 	}
 
 	var toSettle []toSettleRail
+	currentEpoch := new(big.Int).SetUint64(current)
 	for _, rail := range railIds {
+		railID := new(big.Int).Set(rail)
 		view, err := payment.GetRail(&bind.CallOpts{Context: ctx}, rail)
 		if err != nil {
 			return xerrors.Errorf("failed to get rail: %w", err)
 		}
 
-		// Let's only settle rail if it's our operator i.e., PDP related operator
-		if !lo.Contains(operators, view.Operator) {
+		resolver, ok := resolvers[view.Operator]
+		if !ok {
 			continue
 		}
 
-		// If rail is terminated but not settled yet, settle it
+		shouldSettle := false
 		if view.EndEpoch.Int64() > 0 {
 			if view.SettledUpTo.Cmp(view.EndEpoch) == -1 {
-				toSettle = append(toSettle, toSettleRail{
-					railId:      rail,
-					settledUpTo: view.SettledUpTo,
-				})
+				shouldSettle = true
 			}
 		} else {
 			// could be a constant, or a config variable this is the important tunable
@@ -106,22 +110,42 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchai
 			if gracedLockup.Sign() <= 0 {
 				// special case, lockup period is <= 1 day so settle every run
 				// alternatively adjust the grace down from a day to something smaller
-				toSettle = append(toSettle, toSettleRail{
-					railId:      rail,
-					settledUpTo: view.SettledUpTo,
-				})
-				continue
+				shouldSettle = true
 			} else if gracedLockup.Cmp(settleInterval) < 0 {
 				settleInterval = gracedLockup
 			}
 
-			nextSettle := new(big.Int).Add(view.SettledUpTo, settleInterval)
-			if nextSettle.Uint64() < current {
-				toSettle = append(toSettle, toSettleRail{
-					settledUpTo: view.SettledUpTo,
-					railId:      rail})
+			if !shouldSettle {
+				nextSettle := new(big.Int).Add(view.SettledUpTo, settleInterval)
+				if nextSettle.Uint64() < current {
+					shouldSettle = true
+				}
 			}
 		}
+
+		if !shouldSettle {
+			continue
+		}
+
+		target, ok, err := resolver(ctx, railID, view, new(big.Int).Set(currentEpoch))
+		if err != nil {
+			log.Errorw("failed to resolve settle target", "railID", railID.String(), "operator", view.Operator, "error", err)
+			_ = al.EmitEvent(ctx, curioalerting.AlertEvent{
+				System:    system,
+				Subsystem: subsystem,
+				Message:   fmt.Sprintf("failed to resolve settle target for rail %s: %s", railID.String(), err.Error()),
+			})
+			continue
+		}
+		if !ok || target == nil || target.Cmp(view.SettledUpTo) <= 0 {
+			continue
+		}
+
+		toSettle = append(toSettle, toSettleRail{
+			railId:      railID,
+			settledUpTo: new(big.Int).Set(view.SettledUpTo),
+			target:      new(big.Int).Set(target),
+		})
 	}
 
 	log.Debugw("Total number of rails to be settled", "total", len(railIds), "rails", railIds)
@@ -138,7 +162,7 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchai
 
 	transactionsToSend := make(map[*types.Transaction]settleRailTx)
 	for _, detail := range toSettle {
-		settleUpTo, err := calculateSettleUpTo(ctx, pabi, &paymentContractAddr, ethClient, detail.railId, from, detail.settledUpTo, big.NewInt(int64(current)))
+		settleUpTo, err := calculateSettleUpTo(ctx, pabi, &paymentContractAddr, ethClient, detail.railId, from, detail.settledUpTo, detail.target)
 		if err != nil {
 			log.Errorf("failed to gas estimate settle transaction: %s", err)
 			_ = al.EmitEvent(ctx, curioalerting.AlertEvent{
@@ -218,8 +242,10 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchai
 	return nil
 }
 
-func calculateSettleUpTo(ctx context.Context, pabi *abi.ABI, paymentContractAddr *common.Address, ethClient ethchain.EthClient, id *big.Int, from common.Address, settledUpTo, currentEpoch *big.Int) (int64, error) {
-	next := currentEpoch
+// calculateSettleUpTo starts from the resolver-provided semantic target and
+// only lowers it when gas estimation shows the settlement would run out of gas.
+func calculateSettleUpTo(ctx context.Context, pabi *abi.ABI, paymentContractAddr *common.Address, ethClient ethchain.EthClient, id *big.Int, from common.Address, settledUpTo, targetEpoch *big.Int) (int64, error) {
+	next := new(big.Int).Set(targetEpoch)
 	for {
 		data, err := pabi.Pack("settleRail", id, next)
 		if err != nil {

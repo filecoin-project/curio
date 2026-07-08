@@ -16,6 +16,7 @@ import (
 	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/lib/filecoinpayment"
 	"github.com/filecoin-project/curio/pdp/contract"
+	"github.com/filecoin-project/curio/pdp/contract/FWSS"
 	"github.com/filecoin-project/curio/tasks/message"
 	"github.com/filecoin-project/curio/tasks/tasknames"
 )
@@ -82,8 +83,14 @@ func (s *SettleTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 	payee := provider.Info.Payee
 
 	serviceAddr := contract.ContractAddresses().AllowedPublicRecordKeepers.FWSService
+	resolver, err := FWSS.SettleTargetResolver(ctx, s.ethClient)
+	if err != nil {
+		return false, fmt.Errorf("failed to create FWSS settle target resolver: %w", err)
+	}
 
-	err = filecoinpayment.SettleLockupPeriod(ctx, s.db, s.ethClient, s.sender, opAddr, []common.Address{payee}, []common.Address{serviceAddr}, s.al, alertType, alertName)
+	err = filecoinpayment.SettleLockupPeriod(ctx, s.db, s.ethClient, s.sender, opAddr, []common.Address{payee}, map[common.Address]filecoinpayment.SettleTargetResolver{
+		serviceAddr: resolver,
+	}, s.al, alertType, alertName)
 	if err != nil {
 		return false, fmt.Errorf("failed to settle lockup period: %w", err)
 	}
