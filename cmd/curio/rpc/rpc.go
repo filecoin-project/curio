@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net"
 	"net/http"
 	"net/url"
@@ -494,23 +495,13 @@ func ListenAndServe(ctx context.Context, dependencies *deps.Deps, shutdownChan c
 	eg := errgroup.Group{}
 	eg.Go(srv.ListenAndServe)
 
+	var webSrv *http.Server
 	if dependencies.Cfg.Subsystems.EnableWebGui {
-		web, err := web.GetSrv(ctx, dependencies, false)
+		var err error
+		webSrv, err = web.GetSrv(ctx, dependencies, false)
 		if err != nil {
 			return err
 		}
-
-		go func() {
-			<-ctx.Done()
-			log.Warn("Shutting down...")
-			if err := srv.Shutdown(context.TODO()); err != nil {
-				log.Errorf("shutting down RPC server failed: %s", err)
-			}
-			if err := web.Shutdown(context.Background()); err != nil {
-				log.Errorf("shutting down web server failed: %s", err)
-			}
-			log.Warn("Graceful shutdown successful")
-		}()
 
 		uiAddress := dependencies.Cfg.Subsystems.GuiAddress
 		if uiAddress == "" || uiAddress[0] == ':' || uiAddress == "0.0.0.0:4701" {
@@ -521,9 +512,30 @@ func ListenAndServe(ctx context.Context, dependencies *deps.Deps, shutdownChan c
 		}
 
 		log.Infof("GUI:  http://%s", uiAddress)
-		eg.Go(web.ListenAndServe)
+		eg.Go(webSrv.ListenAndServe)
 	}
-	return eg.Wait()
+
+	go func() {
+		<-ctx.Done()
+		log.Warn("Shutting down...")
+		if err := srv.Shutdown(context.TODO()); err != nil {
+			log.Errorf("shutting down RPC server failed: %s", err)
+		}
+		if webSrv != nil {
+			if err := webSrv.Shutdown(context.Background()); err != nil {
+				log.Errorf("shutting down web server failed: %s", err)
+			}
+		}
+		log.Warn("Graceful shutdown successful")
+	}()
+
+	if err := eg.Wait(); err != nil {
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 func GetCurioAPI(ctx *cli.Context) (api.Curio, jsonrpc.ClientCloser, error) {
