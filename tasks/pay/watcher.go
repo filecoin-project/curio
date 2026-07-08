@@ -23,8 +23,9 @@ import (
 )
 
 const (
-	alertName = "FilecoinPay"
-	alertType = "Settlements"
+	alertName                     = "FilecoinPay"
+	alertType                     = "Settlements"
+	temporaryDefaultGraceInEpochs = 30 * builtin.EpochsInDay
 )
 
 type settled struct {
@@ -215,10 +216,9 @@ func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthC
 				}
 			}
 
-			// For live rails, check if we are fully unsettled 1 day before the lockup period ends.
-			// If so assume payer is in default and schedule deletion
+			// For live rails, allow a temporary 30 day grace beyond the lockup period.
 			threshold := big.NewInt(0).Add(view.SettledUpTo, view.LockupPeriod)
-			thresholdWithGrace := big.NewInt(0).Sub(threshold, big.NewInt(builtin.EpochsInDay))
+			thresholdWithGrace := big.NewInt(0).Add(threshold, big.NewInt(temporaryDefaultGraceInEpochs))
 
 			if thresholdWithGrace.Uint64() < current {
 				log.Infow("Rail soon to default, terminating dataSet", "dataSetId", dataSet.Int64(), "railId", railId, "settleTxHash", settle.Hash)

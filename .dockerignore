@@ -2,10 +2,6 @@
 # - full curio/devnet: `git submodule update --init` restores filecoin-ffi
 # - skiff: sparse-clones filecoin-ffi default branch (Go module stubs only, no rust/)
 
-.git
-**/.git
-
-extern/filecoin-ffi
 extern/supraseal
 
 docker/data
