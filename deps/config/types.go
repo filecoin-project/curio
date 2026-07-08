@@ -756,16 +756,14 @@ type SlackWebhookConfig struct {
 }
 
 type AppriseConfig struct {
-	// Enable is a flag to enable or disable the Apprise integration.
-	Enable bool
-
-	// APIURL is the notify endpoint of a running Apprise API server (https://github.com/caronc/apprise-api).
+	// URL is the notify endpoint of a running Apprise API server (https://github.com/caronc/apprise-api).
 	// Either its stateless endpoint (e.g. "http://127.0.0.1:8000/notify", use with NotifyURLs) or a
 	// stateful, pre-configured endpoint (e.g. "http://127.0.0.1:8000/notify/curio", leave NotifyURLs empty).
-	APIURL string
+	// Leave empty to disable the Apprise integration.
+	URL string
 
 	// NotifyURLs is a list of Apprise notification URLs (e.g. "tgram://bottoken/ChatID", "discord://webhook_id/webhook_token").
-	// Required when APIURL is a stateless /notify endpoint; leave empty for a stateful /notify/<config-key> endpoint.
+	// Required when URL is a stateless /notify endpoint; leave empty for a stateful /notify/<config-key> endpoint.
 	NotifyURLs []string
 
 	// Tag restricts delivery to Apprise URLs carrying this tag. Only applies to stateful configs. OPTIONAL.

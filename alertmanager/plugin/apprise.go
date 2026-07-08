@@ -23,20 +23,6 @@ func NewApprise(cfg config.AppriseConfig) Plugin {
 	return &Apprise{cfg: cfg}
 }
 
-// appriseNotifyType maps a curio alert severity onto one of Apprise's notification types.
-func appriseNotifyType(severity string) string {
-	switch strings.ToLower(severity) {
-	case "critical", "error":
-		return "failure"
-	case "warning":
-		return "warning"
-	case "info":
-		return "info"
-	default:
-		return "warning"
-	}
-}
-
 // SendAlert posts to an Apprise API server (https://github.com/caronc/apprise-api), either its
 // stateless /notify endpoint (NotifyURLs required) or a stateful /notify/<key> endpoint (NotifyURLs
 // left empty).
@@ -53,7 +39,7 @@ func (p *Apprise) SendAlert(data *AlertPayload) error {
 	payload := map[string]any{
 		"title":  data.Summary,
 		"body":   strings.TrimSpace(body.String()),
-		"type":   appriseNotifyType(data.Severity),
+		"type":   "failure",
 		"format": "markdown",
 	}
 	if len(p.cfg.NotifyURLs) > 0 {
@@ -68,7 +54,7 @@ func (p *Apprise) SendAlert(data *AlertPayload) error {
 		return xerrors.Errorf("error marshaling JSON: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", p.cfg.APIURL, bytes.NewBuffer(jsonData))
+	req, err := http.NewRequest("POST", p.cfg.URL, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("error creating request: %w", err)
 	}
@@ -92,7 +78,7 @@ func (p *Apprise) SendAlert(data *AlertPayload) error {
 			case http.StatusNoContent:
 				// 204 means the config key has no persisted URLs - a config error, not success.
 				time.Sleep(time.Duration(2*index) * duration) // Exponential backoff
-				return xerrors.Errorf("no Apprise configuration found for the given key (APIURL / config key is likely wrong)")
+				return xerrors.Errorf("no Apprise configuration found for the given key (URL / config key is likely wrong)")
 			default:
 				errBody, rerr := io.ReadAll(resp.Body)
 				if rerr != nil {
