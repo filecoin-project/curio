@@ -248,6 +248,7 @@ type FSPDPOffering struct {
 	MinProvingPeriodInEpochs int64  `json:"min_proving_period"`
 	Location                 string `json:"location"`
 	PaymentTokenAddress      string `json:"payment_token_address"`
+	CapacityTiB              int64  `json:"capacity_tib"`
 }
 
 // capabilitiesToOffering converts contract capabilities to FSPDPOffering and remaining custom capabilities
@@ -282,6 +283,8 @@ func capabilitiesToOffering(keys []string, values [][]byte) (*FSPDPOffering, map
 			offering.Location = string(value)
 		case contract.CapPaymentToken:
 			offering.PaymentTokenAddress = contract.DecodeAddressCapability(value).Hex()
+		case contract.CapCapacityTiB:
+			offering.CapacityTiB = new(big.Int).SetBytes(value).Int64()
 		default:
 			// Custom capability - encode for safe round-trip through JSON/browser
 			customCaps[key] = contract.EncodeCapabilityForDisplay(value)
@@ -378,7 +381,7 @@ func (a *WebRPC) FSRegistryStatus(ctx context.Context) (*FSRegistryStatus, error
 	}, nil
 }
 
-func (a *WebRPC) FSRegister(ctx context.Context, name, description, location string) error {
+func (a *WebRPC) FSRegister(ctx context.Context, name, description, location string, capacityTiB int64) error {
 	if name == "" {
 		return fmt.Errorf("name cannot be empty")
 	}
@@ -396,6 +399,10 @@ func (a *WebRPC) FSRegister(ctx context.Context, name, description, location str
 
 	if len(location) > 128 {
 		return xerrors.Errorf("location must be less than 128 characters")
+	}
+
+	if capacityTiB <= 0 {
+		return xerrors.Errorf("storage capacity must be greater than 0 TiB")
 	}
 
 	pdpAddress, err := a.getPDPAddress(ctx)
@@ -460,6 +467,7 @@ func (a *WebRPC) FSRegister(ctx context.Context, name, description, location str
 		MinProvingPeriodInEpochs: big.NewInt(1440),              // 12 hours
 		Location:                 location,
 		PaymentTokenAddress:      tokenAddress,
+		CapacityTiB:              big.NewInt(capacityTiB),
 	}
 
 	err = contract.FSRegister(ctx, a.Deps.DB, a.Deps.Chain, eclient, name, description, offering, nil)
@@ -561,6 +569,10 @@ func (a *WebRPC) FSUpdatePDP(ctx context.Context, pdpOffering *FSPDPOffering, ca
 		return fmt.Errorf("location cannot be longer than 128 characters")
 	}
 
+	if pdpOffering.CapacityTiB <= 0 {
+		return fmt.Errorf("storage capacity must be greater than 0 TiB")
+	}
+
 	var peerID peer.ID
 	if pdpOffering.IpniIpfs || pdpOffering.IpniPiece {
 		_, err := a.Deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
@@ -604,6 +616,11 @@ func (a *WebRPC) FSUpdatePDP(ctx context.Context, pdpOffering *FSPDPOffering, ca
 		return xerrors.Errorf("provider is not registered")
 	}
 
+	tokenAddress, err := contract.USDFCAddress()
+	if err != nil {
+		return xerrors.Errorf("failed to get USDFC address: %w", err)
+	}
+
 	offering := contract.PDPOfferingData{
 		ServiceURL:               pdpOffering.ServiceURL,
 		MinPieceSizeInBytes:      big.NewInt(pdpOffering.MinPieceSizeInBytes),
@@ -614,7 +631,8 @@ func (a *WebRPC) FSUpdatePDP(ctx context.Context, pdpOffering *FSPDPOffering, ca
 		StoragePricePerTibPerDay: big.NewInt(pdpOffering.StoragePricePerTibPerDay),
 		MinProvingPeriodInEpochs: big.NewInt(pdpOffering.MinProvingPeriodInEpochs),
 		Location:                 pdpOffering.Location,
-		PaymentTokenAddress:      common.HexToAddress("0x0000000000000000000000000000000000000000"),
+		PaymentTokenAddress:      tokenAddress,
+		CapacityTiB:              big.NewInt(pdpOffering.CapacityTiB),
 	}
 
 	hash, err := contract.FSUpdatePDPService(ctx, a.Deps.DB, eclient, offering, capabilities)

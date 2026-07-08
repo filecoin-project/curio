@@ -17,6 +17,7 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
         name: { type: String },
         description: { type: String },
         location: { type: String },
+        capacityTiB: { type: Number },
 
         // PDP update state
         pdpServiceURL: { type: String },
@@ -27,6 +28,7 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
         pdpPrice: { type: Number },
         pdpMinProvingPeriod: { type: Number },
         pdpLocation: { type: String },
+        pdpCapacityTiB: { type: Number },
 
         // deregister confirmation input
         deregisterConfirmation: { type: String },
@@ -94,6 +96,7 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
         this.name = '';
         this.description = '';
         this.location = '';
+        this.capacityTiB = 0;
 
         // PDP update state
         this.pdpServiceURL = '';
@@ -104,6 +107,7 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
         this.pdpPrice = 0;
         this.pdpMinProvingPeriod = 0;
         this.pdpLocation = '';
+        this.pdpCapacityTiB = 0;
 
         this.capabilities = {};
 
@@ -150,6 +154,7 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
         this.name = '';
         this.description = '';
         this.location = '';
+        this.capacityTiB = 0;
         this.showRegisterModal = true;
     }
     closeRegister() { this.showRegisterModal = false; }
@@ -159,9 +164,10 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
         const name = this.name.trim();
         const description = this.description.trim();
         const location = this.location.trim();
+        const capacityTiB = parseInt(this.capacityTiB, 10);
 
         if (!name || !description || !location) {
-            alert('Please fill all fields (name, description, location).');
+            alert('Please fill all fields (name, description, location, storage capacity).');
             return;
         }
 
@@ -170,8 +176,13 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
             return;
         }
 
+        if (!Number.isFinite(capacityTiB) || capacityTiB <= 0) {
+            alert('Storage capacity must be a positive number of TiB.');
+            return;
+        }
+
         try {
-            await RPCCall('FSRegister', [name, description, location]);
+            await RPCCall('FSRegister', [name, description, location, capacityTiB]);
             this.showRegisterModal = false;
             await this.loadStatus();
             alert('Provider registered successfully. Please wait for the 5 epochs to see the updated status.');
@@ -270,6 +281,7 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
         this.pdpPrice = pdp.price || 0;
         this.pdpMinProvingPeriod = pdp.min_proving_period || 0;
         this.pdpLocation = pdp.location || '';
+        this.pdpCapacityTiB = pdp.capacity_tib || 0;
         this.capabilities = this.status?.capabilities || {};
         this.showUpdatePDPModal = true;
     }
@@ -297,6 +309,7 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
             price: parseInt(this.pdpPrice, 10),
             min_proving_period: parseInt(this.pdpMinProvingPeriod, 10),
             location: this.pdpLocation.trim(),
+            capacity_tib: parseInt(this.pdpCapacityTiB, 10),
         };
 
         // Validate location format
@@ -307,7 +320,8 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
 
         // Validate fields
         if (!pdpOffering.service_url || !pdpOffering.location ||
-            pdpOffering.min_size <= 0 || pdpOffering.max_size <= 0 || pdpOffering.price < 0 || pdpOffering.min_proving_period <= 0) {
+            pdpOffering.min_size <= 0 || pdpOffering.max_size <= 0 || pdpOffering.price < 0 || pdpOffering.min_proving_period <= 0 ||
+            !Number.isFinite(pdpOffering.capacity_tib) || pdpOffering.capacity_tib <= 0) {
             alert('Please provide all required fields with valid data.');
             return;
         }
@@ -354,6 +368,7 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
                 ${this.renderKV('Price (per TiB per day)', this.unitsToUSDFCPerTiBPerDay(pdp.price))}
                 ${this.renderKV('Price (per TiB per month)', (parseFloat(this.unitsToUSDFCPerTiBPerDay(pdp.price)) * 30).toFixed(4))}
                 ${this.renderKV('Min Proving Period (epochs)', pdp.min_proving_period)}
+                ${this.renderKV('Storage Capacity (TiB)', pdp.capacity_tib)}
                 ${this.renderKV('Location', pdp.location)}
                 ${this.renderKV('Capabilities', this.renderCapabilities(capabilities))}
                 </tbody>
@@ -472,6 +487,11 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
                                                @input=${e=>this.location=e.target.value} required />
                                         <div class="form-text text-warning">Location must be in format "C=US;ST=California;L=San Francisco"</div>
                                     </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Storage Capacity (TiB)</label>
+                                        <input class="form-control" type="number" .value=${this.capacityTiB}
+                                               @input=${e=>this.capacityTiB=e.target.value} required />
+                                    </div>
                                 </div>
                                 <div class="modal-footer">
                                     <button type="button" class="btn btn-secondary" @click=${this.closeRegister}>Cancel</button>
@@ -538,6 +558,16 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
                                                 required
                                         />
                                         <div class="form-text text-warning">Location must be in format "C=US;ST=California;L=San Francisco"</div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Storage Capacity (TiB)</label>
+                                        <input
+                                                class="form-control"
+                                                type="number"
+                                                .value=${this.pdpCapacityTiB}
+                                                @input=${e => this.pdpCapacityTiB = e.target.value}
+                                                required
+                                        />
                                     </div>
                                 </div>
                                 <div class="mb-3">
