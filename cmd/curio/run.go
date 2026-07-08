@@ -100,17 +100,19 @@ var runCmd = &cli.Command{
 			}
 		}
 
-		ctx := cctx.Context
+		var ctx context.Context
 		shutdownChan := make(chan struct{})
 		var ctxclose func()
 		{
-			ctx, ctxclose = context.WithCancel(ctx)
+			ctx, ctxclose = context.WithCancel(context.Background())
 			go func() {
 				<-shutdownChan
 				ctxclose()
 			}()
 		}
 		defer ctxclose()
+		// Close the app level shutdown handler
+		cmdShutdownChan <- struct{}{}
 		finishCh := shutdown.MonitorShutdown(shutdownChan, shutdown.ShutdownHandler{
 			Component: "curio",
 			StopFunc: func(context.Context) error {
@@ -146,20 +148,17 @@ var runCmd = &cli.Command{
 		}
 		defer taskEngine.GracefullyTerminate()
 
-		errCh := make(chan error, 1)
-		go func() {
-			errCh <- rpc.ListenAndServe(ctx, dependencies, shutdownChan) // Monitor for shutdown.
-		}()
-
-		select {
-		case err := <-errCh:
+		err = rpc.ListenAndServe(ctx, dependencies, shutdownChan) // Monitor for shutdown.
+		if err != nil {
 			if ctx.Err() != nil {
+				<-finishCh
 				return nil
 			}
 			return err
-		case <-finishCh:
-			return nil
 		}
+
+		<-finishCh
+		return nil
 	},
 }
 

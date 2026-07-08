@@ -11,7 +11,7 @@ import (
 
 // Run starts the PDP node until shutdown.
 func Run(cctx *cli.Context) error {
-	ctx, ctxclose := context.WithCancel(cctx.Context)
+	ctx, ctxclose := context.WithCancel(context.Background())
 	defer ctxclose()
 
 	skiffDockerLog("starting")
