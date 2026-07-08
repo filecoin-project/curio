@@ -164,11 +164,11 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchai
 	for _, detail := range toSettle {
 		settleUpTo, err := calculateSettleUpTo(ctx, pabi, &paymentContractAddr, ethClient, detail.railId, from, detail.settledUpTo, detail.target)
 		if err != nil {
-			log.Errorf("failed to gas estimate settle transaction: %s", err)
+			log.Errorf("failed to gas estimate settle transaction for rail %s: %s", detail.railId.String(), err.Error())
 			_ = al.EmitEvent(ctx, curioalerting.AlertEvent{
 				System:    system,
 				Subsystem: subsystem,
-				Message:   fmt.Sprintf("failed to gas estimate settle transaction: %s", err.Error()),
+				Message:   fmt.Sprintf("failed to gas estimate settle transaction for rail %s: %s", detail.railId.String(), err.Error()),
 			})
 			continue
 		}
@@ -201,7 +201,7 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchai
 			_ = al.EmitEvent(ctx, curioalerting.AlertEvent{
 				System:    system,
 				Subsystem: subsystem,
-				Message:   fmt.Sprintf("failed to send settle transaction: %s", err.Error()),
+				Message:   fmt.Sprintf("failed to send settle transaction for railID %d: %s", details.rail, err.Error()),
 			})
 			continue
 		}
