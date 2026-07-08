@@ -146,13 +146,20 @@ var runCmd = &cli.Command{
 		}
 		defer taskEngine.GracefullyTerminate()
 
-		err = rpc.ListenAndServe(ctx, dependencies, shutdownChan) // Monitor for shutdown.
-		if err != nil {
-			return err
-		}
+		errCh := make(chan error, 1)
+		go func() {
+			errCh <- rpc.ListenAndServe(ctx, dependencies, shutdownChan) // Monitor for shutdown.
+		}()
 
-		<-finishCh
-		return nil
+		select {
+		case err := <-errCh:
+			if ctx.Err() != nil {
+				return nil
+			}
+			return err
+		case <-finishCh:
+			return nil
+		}
 	},
 }
 
