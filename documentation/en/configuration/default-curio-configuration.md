@@ -1079,6 +1079,28 @@ description: The default curio configuration
     # type: string
     #WebHookURL = ""
 
+  # AppriseConfig is the configuration for the Apprise (https://github.com/caronc/apprise-api) integration.
+  #
+  # type: AppriseConfig
+  [Alerting.Apprise]
+
+    # Enable is a flag to enable or disable the Apprise integration.
+    #
+    # type: bool
+    #Enable = false
+
+    # APIURL is the notify endpoint of a running Apprise API server (https://github.com/caronc/apprise-api).
+    # Either its stateless endpoint (e.g. "http://127.0.0.1:8000/notify", use with NotifyURLs) or a
+    # stateful, pre-configured endpoint (e.g. "http://127.0.0.1:8000/notify/curio", leave NotifyURLs empty).
+    #
+    # type: string
+    #APIURL = ""
+
+    # Tag restricts delivery to Apprise URLs carrying this tag. Only applies to stateful configs. OPTIONAL.
+    #
+    # type: string
+    #Tag = ""
+
 
 # Batching represents the batching configuration for pre-commit, commit, and update operations.
 #
