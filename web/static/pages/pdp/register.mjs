@@ -360,42 +360,12 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
             <table class="table table-dark table-striped table-bordered mb-0">
                 <tbody>
                 ${this.renderKV('Service URL', pdp.service_url)}
-                ${this.renderKV('Min Piece Size', this.formatBytes(pdp.min_size))}
-                ${this.renderKV('Max Piece Size', this.formatBytes(pdp.max_size))}
-                ${this.renderKV('IPNI Piece', String(!!pdp.ipni_piece))}
-                ${this.renderKV('IPNI IPFS', String(!!pdp.ipni_ipfs))}
-                ${this.renderKV('IPNI Peer ID', pdp.ipni_peer_id)}
-                ${this.renderKV('Price (per TiB per day)', this.unitsToUSDFCPerTiBPerDay(pdp.price))}
-                ${this.renderKV('Price (per TiB per month)', (parseFloat(this.unitsToUSDFCPerTiBPerDay(pdp.price)) * 30).toFixed(4))}
-                ${this.renderKV('Min Proving Period (epochs)', pdp.min_proving_period)}
                 ${this.renderKV('Storage Capacity (TiB)', pdp.capacity_tib)}
                 ${this.renderKV('Location', pdp.location)}
                 ${this.renderKV('Capabilities', this.renderCapabilities(capabilities))}
                 </tbody>
             </table>
         `;
-    }
-
-    formatBytes(bytes) {
-        if (bytes === 0) return '0 Bytes';
-        const k = 1024;
-        const sizes = ['Bytes', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB'];
-        const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-    }
-
-    get UNIT_PER_USDFC() {
-        return 1e18;
-    }
-
-    unitsToUSDFCPerTiBPerDay(value) {
-        const inUSDFC = value / this.UNIT_PER_USDFC;
-        return inUSDFC.toFixed(4);
-    }
-
-    USDFCToUnitsPerTibPerDay(value) {
-        const inUnits = value * this.UNIT_PER_USDFC;
-        return Math.round(inUnits);
     }
 
     render() {
