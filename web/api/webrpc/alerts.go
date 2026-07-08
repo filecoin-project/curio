@@ -122,11 +122,9 @@ func (a *WebRPC) AlertPendingCount(ctx context.Context) (int, error) {
 	return count, nil
 }
 
-// AlertSendTest sends a test alert through every currently-enabled alert plugin (Slack,
-// PagerDuty, Prometheus AlertManager, Apprise, ...) and records the outcome in alert_history so
-// it's immediately visible in the UI and sidebar. If no plugins are enabled, or all of them fail,
-// the test alert is still recorded (marked as not sent to plugins) and an error is returned
-// describing what failed.
+// AlertSendTest sends a test alert through every enabled alert plugin and records the outcome
+// in alert_history. With no plugins enabled it just records locally - an error is
+// only returned if a configured plugin fails to deliver.
 func (a *WebRPC) AlertSendTest(ctx context.Context) error {
 	const testMessage = "Test alert from Curio Web UI - if you see this, your alerting system is working correctly."
 
@@ -154,9 +152,6 @@ func (a *WebRPC) AlertSendTest(ctx context.Context) error {
 		return xerrors.Errorf("inserting test alert: %w", err)
 	}
 
-	if len(plugins) == 0 {
-		return xerrors.Errorf("test alert recorded, but no alert plugins are enabled - nothing was sent")
-	}
 	if len(failures) > 0 {
 		return xerrors.Errorf("test alert recorded, but delivery failed on %d/%d channel(s): %s",
 			len(failures), len(plugins), strings.Join(failures, "; "))
