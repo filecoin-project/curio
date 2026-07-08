@@ -2,11 +2,13 @@ package webrpc
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/alertmanager"
+	"github.com/filecoin-project/curio/alertmanager/plugin"
 )
 
 // AlertMute represents a muted alert pattern
@@ -120,15 +122,44 @@ func (a *WebRPC) AlertPendingCount(ctx context.Context) (int, error) {
 	return count, nil
 }
 
-// AlertSendTest inserts a test alert directly into alert_history
-// This makes it immediately visible in the UI and sidebar
+// AlertSendTest sends a test alert through every currently-enabled alert plugin (Slack,
+// PagerDuty, Prometheus AlertManager, Apprise, ...) and records the outcome in alert_history so
+// it's immediately visible in the UI and sidebar. If no plugins are enabled, or all of them fail,
+// the test alert is still recorded (marked as not sent to plugins) and an error is returned
+// describing what failed.
 func (a *WebRPC) AlertSendTest(ctx context.Context) error {
+	const testMessage = "Test alert from Curio Web UI - if you see this, your alerting system is working correctly."
+
+	plugins := plugin.LoadAlertPlugins(a.Deps.Cfg.Alerting)
+
+	var failures []string
+	for _, p := range plugins {
+		if err := p.SendAlert(&plugin.AlertPayload{
+			Summary:  "Curio Test Alert",
+			Severity: "info",
+			Source:   "Curio Web UI",
+			Details:  map[string]any{"TestAlert": testMessage},
+			Time:     time.Now(),
+		}); err != nil {
+			failures = append(failures, err.Error())
+		}
+	}
+
+	sentToPlugins := len(plugins) > 0 && len(failures) == 0
 	_, err := a.Deps.DB.Exec(ctx, `
 		INSERT INTO alert_history (alert_name, message, machine_name, sent_to_plugins, sent_at)
-		VALUES ('TestAlert', 'Test alert from Curio Web UI - if you see this, your alerting system is working correctly.', 'web-ui', FALSE, NOW())
-	`)
+		VALUES ('TestAlert', $1, 'web-ui', $2, NOW())
+	`, testMessage, sentToPlugins)
 	if err != nil {
 		return xerrors.Errorf("inserting test alert: %w", err)
+	}
+
+	if len(plugins) == 0 {
+		return xerrors.Errorf("test alert recorded, but no alert plugins are enabled - nothing was sent")
+	}
+	if len(failures) > 0 {
+		return xerrors.Errorf("test alert recorded, but delivery failed on %d/%d channel(s): %s",
+			len(failures), len(plugins), strings.Join(failures, "; "))
 	}
 	return nil
 }
