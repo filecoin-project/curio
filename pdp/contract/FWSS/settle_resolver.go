@@ -105,6 +105,10 @@ func pdpSettleTarget(rail filecoinpayment.PaymentsRailView, currentEpoch, activa
 		return nil, false
 	}
 
+	if shouldSkipFWSSActivationTerminationBoundary(rail, activationEpoch) {
+		return nil, false
+	}
+
 	if activationEpoch != nil && activationEpoch.Sign() > 0 {
 		if maxProvingPeriod == nil || maxProvingPeriod.Sign() <= 0 {
 			return nil, false
@@ -141,4 +145,24 @@ func pdpSettleTarget(rail filecoinpayment.PaymentsRailView, currentEpoch, activa
 	}
 
 	return target, true
+}
+
+// shouldSkipFWSSActivationTerminationBoundary is a temporary FWSS contract
+// workaround. When a terminated PDP rail ends exactly at proving activation,
+// FWSS accepts toEpoch == activationEpoch in its outer range check but then
+// treats the same epoch as an invalid proving period internally. Lower targets
+// are also invalid for that rail, so Curio has no settlement epoch to submit
+// until the contract edge case is fixed.
+func shouldSkipFWSSActivationTerminationBoundary(rail filecoinpayment.PaymentsRailView, activationEpoch *big.Int) bool {
+	if activationEpoch == nil || activationEpoch.Sign() <= 0 {
+		return false
+	}
+	if rail.SettledUpTo == nil || rail.EndEpoch == nil || rail.EndEpoch.Sign() <= 0 {
+		return false
+	}
+	if rail.EndEpoch.Cmp(activationEpoch) != 0 {
+		return false
+	}
+
+	return rail.SettledUpTo.Cmp(rail.EndEpoch) < 0
 }
