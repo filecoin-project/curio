@@ -1,6 +1,7 @@
 package alertmanager
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -141,6 +142,23 @@ func TestIsAlertMuted(t *testing.T) {
 			require.Equal(t, tt.want, isAlertMuted(tt.alertName, tt.message, tt.mutes))
 		})
 	}
+}
+
+func TestAddAlertDetail(t *testing.T) {
+	details := map[string]any{}
+
+	// A message that pushes the total past maxAlertDetailLength gets truncated
+	// instead of growing without bound.
+	addAlertDetail(details, "Test", "first message")
+	addAlertDetail(details, "Test", strings.Repeat("x", maxAlertDetailLength))
+	got := details["Test"].(string)
+	require.True(t, strings.HasSuffix(got, alertDetailTruncatedSuffix))
+	require.LessOrEqual(t, len(got), maxAlertDetailLength+len(alertDetailTruncatedSuffix))
+
+	// Once truncated, further additions in the same batch are dropped rather
+	// than repeatedly appending the truncation suffix.
+	addAlertDetail(details, "Test", "third message")
+	require.Equal(t, got, details["Test"])
 }
 
 // testPlugin is a test plugin

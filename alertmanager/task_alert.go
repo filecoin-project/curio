@@ -299,11 +299,13 @@ func (a *AlertTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 				errs = append(errs, err)
 			}
 		}
-		if len(errs) != 0 {
-			return false, fmt.Errorf("errors sending alerts: %v", errs)
-		}
+
 		if err := a.markQueuedAlertsProcessed(ctx, now, queuedRefs.sentEventIDs, queuedRefs.sentConditions, true); err != nil {
 			return false, err
+		}
+
+		if len(errs) != 0 {
+			return false, fmt.Errorf("errors sending alerts: %v", errs)
 		}
 	} else if len(a.plugins) == 0 && len(details) > 0 {
 		log.Warnf("No alert plugins enabled, alerts recorded to DB but not sent externally")
@@ -414,12 +416,28 @@ func (a *AlertTask) markQueuedAlertsProcessed(ctx context.Context, now time.Time
 	return nil
 }
 
+const maxAlertDetailLength = 1000
+
+const alertDetailTruncatedSuffix = " ... (truncated, see alert_history for full list)"
+
 func addAlertDetail(details map[string]any, alertName string, alertMessage string) {
-	if existing, ok := details[alertName]; ok {
-		details[alertName] = fmt.Sprintf("%s. %s", existing, alertMessage)
+	existing, ok := details[alertName]
+	if !ok {
+		details[alertName] = alertMessage
 		return
 	}
-	details[alertName] = alertMessage
+
+	existingStr, _ := existing.(string)
+	if strings.HasSuffix(existingStr, alertDetailTruncatedSuffix) {
+		return
+	}
+
+	combined := fmt.Sprintf("%s. %s", existingStr, alertMessage)
+	if len(combined) > maxAlertDetailLength {
+		details[alertName] = existingStr + alertDetailTruncatedSuffix
+		return
+	}
+	details[alertName] = combined
 }
 
 func conditionAlertName(system, subsystem, condition string) string {
