@@ -478,14 +478,14 @@ func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 		if alloc.TermMin > deal.Products.DDOV1.Duration {
 			return &ProviderDealRejectionInfo{
 				HTTPCode: ErrBadProposal,
-				Reason:   "Allocation term min is less than deal duration",
+				Reason:   "Allocation term min is greater than deal duration",
 			}, nil
 		}
 
-		if alloc.TermMax > deal.Products.DDOV1.Duration {
+		if alloc.TermMax < deal.Products.DDOV1.Duration {
 			return &ProviderDealRejectionInfo{
 				HTTPCode: ErrBadProposal,
-				Reason:   "Allocation term max is greater than deal duration",
+				Reason:   "Allocation term max is less than deal duration",
 			}, nil
 		}
 
