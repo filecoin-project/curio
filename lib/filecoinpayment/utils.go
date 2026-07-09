@@ -26,6 +26,11 @@ import (
 
 var log = logging.Logger("filecoin-pay")
 
+// gasOverestimation is applied on top of the eth_estimateGas result when
+// sending settleRail transactions, since it has been observed to fall short
+// at execution time and burn the whole gas limit.
+const gasOverestimation = 1.1
+
 func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, sender *message.SenderETH, from common.Address, payees []common.Address, operators []common.Address, al curioalerting.AlertingInterface, system, subsystem string) error {
 	paymentContractAddr, err := PaymentContractAddress()
 	if err != nil {
@@ -166,7 +171,7 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchai
 	}
 
 	for txToSend, details := range transactionsToSend {
-		txHash, err := sender.Send(ctx, from, txToSend, "settleRail")
+		txHash, err := sender.SendWithGasOverestimate(ctx, from, txToSend, "settleRail", gasOverestimation)
 		if err != nil {
 			log.Errorw("failed to send settle transaction", "railIDs", details.rail, "settleUpTo", details.upTo, "error", err)
 			_ = al.EmitEvent(ctx, curioalerting.AlertEvent{
