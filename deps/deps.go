@@ -67,6 +67,7 @@ func MakeDB(cctx *cli.Context) (*harmonydb.DB, error) {
 			Database:    cctx.String("db-name"),
 			Port:        cctx.String("db-port"),
 			LoadBalance: cctx.Bool("db-load-balance"),
+			ReadOnly:    cctx.Bool("db-readonly"),
 		}
 		return harmonydb.NewFromConfig(dbConfig)
 	}
@@ -378,14 +379,18 @@ Get it with: jq .PrivateKey ~/.lotus-miner/keystore/MF2XI2BNNJ3XILLQOJUXMYLUMU`,
 	}
 
 	if deps.IndexStore == nil {
-		dbHost := cctx.String("db-host-cql")
-		if dbHost == "" {
-			dbHost = cctx.String("db-host")
-		}
+		if deps.DB.ReadOnly() {
+			deps.IndexStore = indexstore.NewReadonlyIndexStore(deps.Cfg)
+		} else {
+			dbHost := cctx.String("db-host-cql")
+			if dbHost == "" {
+				dbHost = cctx.String("db-host")
+			}
 
-		deps.IndexStore, err = indexstore.NewIndexStore(strings.Split(dbHost, ","), cctx.Int("db-cassandra-port"), deps.Cfg)
-		if err != nil {
-			return xerrors.Errorf("failed to create index store: %w", err)
+			deps.IndexStore, err = indexstore.NewIndexStore(strings.Split(dbHost, ","), cctx.Int("db-cassandra-port"), deps.Cfg)
+			if err != nil {
+				return xerrors.Errorf("failed to create index store: %w", err)
+			}
 		}
 		err = deps.IndexStore.Start(cctx.Context, false)
 		if err != nil {

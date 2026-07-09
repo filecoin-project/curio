@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/filecoin-project/curio/cuhttp"
+	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/web"
 )
 
@@ -47,7 +49,6 @@ func StartAdmin(ctx context.Context, d *Deps) (*http.Server, error) {
 		_ = srv.Shutdown(context.Background())
 	}()
 
-	log.Infof("Admin GUI: http://%s", d.Cfg.Subsystems.GuiAddress)
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Errorf("admin GUI server failed: %s", err)
@@ -55,4 +56,28 @@ func StartAdmin(ctx context.Context, d *Deps) (*http.Server, error) {
 	}()
 
 	return srv, nil
+}
+
+func adminGUIURL(cfg *config.CurioConfig) string {
+	if !cfg.Subsystems.EnableWebGui {
+		return ""
+	}
+	addr := strings.TrimSpace(cfg.Subsystems.GuiAddress)
+	if addr == "" {
+		return ""
+	}
+	if strings.HasPrefix(addr, "http://") || strings.HasPrefix(addr, "https://") {
+		return addr
+	}
+	return "http://" + addr
+}
+
+// announceReady logs the operator-facing endpoints once startup is complete.
+func announceReady(d *Deps) {
+	if gui := adminGUIURL(d.Cfg); gui != "" {
+		log.Infof("Curio ready — admin GUI: %s", gui)
+		skiffDockerLog("ready — admin GUI: %s", gui)
+		return
+	}
+	log.Info("Curio ready (admin GUI disabled)")
 }

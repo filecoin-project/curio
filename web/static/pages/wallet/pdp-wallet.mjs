@@ -209,9 +209,9 @@ customElements.define('pdp-wallet', class PDPWalletElement extends LitElement {
             ${this.showImportForm && walletMissing ? html`
                 <form @submit="${this.importKey}" style="margin-top: 20px;">
                     <div class="mb-3">
-                        <label for="private-key" class="form-label">Private Key (Hex)</label>
+                        <label for="private-key" class="form-label">Private Key (Hex or lotus export)</label>
                         <textarea class="form-control" id="private-key" rows="3" required></textarea>
-                        <div class="form-text">Paste the secp256k1 private key for an existing 0x address.</div>
+                        <div class="form-text">Paste a hex secp256k1 key, or the output of <code>lotus wallet export &lt;f4-address&gt;</code>.</div>
                     </div>
                     <button type="submit" class="btn btn-success" ?disabled=${this.importing}>
                         ${this.importing ? 'Importing…' : 'Import'}

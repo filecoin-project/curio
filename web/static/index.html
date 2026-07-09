@@ -27,24 +27,6 @@
 
             <cluster-machines></cluster-machines>
 
-            <div class="row curio-only">
-                <div class="col-md-auto">
-                    <div class="info-block">
-                        <h2>Storage Use</h2>
-                        <storage-use></storage-use>
-                    </div>
-                </div>
-                <div class="col-md-auto">
-                    <div class="info-block">
-                        <h2>Storage GC</h2>
-                        <div>
-                            <a href="/gc/">Manage Storage GC</a>
-                        </div>
-                        <storage-gc-stats></storage-gc-stats>
-                    </div>
-                </div>
-            </div>
-
             <div class="info-block curio-only" style="max-width: 1000px">
                 <h2>Actor Summary</h2>
                 <actor-summary></actor-summary>
@@ -54,32 +36,6 @@
                 <h2>Recent Wins</h2>
                 <win-stats></win-stats>
             </div>
-
-            <div class="row">
-                <div class="col-md-auto">
-                    <div class="info-block">
-                        <h2>Recently Finished Tasks</h2>
-                        <cluster-task-history></cluster-task-history>
-                    </div>
-                </div>
-                <div class="col-md-auto">
-                    <div class="info-block">
-                        <h2>24h task counts</h2>
-                        <harmony-task-counts></harmony-task-counts>
-                    </div>
-                </div>
-            </div>
-
-            <div class="wide-content">
-                <div class="info-block" style="max-width: 1000px">
-                    <h2>Cluster Tasks</h2>
-                    <cluster-tasks></cluster-tasks>
-                </div>
-            </div>
-            <ui-drawer class="drawer" label="Cluster Tasks">
-                <h2 slot="title">Cluster Tasks</h2>
-                <cluster-tasks slot="content"></cluster-tasks>
-            </ui-drawer>
 
             <div class="curio-only">
             <pipeline-porep></pipeline-porep>

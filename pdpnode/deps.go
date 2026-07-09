@@ -85,6 +85,7 @@ func Open(ctx context.Context, cctx *cli.Context) (*Deps, error) {
 		return nil, xerrors.Errorf("load config: %w", err)
 	}
 
+	applySkiffDefaults(cfg)
 	if !cfg.Subsystems.EnablePDP {
 		cfg.Subsystems.EnablePDP = true
 	}
@@ -107,7 +108,7 @@ func Open(ctx context.Context, cctx *cli.Context) (*Deps, error) {
 	al := curioalerting.NewAlertingSystem()
 	si := paths.NewDBIndex(al, db)
 
-	localPaths, err := newLocalStorage(skiffStorageRoot(cctx, cfg, repoPath))
+	localPaths, err := newLocalStorage(skiffStorageRoot(cctx, cfg, repoPath), db.ReadOnly())
 	if err != nil {
 		return nil, err
 	}
@@ -133,14 +134,20 @@ func Open(ctx context.Context, cctx *cli.Context) (*Deps, error) {
 		return nil, err
 	}
 
-	dbHost := cctx.String("db-host-cql")
-	if dbHost == "" {
-		dbHost = cctx.String("db-host")
-	}
-	skiffDockerLog("starting index store on %s:%d", dbHost, cctx.Int("db-cassandra-port"))
-	indexStore, err := indexstore.NewIndexStore(strings.Split(dbHost, ","), cctx.Int("db-cassandra-port"), cfg)
-	if err != nil {
-		return nil, xerrors.Errorf("index store: %w", err)
+	var indexStore *indexstore.IndexStore
+	if db.ReadOnly() {
+		indexStore = indexstore.NewReadonlyIndexStore(cfg)
+		skiffDockerLog("readonly database mode: skipping cassandra index store")
+	} else {
+		dbHost := cctx.String("db-host-cql")
+		if dbHost == "" {
+			dbHost = cctx.String("db-host")
+		}
+		skiffDockerLog("starting index store on %s:%d", dbHost, cctx.Int("db-cassandra-port"))
+		indexStore, err = indexstore.NewIndexStore(strings.Split(dbHost, ","), cctx.Int("db-cassandra-port"), cfg)
+		if err != nil {
+			return nil, xerrors.Errorf("index store: %w", err)
+		}
 	}
 	if err := indexStore.Start(ctx, false); err != nil {
 		return nil, xerrors.Errorf("start index store: %w", err)

@@ -7,17 +7,11 @@ applySkiffDocumentClass(variant);
 const shared = [
     './chain-connectivity.mjs',
     './network-summary.mjs',
-    './harmony-task-counts.mjs',
-    './cluster-tasks.mjs',
     './cluster-machines.mjs',
-    './cluster-task-history.mjs',
     '/ux/curio-ux.mjs',
-    '/ux/components/Drawer.mjs',
 ];
 
 const curioOnly = [
-    './storage-gc.mjs',
-    './storage-use.mjs',
     './win-stats.mjs',
     './pipeline-porep.mjs',
     './pipeline-stats.mjs',

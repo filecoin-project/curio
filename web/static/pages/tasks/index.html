@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <title>Tasks - Curio</title>
+    <script src="https://unpkg.com/htmx.org@1.9.5"
+        integrity="sha384-xcuj3WpfgjlKF+FXhSQFQ0ZNr39ln+hwjN3npfM9VBnUskLolQAcN80McRIVOPuO"
+        crossorigin="anonymous"></script>
+    <script type="module" src="tasks-boot.mjs"></script>
+</head>
+<body style="visibility:hidden">
+    <curio-ux>
+        <div class="page">
+            <div class="page-header">
+                <h1>Tasks</h1>
+            </div>
+
+            <div class="row">
+                <div class="col-md-auto">
+                    <div class="info-block">
+                        <h2>Recently Finished Tasks</h2>
+                        <cluster-task-history></cluster-task-history>
+                    </div>
+                </div>
+                <div class="col-md-auto">
+                    <div class="info-block">
+                        <h2>24h task counts</h2>
+                        <harmony-task-counts></harmony-task-counts>
+                    </div>
+                </div>
+            </div>
+
+            <div class="wide-content">
+                <div class="info-block" style="max-width: 1000px">
+                    <h2>Cluster Tasks</h2>
+                    <cluster-tasks></cluster-tasks>
+                </div>
+            </div>
+            <ui-drawer class="drawer" label="Cluster Tasks">
+                <h2 slot="title">Cluster Tasks</h2>
+                <cluster-tasks slot="content"></cluster-tasks>
+            </ui-drawer>
+        </div>
+    </curio-ux>
+</body>
+</html>

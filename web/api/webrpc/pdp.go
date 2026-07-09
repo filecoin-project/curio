@@ -16,6 +16,8 @@ import (
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/go-address"
+
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/urlhelper"
 	"github.com/filecoin-project/curio/pdp/contract"
@@ -23,6 +25,7 @@ import (
 	"github.com/filecoin-project/curio/tasks/indexing"
 
 	"github.com/filecoin-project/lotus/chain/types"
+	"github.com/filecoin-project/lotus/chain/types/ethtypes"
 )
 
 // PDPService represents a PDP service
@@ -153,6 +156,9 @@ func (a *WebRPC) CreatePDPKey(ctx context.Context) (*pdpwallet.CreatedKey, error
 		log.Errorf("CreatePDPKey: %v", err)
 		return nil, err
 	}
+	if filAddr, err := ethToFilAddress(created.Address); err == nil {
+		created.FilAddress = filAddr.String()
+	}
 	return created, nil
 }
 
@@ -169,6 +175,15 @@ func (a *WebRPC) enrichPDPKeyStatus(ctx context.Context, status pdpwallet.Status
 		return status, nil
 	}
 
+	if filAddr, err := ethToFilAddress(status.Address); err == nil {
+		status.FilAddress = filAddr.String()
+		if act, err := a.Deps.Chain.StateGetActor(ctx, filAddr, types.EmptyTSK); err == nil && act != nil {
+			status.ActorExists = true
+		}
+	} else {
+		log.Warnf("PDPKeyStatus: fil address derivation failed for %s: %v", status.Address, err)
+	}
+
 	client, err := a.Deps.EthClient.Val()
 	if err != nil {
 		log.Warnf("PDPKeyStatus: eth client unavailable: %v", err)
@@ -183,6 +198,9 @@ func (a *WebRPC) enrichPDPKeyStatus(ctx context.Context, status pdpwallet.Status
 
 	status.Balance = types.FIL(types.BigFromBytes(balance.Bytes())).Short()
 	status.Funded = balance.Sign() > 0
+	if status.Funded {
+		status.ActorExists = true
+	}
 	return status, nil
 }
 
@@ -652,4 +670,12 @@ func (a *WebRPC) getPDPAddress(ctx context.Context) (common.Address, error) {
 		return common.Address{}, fmt.Errorf("failed to retrieve PDP key")
 	}
 	return common.HexToAddress(existingAddress), nil
+}
+
+func ethToFilAddress(ethAddr string) (address.Address, error) {
+	ea, err := ethtypes.ParseEthAddress(ethAddr)
+	if err != nil {
+		return address.Undef, err
+	}
+	return ea.ToFilecoinAddress()
 }

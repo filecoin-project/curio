@@ -91,6 +91,18 @@ customElements.define('storage-paths-list', class StoragePathsList extends LitEl
         .sort-indicator {
             margin-left: 5px;
         }
+        .mount-path {
+            display: block;
+            font-size: 0.95em;
+            color: #e6edf3;
+            word-break: break-all;
+        }
+        .mount-id {
+            margin-top: 2px;
+            font-size: 0.75em;
+            color: #8b949e;
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        }
     `;
 
     constructor() {
@@ -98,8 +110,8 @@ customElements.define('storage-paths-list', class StoragePathsList extends LitEl
         this.paths = [];
         this.loading = true;
         this.error = null;
-        this.sortBy = 'capacity';
-        this.sortAsc = false;
+        this.sortBy = 'path';
+        this.sortAsc = true;
         this.filterType = 'all';
     }
 
@@ -140,6 +152,10 @@ customElements.define('storage-paths-list', class StoragePathsList extends LitEl
         filtered.sort((a, b) => {
             let valA, valB;
             switch (this.sortBy) {
+                case 'path':
+                    valA = a.LocalPath || a.StorageID || '';
+                    valB = b.LocalPath || b.StorageID || '';
+                    break;
                 case 'capacity':
                     valA = a.Capacity || 0;
                     valB = b.Capacity || 0;
@@ -161,8 +177,8 @@ customElements.define('storage-paths-list', class StoragePathsList extends LitEl
                     valB = b.PathType || '';
                     break;
                 default:
-                    valA = a.StorageID || '';
-                    valB = b.StorageID || '';
+                    valA = a.LocalPath || a.StorageID || '';
+                    valB = b.LocalPath || b.StorageID || '';
             }
             
             if (typeof valA === 'string') {
@@ -197,7 +213,7 @@ customElements.define('storage-paths-list', class StoragePathsList extends LitEl
             return html`
                 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous">
                 <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'">
-                <div style="padding: 20px;">Loading...</div>
+                <div>Loading...</div>
             `;
         }
 
@@ -205,7 +221,7 @@ customElements.define('storage-paths-list', class StoragePathsList extends LitEl
             return html`
                 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous">
                 <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'">
-                <div style="padding: 20px; color: #B63333;">Error: ${this.error}</div>
+                <div style="color: #B63333;">Error: ${this.error}</div>
             `;
         }
 
@@ -215,8 +231,9 @@ customElements.define('storage-paths-list', class StoragePathsList extends LitEl
             <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous">
             <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'">
             
-            <div style="padding: 20px; max-width: 1600px; margin: 0 auto;">
-                <h1 style="margin-bottom: 20px;">Storage Paths</h1>
+            <div style="max-width: 1600px;">
+                <h1 style="margin-bottom: 8px;">Storage Mounts</h1>
+                <p style="color: #8b949e; margin-bottom: 20px;">Each mount with capacity, usage, and health.</p>
                 
                 <div class="filters">
                     <label>
@@ -236,8 +253,8 @@ customElements.define('storage-paths-list', class StoragePathsList extends LitEl
                 <table class="table table-dark">
                     <thead>
                         <tr>
-                            <th class="sortable" @click="${() => this.setSort('id')}">
-                                ID ${this.renderSortIndicator('id')}
+                            <th class="sortable" @click="${() => this.setSort('path')}">
+                                Path ${this.renderSortIndicator('path')}
                             </th>
                             <th class="sortable" @click="${() => this.setSort('type')}">
                                 Type ${this.renderSortIndicator('type')}
@@ -259,7 +276,10 @@ customElements.define('storage-paths-list', class StoragePathsList extends LitEl
                     <tbody>
                         ${filtered.map(path => html`
                             <tr class="path-row" @click="${() => this.navigateToPath(path.StorageID)}">
-                                <td><code>${path.StorageID?.substring(0, 8)}...</code></td>
+                                <td>
+                                    <code class="mount-path">${path.LocalPath || '—'}</code>
+                                    <div class="mount-id">${path.StorageID?.substring(0, 8)}…</div>
+                                </td>
                                 <td>
                                     <span class="tag ${this.getTypeClass(path)}">${path.PathType}</span>
                                 </td>

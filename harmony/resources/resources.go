@@ -52,6 +52,11 @@ func Register(db *harmonydb.DB, hostnameAndPort string) (*Reg, error) {
 	if err != nil {
 		return nil, err
 	}
+	if db.ReadOnly() {
+		reg.MachineID = -1
+		logger.Infow("readonly database mode: skipping harmony_machines registration", "host", hostnameAndPort)
+		return &reg, nil
+	}
 	ctx := context.Background()
 	{ // Learn our owner_id while updating harmony_machines
 		var ownerID *int

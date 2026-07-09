@@ -29,17 +29,20 @@ func Run(cctx *cli.Context) error {
 	if _, err := StartAdmin(ctx, d); err != nil {
 		return xerrors.Errorf("admin http: %w", err)
 	}
-	skiffDockerLog("admin GUI listening on http://%s", d.Cfg.Subsystems.GuiAddress)
 
 	taskRes, err := RegisterTasks(ctx, d)
 	if err != nil {
 		return xerrors.Errorf("register tasks: %w", err)
 	}
-	defer taskRes.Engine.GracefullyTerminate()
+	if taskRes.Engine != nil {
+		defer taskRes.Engine.GracefullyTerminate()
+	}
 
 	if err := StartPublic(ctx, d, taskRes); err != nil {
 		return xerrors.Errorf("public http: %w", err)
 	}
+
+	announceReady(d)
 
 	shutdownChan := make(chan struct{})
 	go func() {

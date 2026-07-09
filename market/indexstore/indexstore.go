@@ -44,6 +44,7 @@ type IndexStore struct {
 	cluster  *gocql.ClusterConfig
 	session  *gocql.Session
 	ctx      context.Context
+	readonly bool
 }
 
 type Record struct {
@@ -76,6 +77,12 @@ func ITestNewID() ITestID {
 }
 
 func (i *IndexStore) Start(ctx context.Context, test bool) error {
+	if i.readonly {
+		log.Info("readonly database mode: skipping cassandra index store")
+		i.ctx = ctx
+		return nil
+	}
+
 	if len(i.cluster.Hosts) == 0 {
 		return xerrors.Errorf("no hosts provided for cassandra")
 	}
@@ -145,6 +152,9 @@ func (i *IndexStore) Start(ctx context.Context, test bool) error {
 
 // AddIndex adds multihash -> piece cid (v2) mappings, along with offset and size information for the piece.
 func (i *IndexStore) AddIndex(ctx context.Context, pieceCidv2 cid.Cid, recordsChan chan Record) error {
+	if err := i.requireSession(); err != nil {
+		return err
+	}
 	insertPieceBlockOffsetSize := `INSERT INTO PieceBlockOffsetSize (PieceCid, PayloadMultihash, BlockOffset) VALUES (?, ?, ?)`
 	insertPayloadToPieces := `INSERT INTO PayloadToPieces (PayloadMultihash, PieceCid, BlockSize) VALUES (?, ?, ?)`
 	pieceCidBytes := pieceCidv2.Bytes()
@@ -274,6 +284,9 @@ func (i *IndexStore) executeBatchWithRetry(ctx context.Context, batch *gocql.Bat
 // RemoveIndexes removes all multihash -> piece cid mappings, and all
 // offset information for the piece.
 func (i *IndexStore) RemoveIndexes(ctx context.Context, pieceCidv2 cid.Cid) error {
+	if err := i.requireSession(); err != nil {
+		return err
+	}
 	pieceCidBytes := pieceCidv2.Bytes()
 
 	// First, select all PayloadMultihash for the given PieceCid from PieceBlockOffsetSize
@@ -336,6 +349,9 @@ type PieceInfo struct {
 
 // PiecesContainingMultihash gets all pieces that contain a multihash along with their BlockSize
 func (i *IndexStore) PiecesContainingMultihash(ctx context.Context, m multihash.Multihash) ([]PieceInfo, error) {
+	if err := i.requireSession(); err != nil {
+		return nil, err
+	}
 	var pieces []PieceInfo
 	var pieceCidBytes []byte
 	var blockSize uint64
@@ -361,6 +377,9 @@ func (i *IndexStore) PiecesContainingMultihash(ctx context.Context, m multihash.
 
 // GetOffset retrieves the offset of a payload in a piece(v2)
 func (i *IndexStore) GetOffset(ctx context.Context, pieceCidv2 cid.Cid, hash multihash.Multihash) (uint64, error) {
+	if err := i.requireSession(); err != nil {
+		return 0, err
+	}
 	var offset uint64
 	qryOffset := `SELECT BlockOffset FROM PieceBlockOffsetSize WHERE PieceCid = ? AND PayloadMultihash = ?`
 	err := i.session.Query(qryOffset, pieceCidv2.Bytes(), []byte(hash)).WithContext(ctx).Scan(&offset)
@@ -372,6 +391,9 @@ func (i *IndexStore) GetOffset(ctx context.Context, pieceCidv2 cid.Cid, hash mul
 }
 
 func (i *IndexStore) GetPieceHashRange(ctx context.Context, piecev2 cid.Cid, start multihash.Multihash, num int64, strictCheck bool) ([]multihash.Multihash, error) {
+	if err := i.requireSession(); err != nil {
+		return nil, err
+	}
 	getHashes := func(pieceCid cid.Cid, start multihash.Multihash, num int64) ([]multihash.Multihash, error) {
 		qry := "SELECT PayloadMultihash FROM PieceBlockOffsetSize WHERE PieceCid = ? AND PayloadMultihash >= ? ORDER BY PayloadMultihash ASC LIMIT ?"
 		iter := i.session.Query(qry, pieceCid.Bytes(), []byte(start), num).WithContext(ctx).Iter()
@@ -416,6 +438,9 @@ func (i *IndexStore) GetPieceHashRange(ctx context.Context, piecev2 cid.Cid, sta
 }
 
 func (i *IndexStore) CheckHasPiece(ctx context.Context, piecev2 cid.Cid) (bool, error) {
+	if err := i.requireSession(); err != nil {
+		return false, err
+	}
 	qry := "SELECT PayloadMultihash FROM PieceBlockOffsetSize WHERE PieceCid = ? AND PayloadMultihash >= ? ORDER BY PayloadMultihash ASC LIMIT ?"
 	iter := i.session.Query(qry, piecev2.Bytes(), []byte{0}, 1).WithContext(ctx).Iter()
 
@@ -436,6 +461,9 @@ func (i *IndexStore) CheckHasPiece(ctx context.Context, piecev2 cid.Cid) (bool, 
 }
 
 func (i *IndexStore) InsertAggregateIndex(ctx context.Context, aggregatePieceCid cid.Cid, records []Record) error {
+	if err := i.requireSession(); err != nil {
+		return err
+	}
 	aggregatePieceCidBytes := aggregatePieceCid.Bytes()
 
 	chanSize := i.settings.InsertConcurrency * i.settings.InsertBatchSize
@@ -522,6 +550,9 @@ func (i *IndexStore) InsertAggregateIndex(ctx context.Context, aggregatePieceCid
 }
 
 func (i *IndexStore) FindPieceInAggregate(ctx context.Context, pieceCid cid.Cid) ([]Record, error) {
+	if err := i.requireSession(); err != nil {
+		return nil, err
+	}
 	var recs []Record
 	qry := `SELECT AggregatePieceCid, UnpaddedOffset, UnpaddedLength FROM aggregate_by_piece WHERE PieceCid = ?`
 	iter := i.session.Query(qry, pieceCid.Bytes()).WithContext(ctx).Iter()
@@ -547,6 +578,9 @@ func (i *IndexStore) FindPieceInAggregate(ctx context.Context, pieceCid cid.Cid)
 }
 
 func (i *IndexStore) RemoveAggregateIndex(ctx context.Context, aggregatePieceCid cid.Cid) error {
+	if err := i.requireSession(); err != nil {
+		return err
+	}
 	aggregatePieceCidBytes := aggregatePieceCid.Bytes()
 
 	// 1) iterate children with paging
@@ -596,6 +630,9 @@ func (i *IndexStore) RemoveAggregateIndex(ctx context.Context, aggregatePieceCid
 }
 
 func (i *IndexStore) UpdatePieceCidV1ToV2(ctx context.Context, pieceCidV1 cid.Cid, pieceCidV2 cid.Cid) error {
+	if err := i.requireSession(); err != nil {
+		return err
+	}
 	p1 := pieceCidV1.Bytes()
 	p2 := pieceCidV2.Bytes()
 
@@ -706,6 +743,9 @@ type NodeDigest struct {
 }
 
 func (i *IndexStore) AddPDPLayer(ctx context.Context, pieceCidV2 cid.Cid, layer []NodeDigest) error {
+	if err := i.requireSession(); err != nil {
+		return err
+	}
 	qry := `INSERT INTO pdp_cache_layer (PieceCid, LayerIndex, Leaf, LeafIndex) VALUES (?, ?, ?, ?)`
 	pieceCidBytes := pieceCidV2.Bytes()
 	var batch *gocql.Batch
@@ -746,6 +786,9 @@ func (i *IndexStore) AddPDPLayer(ctx context.Context, pieceCidV2 cid.Cid, layer 
 }
 
 func (i *IndexStore) GetPDPLayerIndex(ctx context.Context, pieceCidV2 cid.Cid) (bool, int, error) {
+	if err := i.requireSession(); err != nil {
+		return false, 0, err
+	}
 	var layerIdx int
 	// PieceCid is only the partition-key prefix (LayerIndex completes it), so this partial-key
 	// lookup needs ALLOW FILTERING on Cassandra/Scylla; YugabyteDB YCQL permits it implicitly.
@@ -760,6 +803,9 @@ func (i *IndexStore) GetPDPLayerIndex(ctx context.Context, pieceCidV2 cid.Cid) (
 }
 
 func (i *IndexStore) GetPDPLayer(ctx context.Context, pieceCidV2 cid.Cid, layerIdx int) ([]NodeDigest, error) {
+	if err := i.requireSession(); err != nil {
+		return nil, err
+	}
 	var layer []NodeDigest
 
 	iter := i.session.Query(`SELECT LeafIndex, Leaf FROM pdp_cache_layer WHERE PieceCid = ? AND LayerIndex = ?`, pieceCidV2.Bytes(), layerIdx).WithContext(ctx).PageSize(2000).Iter()
@@ -785,6 +831,9 @@ func (i *IndexStore) GetPDPLayer(ctx context.Context, pieceCidV2 cid.Cid, layerI
 }
 
 func (i *IndexStore) DeletePDPLayer(ctx context.Context, pieceCidV2 cid.Cid) error {
+	if err := i.requireSession(); err != nil {
+		return err
+	}
 	for {
 		has, layerIdx, err := i.GetPDPLayerIndex(ctx, pieceCidV2)
 		if err != nil {
@@ -802,6 +851,9 @@ func (i *IndexStore) DeletePDPLayer(ctx context.Context, pieceCidV2 cid.Cid) err
 }
 
 func (i *IndexStore) GetPDPNode(ctx context.Context, pieceCidV2 cid.Cid, layerIdx int, index int64) (bool, *NodeDigest, error) {
+	if err := i.requireSession(); err != nil {
+		return false, nil, err
+	}
 	var r []byte
 
 	qry := `SELECT Leaf FROM pdp_cache_layer WHERE PieceCid = ? AND LayerIndex = ? AND LeafIndex = ? LIMIT 1`

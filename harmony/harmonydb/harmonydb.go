@@ -17,6 +17,7 @@ type Config = harmonyquery.Config
 
 func init() {
 	harmonyquery.DefaultHostEnv = "CURIO_HARMONYDB_HOSTS"
+	harmonyquery.DefaultReadOnlyEnv = "CURIO_DB_READONLY"
 }
 
 func NewFromConfig(cfg Config) (*DB, error) {
