@@ -65,12 +65,7 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchai
 		}
 
 		for _, r := range rails.Results {
-			if !r.IsTerminated {
-				railIds = append(railIds, r.RailId)
-			}
-
-			// If rail's settlement deadline (endEpoch) passed less than 7 days ago, keep trying to settle it
-			if uint64(r.EndEpoch.Int64()) > current-(builtin.EpochsInDay*7) {
+			if shouldInspectRailForSettlement(r) {
 				railIds = append(railIds, r.RailId)
 			}
 		}
@@ -97,33 +92,7 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchai
 			continue
 		}
 
-		shouldSettle := false
-		if view.EndEpoch.Int64() > 0 {
-			if view.SettledUpTo.Cmp(view.EndEpoch) == -1 {
-				shouldSettle = true
-			}
-		} else {
-			// could be a constant, or a config variable this is the important tunable
-			settleInterval := big.NewInt(builtin.EpochsInDay * 7)
-
-			gracedLockup := new(big.Int).Sub(view.LockupPeriod, big.NewInt(builtin.EpochsInDay))
-			if gracedLockup.Sign() <= 0 {
-				// special case, lockup period is <= 1 day so settle every run
-				// alternatively adjust the grace down from a day to something smaller
-				shouldSettle = true
-			} else if gracedLockup.Cmp(settleInterval) < 0 {
-				settleInterval = gracedLockup
-			}
-
-			if !shouldSettle {
-				nextSettle := new(big.Int).Add(view.SettledUpTo, settleInterval)
-				if nextSettle.Uint64() < current {
-					shouldSettle = true
-				}
-			}
-		}
-
-		if !shouldSettle {
+		if !railNeedsSettlement(view, current) {
 			continue
 		}
 
@@ -240,6 +209,65 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchai
 	}
 
 	return nil
+}
+
+func shouldInspectRailForSettlement(rail PaymentsRailInfo) bool {
+	if !rail.IsTerminated {
+		return true
+	}
+
+	// Terminated rails must stay visible until Filecoin Pay finalizes them.
+	// The final settlement to endEpoch is what collects any remaining rate payment
+	// from lockup and releases the rail's fixed lockup accounting.
+	return rail.EndEpoch != nil && rail.EndEpoch.Sign() > 0
+}
+
+func railNeedsSettlement(rail PaymentsRailView, current uint64) bool {
+	// settledUpTo is non-null on any valid Pay rail view; nil only protects
+	// against malformed test data or a failed/manual construction path.
+	if rail.SettledUpTo == nil {
+		return false
+	}
+
+	if rail.EndEpoch != nil && rail.EndEpoch.Sign() > 0 {
+		// Terminated rails should be retried until settlement reaches endEpoch.
+		// Filecoin Pay finalizes the rail only after this point, so using the
+		// active-rail interval here can leave payable lockup uncollected.
+		return rail.SettledUpTo.Cmp(rail.EndEpoch) < 0
+	}
+
+	return activeRailSettlementDue(rail, current)
+}
+
+func activeRailSettlementDue(rail PaymentsRailView, current uint64) bool {
+	if rail.LockupPeriod == nil || rail.SettledUpTo == nil {
+		return false
+	}
+
+	// Active rails are settled before the lockup period becomes the only
+	// remaining guarantee. This protects the SP from a client withdrawing funds
+	// after Filecoin Pay can no longer keep enough account lockup reserved.
+	settleInterval := big.NewInt(builtin.EpochsInDay * 7)
+
+	// Keep one day of lockup as a safety buffer. Once settlement is this close to
+	// the lockup horizon, every pass should try to settle so the SP does not rely
+	// on funds the client may soon be able to withdraw.
+	gracedLockup := new(big.Int).Sub(rail.LockupPeriod, big.NewInt(builtin.EpochsInDay))
+	if gracedLockup.Sign() <= 0 {
+		return true
+	}
+
+	// Do not wait longer than the usable lockup window. The regular interval is a
+	// batching optimization; the lockup period is the actual payment guarantee.
+	if gracedLockup.Cmp(settleInterval) < 0 {
+		settleInterval = gracedLockup
+	}
+
+	// settledUpTo is the last epoch Pay has accounted for on this rail. If the next
+	// planned settlement point is behind the chain head, this rail needs a new
+	// settle attempt.
+	nextSettle := new(big.Int).Add(rail.SettledUpTo, settleInterval)
+	return nextSettle.Cmp(new(big.Int).SetUint64(current)) < 0
 }
 
 // calculateSettleUpTo starts from the resolver-provided semantic target and
