@@ -133,6 +133,10 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchai
 	for _, detail := range toSettle {
 		settleUpTo, err := calculateSettleUpTo(ctx, pabi, &paymentContractAddr, ethClient, detail.railId, from, detail.settledUpTo, detail.target)
 		if err != nil {
+			if isSkippableSettleRailError(err) {
+				log.Debugw("skipping settlement after non-actionable Pay settleRail revert", "railID", detail.railId.String(), "target", detail.target.String(), "error", err)
+				continue
+			}
 			log.Errorf("failed to gas estimate settle transaction for rail %s: %s", detail.railId.String(), err.Error())
 			_ = al.EmitEvent(ctx, curioalerting.AlertEvent{
 				System:    system,
@@ -166,6 +170,10 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchai
 	for txToSend, details := range transactionsToSend {
 		txHash, err := sender.SendWithGasOverestimate(ctx, from, txToSend, "settleRail", gasOverestimation)
 		if err != nil {
+			if isSkippableSettleRailError(err) {
+				log.Debugw("skipping settlement send after non-actionable Pay settleRail revert", "railID", details.rail, "settleUpTo", details.upTo, "error", err)
+				continue
+			}
 			log.Errorw("failed to send settle transaction", "railIDs", details.rail, "settleUpTo", details.upTo, "error", err)
 			_ = al.EmitEvent(ctx, curioalerting.AlertEvent{
 				System:    system,
