@@ -2,9 +2,6 @@ package pdpnode
 
 import (
 	"context"
-	"os"
-	"os/signal"
-	"syscall"
 
 	"github.com/urfave/cli/v2"
 	"golang.org/x/xerrors"
@@ -14,7 +11,9 @@ import (
 
 // Run starts the PDP node until shutdown.
 func Run(cctx *cli.Context) error {
-	ctx := context.Background()
+	ctx, ctxclose := context.WithCancel(context.Background())
+	defer ctxclose()
+
 	skiffDockerLog("starting")
 	if cctx.Bool("manage-fdlimit") {
 		manageFdLimit()
@@ -42,13 +41,12 @@ func Run(cctx *cli.Context) error {
 	}
 
 	shutdownChan := make(chan struct{})
-	go func() {
-		sig := make(chan os.Signal, 1)
-		signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
-		<-sig
-		close(shutdownChan)
-	}()
-
-	<-shutdown.MonitorShutdown(shutdownChan)
+	<-shutdown.MonitorShutdown(shutdownChan, shutdown.ShutdownHandler{
+		Component: "pdpnode",
+		StopFunc: func(context.Context) error {
+			ctxclose()
+			return nil
+		},
+	})
 	return nil
 }
