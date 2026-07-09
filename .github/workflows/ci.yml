@@ -227,6 +227,8 @@ jobs:
             target: "./itests/pieces_unseal_test.go"
           - name: test-itest-retrievals-test
             target: "./itests/retrievals_test.go"
+          - name: test-itest-shutdown-test
+            target: "./itests/shutdown_test.go"
           - name: test-itest-sql-idempotent-test
             target: "./itests/sql_idempotent_test.go"
           - name: test-itest-timestamp-tz
