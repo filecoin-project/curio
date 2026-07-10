@@ -331,7 +331,12 @@ class CurioUX extends LitElement {
     };
 
     const dashboards = [
-      { href: '/', label: 'Overview', icon: icon.overview },
+      ...(this.isSkiff
+        ? [{ href: '/pages/pdp-overview/', label: 'PDP Overview', icon: icon.overview }]
+        : [
+            { href: '/', label: 'Overview', icon: icon.overview },
+            { href: '/pages/pdp-overview/', label: 'PDP Overview', icon: icon.overview },
+          ]),
       { href: '/pages/chain/', label: 'Chain', icon: icon.chain },
       { href: '/pages/tasks/', label: 'Tasks', icon: icon.tasks },
       { href: '/pages/storage_paths/', label: 'Storage', icon: icon.storage },
@@ -388,7 +393,7 @@ class CurioUX extends LitElement {
 
     return html`
       <nav class="sidebar">
-        <a href="/" class="brand">
+        <a href="${this.isSkiff ? '/pages/pdp-overview/' : '/'}" class="brand">
           <img src="/favicon.svg" width="24" height="24" alt="">
           <span class="brand-name">${brand}</span>
         </a>

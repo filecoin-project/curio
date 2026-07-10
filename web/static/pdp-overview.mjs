@@ -667,7 +667,12 @@ customElements.define('pdp-overview', class PdpOverview extends LitElement {
       return
     }
 
-    const balance = ks.balance || (ks.funded ? 'funded' : '0 FIL')
+    const balance = ks.balanceKnown
+      ? (ks.balance || '0 FIL')
+      : 'FIL …'
+    const usdfc = ks.usdfcKnown
+      ? (ks.usdfcBalance || '0 USDFC')
+      : 'USDFC …'
     const subParts = []
     if (reg?.id) subParts.push(html`Provider #${reg.id}`)
     const hostName = hostFromUrl(reg?.pdp_service?.service_url)
@@ -680,6 +685,8 @@ customElements.define('pdp-overview', class PdpOverview extends LitElement {
           <span class="pdp-wallet-mono">${shortAddr(ks.address)}</span>
           <span class="pdp-wallet-sep">·</span>
           <span class="pdp-wallet-mono">${balance}</span>
+          <span class="pdp-wallet-sep">·</span>
+          <span class="pdp-wallet-mono">${usdfc}</span>
           <a class="pdp-wallet-link" href="/pages/wallet/">Wallet →</a>
         </div>
         ${subParts.length ? html`

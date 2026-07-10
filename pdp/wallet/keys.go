@@ -24,12 +24,17 @@ type CreatedKey struct {
 }
 
 type Status struct {
-	Configured  bool   `json:"configured"`
-	Address     string `json:"address,omitempty"`
-	FilAddress  string `json:"filAddress,omitempty"`
-	Balance     string `json:"balance,omitempty"`
-	Funded      bool   `json:"funded"`
-	ActorExists bool   `json:"actorExists"`
+	Configured   bool   `json:"configured"`
+	Address      string `json:"address,omitempty"`
+	FilAddress   string `json:"filAddress,omitempty"`
+	Balance      string `json:"balance,omitempty"`
+	UsdfcBalance string `json:"usdfcBalance,omitempty"`
+	// BalanceKnown is true only when FIL balance was successfully fetched.
+	// When false, Funded must not be treated as "unfunded".
+	BalanceKnown bool `json:"balanceKnown"`
+	UsdfcKnown   bool `json:"usdfcKnown"`
+	Funded       bool `json:"funded"`
+	ActorExists  bool `json:"actorExists"`
 }
 
 // ParsePrivateKeyMaterial accepts a hex secp256k1 private key or a lotus wallet export

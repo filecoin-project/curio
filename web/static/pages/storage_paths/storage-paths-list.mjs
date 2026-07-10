@@ -12,12 +12,6 @@ customElements.define('storage-paths-list', class StoragePathsList extends LitEl
     };
 
     static styles = css`
-        .path-row {
-            cursor: pointer;
-        }
-        .path-row:hover {
-            background: rgba(255,255,255,0.05);
-        }
         .health-ok {
             color: #4BB543;
         }
@@ -204,10 +198,6 @@ customElements.define('storage-paths-list', class StoragePathsList extends LitEl
         return html`<span class="sort-indicator">${this.sortAsc ? '▲' : '▼'}</span>`;
     }
 
-    navigateToPath(id) {
-        window.location.href = `/pages/storage_path/?id=${id}`;
-    }
-
     render() {
         if (this.loading) {
             return html`
@@ -275,7 +265,7 @@ customElements.define('storage-paths-list', class StoragePathsList extends LitEl
                     </thead>
                     <tbody>
                         ${filtered.map(path => html`
-                            <tr class="path-row" @click="${() => this.navigateToPath(path.StorageID)}">
+                            <tr>
                                 <td>
                                     <code class="mount-path">${path.LocalPath || '—'}</code>
                                     <div class="mount-id">${path.StorageID?.substring(0, 8)}…</div>

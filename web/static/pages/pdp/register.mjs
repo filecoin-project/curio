@@ -399,6 +399,11 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
                     <div class="alert alert-danger">
                         PDP wallet not configured. Create or import a key on the Wallets page before registering.
                     </div>
+                ` : !this.keyStatus?.balanceKnown ? html`
+                    <div class="alert alert-warning">
+                        PDP wallet balance could not be fetched from the chain right now.
+                        Address: <code>${this.keyStatus.address}</code>
+                    </div>
                 ` : !this.keyStatus?.funded ? html`
                     <div class="alert alert-warning">
                         PDP wallet has no funds. Send FIL/tFIL to

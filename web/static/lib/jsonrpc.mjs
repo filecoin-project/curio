@@ -1,30 +1,7 @@
-import { getMockResult } from '/debug/fixtures/index.mjs';
-
-function detectMockMode() {
-  if (typeof window === 'undefined') return false;
-  const params = new URLSearchParams(window.location.search);
-  if (params.get('mock') === '1') {
-    sessionStorage.setItem('curio-mock', '1');
-    return true;
-  }
-  if (params.get('mock') === '0') {
-    sessionStorage.removeItem('curio-mock');
-    return false;
-  }
-  return sessionStorage.getItem('curio-mock') === '1';
-}
-
-export function isMockMode() {
-  return detectMockMode();
-}
-
 class JsonRpcClient {
     static instance = null;
 
     static async getInstance() {
-        if (detectMockMode()) {
-            return { call: (method, params) => Promise.resolve(getMockResult(method, params)) };
-        }
         if (!JsonRpcClient.instance) {
             JsonRpcClient.instance = (async () => {
                 const client = new JsonRpcClient('/api/webrpc/v0');
@@ -178,10 +155,6 @@ class JsonRpcClient {
 }
 
 async function init() {
-    if (detectMockMode()) {
-        console.log('[mock] RPC mock mode active — use ?mock=0 to disable');
-        return;
-    }
     try {
         const client = await JsonRpcClient.getInstance();
         console.log("webrpc backend:", await client.call('Version', []));
@@ -195,4 +168,40 @@ init();
 export default async function(method, params = []) {
     const i = await JsonRpcClient.getInstance();
     return await i.call(method, params);
+}
+
+// HTTP JSON-RPC (not WebSocket). Use when the server needs request headers
+// such as Referer — browsers do not send Referer on WebSocket upgrades.
+// Pass AbortSignal via opts.signal to cancel; the server cancels the DB query.
+export async function RPCCallHTTP(method, params = [], opts = {}) {
+    const res = await fetch('/api/webrpc/v0', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            jsonrpc: '2.0',
+            method: 'CurioWeb.' + method,
+            params,
+            id: 1,
+        }),
+        signal: opts.signal,
+    });
+
+    let body;
+    try {
+        body = await res.json();
+    } catch (e) {
+        if (opts.signal?.aborted || e?.name === 'AbortError') {
+            throw e;
+        }
+        throw new Error(`RPC HTTP ${res.status}: invalid JSON response`);
+    }
+
+    if (body?.error) {
+        const err = body.error;
+        throw new Error(err.message || err.Message || String(err));
+    }
+    if (!res.ok) {
+        throw new Error(`RPC HTTP ${res.status}`);
+    }
+    return body.result;
 }

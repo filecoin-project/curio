@@ -12,6 +12,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -21,6 +23,7 @@ import (
 	"github.com/filecoin-project/go-address"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/lib/urlhelper"
 	"github.com/filecoin-project/curio/pdp/contract"
 	pdpwallet "github.com/filecoin-project/curio/pdp/wallet"
@@ -29,6 +32,9 @@ import (
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/chain/types/ethtypes"
 )
+
+// Minimal ERC-20 ABI for balanceOf(address).
+const erc20BalanceOfABI = `[{"inputs":[{"name":"account","type":"address"}],"name":"balanceOf","outputs":[{"name":"","type":"uint256"}],"stateMutability":"view","type":"function"}]`
 
 // PDPService represents a PDP service
 type PDPService struct {
@@ -183,9 +189,9 @@ func (a *WebRPC) enrichPDPKeyStatus(ctx context.Context, status pdpwallet.Status
 		log.Warnf("PDPKeyStatus: fil address derivation failed for %s: %v", status.Address, err)
 	}
 
-	// Chain lookups can be slow; detach from the browser RPC context and cap wait time
-	// so configured wallets return promptly even when the node RPC is sluggish.
-	enrichCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// Chain lookups can be slow (eth RPC especially). Detach from the browser
+	// RPC context and allow enough time for FIL + USDFC in parallel.
+	enrichCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
 	client, err := a.Deps.EthClient.Val()
@@ -200,8 +206,10 @@ func (a *WebRPC) enrichPDPKeyStatus(ctx context.Context, status pdpwallet.Status
 		actorExists bool
 		balance     *big.Int
 		balanceErr  error
+		usdfcBal    *big.Int
+		usdfcErr    error
 	)
-	wg.Add(2)
+	wg.Add(3)
 
 	go func() {
 		defer wg.Done()
@@ -220,7 +228,23 @@ func (a *WebRPC) enrichPDPKeyStatus(ctx context.Context, status pdpwallet.Status
 
 	go func() {
 		defer wg.Done()
+		// Prefer lotus WalletBalance (f4) — usually faster/more reliable than eth BalanceAt.
+		if status.FilAddress != "" {
+			if filAddr, err := address.NewFromString(status.FilAddress); err == nil {
+				filBal, err := a.Deps.Chain.WalletBalance(enrichCtx, filAddr)
+				if err == nil {
+					balance = filBal.Int
+					return
+				}
+				log.Warnf("PDPKeyStatus: WalletBalance failed for %s, falling back to eth: %v", status.Address, err)
+			}
+		}
 		balance, balanceErr = client.BalanceAt(enrichCtx, ethAddr, nil)
+	}()
+
+	go func() {
+		defer wg.Done()
+		usdfcBal, usdfcErr = erc20BalanceOf(enrichCtx, client, ethAddr)
 	}()
 
 	wg.Wait()
@@ -229,17 +253,53 @@ func (a *WebRPC) enrichPDPKeyStatus(ctx context.Context, status pdpwallet.Status
 		status.ActorExists = true
 	}
 	if balanceErr != nil {
-		log.Warnf("PDPKeyStatus: balance lookup failed for %s: %v", status.Address, balanceErr)
-		return status, nil
-	}
-	if balance != nil {
+		log.Warnf("PDPKeyStatus: FIL balance lookup failed for %s: %v", status.Address, balanceErr)
+	} else if balance != nil {
+		status.BalanceKnown = true
 		status.Balance = types.FIL(types.BigFromBytes(balance.Bytes())).Short()
 		status.Funded = balance.Sign() > 0
 		if status.Funded {
 			status.ActorExists = true
 		}
 	}
+	if usdfcErr != nil {
+		log.Warnf("PDPKeyStatus: USDFC balance lookup failed for %s: %v", status.Address, usdfcErr)
+	} else if usdfcBal != nil {
+		status.UsdfcKnown = true
+		status.UsdfcBalance = formatUsdfc(usdfcBal) + " USDFC"
+	}
 	return status, nil
+}
+
+func erc20BalanceOf(ctx context.Context, client ethchain.EthClient, account common.Address) (*big.Int, error) {
+	token, err := contract.USDFCAddress()
+	if err != nil {
+		return nil, err
+	}
+	parsed, err := abi.JSON(strings.NewReader(erc20BalanceOfABI))
+	if err != nil {
+		return nil, xerrors.Errorf("parse erc20 abi: %w", err)
+	}
+	data, err := parsed.Pack("balanceOf", account)
+	if err != nil {
+		return nil, xerrors.Errorf("pack balanceOf: %w", err)
+	}
+	out, err := client.CallContract(ctx, ethereum.CallMsg{To: &token, Data: data}, nil)
+	if err != nil {
+		return nil, err
+	}
+	vals, err := parsed.Unpack("balanceOf", out)
+	if err != nil {
+		return nil, xerrors.Errorf("unpack balanceOf: %w", err)
+	}
+	if len(vals) == 0 {
+		return nil, xerrors.Errorf("empty balanceOf result")
+	}
+	bal, ok := vals[0].(*big.Int)
+	if !ok {
+		return nil, xerrors.Errorf("unexpected balanceOf type %T", vals[0])
+	}
+	return bal, nil
 }
 
 func (a *WebRPC) ListPDPKeys(ctx context.Context) ([]string, error) {

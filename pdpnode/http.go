@@ -17,6 +17,10 @@ func StartPublic(ctx context.Context, d *Deps, sd *TaskResult) error {
 	if !cfg.Enable {
 		return nil
 	}
+	if d.DB.ReadOnly() {
+		log.Info("readonly database mode: skipping public PDP HTTP server")
+		return nil
+	}
 
 	chiRouter := cuhttp.NewRouter(cuhttp.RouterConfig{DomainName: cfg.DomainName})
 	cuhttp.MountStandardRoutes(chiRouter)

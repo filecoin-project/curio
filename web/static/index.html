@@ -5,26 +5,20 @@
     <script src="https://unpkg.com/htmx.org@1.9.5"
         integrity="sha384-xcuj3WpfgjlKF+FXhSQFQ0ZNr39ln+hwjN3npfM9VBnUskLolQAcN80McRIVOPuO"
         crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script type="module" src="index-boot.mjs"></script>
 </head>
 <body style="visibility:hidden">
     <curio-ux>
         <div class="page">
-            <div class="page-header page-header-split">
-                <h1 id="overview-title">Overview</h1>
-                <aside id="pdp-wallet-aside" class="skiff-only" hidden></aside>
+            <div class="page-header">
+                <h1>Overview</h1>
             </div>
 
             <div class="section curio-only">
                 <chain-status></chain-status>
             </div>
 
-            <div id="skiff-overview" class="skiff-only" hidden>
-                <pdp-overview></pdp-overview>
-            </div>
-
-            <div id="curio-overview" class="curio-only" hidden>
+            <div id="curio-overview">
                 <div class="row">
                     <div class="col-md-auto">
                         <div class="info-block">

@@ -108,6 +108,8 @@ customElements.define('pdp-wallet', class PDPWalletElement extends LitElement {
 
             if (this.keyStatus?.funded) {
                 alert(`Wallet imported for address ${address}. Balance: ${this.keyStatus.balance}.`);
+            } else if (!this.keyStatus?.balanceKnown) {
+                alert(`Wallet imported for address ${address}. Balance could not be fetched from the chain yet.`);
             } else {
                 alert(`Wallet imported for address ${address}, but it has no funds yet. Send FIL/tFIL to this address before registering with FWSS.`);
             }
@@ -149,7 +151,15 @@ customElements.define('pdp-wallet', class PDPWalletElement extends LitElement {
         if (this.keyStatus.funded) {
             return html`
                 <div class="alert alert-success">
-                    Wallet funded — balance ${this.keyStatus.balance}.
+                    Wallet funded — balance ${this.keyStatus.balance}${this.keyStatus.usdfcBalance ? `, ${this.keyStatus.usdfcBalance}` : ''}.
+                </div>
+            `;
+        }
+        if (!this.keyStatus.balanceKnown) {
+            return html`
+                <div class="alert alert-warning">
+                    Wallet is configured, but FIL/USDFC balances could not be fetched from the chain right now.
+                    Address: <code>${this.keyStatus.address}</code>
                 </div>
             `;
         }
@@ -254,6 +264,11 @@ customElements.define('pdp-wallet', class PDPWalletElement extends LitElement {
                                 ${this.keyStatus?.funded ? html`
                                     <div class="alert alert-success mt-3 mb-0">
                                         Wallet balance: ${this.keyStatus.balance}.
+                                    </div>
+                                ` : !this.keyStatus?.balanceKnown ? html`
+                                    <div class="alert alert-warning mt-3 mb-0">
+                                        Balance could not be fetched from the chain yet. Address:
+                                        <code>${this.createdKey.address}</code>
                                     </div>
                                 ` : html`
                                     <div class="alert alert-warning mt-3 mb-0">

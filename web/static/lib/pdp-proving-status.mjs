@@ -31,6 +31,9 @@ export function walletAsideBadge(keyStatus, { keyStatusLoading = false } = {}) {
   if (!keyStatus?.configured) {
     return { label: 'No wallet', tone: 'warn' }
   }
+  if (!keyStatus.balanceKnown) {
+    return { label: 'Balance unavailable', tone: 'warn' }
+  }
   if (!keyStatus.funded) {
     return { label: 'Low balance', tone: 'bad' }
   }

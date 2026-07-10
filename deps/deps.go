@@ -421,13 +421,14 @@ func LoadConfigWithUpgrades(text string, curioConfigWithDefaults *config.CurioCo
 }
 
 func GetConfig(ctx context.Context, layers []string, db *harmonydb.DB) (*config.CurioConfig, error) {
-	err := updateBaseLayer(ctx, db)
-	if err != nil {
-		return nil, err
+	if !db.ReadOnly() {
+		if err := updateBaseLayer(ctx, db); err != nil {
+			return nil, err
+		}
 	}
 
 	curioConfig := config.DefaultCurioConfig()
-	err = ApplyLayers(ctx, db, curioConfig, layers)
+	err := ApplyLayers(ctx, db, curioConfig, layers)
 	if err != nil {
 		return nil, err
 	}
@@ -447,6 +448,10 @@ func ApplyLayers(ctx context.Context, db *harmonydb.DB, curioConfig *config.Curi
 }
 
 func updateBaseLayer(ctx context.Context, db *harmonydb.DB) error {
+	if db.ReadOnly() {
+		return nil
+	}
+
 	_, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		// Get existing base from DB
 		text := ""

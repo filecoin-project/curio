@@ -39,7 +39,6 @@ customElements.define('pdp-guide', class PDPGuideElement extends LitElement {
             padding: 16px 20px;
         }
         .item.collapsed {
-            padding: 12px 20px;
             cursor: pointer;
         }
         .item.collapsed:hover {
@@ -57,16 +56,21 @@ customElements.define('pdp-guide', class PDPGuideElement extends LitElement {
             flex: 1;
             min-width: 0;
         }
-        .collapse-hint {
+        .collapse-toggle {
+            appearance: none;
+            background: transparent;
+            border: 0;
             color: var(--color-text-secondary, #8b949e);
-            font-size: 16px;
-            font-weight: 600;
-            letter-spacing: 0.08em;
-            line-height: 1;
-            user-select: none;
+            cursor: pointer;
             flex: 0 0 auto;
+            font-size: 14px;
+            line-height: 1;
             margin-left: auto;
-            padding-left: 8px;
+            padding: 4px 2px 4px 8px;
+            user-select: none;
+        }
+        .collapse-toggle:hover {
+            color: var(--color-text-primary, #e6edf3);
         }
         .item.collapsed .item-title {
             margin: 0;
@@ -250,17 +254,15 @@ customElements.define('pdp-guide', class PDPGuideElement extends LitElement {
                     <div class="item-head-main">
                         <h2 class="item-title">${title}</h2>
                     </div>
-                    ${collapsed ? html`<span class="collapse-hint" aria-hidden="true">…</span>` : ''}
-                </div>
-                ${collapsed ? '' : html`
-                    ${body}
                     ${checked ? html`
-                        <div class="actions">
-                            <button class="btn btn-secondary btn-sm" type="button"
-                                    @click=${() => this.toggleExpanded(key)}>Collapse</button>
-                        </div>
+                        <button class="collapse-toggle" type="button"
+                                aria-label=${collapsed ? 'Expand' : 'Collapse'}
+                                @click=${(e) => { e.stopPropagation(); this.toggleExpanded(key); }}>
+                            ${collapsed ? '▾' : '▴'}
+                        </button>
                     ` : ''}
-                `}
+                </div>
+                ${collapsed ? '' : body}
             </div>
         `;
     }

@@ -390,7 +390,7 @@ html.skiff-mode .page-header {
     margin-bottom: var(--space-2);
 }
 
-html.skiff-mode #skiff-overview .section {
+.pdp-overview-page .section {
     margin-bottom: 0;
 }
 

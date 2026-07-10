@@ -290,8 +290,7 @@ customElements.define('storage-path-info', class StoragePathInfo extends LitElem
             
             <div class="main-content">
                 <h1 style="margin-bottom: 5px;">Storage Path</h1>
-                <p style="color: #e6edf3; font-family: monospace; font-size: 1em; margin-bottom: 4px;">${info.LocalPath || '—'}</p>
-                <p style="color: #aaa; font-family: monospace; font-size: 0.85em; margin-bottom: 20px;">${info.StorageID}</p>
+                <p style="color: #aaa; font-family: monospace; font-size: 0.9em; margin-bottom: 20px;">${info.StorageID}</p>
                 
                 <!-- Summary Cards -->
                 <div class="stats-row">
