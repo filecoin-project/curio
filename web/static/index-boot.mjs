@@ -1,29 +1,47 @@
-import { getUIVariant, applySkiffDocumentClass } from '/lib/ui-variant.mjs';
+import { getUIVariant, applySkiffDocumentClass } from '/lib/ui-variant.mjs'
 
-const variant = await getUIVariant();
-const isSkiff = variant === 'skiff';
-applySkiffDocumentClass(variant);
+const variant = await getUIVariant()
+const isSkiff = variant === 'skiff'
+applySkiffDocumentClass(variant)
 
 const shared = [
-    './chain-connectivity.mjs',
-    './network-summary.mjs',
-    './cluster-machines.mjs',
+    '/chain-status.mjs',
     '/ux/curio-ux.mjs',
-];
+]
 
-const curioOnly = [
-    './win-stats.mjs',
-    './pipeline-porep.mjs',
-    './pipeline-stats.mjs',
-    './cc-scheduler.mjs',
-    './actor-summary.mjs',
-];
+const skiffModules = [
+    '/pdp-overview.mjs',
+]
+
+const curioModules = [
+    '/cluster-task-history.mjs',
+    '/harmony-task-counts.mjs',
+    '/cluster-tasks.mjs',
+    '/ux/components/Drawer.mjs',
+]
 
 for (const mod of shared) {
-    await import(mod);
+    await import(mod)
 }
-if (!isSkiff) {
-    for (const mod of curioOnly) {
-        await import(mod);
+if (isSkiff) {
+    for (const mod of skiffModules) {
+        await import(mod)
     }
+} else {
+    for (const mod of curioModules) {
+        await import(mod)
+    }
+}
+
+const skiffEl = document.getElementById('skiff-overview')
+const curioEl = document.getElementById('curio-overview')
+const titleEl = document.getElementById('overview-title')
+
+if (isSkiff) {
+    if (skiffEl) skiffEl.hidden = false
+    if (titleEl) titleEl.textContent = 'PDP Overview'
+    const walletAside = document.getElementById('pdp-wallet-aside')
+    if (walletAside) walletAside.hidden = false
+} else {
+    if (curioEl) curioEl.hidden = false
 }

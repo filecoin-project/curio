@@ -21,6 +21,10 @@ import (
 
 var log = logging.Logger("config-ui")
 
+// durationPattern validates Go time.ParseDuration strings (e.g. "1h30m", "1m1s", "30s").
+// Each clause is optional, but at least one number+unit pair is required.
+const durationPattern = `^(\d+(\.\d+)?(h|m|s|ms|us|µs|ns))+$`
+
 type cfg struct {
 	*deps.Deps
 }
@@ -70,8 +74,9 @@ func getSch(w http.ResponseWriter, r *http.Request) {
 			}
 			if i == reflect.TypeFor[time.Duration]() { // Override the Pattern for duration
 				return &jsonschema.Schema{
-					Type:    "string",
-					Pattern: "0h0m0s",
+					Type:        "string",
+					Pattern:     durationPattern,
+					Description: `Go duration string (e.g. "1h30m", "1m1s", "30s"); units may be omitted when zero`,
 				}
 			}
 			return nil

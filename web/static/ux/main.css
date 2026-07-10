@@ -218,6 +218,95 @@ a:hover {
     margin-bottom: var(--space-5);
 }
 
+.page-header-split {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-4);
+    flex-wrap: wrap;
+}
+
+.page-header-split h1 {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+#pdp-wallet-aside {
+    flex: 0 1 auto;
+    max-width: 100%;
+}
+
+.pdp-wallet-strip {
+    padding: 8px 10px;
+    background: var(--color-bg-subtle);
+    border: 1px solid var(--color-border-default);
+    border-radius: var(--radius-lg);
+    text-align: right;
+}
+
+.pdp-wallet-strip-main {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px 12px;
+    font-size: 13px;
+    color: var(--color-text-primary);
+}
+
+.pdp-wallet-strip-sub {
+    margin-top: 4px;
+    font-size: 11px;
+    color: var(--color-text-secondary);
+}
+
+.pdp-wallet-badge {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    padding: 2px 7px;
+    border-radius: 4px;
+    border: 1px solid transparent;
+}
+
+.pdp-wallet-badge.ok {
+    color: var(--color-success-fg);
+    background: var(--color-success-muted, rgba(63, 185, 80, 0.15));
+    border-color: rgba(63, 185, 80, 0.35);
+}
+
+.pdp-wallet-badge.warn {
+    color: var(--color-warning-fg);
+    background: rgba(210, 153, 34, 0.15);
+    border-color: rgba(210, 153, 34, 0.35);
+}
+
+.pdp-wallet-badge.bad {
+    color: var(--color-danger-fg);
+    background: var(--color-danger-muted, rgba(248, 81, 73, 0.15));
+    border-color: rgba(248, 81, 73, 0.35);
+}
+
+.pdp-wallet-mono {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 12px;
+}
+
+.pdp-wallet-sep {
+    color: var(--color-text-muted);
+}
+
+.pdp-wallet-link {
+    color: var(--color-accent-fg);
+    text-decoration: none;
+    font-size: 11px;
+}
+
+.pdp-wallet-link:hover {
+    text-decoration: underline;
+}
+
 .page-header h1 {
     margin: 0;
 }
@@ -291,6 +380,55 @@ a:hover {
 /* Skiff variant */
 html.skiff-mode .curio-only {
     display: none !important;
+}
+
+html.skiff-mode .page {
+    padding: var(--space-2) var(--space-3) var(--space-3);
+}
+
+html.skiff-mode .page-header {
+    margin-bottom: var(--space-2);
+}
+
+html.skiff-mode #skiff-overview .section {
+    margin-bottom: 0;
+}
+
+/* Dashboard KPI grid (shared pages) */
+.kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.kpi-card {
+    padding: 16px;
+    background: var(--color-bg-subtle);
+    border: 1px solid var(--color-border-default);
+    border-radius: var(--radius-lg);
+}
+
+.kpi-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--color-text-secondary);
+    margin-bottom: 8px;
+}
+
+.kpi-value {
+    font-size: 28px;
+    font-weight: 500;
+    line-height: 1.1;
+    color: var(--color-text-primary);
+}
+
+.kpi-sub {
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--color-text-secondary);
 }
 
 /* Legacy layout helpers */

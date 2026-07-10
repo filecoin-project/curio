@@ -6,6 +6,8 @@ class CurioUX extends LitElement {
   static properties = {
     alertCount: { type: Number },
     variant: { type: String },
+    version: { type: String },
+    nodeCount: { type: Number },
   };
 
   static styles = css`
@@ -211,12 +213,26 @@ class CurioUX extends LitElement {
     .alert-dot.ok {
       background: var(--color-success-fg, #3fb950);
     }
+
+    .sidebar-meta {
+      padding: 8px;
+      font-size: 10px;
+      line-height: 1.4;
+      color: var(--color-text-muted, #656d76);
+    }
+
+    .sidebar-meta strong {
+      color: var(--color-text-secondary, #8b949e);
+      font-weight: 500;
+    }
   `;
 
   constructor() {
     super();
     this.alertCount = 0;
     this.variant = 'curio';
+    this.version = '';
+    this.nodeCount = 0;
   }
 
   get isSkiff() {
@@ -252,6 +268,22 @@ class CurioUX extends LitElement {
     }
 
     this.loadAlertStatus();
+    this.loadSidebarMeta();
+  }
+
+  async loadSidebarMeta() {
+    try {
+      const [version, machines] = await Promise.all([
+        RPCCall('Version'),
+        RPCCall('ClusterMachines'),
+      ]);
+      this.version = version || '';
+      this.nodeCount = Array.isArray(machines) ? machines.length : 0;
+    } catch (_) {
+      this.version = '';
+      this.nodeCount = 0;
+    }
+    setTimeout(() => this.loadSidebarMeta(), 60000);
   }
 
   async loadAlertStatus() {
@@ -277,6 +309,7 @@ class CurioUX extends LitElement {
     const brand = this.isSkiff ? 'Curio PDP' : 'Curio';
     const icon = {
       overview: html`<svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M8.354 1.146a.5.5 0 0 0-.708 0l-6 6A.5.5 0 0 0 1.5 7.5v7a.5.5 0 0 0 .5.5h4.5a.5.5 0 0 0 .5-.5v-4h2v4a.5.5 0 0 0 .5.5H14a.5.5 0 0 0 .5-.5v-7a.5.5 0 0 0-.146-.354L13 5.793V2.5a.5.5 0 0 0-.5-.5h-1a.5.5 0 0 0-.5.5v1.293L8.354 1.146zM2.5 14V7.707l5.5-5.5 5.5 5.5V14H10v-4a.5.5 0 0 0-.5-.5h-3a.5.5 0 0 0-.5.5v4H2.5z"/></svg>`,
+      chain: html`<svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M6 12.5a.5.5 0 0 1 .5-.5h3a.5.5 0 0 1 0 1h-3a.5.5 0 0 1-.5-.5M3 8.062C3 6.76 4.235 5.765 5.53 5.886a26.6 26.6 0 0 0 4.94 0A2.02 2.02 0 0 1 12.5 6.5c.28 0 .5.224.5.498v1.153c0 .271-.215.494-.51.562a26 26 0 0 1-4.942 0A2 2 0 0 1 3 9.374zm4.542-.827a1 1 0 0 0 .46-.799 1 1 0 0 0-.117-.87 1 1 0 0 0-.885-.516 26.6 26.6 0 0 0-4.942 0 1 1 0 0 0-.885.516 1 1 0 0 0-.117.87 1 1 0 0 0 .46.799 26.6 26.6 0 0 0 4.942 0"/></svg>`,
       tasks: html`<svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M2 1a1 1 0 0 0-1 1v4.586a1 1 0 0 0 .293.707l7 7a1 1 0 0 0 1.414 0l4.586-4.586a1 1 0 0 0 0-1.414l-7-7A1 1 0 0 0 6.586 1zm4.5 2.5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0"/></svg>`,
       storage: html`<svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M0 2a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v1a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2zm0 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v1a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2zm0 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v1a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2z"/></svg>`,
       pdpGuide: html`<svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M10.854 7.146a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708 0l-1.5-1.5a.5.5 0 1 1 .708-.708L7.5 9.793l2.646-2.647a.5.5 0 0 1 .708 0"/><path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1z"/><path d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5zm-3-1A1.5 1.5 0 0 0 5 1.5v1A1.5 1.5 0 0 0 6.5 4h3A1.5 1.5 0 0 0 11 2.5v-1A1.5 1.5 0 0 0 9.5 0z"/></svg>`,
@@ -299,6 +332,7 @@ class CurioUX extends LitElement {
 
     const dashboards = [
       { href: '/', label: 'Overview', icon: icon.overview },
+      { href: '/pages/chain/', label: 'Chain', icon: icon.chain },
       { href: '/pages/tasks/', label: 'Tasks', icon: icon.tasks },
       { href: '/pages/storage_paths/', label: 'Storage', icon: icon.storage },
     ];
@@ -368,6 +402,10 @@ class CurioUX extends LitElement {
         </div>
         <div class="sidebar-footer">
           <hr class="sidebar-divider">
+          <div class="sidebar-meta">
+            <div><strong>${this.version || 'curio'}</strong></div>
+            <div>${this.nodeCount === 1 ? '1 node' : `${this.nodeCount} nodes`}</div>
+          </div>
           <a href="/pages/alerts/" class="alert-indicator ${this.alertCount > 0 ? 'has-alerts' : 'no-alerts'}">
             <span class="alert-dot ${this.alertCount > 0 ? 'active' : 'ok'}"></span>
             <span>${this.alertCount > 0 ? `${this.alertCount} Active Alerts` : 'No Active Alerts'}</span>

@@ -1,48 +1,57 @@
 <!doctype html>
 <html lang="en">
 <head>
-    <title>Curio Cluster Overview</title>
+    <title>Curio Overview</title>
     <script src="https://unpkg.com/htmx.org@1.9.5"
         integrity="sha384-xcuj3WpfgjlKF+FXhSQFQ0ZNr39ln+hwjN3npfM9VBnUskLolQAcN80McRIVOPuO"
         crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script type="module" src="index-boot.mjs"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
-          integrity="sha512-iecdLmaskl7CVkqkXNQ/ZH/XLlvWZOJyj7Yy7tcenmpD1ypASozpmT/E0iPtmFIB46ZmdtAc9eNBvH0H/ZpiBw=="
-            crossorigin="anonymous" />
 </head>
 <body style="visibility:hidden">
     <curio-ux>
         <div class="page">
-            <div class="info-block" style="max-width: 1000px">
-                <h2>Chain Connectivity</h2>
-                <chain-connectivity></chain-connectivity>
+            <div class="page-header page-header-split">
+                <h1 id="overview-title">Overview</h1>
+                <aside id="pdp-wallet-aside" class="skiff-only" hidden></aside>
             </div>
 
-            <div class="info-block" style="max-width: 1000px">
-                <h2>Chain Node Network</h2>
-                <network-summary></network-summary>
+            <div class="section curio-only">
+                <chain-status></chain-status>
             </div>
 
-            <cluster-machines></cluster-machines>
-
-            <div class="info-block curio-only" style="max-width: 1000px">
-                <h2>Actor Summary</h2>
-                <actor-summary></actor-summary>
+            <div id="skiff-overview" class="skiff-only" hidden>
+                <pdp-overview></pdp-overview>
             </div>
 
-            <div class="info-block curio-only">
-                <h2>Recent Wins</h2>
-                <win-stats></win-stats>
-            </div>
+            <div id="curio-overview" class="curio-only" hidden>
+                <div class="row">
+                    <div class="col-md-auto">
+                        <div class="info-block">
+                            <h2>Recently Finished Tasks</h2>
+                            <cluster-task-history></cluster-task-history>
+                        </div>
+                    </div>
+                    <div class="col-md-auto">
+                        <div class="info-block">
+                            <h2>24h task counts</h2>
+                            <harmony-task-counts></harmony-task-counts>
+                        </div>
+                    </div>
+                </div>
 
-            <div class="curio-only">
-            <pipeline-porep></pipeline-porep>
-            <pipeline-stats></pipeline-stats>
+                <div class="wide-content">
+                    <div class="info-block" style="max-width: 1000px">
+                        <h2>Cluster Tasks</h2>
+                        <cluster-tasks></cluster-tasks>
+                    </div>
+                </div>
+                <ui-drawer class="drawer" label="Cluster Tasks">
+                    <h2 slot="title">Cluster Tasks</h2>
+                    <cluster-tasks slot="content"></cluster-tasks>
+                </ui-drawer>
             </div>
         </div>
     </curio-ux>
 </body>
-
 </html>

@@ -5,6 +5,7 @@ customElements.define('pdp-wallet', class PDPWalletElement extends LitElement {
     static properties = {
         keys: { type: Array },
         keyStatus: { type: Object },
+        keyStatusLoading: { type: Boolean },
         showImportForm: { type: Boolean },
         showCreatedKeyModal: { type: Boolean },
         createdKey: { type: Object },
@@ -15,7 +16,8 @@ customElements.define('pdp-wallet', class PDPWalletElement extends LitElement {
     constructor() {
         super();
         this.keys = [];
-        this.keyStatus = { configured: false };
+        this.keyStatus = undefined;
+        this.keyStatusLoading = true;
         this.showImportForm = false;
         this.showCreatedKeyModal = false;
         this.createdKey = null;
@@ -34,11 +36,14 @@ customElements.define('pdp-wallet', class PDPWalletElement extends LitElement {
     }
 
     async loadKeyStatus() {
+        this.keyStatusLoading = true;
         try {
             this.keyStatus = await RPCCall('PDPKeyStatus', []);
         } catch (error) {
             console.error('Failed to load PDP key status:', error);
-            this.keyStatus = { configured: false };
+            this.keyStatus = null;
+        } finally {
+            this.keyStatusLoading = false;
         }
     }
 
@@ -52,6 +57,7 @@ customElements.define('pdp-wallet', class PDPWalletElement extends LitElement {
     }
 
     walletConfigured() {
+        if (this.keyStatusLoading) return false;
         return this.keyStatus?.configured || this.keys.length > 0;
     }
 
@@ -130,6 +136,13 @@ customElements.define('pdp-wallet', class PDPWalletElement extends LitElement {
     }
 
     renderFundingAlert() {
+        if (this.keyStatusLoading) {
+            return html`
+                <div class="alert alert-secondary">
+                    Loading wallet status…
+                </div>
+            `;
+        }
         if (!this.keyStatus?.configured) {
             return '';
         }
@@ -150,7 +163,7 @@ customElements.define('pdp-wallet', class PDPWalletElement extends LitElement {
     }
 
     render() {
-        const walletMissing = !this.walletConfigured();
+        const walletMissing = !this.keyStatusLoading && !this.walletConfigured();
 
         return html`
             <link

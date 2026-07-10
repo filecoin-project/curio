@@ -289,6 +289,102 @@ const fixtures = {
   WalletInfoShort: () => ({ Balance: '125.432 FIL', Nonce: 1042 }),
   PendingMessages: () => [],
 
+  ChainStatus: () => ({
+    networkName: 'calibration',
+    epoch: 4123456,
+    syncStatus: 'ok',
+    reachableNodes: 2,
+    totalNodes: 2,
+  }),
+
+  MessageQueueSummary: () => ({
+    filPendingCount: 1,
+    ethPendingCount: 2,
+    filPending: [
+      { messageCid: 'bafy2beexamplefilmessagecid00000000000001', addedAt: new Date(Date.now() - 3600000).toISOString() },
+    ],
+    ethPending: [
+      { txHash: '0xabc123def456', sendReason: 'pdp-prove', sendTime: new Date(Date.now() - 120000).toISOString() },
+      { txHash: '0xdef789abc012', sendReason: 'settleRail', sendTime: new Date(Date.now() - 600000).toISOString() },
+    ],
+  }),
+
+  PDPDashboardSummary: () => ({
+    dataUnderProofBytes: 26528901234567,
+    dataSetCount: 18,
+    pieceCount: 412,
+    provingSuccessRate: 99.82,
+    provingSuccessCount: 540,
+    provingFailureCount: 1,
+    faultedPeriods30d: 2,
+    provingActivity: Array.from({ length: 14 }, (_, i) => {
+      const d = new Date()
+      d.setDate(d.getDate() - (13 - i))
+      return {
+        date: d.toISOString().slice(0, 10),
+        success: 38 + (i % 5),
+        failed: i === 7 ? 1 : 0,
+        faulted: i === 11 ? 2 : 0,
+      }
+    }),
+  }),
+
+  PDPDashboardFinancial: () => ({
+    income30dUsdfc: '58.4',
+    incomeSubtitle: 'settled · 30 d',
+    accruedUnsettledUsdfc: '14.92',
+    expense30dFil: '0.84',
+    expense30dUsdfc: '2.18',
+    expense30dUsdfcNote: 'estimated · 412 txs · ≈ spot FIL ($2.60)',
+  }),
+
+  PDPKeyStatus: () => ({
+    configured: true,
+    address: '0xd3a1b2c3d4e5f678901234567890123456789a4f',
+    filAddress: 'f4abc123def456',
+    balance: '41.2 FIL',
+    funded: true,
+    actorExists: true,
+  }),
+
+  FSRegistryStatus: () => ({
+    address: '0x1234567890123456789012345678901234567890',
+    id: 14,
+    status: true,
+    name: 'Example Storage Co',
+    description: 'PDP provider',
+    payee: '0x8bF2abcdef123456789012345678901234567891',
+    pdp_service: {
+      service_url: 'https://pdpsp.example.com',
+      min_size: 1048576,
+      max_size: 68719476736,
+      price: 83333333333333333,
+    },
+    capabilities: {},
+  }),
+
+  AlertHistoryListPaginated: () => ({
+    Alerts: [
+      {
+        ID: 1,
+        AlertName: 'PDPTaskFailures',
+        Message: 'Task failed: CommP on curio-01, retries exhausted',
+        MachineName: 'curio-01',
+        CreatedAt: new Date(Date.now() - 18 * 60000).toISOString(),
+        Acknowledged: false,
+      },
+      {
+        ID: 2,
+        AlertName: 'Balance Check',
+        Message: 'PDP wallet gas runway ~19 days',
+        MachineName: 'curio-01',
+        CreatedAt: new Date(Date.now() - 3 * 86400000).toISOString(),
+        Acknowledged: false,
+      },
+    ],
+    Total: 3,
+  }),
+
   EpochPretty: (params) => {
     const epoch = params?.[0] ?? 4123456;
     return `epoch ${epoch} (~${new Date().toISOString().slice(0, 16)})`;

@@ -9,6 +9,8 @@ import (
 	"math/big"
 	"net/url"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
@@ -177,12 +179,14 @@ func (a *WebRPC) enrichPDPKeyStatus(ctx context.Context, status pdpwallet.Status
 
 	if filAddr, err := ethToFilAddress(status.Address); err == nil {
 		status.FilAddress = filAddr.String()
-		if act, err := a.Deps.Chain.StateGetActor(ctx, filAddr, types.EmptyTSK); err == nil && act != nil {
-			status.ActorExists = true
-		}
 	} else {
 		log.Warnf("PDPKeyStatus: fil address derivation failed for %s: %v", status.Address, err)
 	}
+
+	// Chain lookups can be slow; detach from the browser RPC context and cap wait time
+	// so configured wallets return promptly even when the node RPC is sluggish.
+	enrichCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
 	client, err := a.Deps.EthClient.Val()
 	if err != nil {
@@ -190,16 +194,50 @@ func (a *WebRPC) enrichPDPKeyStatus(ctx context.Context, status pdpwallet.Status
 		return status, nil
 	}
 
-	balance, err := client.BalanceAt(ctx, common.HexToAddress(status.Address), nil)
-	if err != nil {
-		log.Warnf("PDPKeyStatus: balance lookup failed for %s: %v", status.Address, err)
+	ethAddr := common.HexToAddress(status.Address)
+	var (
+		wg          sync.WaitGroup
+		actorExists bool
+		balance     *big.Int
+		balanceErr  error
+	)
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		if status.FilAddress == "" {
+			return
+		}
+		filAddr, err := address.NewFromString(status.FilAddress)
+		if err != nil {
+			return
+		}
+		act, err := a.Deps.Chain.StateGetActor(enrichCtx, filAddr, types.EmptyTSK)
+		if err == nil && act != nil {
+			actorExists = true
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		balance, balanceErr = client.BalanceAt(enrichCtx, ethAddr, nil)
+	}()
+
+	wg.Wait()
+
+	if actorExists {
+		status.ActorExists = true
+	}
+	if balanceErr != nil {
+		log.Warnf("PDPKeyStatus: balance lookup failed for %s: %v", status.Address, balanceErr)
 		return status, nil
 	}
-
-	status.Balance = types.FIL(types.BigFromBytes(balance.Bytes())).Short()
-	status.Funded = balance.Sign() > 0
-	if status.Funded {
-		status.ActorExists = true
+	if balance != nil {
+		status.Balance = types.FIL(types.BigFromBytes(balance.Bytes())).Short()
+		status.Funded = balance.Sign() > 0
+		if status.Funded {
+			status.ActorExists = true
+		}
 	}
 	return status, nil
 }
