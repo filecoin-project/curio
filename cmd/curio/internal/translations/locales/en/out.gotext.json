@@ -1038,23 +1038,6 @@
             "fuzzy": true
         },
         {
-            "id": "Failed to decode private key: {Error}",
-            "message": "Failed to decode private key: {Error}",
-            "translation": "Failed to decode private key: {Error}",
-            "translatorComment": "Copied from source.",
-            "placeholders": [
-                {
-                    "id": "Error",
-                    "string": "%[1]s",
-                    "type": "string",
-                    "underlyingType": "string",
-                    "argNum": 1,
-                    "expr": "\"Error\""
-                }
-            ],
-            "fuzzy": true
-        },
-        {
             "id": "Failed to generate default config: {Error}",
             "message": "Failed to generate default config: {Error}",
             "translation": "Failed to generate default config: {Error}",
@@ -1464,23 +1447,6 @@
             "message": "Interpret stacked config layers by this version of curio, with system-generated comments.",
             "translation": "Interpret stacked config layers by this version of curio, with system-generated comments.",
             "translatorComment": "Copied from source.",
-            "fuzzy": true
-        },
-        {
-            "id": "Invalid private key: {Error}",
-            "message": "Invalid private key: {Error}",
-            "translation": "Invalid private key: {Error}",
-            "translatorComment": "Copied from source.",
-            "placeholders": [
-                {
-                    "id": "Error",
-                    "string": "%[1]s",
-                    "type": "string",
-                    "underlyingType": "string",
-                    "argNum": 1,
-                    "expr": "\"Error\""
-                }
-            ],
             "fuzzy": true
         },
         {
@@ -2029,13 +1995,6 @@
             "id": "Private key",
             "message": "Private key",
             "translation": "Private key",
-            "translatorComment": "Copied from source.",
-            "fuzzy": true
-        },
-        {
-            "id": "Private key cannot be empty",
-            "message": "Private key cannot be empty",
-            "translation": "Private key cannot be empty",
             "translatorComment": "Copied from source.",
             "fuzzy": true
         },

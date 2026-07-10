@@ -1,0 +1,85 @@
+name: skiff
+
+x-logging:
+  &default-logging
+  options:
+    max-size: '20m'
+    max-file: '3'
+  driver: json-file
+
+# Port metadata for operators and tooling (`docker inspect` reads service labels).
+x-skiff-ports: &skiff-ports
+  io.curio.skiff.port.4701: "Admin GUI (webrpc, config editor)"
+  io.curio.skiff.port.80: "Public PDP HTTP API (HTTP.DelegateTLS=true)"
+  io.curio.skiff.port.443: "Public PDP HTTPS API (HTTP.DelegateTLS=false, autocert)"
+
+networks:
+  skiff-net:
+    driver: bridge
+
+services:
+  yugabyte:
+    container_name: skiff-yugabyte
+    hostname: yugabyte
+    image: ${YUGABYTE_IMAGE:-yugabytedb/yugabyte:2024.1.0.0-b129}
+    init: true
+    environment:
+      - TINI_SUBREAPER=true
+    ports:
+      - "5433:5433"   # YSQL (Postgres wire)
+      - "9042:9042"   # YCQL (Cassandra wire)
+      - "15433:15433" # Yugabyte web UI
+    restart: unless-stopped
+    logging: *default-logging
+    volumes:
+      - ${YUGABYTE_DATA:-./data/yugabyte}:/home/yugabyte/yb_data
+    command: ["bin/yugabyted", "start", "--base_dir=/home/yugabyte/yb_data", "--background=false", "--advertise_address=yugabyte"]
+    healthcheck:
+      # yugabyted status alone is not enough; verify YSQL accepts connections on the docker network.
+      test: ["CMD", "bin/ysqlsh", "-h", "yugabyte", "-U", "yugabyte", "-d", "yugabyte", "-c", "select 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 30s
+    networks:
+      - skiff-net
+
+  skiff:
+    container_name: skiff
+    image: ${SKIFF_IMAGE:-curio/skiff:dev}
+    build:
+      context: ../..
+      dockerfile: docker/skiff/Dockerfile
+      args:
+        SKIFF_MAKE_TARGET: ${SKIFF_MAKE_TARGET:-skiff}
+    init: true
+    depends_on:
+      yugabyte:
+        condition: service_healthy
+    environment:
+      - SKIFF_DOCKER=1
+      - SKIFF_HTTP_DOMAIN=${SKIFF_HTTP_DOMAIN:-localhost}
+      - CURIO_DB_HOST=yugabyte
+      - CURIO_HARMONYDB_HOSTS=yugabyte
+      - CURIO_DB_PORT=5433
+      - CURIO_DB_NAME=yugabyte
+      - CURIO_DB_USER=yugabyte
+      - CURIO_DB_PASSWORD=yugabyte
+      - CURIO_REPO_PATH=/var/lib/skiff
+      - SKIFF_DATA=/data
+      - FULLNODE_API_INFO=${FULLNODE_API_INFO:?set FULLNODE_API_INFO to a Lotus-compatible chain RPC endpoint}
+    restart: unless-stopped
+    logging: *default-logging
+    labels:
+      <<: *skiff-ports
+    ports:
+      - "127.0.0.1:4701:4701" # Admin GUI (localhost only — not for public internet)
+      - "80:80"               # Public PDP HTTP (default when DelegateTLS=true)
+      - "443:443"             # Public PDP HTTPS (when DelegateTLS=false)
+    volumes:
+      - ${SKIFF_REPO_DATA:-./data/skiff}:/var/lib/skiff
+      - ${SKIFF_STORAGE:-./data}:/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - skiff-net

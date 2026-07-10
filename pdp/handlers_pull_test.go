@@ -170,7 +170,7 @@ func testPullPieceStatus(cidV2Str string, status PullStatus) PullPieceStatus {
 }
 
 func TestHandlePull_MethodNotAllowed(t *testing.T) {
-	handler := NewPullHandler(&NullAuth{}, &mockPullStore{}, &mockValidator{shouldPass: true})
+	handler := NewPullHandler(&NullAuth{}, &mockPullStore{}, &mockValidator{shouldPass: true}, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/pdp/piece/pull", nil)
 	rec := httptest.NewRecorder()
@@ -181,7 +181,7 @@ func TestHandlePull_MethodNotAllowed(t *testing.T) {
 }
 
 func TestHandlePull_InvalidJSON(t *testing.T) {
-	handler := NewPullHandler(&NullAuth{}, &mockPullStore{}, &mockValidator{shouldPass: true})
+	handler := NewPullHandler(&NullAuth{}, &mockPullStore{}, &mockValidator{shouldPass: true}, nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/pdp/piece/pull", bytes.NewBufferString("not json"))
 	rec := httptest.NewRecorder()
@@ -193,7 +193,7 @@ func TestHandlePull_InvalidJSON(t *testing.T) {
 }
 
 func TestHandlePull_MissingExtraData(t *testing.T) {
-	handler := NewPullHandler(&NullAuth{}, &mockPullStore{}, &mockValidator{shouldPass: true})
+	handler := NewPullHandler(&NullAuth{}, &mockPullStore{}, &mockValidator{shouldPass: true}, nil)
 
 	body := PullRequest{
 		ExtraData: "",
@@ -212,7 +212,7 @@ func TestHandlePull_MissingExtraData(t *testing.T) {
 }
 
 func TestHandlePull_NoPieces(t *testing.T) {
-	handler := NewPullHandler(&NullAuth{}, &mockPullStore{}, &mockValidator{shouldPass: true})
+	handler := NewPullHandler(&NullAuth{}, &mockPullStore{}, &mockValidator{shouldPass: true}, nil)
 
 	body := PullRequest{
 		ExtraData: testExtraData(t),
@@ -230,7 +230,7 @@ func TestHandlePull_NoPieces(t *testing.T) {
 }
 
 func TestHandlePull_InvalidSourceURL(t *testing.T) {
-	handler := NewPullHandler(&NullAuth{}, &mockPullStore{}, &mockValidator{shouldPass: true})
+	handler := NewPullHandler(&NullAuth{}, &mockPullStore{}, &mockValidator{shouldPass: true}, nil)
 
 	body := PullRequest{
 		ExtraData: testExtraData(t),
@@ -252,7 +252,7 @@ func TestHandlePull_InvalidSourceURL(t *testing.T) {
 func TestHandlePull_ValidatorFails(t *testing.T) {
 	store := &mockPullStore{}
 	validator := &mockValidator{shouldPass: false, err: errors.New("contract validation failed")}
-	handler := NewPullHandler(&NullAuth{}, store, validator)
+	handler := NewPullHandler(&NullAuth{}, store, validator, nil)
 
 	body := PullRequest{
 		ExtraData: testExtraData(t),
@@ -276,7 +276,7 @@ func TestHandlePull_ValidatorFails(t *testing.T) {
 func TestHandlePull_NewRequest_Success(t *testing.T) {
 	store := &mockPullStore{}
 	validator := &mockValidator{shouldPass: true}
-	handler := NewPullHandler(&NullAuth{}, store, validator)
+	handler := NewPullHandler(&NullAuth{}, store, validator, nil)
 
 	body := PullRequest{
 		ExtraData: testExtraData(t),
@@ -323,7 +323,7 @@ func TestHandlePull_ExistingDataSetUsesFWSSPayer(t *testing.T) {
 	store := &mockPullStore{}
 	payer := common.HexToAddress("0x2222222222222222222222222222222222222222")
 	validator := &mockValidator{shouldPass: true, payer: payer}
-	handler := NewPullHandler(&NullAuth{}, store, validator)
+	handler := NewPullHandler(&NullAuth{}, store, validator, nil)
 
 	body := PullRequest{
 		ExtraData: testAddPiecesOnlyExtraData(t),
@@ -346,7 +346,7 @@ func TestHandlePull_ExistingDataSetUsesFWSSPayer(t *testing.T) {
 }
 
 func TestHandlePull_CreateNew_MissingRecordKeeper(t *testing.T) {
-	handler := NewPullHandler(&NullAuth{}, &mockPullStore{}, &mockValidator{shouldPass: true})
+	handler := NewPullHandler(&NullAuth{}, &mockPullStore{}, &mockValidator{shouldPass: true}, nil)
 
 	// dataSetId omitted (nil) requires recordKeeper
 	body := PullRequest{
@@ -381,7 +381,7 @@ func TestHandlePull_CreateNew_Success(t *testing.T) {
 	store := &mockPullStore{}
 	validator := &mockValidator{shouldPass: true}
 	// Use non-public service auth to test create-new flow without AllowedRecordKeepers restriction
-	handler := NewPullHandler(&privateServiceAuth{}, store, validator)
+	handler := NewPullHandler(&privateServiceAuth{}, store, validator, nil)
 
 	// dataSetId omitted (nil) with recordKeeper = create new dataset
 	body := PullRequest{
@@ -416,7 +416,7 @@ func TestHandlePull_Idempotent(t *testing.T) {
 		pullPieces: []PullPieceStatus{testPullPieceStatus(testCid1, PullStatusComplete)},
 	}
 	validator := &mockValidator{shouldPass: true}
-	handler := NewPullHandler(&NullAuth{}, store, validator)
+	handler := NewPullHandler(&NullAuth{}, store, validator, nil)
 
 	body := PullRequest{
 		ExtraData: testExtraData(t),
@@ -455,7 +455,7 @@ func TestHandlePull_MixedStatuses(t *testing.T) {
 		},
 	}
 	validator := &mockValidator{shouldPass: true}
-	handler := NewPullHandler(&NullAuth{}, store, validator)
+	handler := NewPullHandler(&NullAuth{}, store, validator, nil)
 
 	body := PullRequest{
 		ExtraData: testExtraData(t),
@@ -495,7 +495,7 @@ func TestHandlePull_CreateError(t *testing.T) {
 		createError: errors.New("database error"),
 	}
 	validator := &mockValidator{shouldPass: true}
-	handler := NewPullHandler(&NullAuth{}, store, validator)
+	handler := NewPullHandler(&NullAuth{}, store, validator, nil)
 
 	body := PullRequest{
 		ExtraData: testExtraData(t),
@@ -518,7 +518,7 @@ func TestHandlePull_Backpressure(t *testing.T) {
 		backpressure: &PullBackpressure{RetryAfter: 2 * time.Minute},
 	}
 	validator := &mockValidator{shouldPass: true}
-	handler := NewPullHandler(&NullAuth{}, store, validator)
+	handler := NewPullHandler(&NullAuth{}, store, validator, nil)
 
 	body := PullRequest{
 		ExtraData: testExtraData(t),
@@ -587,7 +587,7 @@ func TestHandlePull_RetryingStatus(t *testing.T) {
 		pullPieces: []PullPieceStatus{testPullPieceStatus(testCid1, PullStatusRetrying)},
 	}
 	validator := &mockValidator{shouldPass: true}
-	handler := NewPullHandler(&NullAuth{}, store, validator)
+	handler := NewPullHandler(&NullAuth{}, store, validator, nil)
 
 	body := PullRequest{
 		ExtraData: testExtraData(t),
@@ -623,7 +623,7 @@ func TestHandlePull_FailedFromPullItems(t *testing.T) {
 		pullPieces: []PullPieceStatus{testPullPieceStatus(testCid1, PullStatusFailed)},
 	}
 	validator := &mockValidator{shouldPass: true}
-	handler := NewPullHandler(&NullAuth{}, store, validator)
+	handler := NewPullHandler(&NullAuth{}, store, validator, nil)
 
 	body := PullRequest{
 		ExtraData: testExtraData(t),
@@ -660,7 +660,7 @@ func TestHandlePull_OrphanedTaskWithoutTerminalStateIsPending(t *testing.T) {
 		pullPieces: []PullPieceStatus{testPullPieceStatus(testCid1, PullStatusPending)},
 	}
 	validator := &mockValidator{shouldPass: true}
-	handler := NewPullHandler(&NullAuth{}, store, validator)
+	handler := NewPullHandler(&NullAuth{}, store, validator, nil)
 
 	body := PullRequest{
 		ExtraData: testExtraData(t),

@@ -23,6 +23,9 @@ CLEAN :=
 # Host OS identifier for parse-time branching.
 UNAME_S := $(shell uname)
 
+# Git commit embedded in binary version (override when .git is unavailable, e.g. docker build).
+CURIO_BUILD_COMMIT ?= $(shell git log -1 --format=%h_%cI 2>/dev/null || echo unknown)
+
 # CUDA library path setup for Linux hosts with nvcc present.
 ifeq ($(UNAME_S),Linux)
 NVCC_PATH := $(shell which nvcc 2>/dev/null)
@@ -97,6 +100,8 @@ CURIO_TAGS_BASE ?= cunative
 CURIO_NOSUPRASEAL = $(if $(filter 1,$(FFI_USE_OPENCL) $(DISABLE_SUPRASEAL)),1,)
 CURIO_TAGS_EXTRA = $(if $(CURIO_NOSUPRASEAL),nosupraseal,)
 CURIO_TAGS ?= $(strip $(CURIO_TAGS_BASE) $(CURIO_TAGS_EXTRA))
+# Skiff always uses network tags from CURIO_TAGS, skips supraseal, and adds skiff.
+SKIFF_TAGS = $(strip $(CURIO_TAGS) nosupraseal skiff)
 # Convert space-separated tags to comma-separated for GOFLAGS (whitespace-split).
 CURIO_TAGS_CSV = $(shell echo "$(CURIO_TAGS)" | tr ' ' ',')
 

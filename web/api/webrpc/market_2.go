@@ -1,3 +1,5 @@
+//go:build !skiff
+
 package webrpc
 
 import (
@@ -38,7 +40,7 @@ func (a *WebRPC) MK20DDOStorageDeal(ctx context.Context, id string) (*MK20Storag
 	}
 
 	var dbDeals []mk20.DBDeal
-	err = a.deps.DB.Select(ctx, &dbDeals, `SELECT id,
+	err = a.Deps.DB.Select(ctx, &dbDeals, `SELECT id,
        												client,
 													data, 
 													ddo_v1,
@@ -96,7 +98,7 @@ type MK20StorageDealList struct {
 func (a *WebRPC) MK20DDOStorageDeals(ctx context.Context, limit int, offset int) ([]*MK20StorageDealList, error) {
 	var mk20Summaries []*MK20StorageDealList
 
-	err := a.deps.DB.Select(ctx, &mk20Summaries, `SELECT
+	err := a.Deps.DB.Select(ctx, &mk20Summaries, `SELECT
     												  d.created_at,
 													  d.id,
 													  d.piece_cid_v2,
@@ -136,7 +138,7 @@ func (a *WebRPC) MK20DDOPipelines(ctx context.Context, limit int, offset int) ([
 	}
 
 	var pipelines []*MK20DDOPipeline
-	err := a.deps.DB.Select(ctx, &pipelines, `
+	err := a.Deps.DB.Select(ctx, &pipelines, `
          	SELECT
                 created_at,
 				id,
@@ -272,7 +274,7 @@ func (a *WebRPC) MK20PipelineFailedTasks(ctx context.Context) (*MK20PipelineFail
 		IndexFailed       int64 `db:"index_failed"`
 	}
 
-	err := a.deps.DB.Select(ctx, &c, query)
+	err := a.Deps.DB.Select(ctx, &c, query)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to run failed task query: %w", err)
 	}
@@ -288,7 +290,7 @@ func (a *WebRPC) MK20PipelineFailedTasks(ctx context.Context) (*MK20PipelineFail
 }
 
 func (a *WebRPC) MK20BulkRestartFailedMarketTasks(ctx context.Context, taskType string) error {
-	didCommit, err := a.deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+	didCommit, err := a.Deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
 		var rows *harmonydb.Query
 		var err error
 
@@ -383,7 +385,7 @@ func (a *WebRPC) MK20BulkRestartFailedMarketTasks(ctx context.Context, taskType 
 			_, err = tx.Exec(`
 							INSERT INTO harmony_task (id, initiated_by, update_time, posted_time, owner_id, added_by, previous_task, name)
 							VALUES ($1, NULL, NOW(), $2, NULL, $3, NULL, $4)
-						`, taskID, posted, a.deps.MachineID, name)
+						`, taskID, posted, a.Deps.MachineID, name)
 			if err != nil {
 				return false, fmt.Errorf("failed to insert harmony_task for task_id %d: %w", taskID, err)
 			}
@@ -404,7 +406,7 @@ func (a *WebRPC) MK20BulkRestartFailedMarketTasks(ctx context.Context, taskType 
 }
 
 func (a *WebRPC) MK20BulkRemoveFailedMarketPipelines(ctx context.Context, taskType string) error {
-	didCommit, err := a.deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+	didCommit, err := a.Deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
 		var rows *harmonydb.Query
 		var err error
 
@@ -579,7 +581,7 @@ func (a *WebRPC) AddMarketContract(ctx context.Context, contract string, allowed
 		return fmt.Errorf("failed to convert contract to filecoin address: %w", err)
 	}
 
-	id, err := a.deps.Chain.StateLookupID(ctx, fc, types.EmptyTSK)
+	id, err := a.Deps.Chain.StateLookupID(ctx, fc, types.EmptyTSK)
 	if err != nil {
 		return xerrors.Errorf("failed to lookup contract ID: %w", err)
 	}
@@ -588,7 +590,7 @@ func (a *WebRPC) AddMarketContract(ctx context.Context, contract string, allowed
 		return xerrors.Errorf("provided contract address is not a valid filecoin address: %s", contract)
 	}
 
-	n, err := a.deps.DB.Exec(ctx, `INSERT INTO ddo_contracts (address, allowed) VALUES ($1, $2) ON CONFLICT (address) DO NOTHING`, mAddr.String(), allowed)
+	n, err := a.Deps.DB.Exec(ctx, `INSERT INTO ddo_contracts (address, allowed) VALUES ($1, $2) ON CONFLICT (address) DO NOTHING`, mAddr.String(), allowed)
 	if err != nil {
 		return xerrors.Errorf("failed to add contract: %w", err)
 	}
@@ -613,7 +615,7 @@ func (a *WebRPC) UpdateMarketContract(ctx context.Context, contract string, allo
 
 	// Check if contract exists in DB
 	var count int
-	err := a.deps.DB.QueryRow(ctx, `SELECT COUNT(*) FROM ddo_contracts WHERE address = $1`, contract).Scan(&count)
+	err := a.Deps.DB.QueryRow(ctx, `SELECT COUNT(*) FROM ddo_contracts WHERE address = $1`, contract).Scan(&count)
 	if err != nil {
 		return xerrors.Errorf("failed to check contract: %w", err)
 	}
@@ -621,7 +623,7 @@ func (a *WebRPC) UpdateMarketContract(ctx context.Context, contract string, allo
 		return fmt.Errorf("contract does not exist")
 	}
 
-	n, err := a.deps.DB.Exec(ctx, `UPDATE ddo_contracts SET allowed = $2 WHERE address = $1`, contract, allowed)
+	n, err := a.Deps.DB.Exec(ctx, `UPDATE ddo_contracts SET allowed = $2 WHERE address = $1`, contract, allowed)
 	if err != nil {
 		return xerrors.Errorf("failed to update contract status: %w", err)
 	}
@@ -640,7 +642,7 @@ func (a *WebRPC) RemoveMarketContract(ctx context.Context, contract string) erro
 	if !strings.HasPrefix(contract, "0x") {
 		return fmt.Errorf("contract must start with 0x")
 	}
-	_, err := a.deps.DB.Exec(ctx, `DELETE FROM ddo_contracts WHERE address = $1`, contract)
+	_, err := a.Deps.DB.Exec(ctx, `DELETE FROM ddo_contracts WHERE address = $1`, contract)
 	if err != nil {
 		return xerrors.Errorf("failed to remove contract: %w", err)
 	}
@@ -652,7 +654,7 @@ func (a *WebRPC) ListMarketContracts(ctx context.Context) (map[string]bool, erro
 		Address string `db:"address"`
 		Allowed bool   `db:"allowed"`
 	}
-	err := a.deps.DB.Select(ctx, &contracts, `SELECT address, allowed FROM ddo_contracts`)
+	err := a.Deps.DB.Select(ctx, &contracts, `SELECT address, allowed FROM ddo_contracts`)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to get contracts from DB: %w", err)
 	}
@@ -672,14 +674,14 @@ func (a *WebRPC) EnableProduct(ctx context.Context, name string) error {
 
 	// Check if product exists in market_mk20_products
 	var count int
-	err := a.deps.DB.QueryRow(ctx, `SELECT COUNT(*) FROM market_mk20_products WHERE name = $1`, name).Scan(&count)
+	err := a.Deps.DB.QueryRow(ctx, `SELECT COUNT(*) FROM market_mk20_products WHERE name = $1`, name).Scan(&count)
 	if err != nil {
 		return xerrors.Errorf("failed to check product: %w", err)
 	}
 	if count == 0 {
 		return fmt.Errorf("product does not exist")
 	}
-	n, err := a.deps.DB.Exec(ctx, `UPDATE market_mk20_products SET enabled = true WHERE name = $1`, name)
+	n, err := a.Deps.DB.Exec(ctx, `UPDATE market_mk20_products SET enabled = true WHERE name = $1`, name)
 	if err != nil {
 		return xerrors.Errorf("failed to enable product: %w", err)
 	}
@@ -696,14 +698,14 @@ func (a *WebRPC) DisableProduct(ctx context.Context, name string) error {
 
 	// Check if product exists in market_mk20_products
 	var count int
-	err := a.deps.DB.QueryRow(ctx, `SELECT COUNT(*) FROM market_mk20_products WHERE name = $1`, name).Scan(&count)
+	err := a.Deps.DB.QueryRow(ctx, `SELECT COUNT(*) FROM market_mk20_products WHERE name = $1`, name).Scan(&count)
 	if err != nil {
 		return xerrors.Errorf("failed to check product: %w", err)
 	}
 	if count == 0 {
 		return fmt.Errorf("product does not exist")
 	}
-	n, err := a.deps.DB.Exec(ctx, `UPDATE market_mk20_products SET enabled = false WHERE name = $1`, name)
+	n, err := a.Deps.DB.Exec(ctx, `UPDATE market_mk20_products SET enabled = false WHERE name = $1`, name)
 	if err != nil {
 		return xerrors.Errorf("failed to disable product: %w", err)
 	}
@@ -718,7 +720,7 @@ func (a *WebRPC) ListProducts(ctx context.Context) (map[string]bool, error) {
 		Name    string `db:"name"`
 		Enabled bool   `db:"enabled"`
 	}
-	err := a.deps.DB.Select(ctx, &products, `SELECT name, enabled FROM market_mk20_products`)
+	err := a.Deps.DB.Select(ctx, &products, `SELECT name, enabled FROM market_mk20_products`)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to get products from DB: %w", err)
 	}
@@ -736,14 +738,14 @@ func (a *WebRPC) EnableDataSource(ctx context.Context, name string) error {
 
 	// check if datasource exists in market_mk20_data_source
 	var count int
-	err := a.deps.DB.QueryRow(ctx, `SELECT COUNT(*) FROM market_mk20_data_source WHERE name = $1`, name).Scan(&count)
+	err := a.Deps.DB.QueryRow(ctx, `SELECT COUNT(*) FROM market_mk20_data_source WHERE name = $1`, name).Scan(&count)
 	if err != nil {
 		return xerrors.Errorf("failed to check datasource: %w", err)
 	}
 	if count == 0 {
 		return fmt.Errorf("datasource does not exist")
 	}
-	n, err := a.deps.DB.Exec(ctx, `UPDATE market_mk20_data_source SET enabled = true WHERE name = $1`, name)
+	n, err := a.Deps.DB.Exec(ctx, `UPDATE market_mk20_data_source SET enabled = true WHERE name = $1`, name)
 	if err != nil {
 		return xerrors.Errorf("failed to enable datasource: %w", err)
 	}
@@ -759,14 +761,14 @@ func (a *WebRPC) DisableDataSource(ctx context.Context, name string) error {
 	}
 	// check if datasource exists in market_mk20_data_source
 	var count int
-	err := a.deps.DB.QueryRow(ctx, `SELECT COUNT(*) FROM market_mk20_data_source WHERE name = $1`, name).Scan(&count)
+	err := a.Deps.DB.QueryRow(ctx, `SELECT COUNT(*) FROM market_mk20_data_source WHERE name = $1`, name).Scan(&count)
 	if err != nil {
 		return xerrors.Errorf("failed to check datasource: %w", err)
 	}
 	if count == 0 {
 		return fmt.Errorf("datasource does not exist")
 	}
-	n, err := a.deps.DB.Exec(ctx, `UPDATE market_mk20_data_source SET enabled = false WHERE name = $1`, name)
+	n, err := a.Deps.DB.Exec(ctx, `UPDATE market_mk20_data_source SET enabled = false WHERE name = $1`, name)
 	if err != nil {
 		return xerrors.Errorf("failed to disable datasource: %w", err)
 	}
@@ -781,7 +783,7 @@ func (a *WebRPC) ListDataSources(ctx context.Context) (map[string]bool, error) {
 		Name    string `db:"name"`
 		Enabled bool   `db:"enabled"`
 	}
-	err := a.deps.DB.Select(ctx, &datasources, `SELECT name, enabled FROM market_mk20_data_source`)
+	err := a.Deps.DB.Select(ctx, &datasources, `SELECT name, enabled FROM market_mk20_data_source`)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to get datasources from DB: %w", err)
 	}
@@ -806,7 +808,7 @@ func (a *WebRPC) ChunkUploadStatus(ctx context.Context, idStr string) (*UploadSt
 
 	var status mk20.UploadStatus
 
-	err = a.deps.DB.QueryRow(ctx, `SELECT
+	err = a.Deps.DB.QueryRow(ctx, `SELECT
 								  COUNT(*) AS total,
 								  COUNT(*) FILTER (WHERE complete) AS complete,
 								  COUNT(*) FILTER (WHERE NOT complete) AS missing,
@@ -879,7 +881,7 @@ type MK20PDPDealList struct {
 func (a *WebRPC) MK20PDPStorageDeals(ctx context.Context, limit int, offset int) ([]*MK20PDPDealList, error) {
 	var pdpSummaries []*MK20PDPDealList
 
-	err := a.deps.DB.Select(ctx, &pdpSummaries, `SELECT
+	err := a.Deps.DB.Select(ctx, &pdpSummaries, `SELECT
     												  d.created_at,
 													  d.id,
 													  d.piece_cid_v2,
@@ -908,7 +910,7 @@ func (a *WebRPC) MK20PDPPipelines(ctx context.Context, limit int, offset int) ([
 	}
 
 	var pipelines []*MK20PDPPipeline
-	err := a.deps.DB.Select(ctx, &pipelines, `
+	err := a.Deps.DB.Select(ctx, &pipelines, `
          	SELECT
                 created_at,
 				id,
@@ -1067,7 +1069,7 @@ func (a *WebRPC) MK20PDPPipelineFailedTasks(ctx context.Context) (*MK20PDPPipeli
 		IndexFailed       int64 `db:"index_failed"`
 	}
 
-	err := a.deps.DB.Select(ctx, &c, query, mk20.ProductNamePDPV1)
+	err := a.Deps.DB.Select(ctx, &c, query, mk20.ProductNamePDPV1)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to run failed task query: %w", err)
 	}
@@ -1085,7 +1087,7 @@ func (a *WebRPC) MK20PDPPipelineFailedTasks(ctx context.Context) (*MK20PDPPipeli
 }
 
 func (a *WebRPC) MK20BulkRestartFailedPDPTasks(ctx context.Context, taskType string) error {
-	if a.deps.TaskEngine == nil {
+	if a.Deps.TaskEngine == nil {
 		return fmt.Errorf("task engine not available")
 	}
 
@@ -1094,7 +1096,7 @@ func (a *WebRPC) MK20BulkRestartFailedPDPTasks(ctx context.Context, taskType str
 
 	switch taskType {
 	case "downloading":
-		err = a.deps.DB.Select(ctx, &taskIDs, `
+		err = a.Deps.DB.Select(ctx, &taskIDs, `
 			SELECT
 			  t.task_id
 			FROM pdp_pipeline dp
@@ -1115,7 +1117,7 @@ func (a *WebRPC) MK20BulkRestartFailedPDPTasks(ctx context.Context, taskType str
 			  AND h.id IS NULL
 		`, mk20.ProductNamePDPV1)
 	case "commp":
-		err = a.deps.DB.Select(ctx, &taskIDs, `
+		err = a.Deps.DB.Select(ctx, &taskIDs, `
 			SELECT dp.commp_task_id
 			FROM pdp_pipeline dp
 			LEFT JOIN harmony_task h ON h.id = dp.commp_task_id
@@ -1126,7 +1128,7 @@ func (a *WebRPC) MK20BulkRestartFailedPDPTasks(ctx context.Context, taskType str
 			  AND h.id IS NULL
 		`)
 	case "aggregate":
-		err = a.deps.DB.Select(ctx, &taskIDs, `
+		err = a.Deps.DB.Select(ctx, &taskIDs, `
 			SELECT dp.agg_task_id
 			FROM pdp_pipeline dp
 			LEFT JOIN harmony_task h ON h.id = dp.agg_task_id
@@ -1137,7 +1139,7 @@ func (a *WebRPC) MK20BulkRestartFailedPDPTasks(ctx context.Context, taskType str
 			  AND h.id IS NULL
 		`)
 	case "add_piece":
-		err = a.deps.DB.Select(ctx, &taskIDs, `
+		err = a.Deps.DB.Select(ctx, &taskIDs, `
 			SELECT dp.add_piece_task_id
 			FROM pdp_pipeline dp
 			LEFT JOIN harmony_task h ON h.id = dp.add_piece_task_id
@@ -1148,7 +1150,7 @@ func (a *WebRPC) MK20BulkRestartFailedPDPTasks(ctx context.Context, taskType str
 			  AND h.id IS NULL
 		`)
 	case "save_cache":
-		err = a.deps.DB.Select(ctx, &taskIDs, `
+		err = a.Deps.DB.Select(ctx, &taskIDs, `
 			SELECT dp.save_cache_task_id
 			FROM pdp_pipeline dp
 			LEFT JOIN harmony_task h ON h.id = dp.save_cache_task_id
@@ -1160,7 +1162,7 @@ func (a *WebRPC) MK20BulkRestartFailedPDPTasks(ctx context.Context, taskType str
 			  AND h.id IS NULL
 		`)
 	case "index":
-		err = a.deps.DB.Select(ctx, &taskIDs, `
+		err = a.Deps.DB.Select(ctx, &taskIDs, `
 			SELECT dp.indexing_task_id
 			FROM pdp_pipeline dp
 			LEFT JOIN harmony_task h ON h.id = dp.indexing_task_id
@@ -1181,7 +1183,7 @@ func (a *WebRPC) MK20BulkRestartFailedPDPTasks(ctx context.Context, taskType str
 		var name string
 		var posted time.Time
 		var result bool
-		err = a.deps.DB.QueryRow(ctx, `
+		err = a.Deps.DB.QueryRow(ctx, `
 			SELECT name, posted, result
 			FROM harmony_task_history
 			WHERE task_id = $1
@@ -1199,7 +1201,7 @@ func (a *WebRPC) MK20BulkRestartFailedPDPTasks(ctx context.Context, taskType str
 
 		log.Infow("restarting task", "task_id", taskID, "name", name)
 
-		if err := a.deps.TaskEngine.RestartTaskByID(harmonytask.TaskID(taskID), name, posted); err != nil {
+		if err := a.Deps.TaskEngine.RestartTaskByID(harmonytask.TaskID(taskID), name, posted); err != nil {
 			return fmt.Errorf("failed to restart task_id %d: %w", taskID, err)
 		}
 	}
@@ -1208,7 +1210,7 @@ func (a *WebRPC) MK20BulkRestartFailedPDPTasks(ctx context.Context, taskType str
 }
 
 func (a *WebRPC) MK20BulkRemoveFailedPDPPipelines(ctx context.Context, taskType string) error {
-	didCommit, err := a.deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+	didCommit, err := a.Deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
 		var rows *harmonydb.Query
 		var err error
 
@@ -1408,7 +1410,7 @@ func (a *WebRPC) MK20PDPPipelineRemove(ctx context.Context, id string) error {
 		return err
 	}
 
-	_, err = a.deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+	_, err = a.Deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		var pipelines []struct {
 			Ref NullInt64 `db:"piece_ref"`
 

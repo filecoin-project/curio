@@ -5,6 +5,9 @@
 /docgen-openrpc
 /deps.json
 /pdptool
+/skiff
+/skiff
+/.synapse-sdk
 
 extern/filecoin-ffi/rust/target
 **/*.a
@@ -33,3 +36,4 @@ node_modules
 
 # VIM
 *.swpcmd/curio/internal/translations/toyextract_tmp/
+/bin/

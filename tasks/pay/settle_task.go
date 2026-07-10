@@ -9,6 +9,7 @@ import (
 	logging "github.com/ipfs/go-log/v2"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/curio/alertmanager/curioalerting"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
@@ -25,13 +26,15 @@ type SettleTask struct {
 	db        *harmonydb.DB
 	ethClient ethchain.EthClient
 	sender    *message.SenderETH
+	al        curioalerting.AlertingInterface
 }
 
-func NewSettleTask(db *harmonydb.DB, ethClient ethchain.EthClient, sender *message.SenderETH) *SettleTask {
+func NewSettleTask(db *harmonydb.DB, ethClient ethchain.EthClient, sender *message.SenderETH, al curioalerting.AlertingInterface) *SettleTask {
 	return &SettleTask{
 		db:        db,
 		ethClient: ethClient,
 		sender:    sender,
+		al:        al,
 	}
 }
 
@@ -78,7 +81,7 @@ func (s *SettleTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwn
 
 	serviceAddr := contract.ContractAddresses().AllowedPublicRecordKeepers.FWSService
 
-	err = filecoinpayment.SettleLockupPeriod(ctx, s.db, s.ethClient, s.sender, opAddr, []common.Address{payee}, []common.Address{serviceAddr})
+	err = filecoinpayment.SettleLockupPeriod(ctx, s.db, s.ethClient, s.sender, opAddr, []common.Address{payee}, []common.Address{serviceAddr}, s.al, alertType, alertName)
 	if err != nil {
 		return false, fmt.Errorf("failed to settle lockup period: %w", err)
 	}

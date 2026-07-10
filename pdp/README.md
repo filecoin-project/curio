@@ -22,7 +22,8 @@ All endpoints are rooted at `/pdp`.
 | POST | `/pdp/data-sets/create-and-add` | Create a data set and add pieces atomically |
 | GET | `/pdp/data-sets/created/{txHash}` | Check data set creation status |
 | GET | `/pdp/data-sets/{dataSetId}` | Get data set details |
-| DELETE | `/pdp/data-sets/{dataSetId}` | Delete a data set *(not yet implemented)* |
+| POST | `/pdp/data-sets/{dataSetId}/terminate` | Terminate data set |
+| GET | `/pdp/data-sets/{dataSetId}/terminate` | Get data set termination status |
 | POST | `/pdp/data-sets/{dataSetId}/pieces` | Add pieces to a data set |
 | GET | `/pdp/data-sets/{dataSetId}/pieces/added/{txHash}` | Get piece addition status |
 | GET | `/pdp/data-sets/{dataSetId}/pieces/{pieceId}` | Get piece details |
@@ -472,21 +473,87 @@ When you initiate an upload with the `notify` field specified, the PDP Service w
 
 ---
 
-### 9. Delete a Data Set *(Not yet implemented)*
+### 9. Terminate a Data Set
 
-- **Endpoint:** `DELETE /pdp/data-sets/{dataSetId}`
-- **Description:** Remove the specified data set entirely.
+- **Endpoint:** `POST /pdp/data-sets/{dataSetId}/terminate`
+- **Description:** Terminate the specified data set and schedule for complete removal
 - **Authentication:** Requires a valid JWT token in the `Authorization` header.
 - **URL Parameters:**
     - `dataSetId`: The ID of the data set.
+- **Request Body:**
+
+```json
+{
+  "extraData": "<hex-data>"
+}
+```
+- **Fields:**
+    - `extraData`: hex data carrying a client signature authorizing the data set termination
+
+
+#### Constraints and Requirements
+- **Client Authorization:** A signature in the extra data must be from the data set payer as recorded in the filecoin warm storage services contract.  The signature must be over the correct data authorizing termination.
+
 
 #### Response
 
-- **Status Code:** `501 Not Implemented`
+- **Status Code:** `202 ACCEPTED`
+
+#### Errors
+- `400 Bad Request`: Invalid request body, missing fields, invalid extraData format, missing or empty extra data
+- `401 Unauthorized`: Missing or invalid JWT token.
+- `404 Not Found`: Data set not found
+- `409 Conflict`: Termination already in progress or complete
+  - **Response Body:**
+    ```json
+    {
+      "code": <0-or-1>,
+      "message": <string>,
+      "serviceTerminationEpoch": <chain-epoch>
+    }
+    ```
+  - **Fields:** 
+    - `code`: 0|1, 0 for termination already and completed and 1 for termination queued 
+    - `message`: message describing the code in more detail
+    - `serviceTerminationEpoch`: The epoch the service was terminated at
+
+- `500 Internal Server Error`: Failed to process the request.
 
 ---
 
-### 10. Add Pieces to a Data Set
+### 10. Check Data Set Termination Status
+
+- **Endpoint:** `GET /pdp/data-sets/{dataSetId}/terminate`
+- **Description:** Return the status of the ongoing dataset termination process
+- **Authentication:** Requires a valid JWT token in the `Authorization` header.
+- **URL Parameters:**
+    - `dataSetId`: The ID of the data set.
+  
+#### Response
+- **Status Code:** `200 OK`
+- **Response Body:**
+
+```json
+{
+  "terminationTxHash": "<transaction-hash-or-empty-string>",
+  "fwssTerminated": <true-or-omitted>,
+  "serviceTerminationEpoch": <epoch-number-or-omitted>
+}
+```
+- **Fields:** 
+  - `terminationTxHash`: termination transaction hash.  Empty if unsent.
+  - `fwssTerminated`: true when service termination complete, otherwise omitted
+  - `serviceTerminationEpoch`: epoch of termination if termination complete, otherwise omitted
+
+#### Errors
+
+- `400 Bad Request`: Missing or invalid data set ID
+- `401 Unauthorized`: Missing or invalid JWT token.
+- `404 Not Found`: Termination for data set not found
+- `500 Internal Server Error`: Failed to process the request.
+---
+
+### 11. Add Pieces to a Data Set
 
 - **Endpoint:** `POST /pdp/data-sets/{dataSetId}/pieces`
 - **Description:** Add pieces to a data set by submitting an on-chain transaction.
@@ -548,7 +615,7 @@ When you initiate an upload with the `notify` field specified, the PDP Service w
 
 ---
 
-### 11. Get Piece Addition Status
+### 12. Get Piece Addition Status
 
 - **Endpoint:** `GET /pdp/data-sets/{dataSetId}/pieces/added/{txHash}`
 - **Description:** Retrieve the status of a piece addition transaction.
@@ -591,7 +658,7 @@ When you initiate an upload with the `notify` field specified, the PDP Service w
 
 ---
 
-### 12. Get Piece Details
+### 13. Get Piece Details
 
 - **Endpoint:** `GET /pdp/data-sets/{dataSetId}/pieces/{pieceId}`
 - **Description:** Retrieve the details of a specific piece in a data set, including its sub-pieces.
@@ -633,24 +700,28 @@ When you initiate an upload with the `notify` field specified, the PDP Service w
 
 ---
 
-### 13. Delete a Piece from a Data Set
+### 14. Delete a Piece from a Data Set
 
 - **Endpoint:** `DELETE /pdp/data-sets/{dataSetId}/pieces/{pieceId}`
 - **Description:** Schedule a piece for deletion from a data set by submitting an on-chain `schedulePieceDeletions` transaction to the PDPVerifier contract. Deletion is asynchronous.
 - **Authentication:** Requires a valid JWT token in the `Authorization` header.
 - **URL Parameters:**
     - `dataSetId`: The ID of the data set.
-    - `pieceId`: The ID of the piece.
+    - `pieceId`: The ID of the piece. Used when no `pieceIds` array is supplied in the request body (see below).
 - **Request Body:** *(Optional)*
 
 ```json
 {
-  "extraData": "<optional-hex-encoded-extra-data>"
+  "extraData": "<optional-hex-encoded-extra-data>",
+  "pieceIds": [0, 1, 2]
 }
 ```
 
 - **Fields:**
     - `extraData`: *(Optional)* Hex-encoded additional data for the contract call (max 256 bytes decoded).
+    - `pieceIds`: *(Optional)* Array of piece IDs to delete in a single batched, on-chain `schedulePieceDeletions` call. When this array is present and non-empty, it **overrides** the `pieceId` from the URL — every ID in the array is scheduled for deletion and the URL `pieceId` is ignored. When the array is omitted or empty, only the URL `pieceId` is deleted. Duplicate IDs are removed before processing. A maximum of 500 piece IDs may be supplied per call.
+
+> **Note:** All requested pieces must belong to the data set. If any one of them is not found, the entire request fails with `404 Not Found` and no deletion is scheduled.
 
 #### Response
 
@@ -668,14 +739,14 @@ When you initiate an upload with the `notify` field specified, the PDP Service w
 
 #### Errors
 
-- `400 Bad Request`: Invalid request or `extraData` exceeds size limit.
+- `400 Bad Request`: Invalid request, `extraData` exceeds size limit, a piece ID is out of range, or `pieceIds` exceeds the maximum batch size of 500.
 - `401 Unauthorized`: Missing or invalid JWT token.
-- `404 Not Found`: Data set or piece not found.
+- `404 Not Found`: Data set not found, or one or more of the requested pieces not found ("One or more piece not found").
 - `500 Internal Server Error`: Failed to send on-chain transaction.
 
 ---
 
-### 14. Pull Piece from Another SP
+### 15. Pull Piece from Another SP
 
 - **Endpoint:** `POST /pdp/piece/pull`
 - **Description:** Request that the PDP service pull a piece from another storage provider or a remote URL. If pieces are successfully downloaded, they can later be added to a dataset via the contract. This request is idempotent when calling with the same `extraData`, `dataSetId`, and `recordKeeper`.
@@ -1139,6 +1210,19 @@ Authorization: Bearer <JWT-token>
 Content-Type: application/json
 
 {}
+```
+
+To delete several pieces from the data set in a single batched transaction, supply a `pieceIds` array in the body (which overrides the `pieceId` in the URL):
+
+```http
+DELETE /pdp/data-sets/{dataSetId}/pieces/{pieceId} HTTP/1.1
+Host: example.com
+Authorization: Bearer <JWT-token>
+Content-Type: application/json
+
+{
+  "pieceIds": [0, 1, 2]
+}
 ```
 
 **Response:**

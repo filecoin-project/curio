@@ -6,22 +6,7 @@
         integrity="sha384-xcuj3WpfgjlKF+FXhSQFQ0ZNr39ln+hwjN3npfM9VBnUskLolQAcN80McRIVOPuO"
         crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script type="module" src="chain-connectivity.mjs"></script>
-    <script type="module" src="network-summary.mjs"></script>
-    <script type="module" src="harmony-task-counts.mjs"></script>
-    <script type="module" src="storage-gc.mjs"></script>
-    <script type="module" src="storage-use.mjs"></script>
-    <script type="module" src="win-stats.mjs"></script>
-    <script type="module" src="cluster-tasks.mjs"></script>
-    <script type="module" src="cluster-machines.mjs"></script>
-    <script type="module" src="cluster-task-history.mjs"></script>
-    <script type="module" src="pipeline-porep.mjs"></script>
-    <script type="module" src="pipeline-stats.mjs"></script>
-    <script type="module" src="cc-scheduler.mjs"></script>
-    <script type="module" src="actor-summary.mjs"></script>
-    <script type="module" src="/ux/curio-ux.mjs"></script>
-<script type="module" src="/ux/components/Drawer.mjs"></script>
-    <script type="module" src="/ux/components/Drawer.mjs"></script>
+    <script type="module" src="index-boot.mjs"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
           integrity="sha512-iecdLmaskl7CVkqkXNQ/ZH/XLlvWZOJyj7Yy7tcenmpD1ypASozpmT/E0iPtmFIB46ZmdtAc9eNBvH0H/ZpiBw=="
@@ -73,7 +58,7 @@
 
             <cluster-machines></cluster-machines>
 
-            <div class="row">
+            <div class="row curio-only">
                 <div class="col-md-auto">
                     <div class="info-block">
                         <h2>Storage Use</h2>
@@ -91,7 +76,7 @@
                 </div>
             </div>
 
-            <div class="row">
+            <div class="row curio-only">
                 <div class="col-md-auto" style="max-width: 1000px">
                     <div class="info-block">
                         <h2>Actor Summary</h2>
@@ -100,7 +85,7 @@
                 </div>
             </div>
 
-            <div class="row">
+            <div class="row curio-only">
                 <div class="col-md-auto">
                     <div class="info-block">
                         <h2>Recent Wins</h2>
@@ -142,8 +127,10 @@
                 </div>
             </div>
 
+            <div class="curio-only">
             <pipeline-porep></pipeline-porep>
             <pipeline-stats></pipeline-stats>
+            </div>
         </div>
     </curio-ux>
 </body>

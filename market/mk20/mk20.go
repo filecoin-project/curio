@@ -1,3 +1,5 @@
+//go:build !skiff
+
 package mk20
 
 import (
@@ -6,13 +8,13 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/big"
 	"runtime"
 	"runtime/debug"
 	"sync/atomic"
 	"time"
 
 	"github.com/ipfs/go-cid"
-	logging "github.com/ipfs/go-log/v2"
 	"github.com/oklog/ulid"
 	"github.com/samber/lo"
 	"github.com/yugabyte/pgx/v5"
@@ -29,19 +31,18 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/lib/ffi"
+	"github.com/filecoin-project/curio/lib/lazy"
 	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/lib/parkpiece"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/market/backpressure"
+	"github.com/filecoin-project/curio/pdp/contract"
 
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors/policy"
 	"github.com/filecoin-project/lotus/chain/types"
 	lethtypes "github.com/filecoin-project/lotus/chain/types/ethtypes"
-	"github.com/filecoin-project/lotus/lib/lazy"
 )
-
-var log = logging.Logger("mk20")
 
 type MK20API interface {
 	ChainHead(context.Context) (*types.TipSet, error)
@@ -486,14 +487,14 @@ func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 		if alloc.TermMin > deal.Products.DDOV1.Duration {
 			return &ProviderDealRejectionInfo{
 				HTTPCode: ErrBadProposal,
-				Reason:   "Allocation term min is less than deal duration",
+				Reason:   "Allocation term min is greater than deal duration",
 			}, nil
 		}
 
-		if alloc.TermMax > deal.Products.DDOV1.Duration {
+		if alloc.TermMax < deal.Products.DDOV1.Duration {
 			return &ProviderDealRejectionInfo{
 				HTTPCode: ErrBadProposal,
-				Reason:   "Allocation term max is greater than deal duration",
+				Reason:   "Allocation term max is less than deal duration",
 			}, nil
 		}
 
@@ -739,6 +740,30 @@ func (m *MK20) sanitizePDPDeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 			return &ProviderDealRejectionInfo{
 				HTTPCode: ErrBadProposal,
 				Reason:   "dataset or one of the pieces does not exist for the client",
+			}, nil
+		}
+
+		// Soft gate: refuse if the data set's on-chain removal queue is already at our
+		// conservative ceiling. This keeps us well clear of the on-chain MAX_ENQUEUED_REMOVALS.
+		pdpVerifier, err := contract.NewPDPVerifier(contract.ContractAddresses().PDPVerifier, m.ethClient)
+		if err != nil {
+			return &ProviderDealRejectionInfo{
+				HTTPCode: ErrServerInternalError,
+				Reason:   "",
+			}, nil
+		}
+		queued, err := pdpVerifier.GetScheduledRemovals(contract.EthCallOpts(ctx), big.NewInt(int64(pid)))
+		if err != nil {
+			return &ProviderDealRejectionInfo{
+				HTTPCode: ErrServerInternalError,
+				Reason:   "",
+			}, nil
+		}
+		if len(queued) >= contract.ConservativeEnqueuedRemovalsLimit {
+			return &ProviderDealRejectionInfo{
+				HTTPCode: ErrServiceOverloaded,
+				Reason: fmt.Sprintf("data set %d already has %d scheduled removals queued (limit %d); retry after the next proving period flushes the queue",
+					pid, len(queued), contract.ConservativeEnqueuedRemovalsLimit),
 			}, nil
 		}
 	}

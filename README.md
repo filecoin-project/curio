@@ -101,6 +101,8 @@ Dual-licensed under [MIT](https://github.com/filecoin-project/curio/blob/master/
 
 We welcome contributions from the community! Feel free to open PRs. Reach out to the team on Slack if you need any help.
 
+Maintainers cutting a release should follow the [Curio Release Process](.github/RELEASE_PROCESS.md).
+
 ## Flow EVM Integration
 
 Curio participates in the Flow ecosystem via **Flow EVM (Chain ID 747)**.

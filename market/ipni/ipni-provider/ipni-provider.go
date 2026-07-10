@@ -615,10 +615,7 @@ func (p *Provider) startPublishing(ctx context.Context) {
 			}
 			// Call the function to publish head for each provider
 			p.publishHead(ctx)
-			err := p.updateSparkContract(ctx)
-			if err != nil {
-				log.Errorw("failed to update ipni provider peer mapping", "err", err)
-			}
+			p.maybeUpdateSparkContract(ctx)
 		case <-ctx.Done():
 			ticker.Stop()
 			return

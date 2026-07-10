@@ -1,3 +1,5 @@
+//go:build !skiff
+
 package mk20
 
 import (

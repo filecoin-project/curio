@@ -4,24 +4,31 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/curio/alertmanager/curioalerting"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/curio/lib/chainsched"
 	"github.com/filecoin-project/curio/lib/ethchain"
 
 	chainTypes "github.com/filecoin-project/lotus/chain/types"
 )
 
-func NewDataSetDeleteWatcher(db *harmonydb.DB, ethClient ethchain.EthClient, pcs *chainsched.CurioChainSched) {
-	if err := pcs.AddHandler(func(ctx context.Context, revert, apply *chainTypes.TipSet) error {
+const alertNameDataSetDelete = "DataSetDelete"
+
+func NewDataSetDeleteWatcher(w *Watcher) {
+	if err := w.AddWatcher(func(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, al curioalerting.AlertingInterface, revert, apply *chainTypes.TipSet) {
 		err := processPendingDeletes(ctx, db, ethClient)
 		if err != nil {
 			log.Warnf("Failed to process pending data set delete: %s", err)
+			_ = al.EmitEvent(ctx, curioalerting.AlertEvent{
+				System:    alertType,
+				Subsystem: alertNameDataSetDelete,
+				Message:   fmt.Sprintf("failed to process pending data set delete: %s", err),
+			})
 		}
-		return nil
-	}); err != nil {
+	}, WatcherOrderDelete); err != nil {
 		panic(err)
 	}
 }
