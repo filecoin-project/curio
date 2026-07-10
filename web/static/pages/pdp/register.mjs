@@ -17,18 +17,14 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
         name: { type: String },
         description: { type: String },
         location: { type: String },
-        capacityTiB: { type: Number },
+        capacityTiB: { type: String },
 
         // PDP update state
         pdpServiceURL: { type: String },
-        pdpMinPieceSize: { type: Number },
-        pdpMaxPieceSize: { type: Number },
         pdpIpniPiece: { type: Boolean },
         pdpIpniIpfs: { type: Boolean },
-        pdpPrice: { type: Number },
-        pdpMinProvingPeriod: { type: Number },
         pdpLocation: { type: String },
-        pdpCapacityTiB: { type: Number },
+        pdpCapacityTiB: { type: String },
 
         // deregister confirmation input
         deregisterConfirmation: { type: String },
@@ -96,18 +92,14 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
         this.name = '';
         this.description = '';
         this.location = '';
-        this.capacityTiB = 0;
+        this.capacityTiB = '';
 
         // PDP update state
         this.pdpServiceURL = '';
-        this.pdpMinPieceSize = 0;
-        this.pdpMaxPieceSize = 0;
         this.pdpIpniPiece = true;
         this.pdpIpniIpfs = true;
-        this.pdpPrice = 0;
-        this.pdpMinProvingPeriod = 0;
         this.pdpLocation = '';
-        this.pdpCapacityTiB = 0;
+        this.pdpCapacityTiB = '';
 
         this.capabilities = {};
 
@@ -154,30 +146,36 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
         this.name = '';
         this.description = '';
         this.location = '';
-        this.capacityTiB = 0;
+        this.capacityTiB = '';
         this.showRegisterModal = true;
     }
     closeRegister() { this.showRegisterModal = false; }
+
+    parsePositiveInteger(value) {
+        const trimmed = String(value ?? '').trim();
+        if (trimmed === '') return null;
+        const parsed = Number(trimmed);
+        return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+    }
 
     async submitRegister(e) {
         e.preventDefault();
         const name = this.name.trim();
         const description = this.description.trim();
         const location = this.location.trim();
-        const capacityTiB = parseInt(this.capacityTiB, 10);
+        const capacityTiB = this.parsePositiveInteger(this.capacityTiB);
 
         if (!name || !description || !location) {
             alert('Please fill all fields (name, description, location, storage capacity).');
             return;
         }
-
-        if (!this.isValidLocation(location)) {
-            alert('Location must be in the format: "C=US;ST=California;L=San Francisco".');
+        if (capacityTiB === null) {
+            alert('Storage capacity must be a positive whole number of TiB.');
             return;
         }
 
-        if (!Number.isFinite(capacityTiB) || capacityTiB <= 0) {
-            alert('Storage capacity must be a positive number of TiB.');
+        if (!this.isValidLocation(location)) {
+            alert('Location must be in the format: "C=US;ST=California;L=San Francisco".');
             return;
         }
 
@@ -274,14 +272,10 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
     openUpdatePDP() {
         const pdp = this.status?.pdp_service || {};
         this.pdpServiceURL = pdp.service_url || '';
-        this.pdpMinPieceSize = pdp.min_size || 0;
-        this.pdpMaxPieceSize = pdp.max_size || 0;
         this.pdpIpniPiece = pdp.ipni_piece || false;
         this.pdpIpniIpfs = pdp.ipni_ipfs || false;
-        this.pdpPrice = pdp.price || 0;
-        this.pdpMinProvingPeriod = pdp.min_proving_period || 0;
         this.pdpLocation = pdp.location || '';
-        this.pdpCapacityTiB = pdp.capacity_tib || 0;
+        this.pdpCapacityTiB = String(pdp.capacity_tib || '');
         this.capabilities = this.status?.capabilities || {};
         this.showUpdatePDPModal = true;
     }
@@ -299,17 +293,11 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
     async submitUpdatePDP(e) {
         e.preventDefault();
 
+        const capacityTiB = this.parsePositiveInteger(this.pdpCapacityTiB);
         const pdpOffering = {
             service_url: this.pdpServiceURL.trim(),
-            min_size: parseInt(this.pdpMinPieceSize, 10),
-            max_size: parseInt(this.pdpMaxPieceSize, 10),
-            ipni_piece: this.pdpIpniPiece,
-            ipni_ipfs: this.pdpIpniIpfs,
-            ipni_peer_id: this.status?.pdp_service?.ipni_peer_id || '',
-            price: parseInt(this.pdpPrice, 10),
-            min_proving_period: parseInt(this.pdpMinProvingPeriod, 10),
             location: this.pdpLocation.trim(),
-            capacity_tib: parseInt(this.pdpCapacityTiB, 10),
+            capacity_tib: capacityTiB,
         };
 
         // Validate location format
@@ -319,10 +307,12 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
         }
 
         // Validate fields
-        if (!pdpOffering.service_url || !pdpOffering.location ||
-            pdpOffering.min_size <= 0 || pdpOffering.max_size <= 0 || pdpOffering.price < 0 || pdpOffering.min_proving_period <= 0 ||
-            !Number.isFinite(pdpOffering.capacity_tib) || pdpOffering.capacity_tib <= 0) {
+        if (!pdpOffering.service_url || !pdpOffering.location) {
             alert('Please provide all required fields with valid data.');
+            return;
+        }
+        if (pdpOffering.capacity_tib === null) {
+            alert('Storage capacity must be a positive whole number of TiB.');
             return;
         }
 
@@ -459,7 +449,7 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
                                     </div>
                                     <div class="mb-3">
                                         <label class="form-label">Storage Capacity (TiB)</label>
-                                        <input class="form-control" type="number" .value=${this.capacityTiB}
+                                        <input class="form-control" type="number" min="1" step="1" .value=${this.capacityTiB}
                                                @input=${e=>this.capacityTiB=e.target.value} required />
                                     </div>
                                 </div>
@@ -534,6 +524,8 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
                                         <input
                                                 class="form-control"
                                                 type="number"
+                                                min="1"
+                                                step="1"
                                                 .value=${this.pdpCapacityTiB}
                                                 @input=${e => this.pdpCapacityTiB = e.target.value}
                                                 required
