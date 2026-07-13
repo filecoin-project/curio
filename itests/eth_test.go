@@ -63,7 +63,9 @@ func TestEthClientFailover(t *testing.T) {
 	apiInfo1 := fmt.Sprintf("%s:%s", string(token1), full1.ListenAddr)
 	apiInfo2 := fmt.Sprintf("%s:%s", string(token2), full2.ListenAddr)
 	// Configure with both nodes - first node will be tried first
-	apiInfoCfg := config.NewDynamic([]string{apiInfo1, apiInfo2})
+	apiInfoCfg := config.ApisConfig{
+		ChainApiInfo: config.NewDynamic([]string{apiInfo1, apiInfo2}),
+	}
 
 	// Create CLI context for eth client
 	app := cli.NewApp()
@@ -86,7 +88,9 @@ func TestEthClientFailover(t *testing.T) {
 	token2Only, err := full2.AuthNew(ctx, lapi.AllPermissions)
 	require.NoError(t, err)
 	apiInfo2Only := fmt.Sprintf("%s:%s", string(token2Only), full2.ListenAddr)
-	apiInfoCfg2Only := config.NewDynamic([]string{apiInfo2Only})
+	apiInfoCfg2Only := config.ApisConfig{
+		ChainApiInfo: config.NewDynamic([]string{apiInfo2Only}),
+	}
 
 	{
 		ethClient2, err := deps.GetEthClient(cctx, apiInfoCfg2Only)
