@@ -107,13 +107,6 @@ func main() {
 			}
 			return c.Set(curiodeps.FlagRepoPath, p)
 		},
-		Commands: []*cli.Command{
-			{
-				Name:  "gui",
-				Usage: "Start the admin web GUI (same as running skiff with the GUI enabled)",
-				Action: pdpnode.Run,
-			},
-		},
 		Action: pdpnode.Run,
 	}
 
