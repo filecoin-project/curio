@@ -314,6 +314,7 @@ class CurioUX extends LitElement {
       storage: html`<svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M0 2a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v1a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2zm0 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v1a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2zm0 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v1a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2z"/></svg>`,
       pdpGuide: html`<svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M10.854 7.146a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708 0l-1.5-1.5a.5.5 0 1 1 .708-.708L7.5 9.793l2.646-2.647a.5.5 0 0 1 .708 0"/><path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1z"/><path d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5zm-3-1A1.5 1.5 0 0 0 5 1.5v1A1.5 1.5 0 0 0 6.5 4h3A1.5 1.5 0 0 0 11 2.5v-1A1.5 1.5 0 0 0 9.5 0z"/></svg>`,
       pdp: html`<svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M4.5 11a.5.5 0 1 0 0-1 .5.5 0 0 0 0 1M3 10.5a.5.5 0 1 1-1 0 .5.5 0 0 1 1 0"/><path d="M16 11a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V9.51c0-.418.105-.83.305-1.197l2.472-4.531A1.5 1.5 0 0 1 4.094 3h7.812a1.5 1.5 0 0 1 1.317.782l2.472 4.53c.2.368.305.78.305 1.198zM3.655 4.26 1.592 8.043Q1.79 8 2 8h12q.21 0 .408.042L12.345 4.26a.5.5 0 0 0-.439-.26H4.094a.5.5 0 0 0-.44.26zM1 10v1a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-1a1 1 0 0 0-1-1H2a1 1 0 0 0-1 1"/></svg>`,
+      datasets: html`<svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M1.5 1A1.5 1.5 0 0 0 0 2.5V13a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V2.5A1.5 1.5 0 0 0 14.5 1zm0 1h13a.5.5 0 0 1 .5.5V13H1V2.5a.5.5 0 0 1 .5-.5M2.5 4a.5.5 0 0 0 0 1h11a.5.5 0 0 0 0-1zm0 3a.5.5 0 0 0 0 1h6a.5.5 0 0 0 0-1zm0 3a.5.5 0 0 0 0 1h6a.5.5 0 0 0 0-1z"/></svg>`,
       config: html`<svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M8 4a.5.5 0 0 1 .5.5V6a.5.5 0 0 1-1 0V4.5A.5.5 0 0 1 8 4zM3.732 5.732a.5.5 0 0 1 .707 0l.915.914a.5.5 0 1 1-.708.708l-.914-.915a.5.5 0 0 1 0-.707zM2 10a.5.5 0 0 1 .5-.5h1.586a.5.5 0 0 1 0 1H2.5A.5.5 0 0 1 2 10zm9.5 0a.5.5 0 0 1 .5-.5h1.5a.5.5 0 0 1 0 1H12a.5.5 0 0 1-.5-.5zm.754-4.246a.389.389 0 0 0-.527-.02L7.547 9.31a.91.91 0 1 0 1.302 1.258l3.434-4.297a.389.389 0 0 0-.029-.518z"/><path fill-rule="evenodd" d="M0 10a8 8 0 1 1 15.547 2.661c-.442 1.253-1.845 1.602-2.932 1.25C11.309 13.488 9.475 13 8 13c-1.474 0-3.31.488-4.615.911-1.087.352-2.49.003-2.932-1.25A7.988 7.988 0 0 1 0 10zm8-7a7 7 0 0 0-6.603 9.329c.203.575.923.876 1.68.63C4.397 12.533 6.358 12 8 12s3.604.532 4.923.96c.757.245 1.477-.056 1.68-.631A7 7 0 0 0 8 3z"/></svg>`,
       sql: html`<svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M0 2a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V2zm15 2h-4v3h4V4zm0 4h-4v3h4V8zm0 4h-4v3h3a1 1 0 0 0 1-1v-2zm-5 3v-3H6v3h4zm-5 0v-3H1v2a1 1 0 0 0 1 1h3zm-4-4h4V8H1v3zm0-4h4V4H1v3zm5-3v3h4V4H6zm4 4H6v3h4V8z"/></svg>`,
       sectors: html`<svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M0 2a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V2zm15 2h-4v3h4V4zm0 4h-4v3h4V8zm0 4h-4v3h3a1 1 0 0 0 1-1v-2zm-5 3v-3H6v3h4zm-5 0v-3H1v2a1 1 0 0 0 1 1h3zm-4-4h4V8H1v3zm0-4h4V4H1v3zm5-3v3h4V4H6zm4 4H6v3h4V8z"/></svg>`,
@@ -332,11 +333,13 @@ class CurioUX extends LitElement {
 
     const dashboards = [
       ...(this.isSkiff
-        ? [{ href: '/pages/pdp-overview/', label: 'PDP Overview', icon: icon.overview }]
+        ? [{ href: '/', label: 'PDP Overview', icon: icon.overview }]
         : [
-            { href: '/', label: 'Overview', icon: icon.overview },
+            { href: '/', label: 'PoRep Overview', icon: icon.overview },
             { href: '/pages/pdp-overview/', label: 'PDP Overview', icon: icon.overview },
           ]),
+      { href: '/pages/pdp-proving/', label: 'PDP Proving', icon: icon.pdp },
+      { href: '/pages/datasets/', label: 'DataSets', icon: icon.datasets },
       { href: '/pages/chain/', label: 'Chain', icon: icon.chain },
       { href: '/pages/tasks/', label: 'Tasks', icon: icon.tasks },
       { href: '/pages/storage_paths/', label: 'Storage', icon: icon.storage },
@@ -377,8 +380,17 @@ class CurioUX extends LitElement {
     ];
 
     const isActive = (href) => {
-      if (href === '/') return active === '/' || active === '';
+      if (href === '/') {
+        // Skiff home redirects / → PDP Overview; treat both as active for the home item.
+        if (this.isSkiff) {
+          return active === '/' || active === '' || active.startsWith('/pages/pdp-overview/');
+        }
+        return active === '/' || active === '';
+      }
       if (href.startsWith('/config/edit.html')) return active.startsWith('/config/');
+      if (href === '/pages/datasets/') {
+        return active.startsWith('/pages/datasets/') || active.startsWith('/pages/dataset/');
+      }
       return active.startsWith(href);
     };
 
@@ -393,7 +405,7 @@ class CurioUX extends LitElement {
 
     return html`
       <nav class="sidebar">
-        <a href="${this.isSkiff ? '/pages/pdp-overview/' : '/'}" class="brand">
+        <a href="/" class="brand">
           <img src="/favicon.svg" width="24" height="24" alt="">
           <span class="brand-name">${brand}</span>
         </a>

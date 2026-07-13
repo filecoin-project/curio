@@ -236,6 +236,76 @@ a:hover {
     max-width: 100%;
 }
 
+#porep-status-aside {
+    flex: 0 1 auto;
+    max-width: 100%;
+}
+
+.porep-aside-strip {
+    padding: 6px 10px;
+    background: var(--color-bg-subtle);
+    border: 1px solid var(--color-border-default);
+    border-radius: var(--radius-lg);
+    max-width: 520px;
+    text-align: right;
+}
+
+.porep-aside-main {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 4px 6px;
+    font-size: 12px;
+    color: var(--color-text-primary);
+}
+
+.porep-aside-sub {
+    margin-top: 3px;
+    font-size: 11px;
+    color: var(--color-text-secondary);
+}
+
+.porep-aside-strip .aside-label {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--color-text-secondary);
+}
+
+.porep-aside-strip .aside-link {
+    color: var(--color-accent-fg);
+    text-decoration: none;
+    margin-right: 4px;
+}
+
+.porep-aside-strip .aside-more {
+    margin-left: 8px;
+    color: var(--color-accent-fg);
+    text-decoration: none;
+    font-size: 12px;
+}
+
+.porep-aside-strip .sep {
+    color: var(--color-text-secondary);
+}
+
+.porep-aside-strip .mono {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.porep-aside-strip .tone {
+    display: inline-block;
+    width: 1em;
+    text-align: center;
+    font-weight: 700;
+}
+
+.porep-aside-strip .tone.ok { color: var(--color-success-fg); }
+.porep-aside-strip .tone.bad { color: var(--color-danger-fg); font-size: 10px; }
+.porep-aside-strip .tone.muted { color: var(--color-text-secondary); }
+
 .pdp-wallet-strip {
     padding: 8px 10px;
     background: var(--color-bg-subtle);
