@@ -4,24 +4,31 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 
 	"golang.org/x/xerrors"
 
-	"github.com/filecoin-project/curio/api"
+	"github.com/filecoin-project/curio/alertmanager/curioalerting"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/curio/lib/chainsched"
+	"github.com/filecoin-project/curio/lib/ethchain"
 
 	chainTypes "github.com/filecoin-project/lotus/chain/types"
 )
 
-func NewCleanupPiecesWatcher(db *harmonydb.DB, ethClient api.EthClientInterface, pcs *chainsched.CurioChainSched) {
-	if err := pcs.AddHandler(func(ctx context.Context, revert, apply *chainTypes.TipSet) error {
+const alertNameCleanupPieces = "CleanupPieces"
+
+func NewCleanupPiecesWatcher(w *Watcher) {
+	if err := w.AddWatcher(func(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, al curioalerting.AlertingInterface, revert, apply *chainTypes.TipSet) {
 		err := processPendingCleanupPieces(ctx, db, ethClient)
 		if err != nil {
 			log.Warnf("Failed to process pending PDP piece cleanup: %s", err)
+			_ = al.EmitEvent(ctx, curioalerting.AlertEvent{
+				System:    alertType,
+				Subsystem: alertNameCleanupPieces,
+				Message:   fmt.Sprintf("failed to process pending PDP piece cleanup: %s", err),
+			})
 		}
-		return nil
-	}); err != nil {
+	}, WatcherOrderCleanupPieces); err != nil {
 		panic(err)
 	}
 }
@@ -37,7 +44,7 @@ type cleanupPiecesMessageWait struct {
 	Success sql.NullBool `db:"tx_success"`
 }
 
-func processPendingCleanupPieces(ctx context.Context, db *harmonydb.DB, ethClient api.EthClientInterface) error {
+func processPendingCleanupPieces(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient) error {
 	var pending []pendingCleanupPieces
 	err := db.Select(ctx, &pending, `
 		SELECT id, cleanup_pieces_tx_hash
@@ -106,7 +113,7 @@ func processPendingCleanupPieces(ctx context.Context, db *harmonydb.DB, ethClien
 	return nil
 }
 
-func processSuccessfulCleanupPieces(ctx context.Context, db *harmonydb.DB, ethClient api.EthClientInterface, successes []pendingCleanupPieces) error {
+func processSuccessfulCleanupPieces(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, successes []pendingCleanupPieces) error {
 	for _, detail := range successes {
 		state, err := readDataSetCleanupState(ctx, ethClient, detail.ID)
 		if err != nil {
@@ -146,7 +153,7 @@ func processSuccessfulCleanupPieces(ctx context.Context, db *harmonydb.DB, ethCl
 	return nil
 }
 
-func processFailedCleanupPieces(ctx context.Context, db *harmonydb.DB, ethClient api.EthClientInterface, failures []pendingCleanupPieces) error {
+func processFailedCleanupPieces(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, failures []pendingCleanupPieces) error {
 	for _, detail := range failures {
 		state, err := readDataSetCleanupState(ctx, ethClient, detail.ID)
 		if err == nil {

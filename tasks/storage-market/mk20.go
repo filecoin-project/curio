@@ -1070,7 +1070,14 @@ func (d *CurioStorageDealMarket) processMK20DealIngestion(ctx context.Context) {
 				log.Errorw("allocation expired", "deal", deal.ID, "error", err)
 				continue
 			}
-			end = start + alloc.TermMin
+			if abi.ChainEpoch(deal.Duration) < alloc.TermMin || abi.ChainEpoch(deal.Duration) > alloc.TermMax {
+				log.Errorw("deal duration outside allocation bounds",
+					"deal", deal.ID,
+					"duration", deal.Duration,
+					"term_min", alloc.TermMin,
+					"term_max", alloc.TermMax)
+				continue
+			}
 			vak = &miner.VerifiedAllocationKey{
 				Client: abi.ActorID(allocClientID),
 				ID:     verifreg13.AllocationId(*mk20Deal.Products.DDOV1.AllocationId),

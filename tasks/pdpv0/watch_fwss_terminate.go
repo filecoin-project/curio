@@ -3,18 +3,21 @@ package pdpv0
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"math/big"
 
 	"golang.org/x/xerrors"
 
-	"github.com/filecoin-project/curio/api"
+	"github.com/filecoin-project/curio/alertmanager/curioalerting"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/curio/lib/chainsched"
+	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/pdp/contract/FWSS"
 
 	chainTypes "github.com/filecoin-project/lotus/chain/types"
 )
+
+const alertNameTerminateFWSSService = "TerminateFWSSService"
 
 type pendingServiceTermination struct {
 	DataSetId       int64  `db:"id"`
@@ -28,19 +31,23 @@ type serviceTerminationMessageWait struct {
 	Success sql.NullBool `db:"tx_success"`
 }
 
-func NewTerminateServiceWatcher(db *harmonydb.DB, ethClient api.EthClientInterface, pcs *chainsched.CurioChainSched) {
-	if err := pcs.AddHandler(func(ctx context.Context, revert, apply *chainTypes.TipSet) error {
+func NewTerminateServiceWatcher(w *Watcher) {
+	if err := w.AddWatcher(func(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, al curioalerting.AlertingInterface, revert, apply *chainTypes.TipSet) {
 		err := processTerminations(ctx, db, ethClient)
 		if err != nil {
 			log.Warnf("Failed to process pending service termination transactions: %s", err)
+			_ = al.EmitEvent(ctx, curioalerting.AlertEvent{
+				System:    alertType,
+				Subsystem: alertNameTerminateFWSSService,
+				Message:   fmt.Sprintf("failed to process pending service termination transactions: %s", err),
+			})
 		}
-		return nil
-	}); err != nil {
+	}, WatcherOrderTerminate); err != nil {
 		panic(err)
 	}
 }
 
-func processTerminations(ctx context.Context, db *harmonydb.DB, ethClient api.EthClientInterface) error {
+func processTerminations(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient) error {
 	var pending []pendingServiceTermination
 	err := db.Select(ctx, &pending, `
 		SELECT id, terminate_tx_hash, client_requested_termination
@@ -104,7 +111,7 @@ func processTerminations(ctx context.Context, db *harmonydb.DB, ethClient api.Et
 	return processFailedTerminations(ctx, db, ethClient, failures)
 }
 
-func processSuccessfulTerminations(ctx context.Context, db *harmonydb.DB, ethClient api.EthClientInterface, successes []pendingServiceTermination) error {
+func processSuccessfulTerminations(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, successes []pendingServiceTermination) error {
 	if len(successes) == 0 {
 		return nil
 	}
@@ -139,7 +146,7 @@ func processSuccessfulTerminations(ctx context.Context, db *harmonydb.DB, ethCli
 	return nil
 }
 
-func processFailedTerminations(ctx context.Context, db *harmonydb.DB, ethClient api.EthClientInterface, failures []pendingServiceTermination) error {
+func processFailedTerminations(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, failures []pendingServiceTermination) error {
 	if len(failures) == 0 {
 		return nil
 	}

@@ -2,14 +2,12 @@ package pdp
 
 import (
 	"context"
-	"errors"
 	"math/big"
 	"strings"
 	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/api"
@@ -169,21 +167,27 @@ func (p *PDPTaskDeleteDataSet) schedule(ctx context.Context, taskFunc harmonytas
 		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
 			stop = true // assume we're done until we find a task to schedule
 
-			var did string
-			err := tx.QueryRow(`SELECT id FROM pdp_data_set_delete WHERE task_id IS NULL AND tx_hash IS NULL LIMIT 1`).Scan(&did)
-			if err != nil {
-				if errors.Is(err, pgx.ErrNoRows) {
-					return false, nil
-				}
-				return false, xerrors.Errorf("failed to query pdp_data_set_delete: %w", err)
-			}
-			if did == "" {
-				return false, xerrors.Errorf("no valid id found for taskID")
-			}
-
-			_, err = tx.Exec(`UPDATE pdp_data_set_delete SET task_id = $1 WHERE id = $2 AND tx_hash IS NULL`, id, did)
+			n, err := tx.Exec(`WITH pending AS (
+					SELECT id
+					FROM pdp_data_set_delete
+					WHERE task_id IS NULL
+					  AND tx_hash IS NULL
+					LIMIT 1
+				)
+				UPDATE pdp_data_set_delete p
+				SET task_id = $1
+				FROM pending
+				WHERE p.id = pending.id
+				  AND p.task_id IS NULL
+				  AND p.tx_hash IS NULL`, id)
 			if err != nil {
 				return false, xerrors.Errorf("failed to update pdp_data_set_delete: %w", err)
+			}
+			if n == 0 {
+				return false, nil
+			}
+			if n != 1 {
+				return false, xerrors.Errorf("updated %d rows assigning pdp data set delete task", n)
 			}
 
 			stop = false // we found a task to schedule, keep going

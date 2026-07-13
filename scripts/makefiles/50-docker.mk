@@ -5,7 +5,7 @@ build_lotus ?= 0
 curio_docker_user ?= curio
 curio_base_image = $(curio_docker_user)/curio-all-in-one:latest-debug
 ffi_from_source ?= 0
-lotus_version ?= v1.35.1
+lotus_version ?= v1.36.0
 
 ifeq ($(build_lotus),1)
 # v1: building lotus image with provided lotus version
@@ -84,3 +84,51 @@ devnet/up:
 
 devnet/down:
 	docker compose -f ./docker/docker-compose.yaml down --rmi=local && sleep 2 && rm -rf ./docker/data
+
+##################### Skiff docker stack ##################
+skiff_compose = docker compose -f ./docker/skiff/docker-compose.yaml
+skiff_git_commit = $(shell git log -1 --format=%h_%cI 2>/dev/null || echo unknown)
+
+docker/skiff:
+	DOCKER_BUILDKIT=1 docker build -f docker/skiff/Dockerfile \
+		--build-arg SKIFF_MAKE_TARGET=skiff \
+		--build-arg CURIO_BUILD_COMMIT=$(skiff_git_commit) \
+		-t $(curio_docker_user)/skiff:dev .
+.PHONY: docker/skiff
+
+docker/skiff-calibnet:
+	DOCKER_BUILDKIT=1 docker build -f docker/skiff/Dockerfile \
+		--build-arg SKIFF_MAKE_TARGET=calibnet-skiff \
+		--build-arg CURIO_BUILD_COMMIT=$(skiff_git_commit) \
+		-t $(curio_docker_user)/skiff:calibnet-dev .
+.PHONY: docker/skiff-calibnet
+
+skiff/up: docker/skiff
+	SKIFF_MAKE_TARGET=skiff SKIFF_IMAGE=$(curio_docker_user)/skiff:dev \
+		$(skiff_compose) up -d
+.PHONY: skiff/up
+
+skiff/down:
+	$(skiff_compose) down
+.PHONY: skiff/down
+
+skiff/calibnet/up: docker/skiff-calibnet
+	SKIFF_MAKE_TARGET=calibnet-skiff SKIFF_IMAGE=$(curio_docker_user)/skiff:calibnet-dev \
+		$(skiff_compose) up -d
+.PHONY: skiff/calibnet/up
+
+skiff/calibnet/down:
+	SKIFF_IMAGE=$(curio_docker_user)/skiff:calibnet-dev $(skiff_compose) down
+.PHONY: skiff/calibnet/down
+
+# Wipe local skiff/yugabyte state after changing yugabyte advertise/listen settings.
+# Restart the stack afterward so Yugabyte re-initializes its data directory.
+skiff/reset-db:
+	rm -rf ./docker/skiff/data/yugabyte
+.PHONY: skiff/reset-db
+
+# Wipe all local skiff stack state (database, repo, and storage).
+# Restart with `make skiff/calibnet/up` (or `make skiff/up`) afterward.
+skiff/reset-all:
+	rm -rf ./docker/skiff/data
+.PHONY: skiff/reset-all

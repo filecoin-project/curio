@@ -37,6 +37,9 @@ func LoadAlertPlugins(cfg config.CurioAlertingConfig) *config.Dynamic[[]Plugin] 
 		if cfg.SlackWebhook.Enable.Get() {
 			plugins = append(plugins, NewSlackWebhook(cfg.SlackWebhook))
 		}
+		if cfg.Apprise.URL != "" {
+			plugins = append(plugins, NewApprise(cfg.Apprise))
+		}
 		if len(TestPlugins) > 0 {
 			plugins = append(plugins, TestPlugins...)
 		}

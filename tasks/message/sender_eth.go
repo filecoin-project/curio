@@ -20,6 +20,8 @@ import (
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/promise"
+
+	"github.com/filecoin-project/lotus/build/buildconstants"
 )
 
 type SenderETH struct {
@@ -270,6 +272,16 @@ func NewSenderETH(client api.EthClientInterface, db *harmonydb.DB) (*SenderETH, 
 
 // Send sends an Ethereum transaction, coordinating nonce assignment, signing, and broadcasting.
 func (s *SenderETH) Send(ctx context.Context, fromAddress common.Address, tx *types.Transaction, reason string) (common.Hash, error) {
+	return s.send(ctx, fromAddress, tx, reason, 1.0)
+}
+
+// SendWithGasOverestimate is like Send, but multiplies the estimated gas
+// limit by overestimate before submission (capped at the block gas limit).
+func (s *SenderETH) SendWithGasOverestimate(ctx context.Context, fromAddress common.Address, tx *types.Transaction, reason string, overestimate float64) (common.Hash, error) {
+	return s.send(ctx, fromAddress, tx, reason, overestimate)
+}
+
+func (s *SenderETH) send(ctx context.Context, fromAddress common.Address, tx *types.Transaction, reason string, overestimate float64) (common.Hash, error) {
 	// Ensure the transaction has zero nonce; it will be assigned during send task
 	if tx.Nonce() != 0 {
 		return common.Hash{}, xerrors.Errorf("Send expects transaction nonce to be 0, was %d", tx.Nonce())
@@ -284,13 +296,17 @@ func (s *SenderETH) Send(ctx context.Context, fromAddress common.Address, tx *ty
 			Data:  tx.Data(),
 		}
 
-		gasLimit, err := s.client.EstimateGas(ctx, msg)
+		ethCtx, cancel := context.WithTimeout(ctx, defaultEthCallTimeout)
+		gasLimit, err := s.client.EstimateGas(ethCtx, msg)
+		cancel()
 		if err != nil {
 			return common.Hash{}, fmt.Errorf("failed to estimate gas: %w", err)
 		}
 		if gasLimit == 0 {
 			return common.Hash{}, fmt.Errorf("estimated gas limit is zero")
 		}
+
+		gasLimit = min(uint64(float64(gasLimit)*overestimate), uint64(buildconstants.BlockGasLimit))
 
 		// Fetch current base fee
 		header, err := s.client.HeaderByNumber(ctx, nil)

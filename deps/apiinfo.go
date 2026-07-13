@@ -5,14 +5,19 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math/big"
 	"math/rand"
 	"net/http"
+	"os"
 	"reflect"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	erpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/gorilla/websocket"
@@ -27,17 +32,34 @@ import (
 	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps/config"
+	"github.com/filecoin-project/curio/lib/ethchain"
 
-	lapi "github.com/filecoin-project/lotus/api"
 	ltypes "github.com/filecoin-project/lotus/chain/types"
 	cliutil "github.com/filecoin-project/lotus/cli/util"
 )
 
 var clog = logging.Logger("curio/chain")
 
-func GetFullNodeAPIV1Curio(ctx *cli.Context, ainfoCfg *config.Dynamic[[]string]) (api.Chain, jsonrpc.ClientCloser, error) {
+
+func skiffDockerMode() bool {
+	return os.Getenv("SKIFF_DOCKER") != ""
+}
+
+func chainStartupContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if !skiffDockerMode() {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, 30*time.Second)
+}
+
+func GetFullNodeAPIV1Curio(ctx *cli.Context, apis config.ApisConfig) (api.Chain, jsonrpc.ClientCloser, error) {
 	if tn, ok := ctx.App.Metadata["testnode-full"]; ok {
 		return tn.(api.Chain), func() {}, nil
+	}
+
+	ainfoCfg, _, err := resolveChainAPIInfo(ctx, apis)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	connections := map[string]api.Chain{}
@@ -59,7 +81,7 @@ func GetFullNodeAPIV1Curio(ctx *cli.Context, ainfoCfg *config.Dynamic[[]string])
 			if _, ok := connections[i]; ok {
 				continue
 			}
-			ainfo := cliutil.ParseApiInfo(i)
+			ainfo := parseAPIInfo(i)
 			addr, err := ainfo.DialArgs(version)
 			if err != nil {
 				return xerrors.Errorf("could not get DialArgs: %w", err)
@@ -87,8 +109,16 @@ func GetFullNodeAPIV1Curio(ctx *cli.Context, ainfoCfg *config.Dynamic[[]string])
 			}
 
 			// Validate network match
-			networkName, err := v1api.StateNetworkName(ctx.Context)
+			netCtx, netCancel := chainStartupContext(ctx.Context)
+			networkName, err := v1api.StateNetworkName(netCtx)
+			netCancel()
 			if err != nil {
+				if skiffDockerMode() && errors.Is(err, context.DeadlineExceeded) {
+					clog.Warnf("Chain network check timed out for %s (chain node may still be syncing); continuing", head.addr)
+					connections[identifier] = v1api
+					closers = append(closers, closer)
+					continue
+				}
 				clog.Warnf("Failed to get network name from node %s: %s", head.addr, err.Error())
 				closer()
 				continue
@@ -115,7 +145,7 @@ func GetFullNodeAPIV1Curio(ctx *cli.Context, ainfoCfg *config.Dynamic[[]string])
 		return nil
 	}
 
-	err := updateDynamic()
+	err = updateDynamic()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -160,7 +190,7 @@ var RPCErrors = jsonrpc.NewErrors()
 func newChainNodeRPCV1(ctx context.Context, addr string, requestHeader http.Header, opts ...jsonrpc.Option) (api.Chain, jsonrpc.ClientCloser, error) {
 	var res api.ChainStruct
 	closer, err := jsonrpc.NewMergeClient(ctx, addr, "Filecoin",
-		api.GetInternalStructs(&res), requestHeader, append([]jsonrpc.Option{jsonrpc.WithErrors(lapi.RPCErrors)}, opts...)...)
+		api.GetInternalStructs(&res), requestHeader, append(chainRPCErrorOpts(), opts...)...)
 
 	return &res, closer, err
 }
@@ -407,16 +437,22 @@ func ErrorIsIn(err error, errorTypes []error) bool {
 	return false
 }
 
-func GetEthClient(cctx *cli.Context, ainfoCfg *config.Dynamic[[]string]) (api.EthClientInterface, error) {
+func GetEthClient(cctx *cli.Context, apis config.ApisConfig) (ethchain.EthClient, error) {
+	ainfoCfg, _, err := resolveChainAPIInfo(cctx, apis)
+	if err != nil {
+		return nil, err
+	}
+
 	version := "v1"
-	var ethClientDynamic = config.NewDynamic([]*ethclient.Client{})
+	var ethClientDynamic = config.NewDynamic([]ethchain.EthClient{})
 	updateDynamic := func() error {
 		if len(ainfoCfg.Get()) == 0 {
 			return xerrors.Errorf("could not get API info: none configured. \nConsider getting base.toml with './curio config get base >/tmp/base.toml' \nthen adding   \n[APIs] \n ChainApiInfo = [\" result_from lotus auth api-info --perm=admin \"]\n  and updating it with './curio config set /tmp/base.toml'")
 		}
+
 		var httpHeads []httpHead
 		for _, i := range ainfoCfg.Get() {
-			ainfo := cliutil.ParseApiInfo(i)
+			ainfo := parseAPIInfo(i)
 			addr, err := ainfo.DialArgs(version)
 			if err != nil {
 				return xerrors.Errorf("could not get eth DialArgs: %w", err)
@@ -424,7 +460,7 @@ func GetEthClient(cctx *cli.Context, ainfoCfg *config.Dynamic[[]string]) (api.Et
 			httpHeads = append(httpHeads, httpHead{addr: addr, header: ainfo.AuthHeader()})
 		}
 
-		var clients []*ethclient.Client
+		var clients []ethchain.EthClient
 		for _, head := range httpHeads {
 			if cliutil.IsVeryVerbose {
 				_, _ = fmt.Fprintln(cctx.App.Writer, "using eth client endpoint:", head.addr)
@@ -441,13 +477,20 @@ func GetEthClient(cctx *cli.Context, ainfoCfg *config.Dynamic[[]string]) (api.Et
 
 			rpcClient, err := erpc.DialOptions(cctx.Context, head.addr, wopts, hopts)
 			if err != nil {
-				log.Warnf("failed to dial eth client: %s", err)
+				clog.Warnf("failed to dial eth client: %s", err)
 				continue
 			}
-			client := ethclient.NewClient(rpcClient)
-			_, err = client.BlockNumber(cctx.Context)
+			client := &ethchain.ChainErrorWrap{EthClient: ethclient.NewClient(rpcClient)}
+			ethCtx, ethCancel := chainStartupContext(cctx.Context)
+			_, err = client.BlockNumber(ethCtx)
+			ethCancel()
 			if err != nil {
-				log.Warnf("failed to get eth block number: %s", err)
+				if skiffDockerMode() && errors.Is(err, context.DeadlineExceeded) {
+					clog.Warnf("eth block number timed out for %s (chain node may still be syncing); continuing", head.addr)
+					clients = append(clients, client)
+					continue
+				}
+				clog.Warnf("failed to get eth block number: %s", err)
 				continue
 			}
 			clients = append(clients, client)
@@ -471,10 +514,10 @@ func GetEthClient(cctx *cli.Context, ainfoCfg *config.Dynamic[[]string]) (api.Et
 
 	var ethClient api.EthClientInterfaceStruct
 	EthClientProxy(ethClientDynamic, &ethClient)
-	return &ethClient, nil
+	return &dynamicEthAdapter{EthClientInterface: &ethClient}, nil
 }
 
-func EthClientProxy(ins *config.Dynamic[[]*ethclient.Client], outstr api.EthClientInterface) {
+func EthClientProxy(ins *config.Dynamic[[]ethchain.EthClient], outstr api.EthClientInterface) {
 	providerCount := len(ins.Get())
 
 	var healthyLk sync.Mutex
@@ -500,3 +543,33 @@ func EthClientProxy(ins *config.Dynamic[[]*ethclient.Client], outstr api.EthClie
 	// Use the existing populateProxyMethods function
 	populateProxyMethods(outstr, ins, nextHealthyProvider, startWatch, &starWatchOnce, providerCount)
 }
+
+// dynamicEthAdapter adapts the dynamic api.EthClientInterface proxy to ethchain.EthClient.
+// Extra ethchain-only methods are unused by Curio call sites today.
+type dynamicEthAdapter struct {
+	api.EthClientInterface
+}
+
+func (e *dynamicEthAdapter) Close() {}
+
+func (e *dynamicEthAdapter) EstimateGasAtBlock(ctx context.Context, msg ethereum.CallMsg, blockNumber *big.Int) (uint64, error) {
+	return 0, xerrors.Errorf("EstimateGasAtBlock is not supported on the dynamic eth client proxy")
+}
+
+func (e *dynamicEthAdapter) EstimateGasAtBlockHash(ctx context.Context, msg ethereum.CallMsg, blockHash common.Hash) (uint64, error) {
+	return 0, xerrors.Errorf("EstimateGasAtBlockHash is not supported on the dynamic eth client proxy")
+}
+
+func (e *dynamicEthAdapter) SendRawTransactionSync(ctx context.Context, rawTx []byte, timeout *time.Duration) (*types.Receipt, error) {
+	return nil, xerrors.Errorf("SendRawTransactionSync is not supported on the dynamic eth client proxy")
+}
+
+func (e *dynamicEthAdapter) SendTransactionSync(ctx context.Context, tx *types.Transaction, timeout *time.Duration) (*types.Receipt, error) {
+	return nil, xerrors.Errorf("SendTransactionSync is not supported on the dynamic eth client proxy")
+}
+
+func (e *dynamicEthAdapter) SubscribeTransactionReceipts(ctx context.Context, q *ethereum.TransactionReceiptsQuery, ch chan<- []*types.Receipt) (ethereum.Subscription, error) {
+	return nil, xerrors.Errorf("SubscribeTransactionReceipts is not supported on the dynamic eth client proxy")
+}
+
+var _ ethchain.EthClient = (*dynamicEthAdapter)(nil)

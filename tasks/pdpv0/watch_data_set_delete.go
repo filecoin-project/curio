@@ -4,24 +4,31 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 
 	"golang.org/x/xerrors"
 
-	"github.com/filecoin-project/curio/api"
+	"github.com/filecoin-project/curio/alertmanager/curioalerting"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/curio/lib/chainsched"
+	"github.com/filecoin-project/curio/lib/ethchain"
 
 	chainTypes "github.com/filecoin-project/lotus/chain/types"
 )
 
-func NewDataSetDeleteWatcher(db *harmonydb.DB, ethClient api.EthClientInterface, pcs *chainsched.CurioChainSched) {
-	if err := pcs.AddHandler(func(ctx context.Context, revert, apply *chainTypes.TipSet) error {
+const alertNameDataSetDelete = "DataSetDelete"
+
+func NewDataSetDeleteWatcher(w *Watcher) {
+	if err := w.AddWatcher(func(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, al curioalerting.AlertingInterface, revert, apply *chainTypes.TipSet) {
 		err := processPendingDeletes(ctx, db, ethClient)
 		if err != nil {
 			log.Warnf("Failed to process pending data set delete: %s", err)
+			_ = al.EmitEvent(ctx, curioalerting.AlertEvent{
+				System:    alertType,
+				Subsystem: alertNameDataSetDelete,
+				Message:   fmt.Sprintf("failed to process pending data set delete: %s", err),
+			})
 		}
-		return nil
-	}); err != nil {
+	}, WatcherOrderDelete); err != nil {
 		panic(err)
 	}
 }
@@ -37,7 +44,7 @@ type dataSetDeleteMessageWait struct {
 	Success sql.NullBool `db:"tx_success"`
 }
 
-func processPendingDeletes(ctx context.Context, db *harmonydb.DB, ethClient api.EthClientInterface) error {
+func processPendingDeletes(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient) error {
 	var pending []pendingDataSetDelete
 	err := db.Select(ctx, &pending, `
 		SELECT id, delete_tx_hash
@@ -104,7 +111,7 @@ func processPendingDeletes(ctx context.Context, db *harmonydb.DB, ethClient api.
 	return nil
 }
 
-func processSuccessfulDeletes(ctx context.Context, db *harmonydb.DB, ethClient api.EthClientInterface, successes []pendingDataSetDelete) error {
+func processSuccessfulDeletes(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, successes []pendingDataSetDelete) error {
 	if len(successes) == 0 {
 		return nil
 	}
@@ -143,7 +150,7 @@ func processSuccessfulDeletes(ctx context.Context, db *harmonydb.DB, ethClient a
 	return nil
 }
 
-func processFailedDeletes(ctx context.Context, db *harmonydb.DB, ethClient api.EthClientInterface, failures []pendingDataSetDelete) error {
+func processFailedDeletes(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, failures []pendingDataSetDelete) error {
 	for _, detail := range failures {
 		state, err := readDataSetCleanupState(ctx, ethClient, detail.ID)
 		if err == nil {
@@ -245,7 +252,7 @@ func cleanupFinalizedDataSet(ctx context.Context, db *harmonydb.DB, dataSetID in
 					pdp_data_set_piece_update (adjusts)
 				update pdp_piecerefs.data_set_refcount accordingly, so refcounts drop when pieces are removed.
 
-			pdp_pieceRefs will be cleaned up by task_piece_gc.go. It will also remove index entries and publish IPNI announcements.
+			pdp_pieceRefs will be cleaned up by watch_piece_delete.go process. It will also remove index entries and publish IPNI announcements.
 		*/
 
 		_, err = tx.Exec(`DELETE FROM pdp_data_sets WHERE id = $1`, dataSetID)

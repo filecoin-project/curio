@@ -12,7 +12,7 @@ curio: $(BUILD_DEPS)
 	-tags "$(CURIO_TAGS)" \
 	-o curio -ldflags " -s -w \
 	-X github.com/filecoin-project/curio/build.IsOpencl=$(FFI_USE_OPENCL) \
-	-X github.com/filecoin-project/curio/build.CurrentCommit=+git_`git log -1 --format=%h_%cI`" \
+	-X github.com/filecoin-project/curio/build.CurrentCommit=+git_$(CURIO_BUILD_COMMIT)" \
 	./cmd/curio
 .PHONY: curio
 BINS += curio
@@ -29,7 +29,7 @@ curio-native: $(BUILD_DEPS)
 			-tags "$(CURIO_TAGS)" \
 			-o curio -ldflags " -s -w \
 			-X github.com/filecoin-project/curio/build.IsOpencl=$(FFI_USE_OPENCL) \
-			-X github.com/filecoin-project/curio/build.CurrentCommit=+git_`git log -1 --format=%h_%cI`" \
+			-X github.com/filecoin-project/curio/build.CurrentCommit=+git_$(CURIO_BUILD_COMMIT)" \
 			./cmd/curio ; \
 	else \
 		echo "Building curio-native (non-amd64; GOAMD64 not applicable)"; \
@@ -37,7 +37,7 @@ curio-native: $(BUILD_DEPS)
 			-tags "$(CURIO_TAGS)" \
 			-o curio -ldflags " -s -w \
 			-X github.com/filecoin-project/curio/build.IsOpencl=$(FFI_USE_OPENCL) \
-			-X github.com/filecoin-project/curio/build.CurrentCommit=+git_`git log -1 --format=%h_%cI`" \
+			-X github.com/filecoin-project/curio/build.CurrentCommit=+git_$(CURIO_BUILD_COMMIT)" \
 			./cmd/curio ; \
 	fi
 .PHONY: curio-native
@@ -53,6 +53,18 @@ pdptool: $(BUILD_DEPS)
 	CGO_LDFLAGS_ALLOW=$(CGO_LDFLAGS_ALLOW) $(GOCC) build $(GOFLAGS) -tags "$(CURIO_TAGS)" -o pdptool ./cmd/pdptool
 .PHONY: pdptool
 BINS += pdptool
+
+curio-pdp: setup-cgo-env ffi-version-check
+	rm -f curio
+	CGO_LDFLAGS_ALLOW=$(CGO_LDFLAGS_ALLOW) $(GOCC) build $(GOFLAGS) \
+	-tags "$(SKIFF_TAGS)" \
+	-o curio -ldflags " -s -w \
+	-X github.com/filecoin-project/curio/build.CurrentCommit=+git_$(CURIO_BUILD_COMMIT)" \
+	./cmd/skiff
+.PHONY: curio-pdp
+
+skiff: curio-pdp
+.PHONY: skiff
 
 ## CUZK PROVING DAEMON (Rust, requires CUDA)
 ## cuzk is a persistent GPU-resident SNARK proving daemon. It is built separately
@@ -109,6 +121,15 @@ calibnet-sptool: sptool
 
 calibnet-curio: CURIO_TAGS += calibnet
 calibnet-curio: curio
+
+calibnet-curio-pdp: CURIO_TAGS += calibnet
+calibnet-curio-pdp: curio-pdp
+
+2k-curio-pdp: CURIO_TAGS += 2k
+2k-curio-pdp: curio-pdp
+
+calibnet-skiff: calibnet-curio-pdp
+2k-skiff: 2k-curio-pdp
 
 install: install-curio install-sptool
 .PHONY: install

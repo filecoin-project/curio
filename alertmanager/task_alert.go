@@ -20,7 +20,6 @@ import (
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/dline"
 
-	"github.com/filecoin-project/curio/alertmanager/curioalerting"
 	"github.com/filecoin-project/curio/alertmanager/plugin"
 	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps/config"
@@ -56,7 +55,6 @@ type AlertTask struct {
 	cfg     config.CurioAlertingConfig
 	db      *harmonydb.DB
 	plugins *config.Dynamic[[]plugin.Plugin]
-	al      *curioalerting.AlertingSystem
 
 	pingMu       sync.Mutex
 	pingProblems bool
@@ -84,6 +82,34 @@ type alertMute struct {
 	Pattern   *string `db:"pattern"`
 }
 
+type pendingAlertEvent struct {
+	ID        int64  `db:"id"`
+	AlertName string `db:"alert_name"`
+	Message   string `db:"message"`
+}
+
+type pendingAlertCondition struct {
+	System      string `db:"system"`
+	Subsystem   string `db:"subsystem"`
+	Condition   string `db:"condition"`
+	Message     string `db:"message"`
+	RepeatCount int64  `db:"repeat_count"`
+}
+
+type alertConditionKey struct {
+	system    string
+	subsystem string
+	condition string
+}
+
+type queuedAlertRefs struct {
+	localEventIDs []int64
+	sentEventIDs  []int64
+
+	localConditions []alertConditionKey
+	sentConditions  []alertConditionKey
+}
+
 type AlertName string
 
 const (
@@ -98,6 +124,7 @@ const (
 	Name_MissingSectors        AlertName = "MissingSectors"
 	Name_PendingMessages       AlertName = "PendingMessages"
 	Name_IPNISync              AlertName = "IPNISync"
+	Name_PDPKeyConfigured      AlertName = "PDPKeyConfigured"
 )
 
 var AlertNames = []string{
@@ -112,28 +139,11 @@ var AlertNames = []string{
 	string(Name_MissingSectors),
 	string(Name_PendingMessages),
 	string(Name_IPNISync),
+	string(Name_PDPKeyConfigured),
 }
 
-var AlertFuncs = map[AlertName]AlertFunc{
-	Name_BalanceCheck:          balanceCheck,
-	Name_TaskFailures:          taskFailureCheck,
-	Name_PDPTaskFailures:       pdpTaskFailureCheck,
-	Name_PermanentStorageSpace: permanentStorageCheck,
-	Name_WindowPost:            wdPostCheck,
-	Name_WinningPost:           wnPostCheck,
-	Name_NowCheck:              NowCheck,
-	Name_ChainSync:             chainSyncCheck,
-	Name_MissingSectors:        missingSectorCheck,
-	Name_PendingMessages:       pendingMessagesCheck,
-	Name_IPNISync:              ipniSyncCheck,
-}
-
-var PingHealthFuncs = map[AlertName]AlertFunc{
-	Name_BalanceCheck:          AlertFuncs[Name_BalanceCheck],
-	Name_ChainSync:             AlertFuncs[Name_ChainSync],
-	Name_PermanentStorageSpace: AlertFuncs[Name_PermanentStorageSpace],
-	Name_PDPTaskFailures:       AlertFuncs[Name_PDPTaskFailures],
-	Name_IPNISync:              AlertFuncs[Name_IPNISync],
+func init() {
+	registerAlertMaps()
 }
 
 func isPingHealthOnly(now time.Time) bool {
@@ -147,7 +157,7 @@ func funcsByInterval(now time.Time) iter.Seq[AlertFunc] {
 }
 
 func NewAlertTask(
-	api AlertAPI, db *harmonydb.DB, alertingCfg config.CurioAlertingConfig, al *curioalerting.AlertingSystem) *AlertTask {
+	api AlertAPI, db *harmonydb.DB, alertingCfg config.CurioAlertingConfig) *AlertTask {
 
 	plugins := plugin.LoadAlertPlugins(alertingCfg)
 
@@ -155,7 +165,6 @@ func NewAlertTask(
 		api:     api,
 		db:      db,
 		cfg:     alertingCfg,
-		al:      al,
 		plugins: plugins,
 	}
 }
@@ -171,11 +180,6 @@ func (a *AlertTask) Problems() bool {
 }
 
 func (a *AlertTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	if len(a.plugins.Get()) == 0 {
-		log.Warnf("No alert plugins enabled, not sending an alert")
-		return true, nil
-	}
-
 	now := build.Clock.Now()
 	ctx := context.Background()
 	altrs := &alerts{
@@ -269,33 +273,12 @@ func (a *AlertTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		}
 	}
 
-	// Process system alerts (from curioalerting)
-	{
-		a.al.Lock()
-		defer a.al.Unlock()
-		for sys, meta := range a.al.Current {
-			alertKey := sys.System + "_" + sys.Subsystem
-			alertMsg := fmt.Sprintf("%v", meta)
-
-			// Check if system alerts should be muted
-			muted := isAlertMuted(alertKey, alertMsg, mutes)
-			if muted {
-				log.Debugf("System alert %s muted", alertKey)
-			}
-
-			// Always record to alert_history
-			_, dbErr := a.db.Exec(ctx, `
-				INSERT INTO alert_history (alert_name, message, machine_name, sent_to_plugins, sent_at)
-				VALUES ($1, $2, $3, $4, $5)
-			`, alertKey, alertMsg, nil, !muted && len(a.plugins.Get()) > 0, now)
-			if dbErr != nil {
-				log.Errorf("Failed to record system alert to history: %s", dbErr)
-			}
-
-			if !muted {
-				details[alertKey] = meta
-			}
-		}
+	queuedRefs, err := a.collectQueuedAlerts(ctx, mutes, details)
+	if err != nil {
+		return false, err
+	}
+	if err := a.markQueuedAlertsProcessed(ctx, now, queuedRefs.localEventIDs, queuedRefs.localConditions, false); err != nil {
+		return false, err
 	}
 
 	// Send to plugins if there are any alerts and plugins configured
@@ -316,6 +299,11 @@ func (a *AlertTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 				errs = append(errs, err)
 			}
 		}
+
+		if err := a.markQueuedAlertsProcessed(ctx, now, queuedRefs.sentEventIDs, queuedRefs.sentConditions, true); err != nil {
+			return false, err
+		}
+
 		if len(errs) != 0 {
 			return false, fmt.Errorf("errors sending alerts: %v", errs)
 		}
@@ -327,10 +315,139 @@ func (a *AlertTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 
 }
 
+func (a *AlertTask) collectQueuedAlerts(ctx context.Context, mutes []alertMute, details map[string]any) (*queuedAlertRefs, error) {
+	hasPlugins := len(a.plugins.Get()) > 0
+	refs := &queuedAlertRefs{}
+
+	var events []pendingAlertEvent
+	err := a.db.Select(ctx, &events, `
+		SELECT id, alert_name, message
+		FROM alert_history
+		WHERE kind = 'event'
+		  AND sent_at IS NULL
+		ORDER BY created_at
+	`)
+	if err != nil {
+		return nil, xerrors.Errorf("loading queued alert events: %w", err)
+	}
+
+	for _, event := range events {
+		muted := isAlertMuted(event.AlertName, event.Message, mutes)
+		if muted {
+			log.Debugf("Queued alert event %s muted: %s", event.AlertName, event.Message)
+			refs.localEventIDs = append(refs.localEventIDs, event.ID)
+			continue
+		}
+
+		addAlertDetail(details, event.AlertName, event.Message)
+		if hasPlugins {
+			refs.sentEventIDs = append(refs.sentEventIDs, event.ID)
+		} else {
+			refs.localEventIDs = append(refs.localEventIDs, event.ID)
+		}
+	}
+
+	var conditions []pendingAlertCondition
+	err = a.db.Select(ctx, &conditions, `
+		SELECT system, subsystem, condition, message, repeat_count
+		FROM alert_conditions
+		WHERE last_notified_at IS NULL
+		ORDER BY created_at
+	`)
+	if err != nil {
+		return nil, xerrors.Errorf("loading queued alert conditions: %w", err)
+	}
+
+	for _, condition := range conditions {
+		alertName := conditionAlertName(condition.System, condition.Subsystem, condition.Condition)
+		key := alertConditionKey{
+			system:    condition.System,
+			subsystem: condition.Subsystem,
+			condition: condition.Condition,
+		}
+
+		muted := isAlertMuted(alertName, condition.Message, mutes)
+		if muted {
+			log.Debugf("Queued alert condition %s muted: %s", alertName, condition.Message)
+			refs.localConditions = append(refs.localConditions, key)
+			continue
+		}
+
+		addAlertDetail(details, alertName, condition.Message)
+		if hasPlugins {
+			refs.sentConditions = append(refs.sentConditions, key)
+		} else {
+			refs.localConditions = append(refs.localConditions, key)
+		}
+	}
+
+	return refs, nil
+}
+
+func (a *AlertTask) markQueuedAlertsProcessed(ctx context.Context, now time.Time, eventIDs []int64, conditions []alertConditionKey, sentToPlugins bool) error {
+	if len(eventIDs) > 0 {
+		_, err := a.db.Exec(ctx, `
+			UPDATE alert_history
+			SET sent_to_plugins = $1,
+				sent_at = $2
+			WHERE id = ANY($3)
+			  AND kind = 'event'
+			  AND sent_at IS NULL
+		`, sentToPlugins, now, eventIDs)
+		if err != nil {
+			return xerrors.Errorf("marking queued alert events processed: %w", err)
+		}
+	}
+
+	for _, condition := range conditions {
+		_, err := a.db.Exec(ctx, `
+			UPDATE alert_conditions
+			SET last_notified_at = $4
+			WHERE system = $1
+			  AND subsystem = $2
+			  AND condition = $3
+			  AND last_notified_at IS NULL
+		`, condition.system, condition.subsystem, condition.condition, now)
+		if err != nil {
+			return xerrors.Errorf("marking queued alert condition processed: %w", err)
+		}
+	}
+
+	return nil
+}
+
+const maxAlertDetailLength = 1000
+
+const alertDetailTruncatedSuffix = " ... (truncated, see alert_history for full list)"
+
+func addAlertDetail(details map[string]any, alertName string, alertMessage string) {
+	existing, ok := details[alertName]
+	if !ok {
+		details[alertName] = alertMessage
+		return
+	}
+
+	existingStr, _ := existing.(string)
+	if strings.HasSuffix(existingStr, alertDetailTruncatedSuffix) {
+		return
+	}
+
+	combined := fmt.Sprintf("%s. %s", existingStr, alertMessage)
+	if len(combined) > maxAlertDetailLength {
+		details[alertName] = existingStr + alertDetailTruncatedSuffix
+		return
+	}
+	details[alertName] = combined
+}
+
+func conditionAlertName(system, subsystem, condition string) string {
+	return system + "_" + subsystem + "_" + condition
+}
+
 // isAlertMuted checks if an alert matches any active mute patterns
 func isAlertMuted(alertName string, alertMessage string, mutes []alertMute) bool {
 	for _, mute := range mutes {
-		if mute.AlertName != string(alertName) {
+		if mute.AlertName != alertName && mute.AlertName != "others" {
 			continue
 		}
 		// If no pattern, mute entire category

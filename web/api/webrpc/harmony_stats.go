@@ -18,7 +18,7 @@ type HarmonyTaskStats struct {
 
 func (a *WebRPC) HarmonyTaskStats(ctx context.Context) ([]HarmonyTaskStats, error) {
 	var stats []HarmonyTaskStats
-	err := a.deps.DB.Select(ctx, &stats, `
+	err := a.Deps.DB.Select(ctx, &stats, `
 				WITH per_task AS (
 					SELECT
 						name,
@@ -52,7 +52,7 @@ type HarmonyMachineDesc struct {
 func (a *WebRPC) HarmonyTaskMachines(ctx context.Context, taskName string) ([]HarmonyMachineDesc, error) {
 	var stats []HarmonyMachineDesc
 	// note: LIKE is inefficient, but beats 2 queries given small enough list size.
-	err := a.deps.DB.Select(ctx, &stats, `
+	err := a.Deps.DB.Select(ctx, &stats, `
 	SELECT md.machine_id, md.machine_name, hm.host_and_port, md.miners 
 	FROM harmony_machine_details md
 	INNER JOIN harmony_machines hm ON md.machine_id = hm.id
@@ -95,7 +95,7 @@ type HarmonyTaskHistory struct {
 
 func (a *WebRPC) HarmonyTaskHistory(ctx context.Context, taskName string, fails bool) ([]*HarmonyTaskHistory, error) {
 	var stats []*HarmonyTaskHistory
-	err := a.deps.DB.Select(ctx, &stats, `SELECT
+	err := a.Deps.DB.Select(ctx, &stats, `SELECT
 	hist.task_id, hist.name, hist.work_start, hist.work_end, hist.posted, hist.result, hist.err,
 	hist.completed_by_host_and_port, mach.id as completed_by_machine, hmd.machine_name as completed_by_machine_name
     FROM harmony_task_history hist
@@ -127,7 +127,7 @@ type HarmonyTask struct {
 // HarmonyTaskDetails returns the current state of a task by ID.
 func (a *WebRPC) HarmonyTaskDetails(ctx context.Context, taskID int64) (*HarmonyTask, error) {
 	var task []*HarmonyTask
-	err := a.deps.DB.Select(ctx, &task, `
+	err := a.Deps.DB.Select(ctx, &task, `
         SELECT
             t.id,
             t.name,
@@ -150,7 +150,7 @@ func (a *WebRPC) HarmonyTaskDetails(ctx context.Context, taskID int64) (*Harmony
 // HarmonyTaskHistoryById returns the history of a task by task ID.
 func (a *WebRPC) HarmonyTaskHistoryById(ctx context.Context, taskID int64) ([]*HarmonyTaskHistory, error) {
 	var history []*HarmonyTaskHistory
-	err := a.deps.DB.Select(ctx, &history, `
+	err := a.Deps.DB.Select(ctx, &history, `
         SELECT
             hist.id,
             hist.task_id,
@@ -175,7 +175,7 @@ func (a *WebRPC) HarmonyTaskHistoryById(ctx context.Context, taskID int64) ([]*H
 
 	for _, h := range history {
 		var events []*SectorEvent
-		err := a.deps.DB.Select(ctx, &events, `
+		err := a.Deps.DB.Select(ctx, &events, `
 			SELECT sp_id, sector_number
 			FROM sectors_pipeline_events
 			WHERE task_history_id = $1
@@ -206,7 +206,7 @@ type SingletonInfo struct {
 
 func (a *WebRPC) SingletonTaskInfo(ctx context.Context, taskName string) (*SingletonInfo, error) {
 	var info []SingletonInfo
-	err := a.deps.DB.Select(ctx, &info,
+	err := a.Deps.DB.Select(ctx, &info,
 		`SELECT task_name, task_id, last_run_time, run_now_request FROM harmony_task_singletons WHERE task_name = $1`, taskName)
 	if err != nil {
 		return nil, err
@@ -218,7 +218,7 @@ func (a *WebRPC) SingletonTaskInfo(ctx context.Context, taskName string) (*Singl
 }
 
 func (a *WebRPC) SingletonRunNow(ctx context.Context, taskName string) error {
-	n, err := a.deps.DB.Exec(ctx,
+	n, err := a.Deps.DB.Exec(ctx,
 		`UPDATE harmony_task_singletons SET run_now_request = TRUE WHERE task_name = $1`, taskName)
 	if err != nil {
 		return xerrors.Errorf("setting run_now_request: %w", err)

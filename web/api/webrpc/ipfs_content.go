@@ -45,14 +45,14 @@ func (a *WebRPC) FindContentByCID(ctx context.Context, cs string) ([]ContentInfo
 
 	mh := cid.Hash()
 
-	offsets, err := a.deps.IndexStore.PiecesContainingMultihash(ctx, mh)
+	offsets, err := a.Deps.IndexStore.PiecesContainingMultihash(ctx, mh)
 	if err != nil {
 		return nil, xerrors.Errorf("pieces containing multihash %s: %w", mh, err)
 	}
 
 	var res []ContentInfo
 	for _, offset := range offsets {
-		off, err := a.deps.IndexStore.GetOffset(ctx, offset.PieceCid, mh)
+		off, err := a.Deps.IndexStore.GetOffset(ctx, offset.PieceCid, mh)
 		if err != nil {
 			_, pcid2, err := a.maybeUpgradePieceCid(ctx, offset.PieceCid)
 			if err != nil {
@@ -94,7 +94,7 @@ func (a *WebRPC) maybeUpgradePieceCid(ctx context.Context, c cid.Cid) (bool, cid
 	// If raw_size is unavailable we keep using v1.
 	var rawSize uint64
 
-	err := a.deps.DB.QueryRow(ctx, `
+	err := a.Deps.DB.QueryRow(ctx, `
 			SELECT COALESCE(raw_size, 0)
 			FROM market_piece_deal 
 			WHERE piece_cid = $1

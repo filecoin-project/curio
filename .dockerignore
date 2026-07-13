@@ -1,0 +1,37 @@
+# Docker build context trims. Paths re-fetched inside the image when needed:
+# - full curio/devnet: `git submodule update --init` restores filecoin-ffi
+# - skiff: sparse-clones filecoin-ffi default branch (Go module stubs only, no rust/)
+
+extern/supraseal
+
+docker/data
+docker/skiff/data
+
+# Local build outputs (rebuilt inside the image; often hundreds of MB).
+/curio
+/skiff
+/cuzk
+/sptool
+/pdptool
+/docgen-md
+/docgen-openrpc
+/deps.json
+/metricsdocgen
+/bin/
+
+# CI / dev workspaces (synapse-sdk checkout is ~1GB).
+.synapse-sdk
+
+# Docs and tests (not compiled into binaries).
+/documentation
+/itests
+/shouldtest
+
+# Misc dev artifacts.
+/coverage
+/scratchpad
+/vendor
+/node_modules
+**/.venv
+/.venv
+/itests/*.test

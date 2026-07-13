@@ -17,7 +17,6 @@ import (
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/cachedreader"
-	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/indexstore"
@@ -28,20 +27,18 @@ type PDPIndexingTask struct {
 	db                *harmonydb.DB
 	indexStore        *indexstore.IndexStore
 	cpr               *cachedreader.CachedPieceReader
-	sc                *ffi.SealCalls
 	cfg               *config.CurioConfig
 	insertConcurrency int
 	insertBatchSize   int
 	max               taskhelp.Limiter
 }
 
-func NewPDPIndexingTask(db *harmonydb.DB, sc *ffi.SealCalls, indexStore *indexstore.IndexStore, cpr *cachedreader.CachedPieceReader, cfg *config.CurioConfig, max taskhelp.Limiter) *PDPIndexingTask {
+func NewPDPIndexingTask(db *harmonydb.DB, indexStore *indexstore.IndexStore, cpr *cachedreader.CachedPieceReader, cfg *config.CurioConfig, max taskhelp.Limiter) *PDPIndexingTask {
 
 	return &PDPIndexingTask{
 		db:                db,
 		indexStore:        indexStore,
 		cpr:               cpr,
-		sc:                sc,
 		cfg:               cfg,
 		insertConcurrency: cfg.Market.StorageMarketConfig.Indexing.InsertConcurrency,
 		insertBatchSize:   cfg.Market.StorageMarketConfig.Indexing.InsertBatchSize,
@@ -315,28 +312,31 @@ func (P *PDPIndexingTask) schedule(ctx context.Context, taskFunc harmonytask.Add
 		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
 			stop = true // assume we're done until we find a task to schedule
 
-			var pendings []struct {
-				ID string `db:"id"`
-			}
-
-			err := tx.Select(&pendings, `SELECT id FROM pdp_pipeline 
-            										WHERE after_save_cache = TRUE
-            										AND indexing_task_id IS NULL
-            										AND indexed = FALSE
-													ORDER BY indexing_created_at ASC LIMIT 1;`)
-			if err != nil {
-				return false, xerrors.Errorf("getting PDP pending indexing tasks: %w", err)
-			}
-
-			if len(pendings) == 0 {
-				return false, nil
-			}
-
-			pending := pendings[0]
-			_, err = tx.Exec(`UPDATE pdp_pipeline SET indexing_task_id = $1 
-                             WHERE indexing_task_id IS NULL AND id = $2`, id, pending.ID)
+			n, err := tx.Exec(`WITH pending AS (
+					SELECT id, aggr_index
+					FROM pdp_pipeline
+					WHERE after_save_cache = TRUE
+					  AND indexing_task_id IS NULL
+					  AND indexed = FALSE
+					ORDER BY indexing_created_at ASC
+					LIMIT 1
+				)
+				UPDATE pdp_pipeline p
+				SET indexing_task_id = $1
+				FROM pending
+				WHERE p.id = pending.id
+				  AND p.aggr_index = pending.aggr_index
+				  AND p.after_save_cache = TRUE
+				  AND p.indexing_task_id IS NULL
+				  AND p.indexed = FALSE`, id)
 			if err != nil {
 				return false, xerrors.Errorf("updating PDP indexing task id: %w", err)
+			}
+			if n == 0 {
+				return false, nil
+			}
+			if n != 1 {
+				return false, xerrors.Errorf("updated %d rows assigning PDP indexing task", n)
 			}
 
 			stop = false

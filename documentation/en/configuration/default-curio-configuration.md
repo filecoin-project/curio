@@ -280,6 +280,13 @@ description: The default curio configuration
   # type: bool
   #EnablePDP = false
 
+  # DataPath is the root directory Curio-PDP scans for writable storage locations.
+  # The node treats this directory and every subdirectory as a candidate store path.
+  # Overridden by the DATA_STORAGE env var and the --data CLI flag. (Default: /data)
+  #
+  # type: string
+  #DataPath = ""
+
   # PDPPullPieceMaxTasks is the maximum number of PDPv0 pull-piece download tasks that can run simultaneously.
   # Set 0 for unlimited. (Default: 20)
   #
@@ -1096,6 +1103,24 @@ description: The default curio configuration
     #
     # type: string
     #WebHookURL = ""
+
+  # AppriseConfig is the configuration for the Apprise (https://github.com/caronc/apprise-api) integration.
+  #
+  # type: AppriseConfig
+  [Alerting.Apprise]
+
+    # URL is the notify endpoint of a running Apprise API server (https://github.com/caronc/apprise-api).
+    # Either its stateless endpoint (e.g. "http://127.0.0.1:8000/notify", use with NotifyURLs) or a
+    # stateful, pre-configured endpoint (e.g. "http://127.0.0.1:8000/notify/curio", leave NotifyURLs empty).
+    # Leave empty to disable the Apprise integration.
+    #
+    # type: string
+    #URL = ""
+
+    # Tag restricts delivery to Apprise URLs carrying this tag. Only applies to stateful configs. OPTIONAL.
+    #
+    # type: string
+    #Tag = ""
 
 
 # Batching represents the batching configuration for pre-commit, commit, and update operations.

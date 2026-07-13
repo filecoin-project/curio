@@ -14,12 +14,12 @@ import (
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
-	"github.com/filecoin-project/curio/api"
+	"github.com/filecoin-project/curio/alertmanager/curioalerting"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
-	"github.com/filecoin-project/curio/lib/chainsched"
+	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/tasks/message"
@@ -28,9 +28,11 @@ import (
 	chainTypes "github.com/filecoin-project/lotus/chain/types"
 )
 
+const alertNameNextPP = "NextProvingPeriod"
+
 type NextProvingPeriodTask struct {
 	db        *harmonydb.DB
-	ethClient api.EthClientInterface
+	ethClient ethchain.EthClient
 	sender    *message.SenderETH
 
 	fil NextProvingPeriodTaskChainApi
@@ -42,7 +44,7 @@ type NextProvingPeriodTaskChainApi interface {
 	ChainHead(context.Context) (*chainTypes.TipSet, error)
 }
 
-func NewNextProvingPeriodTask(db *harmonydb.DB, ethClient api.EthClientInterface, fil NextProvingPeriodTaskChainApi, chainSched *chainsched.CurioChainSched, sender *message.SenderETH) *NextProvingPeriodTask {
+func NewNextProvingPeriodTask(db *harmonydb.DB, ethClient ethchain.EthClient, fil NextProvingPeriodTaskChainApi, w *Watcher, sender *message.SenderETH) *NextProvingPeriodTask {
 	n := &NextProvingPeriodTask{
 		db:        db,
 		ethClient: ethClient,
@@ -50,9 +52,9 @@ func NewNextProvingPeriodTask(db *harmonydb.DB, ethClient api.EthClientInterface
 		fil:       fil,
 	}
 
-	_ = chainSched.AddHandler(func(ctx context.Context, revert, apply *chainTypes.TipSet) error {
+	_ = w.AddWatcher(func(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, al curioalerting.AlertingInterface, revert, apply *chainTypes.TipSet) {
 		if apply == nil {
-			return nil
+			return
 		}
 
 		// Now query the db for data sets needing nextProvingPeriod
@@ -68,9 +70,14 @@ func NewNextProvingPeriodTask(db *harmonydb.DB, ethClient api.EthClientInterface
                   AND (prove_at_epoch + challenge_window) <= $1
                   AND unrecoverable_proving_failure_epoch IS NULL
                   AND (next_prove_attempt_at IS NULL OR next_prove_attempt_at <= $1)
-            `, currentHeight)
+	            `, currentHeight)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return xerrors.Errorf("failed to select data sets needing nextProvingPeriod: %w", err)
+			_ = al.EmitEvent(ctx, curioalerting.AlertEvent{
+				System:    alertType,
+				Subsystem: alertNameNextPP,
+				Message:   fmt.Sprintf("failed to select data sets needing nextProvingPeriod: %s", err),
+			})
+			return
 		}
 
 		for _, ps := range toCallNext {
@@ -92,9 +99,7 @@ func NewNextProvingPeriodTask(db *harmonydb.DB, ethClient api.EthClientInterface
 				return true, nil
 			})
 		}
-
-		return nil
-	})
+	}, WatcherOrderProving)
 
 	return n
 }
@@ -418,6 +423,7 @@ func (n *NextProvingPeriodTask) TypeDetails() harmonytask.TaskTypeDetails {
 		},
 		MaxFailures: 3, // Set retry limit to 3 attempts
 		RetryWait:   taskhelp.RetryWaitExp(5*time.Second, 2),
+		Max:         taskhelp.Max(16),
 	}
 }
 

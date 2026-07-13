@@ -1,3 +1,5 @@
+//go:build !skiff
+
 package gc
 
 import (
@@ -7,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	logging "github.com/ipfs/go-log/v2"
 	"github.com/samber/lo"
 	"golang.org/x/xerrors"
 
@@ -21,8 +22,6 @@ import (
 	"github.com/filecoin-project/lotus/lib/result"
 	"github.com/filecoin-project/lotus/storage/sealer/fsutil"
 )
-
-var log = logging.Logger("curiogc")
 
 const StorageEndpointGCInterval = 21 * time.Minute
 const StorageEndpointDeadTime = StorageEndpointGCInterval * 6 // ~2h

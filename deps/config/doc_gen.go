@@ -14,7 +14,7 @@ var Doc = map[string][]DocField{
 			Name: "ChainApiInfo",
 			Type: "[]string",
 
-			Comment: `ChainApiInfo is the API endpoint for the Lotus daemon.
+			Comment: `ChainApiInfo is the API endpoint for an external Lotus-compatible daemon.
 Updates will affect running instances.`,
 		},
 		{
@@ -22,6 +22,30 @@ Updates will affect running instances.`,
 			Type: "string",
 
 			Comment: `API auth secret for the Curio nodes to use. This value should only be set on the bade layer.`,
+		},
+	},
+	"AppriseConfig": {
+		{
+			Name: "URL",
+			Type: "string",
+
+			Comment: `URL is the notify endpoint of a running Apprise API server (https://github.com/caronc/apprise-api).
+Either its stateless endpoint (e.g. "http://127.0.0.1:8000/notify", use with NotifyURLs) or a
+stateful, pre-configured endpoint (e.g. "http://127.0.0.1:8000/notify/curio", leave NotifyURLs empty).
+Leave empty to disable the Apprise integration.`,
+		},
+		{
+			Name: "NotifyURLs",
+			Type: "[]string",
+
+			Comment: `NotifyURLs is a list of Apprise notification URLs (e.g. "tgram://bottoken/ChatID", "discord://webhook_id/webhook_token").
+Required when URL is a stateless /notify endpoint; leave empty for a stateful /notify/<config-key> endpoint.`,
+		},
+		{
+			Name: "Tag",
+			Type: "string",
+
+			Comment: `Tag restricts delivery to Apprise URLs carrying this tag. Only applies to stateful configs. OPTIONAL.`,
 		},
 	},
 	"BalanceManagerConfig": {
@@ -177,6 +201,12 @@ Updates will affect running instances.`,
 			Type: "SlackWebhookConfig",
 
 			Comment: `SlackWebhookConfig is a configuration type for Slack webhook integration.`,
+		},
+		{
+			Name: "Apprise",
+			Type: "AppriseConfig",
+
+			Comment: `AppriseConfig is the configuration for the Apprise (https://github.com/caronc/apprise-api) integration.`,
 		},
 	},
 	"CurioBatchingConfig": {
@@ -859,6 +889,14 @@ also be bounded by resources available on the machine. (Default: 0 - unlimited)`
 			Comment: `Enable handling for PDP (proof-of-data possession) deals / proving on this node.
 PDP deals allow the node to directly store and prove unsealed data with "PDP Services" like Storacha.
 This feature is BETA and should only be enabled on nodes which are part of a PDP network.`,
+		},
+		{
+			Name: "DataPath",
+			Type: "string",
+
+			Comment: `DataPath is the root directory Curio-PDP scans for writable storage locations.
+The node treats this directory and every subdirectory as a candidate store path.
+Overridden by the DATA_STORAGE env var and the --data CLI flag. (Default: /data)`,
 		},
 		{
 			Name: "PDPPullPieceMaxTasks",
