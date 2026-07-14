@@ -36,16 +36,6 @@ func TestValidatePullSourceURL(t *testing.T) {
 		},
 		{
 			name:    "arbitrary path shape allowed",
-			url:     "https://sp.example.com/data/" + validCid,
-			wantErr: false,
-		},
-		{
-			name:    "path not containing the pieceCid allowed",
-			url:     "https://gateway.example.com/ipfs/bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi?format=car",
-			wantErr: false,
-		},
-		{
-			name:    "empty path allowed",
 			url:     "https://sp.example.com",
 			wantErr: false,
 		},
@@ -54,84 +44,6 @@ func TestValidatePullSourceURL(t *testing.T) {
 			url:         "http://sp.example.com/piece/" + validCid,
 			wantErr:     true,
 			errContains: "HTTPS",
-		},
-		{
-			name:        "localhost not allowed",
-			url:         "https://localhost/piece/" + validCid,
-			wantErr:     true,
-			errContains: "localhost",
-		},
-		{
-			name:        "localhost with port not allowed",
-			url:         "https://localhost:8080/piece/" + validCid,
-			wantErr:     true,
-			errContains: "localhost",
-		},
-		{
-			name:        "localhost.localdomain not allowed",
-			url:         "https://localhost.localdomain/piece/" + validCid,
-			wantErr:     true,
-			errContains: "localhost",
-		},
-		{
-			name:        "localhost4 not allowed",
-			url:         "https://localhost4/piece/" + validCid,
-			wantErr:     true,
-			errContains: "localhost",
-		},
-		{
-			name:        "localhost6 not allowed",
-			url:         "https://localhost6/piece/" + validCid,
-			wantErr:     true,
-			errContains: "localhost",
-		},
-		{
-			name:        "ip6-localhost not allowed",
-			url:         "https://ip6-localhost/piece/" + validCid,
-			wantErr:     true,
-			errContains: "localhost",
-		},
-		{
-			name:        "ip6-loopback not allowed",
-			url:         "https://ip6-loopback/piece/" + validCid,
-			wantErr:     true,
-			errContains: "localhost",
-		},
-		{
-			name:        "127.0.0.1 not allowed",
-			url:         "https://127.0.0.1/piece/" + validCid,
-			wantErr:     true,
-			errContains: "loopback", // net.IP.IsLoopback() returns true for 127.x.x.x
-		},
-		{
-			name:        "private IP 10.x not allowed",
-			url:         "https://10.0.0.1/piece/" + validCid,
-			wantErr:     true,
-			errContains: "private",
-		},
-		{
-			name:        "private IP 192.168.x not allowed",
-			url:         "https://192.168.1.1/piece/" + validCid,
-			wantErr:     true,
-			errContains: "private",
-		},
-		{
-			name:        "private IP 172.16.x not allowed",
-			url:         "https://172.16.0.1/piece/" + validCid,
-			wantErr:     true,
-			errContains: "private",
-		},
-		{
-			name:        "link-local not allowed",
-			url:         "https://169.254.1.1/piece/" + validCid,
-			wantErr:     true,
-			errContains: "link-local",
-		},
-		{
-			name:        "IPv6 loopback not allowed",
-			url:         "https://[::1]/piece/" + validCid,
-			wantErr:     true,
-			errContains: "loopback",
 		},
 		{
 			name:        "invalid URL",
