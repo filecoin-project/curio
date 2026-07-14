@@ -7,7 +7,6 @@ import (
 	"net"
 	"net/url"
 	"os"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -45,18 +44,16 @@ const (
 	PullStatusFailed     PullStatus = "failed"
 )
 
-// piecePathPattern matches URLs ending with /piece/{cid}
-var piecePathPattern = regexp.MustCompile(`/piece/([^/]+)$`)
-
-// ValidatePullSourceURL validates that a source URL is safe and properly formatted
-// for pulling a piece from another SP.
+// ValidatePullSourceURL validates that a source URL is safe for pulling a piece
+// from another SP.
 //
 // Validation rules:
 //   - Must be HTTPS
-//   - Path must end with /piece/{pieceCid}
-//   - The pieceCid in the URL must match the expected pieceCid
 //   - Host must not be localhost, private IP, or link-local address
-func ValidatePullSourceURL(sourceURL string, expectedPieceCid string) error {
+//
+// The URL path is not constrained: any shape is accepted, since the piece is
+// verified by recomputing its CommP from the downloaded bytes.
+func ValidatePullSourceURL(sourceURL string) error {
 	parsed, err := url.Parse(sourceURL)
 	if err != nil {
 		return fmt.Errorf("invalid URL: %w", err)
@@ -65,18 +62,6 @@ func ValidatePullSourceURL(sourceURL string, expectedPieceCid string) error {
 	// Must be HTTPS (or HTTP if explicitly allowed for development)
 	if parsed.Scheme != "https" && (!pullAllowInsecure || parsed.Scheme != "http") {
 		return fmt.Errorf("URL must use HTTPS scheme, got %q", parsed.Scheme)
-	}
-
-	// Validate path matches /piece/{cid} pattern
-	matches := piecePathPattern.FindStringSubmatch(parsed.Path)
-	if matches == nil {
-		return fmt.Errorf("URL path must end with /piece/{pieceCid}, got %q", parsed.Path)
-	}
-
-	// Extract pieceCid from URL and compare with expected
-	urlPieceCid := matches[1]
-	if urlPieceCid != expectedPieceCid {
-		return fmt.Errorf("pieceCid in URL %q does not match expected %q", urlPieceCid, expectedPieceCid)
 	}
 
 	// Validate host is not a private/local address (skip in devnet mode)
@@ -198,7 +183,7 @@ func (r *PullRequest) Validate() error {
 			return fmt.Errorf("piece[%d]: duplicate pieceCid/sourceUrl", i)
 		}
 		seenPieceSources[key] = struct{}{}
-		if err := ValidatePullSourceURL(piece.SourceURL, piece.PieceCid); err != nil {
+		if err := ValidatePullSourceURL(piece.SourceURL); err != nil {
 			return fmt.Errorf("piece[%d]: %w", i, err)
 		}
 	}
