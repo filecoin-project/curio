@@ -5,6 +5,7 @@ import '/ux/task.mjs';
 import '/ux/message.mjs';
 import '/ux/epoch.mjs';
 import { formatDate } from '/lib/dateutil.mjs';
+import { loadingBlock, loadingStyles } from '/lib/loading.mjs';
 
 customElements.define('piece-info', class PieceInfoElement extends LitElement {
     static properties = {
@@ -69,7 +70,7 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
 
     render() {
         if (!this.data) {
-            return html`<div>Loading...</div>`;
+            return loadingBlock('Loading…');
         }
         return html`
             <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -691,7 +692,7 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
         return html`<done-not-done .value=${value}></done-not-done>`;
     }
 
-    static styles = css`
+    static styles = [loadingStyles, css`
         .table-dark {
             background-color: #343a40;
         }
@@ -709,5 +710,5 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
         h3 {
             margin-top: 20px;
         }
-    `;
+    `];
 });

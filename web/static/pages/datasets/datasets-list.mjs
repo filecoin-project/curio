@@ -1,6 +1,7 @@
 import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js'
 import RPCCall from '/lib/jsonrpc.mjs'
 import { timeSince } from '/lib/dateutil.mjs'
+import { loadingBlock, loadingCssText } from '/lib/loading.mjs'
 
 function formatBytes(bytes) {
   const n = Number(bytes || 0)
@@ -38,6 +39,8 @@ customElements.define('pdp-datasets-list', class PdpDatasetsList extends LitElem
     offset: { type: Number },
     filter: { type: String },
     filterInput: { type: String },
+    sortBy: { type: String },
+    sortAsc: { type: Boolean },
     loadError: { type: String },
     loading: { type: Boolean },
   }
@@ -50,6 +53,8 @@ customElements.define('pdp-datasets-list', class PdpDatasetsList extends LitElem
     this.offset = 0
     this.filter = ''
     this.filterInput = ''
+    this.sortBy = 'id'
+    this.sortAsc = false
     this.loadError = null
     this.loading = false
 
@@ -58,6 +63,15 @@ customElements.define('pdp-datasets-list', class PdpDatasetsList extends LitElem
       this.filter = params.get('q')
       this.filterInput = this.filter
     }
+    const sort = params.get('sort')
+    if (sort === 'object_count' || sort === 'size_bytes' || sort === 'first_upload_at' || sort === 'id') {
+      this.sortBy = sort
+    }
+    if (params.get('asc') === '1') {
+      this.sortAsc = true
+    } else if (params.get('asc') === '0') {
+      this.sortAsc = false
+    }
     this.loadData()
   }
 
@@ -65,10 +79,32 @@ customElements.define('pdp-datasets-list', class PdpDatasetsList extends LitElem
     return this
   }
 
+  syncUrl() {
+    const url = new URL(window.location.href)
+    if (this.filter) url.searchParams.set('q', this.filter)
+    else url.searchParams.delete('q')
+
+    const isDefaultSort = this.sortBy === 'id' && !this.sortAsc
+    if (isDefaultSort) {
+      url.searchParams.delete('sort')
+      url.searchParams.delete('asc')
+    } else {
+      url.searchParams.set('sort', this.sortBy)
+      url.searchParams.set('asc', this.sortAsc ? '1' : '0')
+    }
+    window.history.replaceState({}, '', url)
+  }
+
   async loadData() {
     this.loading = true
     try {
-      const result = await RPCCall('PDPDataSetList', [this.limit, this.offset, this.filter || ''])
+      const result = await RPCCall('PDPDataSetList', [
+        this.limit,
+        this.offset,
+        this.filter || '',
+        this.sortBy || 'id',
+        !!this.sortAsc,
+      ])
       this.items = result?.items ?? []
       this.total = result?.total ?? 0
       this.loadError = null
@@ -87,10 +123,7 @@ customElements.define('pdp-datasets-list', class PdpDatasetsList extends LitElem
     e?.preventDefault?.()
     this.filter = (this.filterInput || '').trim()
     this.offset = 0
-    const url = new URL(window.location.href)
-    if (this.filter) url.searchParams.set('q', this.filter)
-    else url.searchParams.delete('q')
-    window.history.replaceState({}, '', url)
+    this.syncUrl()
     this.loadData()
   }
 
@@ -98,10 +131,26 @@ customElements.define('pdp-datasets-list', class PdpDatasetsList extends LitElem
     this.filterInput = ''
     this.filter = ''
     this.offset = 0
-    const url = new URL(window.location.href)
-    url.searchParams.delete('q')
-    window.history.replaceState({}, '', url)
+    this.syncUrl()
     this.loadData()
+  }
+
+  setSort(column) {
+    if (this.sortBy === column) {
+      this.sortAsc = !this.sortAsc
+    } else {
+      this.sortBy = column
+      // Default: newest / most objects first when picking a column
+      this.sortAsc = false
+    }
+    this.offset = 0
+    this.syncUrl()
+    this.loadData()
+  }
+
+  renderSortIndicator(column) {
+    if (this.sortBy !== column) return ''
+    return html`<span class="sort-indicator">${this.sortAsc ? '▲' : '▼'}</span>`
   }
 
   nextPage() {
@@ -127,6 +176,7 @@ customElements.define('pdp-datasets-list', class PdpDatasetsList extends LitElem
       <link rel="stylesheet" href="/ux/dark-table.css" />
 
       <style>
+        ${loadingCssText}
         .datasets-search { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; align-items: center; }
         .datasets-search input {
           min-width: 280px; flex: 1 1 280px;
@@ -143,6 +193,9 @@ customElements.define('pdp-datasets-list', class PdpDatasetsList extends LitElem
         .pager { display: flex; gap: 12px; align-items: center; margin-top: 12px; }
         .hint { color: var(--color-text-secondary, #8b949e); font-size: 13px; margin-bottom: 12px; }
         .load-error { color: var(--color-danger-fg, #f85149); }
+        .sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+        .sortable:hover { color: var(--color-accent-fg, #58a6ff); }
+        .sort-indicator { margin-left: 4px; font-size: 11px; }
       </style>
 
       <p class="hint">Search by dataset ID or payer wallet (0x…).</p>
@@ -159,7 +212,7 @@ customElements.define('pdp-datasets-list', class PdpDatasetsList extends LitElem
       </form>
 
       ${this.loadError ? html`<p class="load-error">${this.loadError}</p>` : ''}
-      ${this.loading ? html`<p class="hint">Loading…</p>` : ''}
+      ${this.loading ? loadingBlock('Loading datasets…') : ''}
 
       ${!this.loading && this.items.length === 0
         ? html`<p class="hint">No datasets found.</p>`
@@ -167,11 +220,19 @@ customElements.define('pdp-datasets-list', class PdpDatasetsList extends LitElem
           <table class="table table-dark table-striped table-sm">
             <thead>
               <tr>
-                <th>Dataset</th>
-                <th>Objects in store</th>
-                <th>Size</th>
+                <th class="sortable" @click=${() => this.setSort('id')}>
+                  Dataset${this.renderSortIndicator('id')}
+                </th>
+                <th class="sortable" @click=${() => this.setSort('object_count')}>
+                  Objects in store${this.renderSortIndicator('object_count')}
+                </th>
+                <th class="sortable" @click=${() => this.setSort('size_bytes')}>
+                  Size${this.renderSortIndicator('size_bytes')}
+                </th>
                 <th>Proving</th>
-                <th>First upload</th>
+                <th class="sortable" @click=${() => this.setSort('first_upload_at')}>
+                  First upload${this.renderSortIndicator('first_upload_at')}
+                </th>
               </tr>
             </thead>
             <tbody>

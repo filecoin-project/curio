@@ -2,6 +2,7 @@ import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/al
 import '/actor-summary.mjs'; // <sector-expirations>
 import RPCCall from '/lib/jsonrpc.mjs';
 import '/lib/cu-wallet.mjs';
+import { loadingBlock, loadingStyles } from '/lib/loading.mjs';
 
 customElements.define('actor-detail', class Actor extends LitElement {
     connectedCallback() {
@@ -9,7 +10,7 @@ customElements.define('actor-detail', class Actor extends LitElement {
         this.loadData();
     }
 
-    static styles = css`
+    static styles = [loadingStyles, css`
     .deadline-box {
       display: grid;
       grid-template-columns: repeat(16, auto);
@@ -50,7 +51,7 @@ customElements.define('actor-detail', class Actor extends LitElement {
       padding-bottom: 0.5rem;
       color: deeppink;
     }
-  `;
+  `];
 
     async loadData() {
         try {
@@ -83,7 +84,7 @@ customElements.define('actor-detail', class Actor extends LitElement {
             >
             ${
                     !this.data
-                            ? html`<div>Loading...</div>`
+                            ? loadingBlock('Loading…')
                             : [this.data].map(actorInfo => html`
                                 <section class="section">
                                     <div class="row">

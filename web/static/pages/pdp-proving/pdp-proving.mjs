@@ -2,6 +2,7 @@ import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/al
 import RPCCall from '/lib/jsonrpc.mjs'
 import { pollRPC } from '/lib/poll.mjs'
 import { formatDate } from '/lib/dateutil.mjs'
+import { loadingSpinner, loadingBlock, loadingCssText } from '/lib/loading.mjs'
 
 function formatDuration(seconds) {
   if (seconds == null) return '—'
@@ -15,6 +16,25 @@ function formatDuration(seconds) {
   if (h > 0) parts.push(`${h}h`)
   if (m > 0 || parts.length === 0) parts.push(`${m}m`)
   return parts.join(' ')
+}
+
+function isZeroDate(value) {
+  if (!value) return true
+  const t = new Date(value).getTime()
+  return Number.isNaN(t) || t <= 0
+}
+
+function formatFailureWhen(f) {
+  if (!isZeroDate(f?.workEnd)) {
+    return formatDate(f.workEnd)
+  }
+  if (f?.unrecoverableFailureEpoch != null) {
+    return `epoch ${f.unrecoverableFailureEpoch}`
+  }
+  if (f?.nextProveAttemptAt != null) {
+    return `backoff until epoch ${f.nextProveAttemptAt}`
+  }
+  return '—'
 }
 
 customElements.define('pdp-proving', class PdpProving extends LitElement {
@@ -112,9 +132,7 @@ customElements.define('pdp-proving', class PdpProving extends LitElement {
         maintainAspectRatio: false,
         parsing: false,
         plugins: {
-          legend: {
-            labels: { color: '#8b949e' },
-          },
+          legend: { display: false },
           tooltip: {
             callbacks: {
               label: (item) => {
@@ -217,6 +235,19 @@ customElements.define('pdp-proving', class PdpProving extends LitElement {
       color: var(--color-text-secondary, #8b949e);
       font-family: ui-monospace, monospace;
     }
+    .countdown-meta .meta-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      line-height: 1.45;
+    }
+    .countdown-meta .meta-label {
+      color: var(--color-text-secondary, #8b949e);
+      font-family: inherit;
+      font-size: 12px;
+    }
+    .countdown-value.warn { color: var(--color-warning-fg, #d29922); }
+    .countdown-value.danger { color: var(--color-danger-fg, #f85149); }
     .timeline-panel {
       background: var(--color-bg-subtle, #161b22);
       border: 1px solid var(--color-border-default, #30363d);
@@ -230,6 +261,28 @@ customElements.define('pdp-proving', class PdpProving extends LitElement {
       margin: 0 0 12px;
       padding-bottom: 8px;
       border-bottom: 1px solid var(--color-border-default, #30363d);
+    }
+    .panel-title-row {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      margin: 0 0 12px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--color-border-default, #30363d);
+    }
+    .panel-title-row .panel-title {
+      margin: 0;
+      padding: 0;
+      border: none;
+    }
+    .title-stats {
+      display: flex;
+      gap: 12px;
+      flex-shrink: 0;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--color-text-secondary, #8b949e);
     }
     .chart-wrap { height: 220px; position: relative; }
     .empty-chart {
@@ -281,43 +334,78 @@ customElements.define('pdp-proving', class PdpProving extends LitElement {
 
   render() {
     const st = this.status
+    const stillLoading = !st && !this.loadError
     const secs = st?.secondsUntilNextSession
+    const state = st?.sessionState || 'idle'
     const successCount = (this.timeline ?? []).filter((e) => e.success).length
     const failCount = (this.timeline ?? []).filter((e) => !e.success).length
     const hasTimeline = (this.timeline ?? []).length > 0
+
+    let label = 'Next proving window'
+    let value = formatDuration(secs)
+    let valueClass = 'countdown-value'
+    if (stillLoading) {
+      value = loadingSpinner({ size: 'md' })
+    } else if (state === 'in-window') {
+      label = 'Proving window open'
+      value = 'now'
+    } else if (state === 'overdue') {
+      label = 'Proving overdue'
+      value = 'attention'
+      valueClass += ' danger'
+    } else if (state === 'idle') {
+      label = 'Next proving window'
+      value = '—'
+    } else if (state === 'upcoming') {
+      valueClass += secs != null && secs < 3600 ? ' warn' : ''
+    }
 
     return html`
       <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous" />
       <link rel="stylesheet" href="/ux/main.css" />
       <link rel="stylesheet" href="/ux/dark-table.css" />
 
-      ${this.loadError ? html`<p class="load-error">${this.loadError}</p>` : ''}
+      <style>${loadingCssText}</style>
 
-      <div class="top-row">
+      ${this.loadError ? html`<p class="load-error">${this.loadError}</p>` : ''}
+      ${stillLoading ? loadingBlock('Loading proving status…') : ''}
+
+      <div class="top-row" style="${stillLoading ? 'opacity:0.55;pointer-events:none' : ''}">
         <div class="countdown">
-          <div class="countdown-label">Next proving session</div>
-          <div class="countdown-value">${formatDuration(secs)}</div>
+          <div class="countdown-label">${label}</div>
+          <div class="${valueClass}">${value}</div>
           <div class="countdown-meta">
-            ${st?.nextProveAtEpoch != null ? html`epoch ${st.nextProveAtEpoch}` : 'no scheduled prove'}
-            ${st?.nextDeadlineEpoch != null ? html`<br />deadline ${st.nextDeadlineEpoch}` : ''}
-            ${st?.headEpoch != null ? html`<br />head ${st.headEpoch}` : ''}
+            ${st?.nextProveAtEpoch != null ? html`
+              <div class="meta-row"><span class="meta-label">opens</span><span>epoch ${st.nextProveAtEpoch}</span></div>
+            ` : ''}
+            ${st?.nextDeadlineEpoch != null ? html`
+              <div class="meta-row"><span class="meta-label">closes</span><span>epoch ${st.nextDeadlineEpoch}</span></div>
+            ` : ''}
+            ${st?.headEpoch != null ? html`
+              <div class="meta-row"><span class="meta-label">chain head</span><span>epoch ${st.headEpoch}</span></div>
+            ` : ''}
+            ${state === 'overdue' && st?.nextProveAtEpoch == null ? html`
+              <div class="meta-row"><span class="meta-label">note</span><span>no upcoming window scheduled</span></div>
+            ` : ''}
           </div>
           <div class="stats-row">
             <span>${st?.activeDataSetCount ?? 0} active</span>
             <span>${st?.inWindowCount ?? 0} in window</span>
-            <span>${st?.overdueCount ?? 0} overdue</span>
+            <span style="${(st?.overdueCount ?? 0) > 0 ? 'color: var(--color-danger-fg, #f85149)' : ''}">${st?.overdueCount ?? 0} overdue</span>
           </div>
         </div>
 
         <div class="timeline-panel">
-          <h2 class="panel-title">Proving window · last 24h</h2>
+          <div class="panel-title-row">
+            <h2 class="panel-title">Proving window · last 24h</h2>
+            <div class="title-stats">
+              <span style="color: var(--color-success-fg, #3fb950)">${successCount} success</span>
+              <span style="color: var(--color-danger-fg, #f85149)">${failCount} failed</span>
+            </div>
+          </div>
           ${hasTimeline
             ? html`<div class="chart-wrap"><canvas id="proving-timeline-chart"></canvas></div>`
             : html`<div class="empty-chart">No prove tasks in the last 24 hours</div>`}
-          <div class="stats-row">
-            <span style="color: var(--color-success-fg, #3fb950)">${successCount} success</span>
-            <span style="color: var(--color-danger-fg, #f85149)">${failCount} failed</span>
-          </div>
         </div>
       </div>
 
@@ -363,7 +451,7 @@ customElements.define('pdp-proving', class PdpProving extends LitElement {
                   : '—'}
               </td>
               <td class="mono">${f.consecutiveProveFailures ?? 0}</td>
-              <td>${f.workEnd ? formatDate(f.workEnd) : '—'}</td>
+              <td class="mono">${formatFailureWhen(f)}</td>
               <td class="err">${f.err || '—'}</td>
             </tr>
           `)}

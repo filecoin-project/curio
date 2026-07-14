@@ -1,8 +1,10 @@
 import { html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import { StyledLitElement } from '/ux/StyledLitElement.mjs';
 import RPCCall from '/lib/jsonrpc.mjs';
+import { loadingBlock, loadingStyles } from '/lib/loading.mjs';
 
 class AlertsManage extends StyledLitElement {
+    static styles = [loadingStyles];
     static properties = {
         // Mutes
         mutes: { type: Array },
@@ -264,7 +266,7 @@ class AlertsManage extends StyledLitElement {
             return html`
                 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous">
                 <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'">
-                <div style="padding: 20px;">Loading...</div>
+                ${loadingBlock('Loading…')}
             `;
         }
 

@@ -3,6 +3,7 @@ import RPCCall from '/lib/jsonrpc.mjs'
 import { pollRPC } from '/lib/poll.mjs'
 import { timeSince } from '/lib/dateutil.mjs'
 import { walletAsideBadge, provingIssueReasons } from '/lib/pdp-proving-status.mjs'
+import { loadingSpinner, loadingBlock, loadingStyles, loadingCssText } from '/lib/loading.mjs'
 
 function formatBytes(bytes) {
   const n = Number(bytes || 0)
@@ -302,7 +303,7 @@ customElements.define('pdp-overview', class PdpOverview extends LitElement {
     this._chart = new Chart(canvas, chartConfig)
   }
 
-  static styles = css`
+  static styles = [loadingStyles, css`
     :host {
       display: block;
     }
@@ -534,7 +535,7 @@ customElements.define('pdp-overview', class PdpOverview extends LitElement {
     a.view-all:hover {
       text-decoration: underline;
     }
-  `
+  `]
 
   updated(changed) {
     if (changed.has('keyStatus') || changed.has('keyStatusLoading') || changed.has('registry')) {
@@ -543,9 +544,8 @@ customElements.define('pdp-overview', class PdpOverview extends LitElement {
   }
 
   financialDisplay(field) {
-    if (this.financialLoading) return '…'
+    if (this.financialLoading || !this.financial) return loadingSpinner()
     if (this.financialError) return '—'
-    if (!this.financial) return '…'
     const value = this.financial[field]
     if (value === '…') return '—'
     return value ?? '0'
@@ -559,9 +559,8 @@ customElements.define('pdp-overview', class PdpOverview extends LitElement {
   }
 
   financialSubline(kind) {
-    if (this.financialLoading) return 'loading…'
+    if (this.financialLoading || !this.financial) return loadingSpinner({ label: 'loading' })
     if (this.financialError) return 'financial metrics unavailable'
-    if (!this.financial) return 'loading…'
 
     if (kind === 'income') {
       const parts = [this.financial.incomeSubtitle ?? 'settled · 30 d']
@@ -634,9 +633,10 @@ customElements.define('pdp-overview', class PdpOverview extends LitElement {
 
     if (this.keyStatusLoading) {
       render(html`
+        <style>${loadingCssText}</style>
         <div class="pdp-wallet-strip">
           <div class="pdp-wallet-strip-main">
-            <span class="pdp-wallet-badge warn">Loading…</span>
+            ${loadingSpinner({ label: 'Loading wallet', size: 'sm' })}
           </div>
         </div>
       `, host)
@@ -703,17 +703,17 @@ customElements.define('pdp-overview', class PdpOverview extends LitElement {
     const loading = this.summaryStatus === 'loading' && !s
     const errored = this.summaryStatus === 'error' && !s
     const rate = s?.provingSuccessRate
-    const rateStr = loading ? '…' : errored ? '—' : (rate !== undefined && rate !== null
+    const rateStr = loading ? loadingSpinner() : errored ? '—' : (rate !== undefined && rate !== null
       ? `${rate.toFixed(rate >= 99 ? 2 : 1)}%`
       : '—')
-    const faultNote = loading ? 'loading…'
+    const faultNote = loading ? loadingSpinner({ label: 'loading' })
       : errored ? 'summary unavailable'
       : (s?.faultedPeriods30d > 0
         ? `${s.faultedPeriods30d} faulted period${s.faultedPeriods30d === 1 ? '' : 's'}`
         : '0 faulted periods')
     const expenseUsd = this.expenseUsdHint()
-    const dataBytes = loading ? '…' : errored ? '—' : formatBytes(s?.dataUnderProofBytes)
-    const dataSub = loading ? 'loading…'
+    const dataBytes = loading ? loadingSpinner() : errored ? '—' : formatBytes(s?.dataUnderProofBytes)
+    const dataSub = loading ? loadingSpinner({ label: 'loading' })
       : errored ? 'summary unavailable'
       : `${s?.dataSetCount ?? 0} datasets · ${s?.pieceCount ?? 0} pieces`
 
@@ -751,7 +751,7 @@ customElements.define('pdp-overview', class PdpOverview extends LitElement {
     const groups = groupAlertsByMessage(this.alerts, 5)
     let body
     if (this.alertsStatus === 'loading') {
-      body = html`<p class="status-muted">Loading alerts…</p>`
+      body = loadingSpinner({ label: 'Loading alerts', size: 'md' })
     } else if (this.alertsStatus === 'error') {
       body = html`<p class="status-error">Alerts unavailable — connection or RPC error</p>`
     } else if (total === 0) {

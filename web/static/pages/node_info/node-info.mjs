@@ -1,6 +1,8 @@
 import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs';
+import { loadingBlock, loadingStyles } from '/lib/loading.mjs';
 customElements.define('node-info',class NodeInfoElement extends LitElement {
+    static styles = [loadingStyles];
     constructor() {
         super();
         this.loadData();
@@ -14,7 +16,7 @@ customElements.define('node-info',class NodeInfoElement extends LitElement {
     }
     render() {
         if (!this.data) {
-            return html`<div>Loading...</div>`;
+            return loadingBlock('Loading…');
         }
         return html`
             <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-1BmE4kWBq78iYhFldvKuhfTAU6auU8tT94WrHftjDbrCEXSU1oBoqyl2QvZ6jIW3" crossorigin="anonymous">

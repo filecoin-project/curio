@@ -1,5 +1,6 @@
 import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs';
+import { loadingBlock, loadingStyles } from '/lib/loading.mjs';
 
 customElements.define('storage-paths-list', class StoragePathsList extends LitElement {
     static properties = {
@@ -11,7 +12,7 @@ customElements.define('storage-paths-list', class StoragePathsList extends LitEl
         filterType: { type: String },
     };
 
-    static styles = css`
+    static styles = [loadingStyles, css`
         .health-ok {
             color: #4BB543;
         }
@@ -97,7 +98,7 @@ customElements.define('storage-paths-list', class StoragePathsList extends LitEl
             color: #8b949e;
             font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
         }
-    `;
+    `];
 
     constructor() {
         super();
@@ -203,7 +204,7 @@ customElements.define('storage-paths-list', class StoragePathsList extends LitEl
             return html`
                 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous">
                 <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'">
-                <div>Loading...</div>
+                ${loadingBlock('Loading…')}
             `;
         }
 

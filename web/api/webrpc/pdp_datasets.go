@@ -60,8 +60,13 @@ type PDPDataSetDetail struct {
 	UnrecoverableFailureEpoch *int64     `json:"unrecoverableFailureEpoch,omitempty"`
 	InitReady                 bool       `json:"initReady"`
 	Service                   string     `json:"service"`
+	HeadEpoch                 int64      `json:"headEpoch"`
+	ProvingStatus             string     `json:"provingStatus"`
+}
 
-	// FWSS / payment
+// PDPDataSetPayments is chain-derived wallet/payment state for a dataset.
+// Loaded separately so the detail page can render DB fields without waiting on RPC.
+type PDPDataSetPayments struct {
 	Payer             string `json:"payer"`
 	Payee             string `json:"payee"`
 	ServiceProvider   string `json:"serviceProvider"`
@@ -74,8 +79,7 @@ type PDPDataSetDetail struct {
 	PaymentRate       string `json:"paymentRate"`
 	ProvenThisPeriod  *bool  `json:"provenThisPeriod,omitempty"`
 	HeadEpoch         int64  `json:"headEpoch"`
-
-	Interactions []PDPDataSetInteraction `json:"interactions"`
+	Error             string `json:"error,omitempty"`
 }
 
 const pdpDataSetStatsByIDs = `
@@ -95,7 +99,12 @@ const pdpDataSetStatsByIDs = `
 	GROUP BY ds.id, ds.prove_at_epoch, ds.challenge_window,
 	         ds.consecutive_prove_failures, ds.unrecoverable_proving_failure_epoch`
 
-const pdpDataSetStatsPage = `
+const pdpDataSetStatsFrom = `
+	FROM pdp_data_sets ds
+	LEFT JOIN pdp_data_set_pieces dsp ON dsp.data_set = ds.id
+	LEFT JOIN pdp_piecerefs pr ON pr.id = dsp.pdp_pieceref`
+
+const pdpDataSetStatsSelect = `
 	SELECT
 		ds.id,
 		COUNT(DISTINCT dsp.piece_id) FILTER (WHERE dsp.removed IS NOT TRUE) AS object_count,
@@ -104,14 +113,85 @@ const pdpDataSetStatsPage = `
 		ds.prove_at_epoch,
 		ds.challenge_window,
 		ds.consecutive_prove_failures,
-		ds.unrecoverable_proving_failure_epoch
-	FROM pdp_data_sets ds
-	LEFT JOIN pdp_data_set_pieces dsp ON dsp.data_set = ds.id
-	LEFT JOIN pdp_piecerefs pr ON pr.id = dsp.pdp_pieceref
+		ds.unrecoverable_proving_failure_epoch` + pdpDataSetStatsFrom
+
+const pdpDataSetStatsGroupBy = `
 	GROUP BY ds.id, ds.prove_at_epoch, ds.challenge_window,
-	         ds.consecutive_prove_failures, ds.unrecoverable_proving_failure_epoch
+	         ds.consecutive_prove_failures, ds.unrecoverable_proving_failure_epoch`
+
+// Predefined page queries — harmonyquery only accepts SQL string literals (not fmt-built strings).
+const (
+	pdpDataSetStatsPageByIDDesc = pdpDataSetStatsSelect + pdpDataSetStatsGroupBy + `
 	ORDER BY ds.id DESC
 	LIMIT $1 OFFSET $2`
+	pdpDataSetStatsPageByIDAsc = pdpDataSetStatsSelect + pdpDataSetStatsGroupBy + `
+	ORDER BY ds.id ASC
+	LIMIT $1 OFFSET $2`
+	pdpDataSetStatsPageByObjectsDesc = pdpDataSetStatsSelect + pdpDataSetStatsGroupBy + `
+	ORDER BY object_count DESC, ds.id DESC
+	LIMIT $1 OFFSET $2`
+	pdpDataSetStatsPageByObjectsAsc = pdpDataSetStatsSelect + pdpDataSetStatsGroupBy + `
+	ORDER BY object_count ASC, ds.id DESC
+	LIMIT $1 OFFSET $2`
+	pdpDataSetStatsPageBySizeDesc = pdpDataSetStatsSelect + pdpDataSetStatsGroupBy + `
+	ORDER BY size_bytes DESC, ds.id DESC
+	LIMIT $1 OFFSET $2`
+	pdpDataSetStatsPageBySizeAsc = pdpDataSetStatsSelect + pdpDataSetStatsGroupBy + `
+	ORDER BY size_bytes ASC, ds.id DESC
+	LIMIT $1 OFFSET $2`
+	pdpDataSetStatsPageByFirstUploadDesc = pdpDataSetStatsSelect + pdpDataSetStatsGroupBy + `
+	ORDER BY first_upload_at DESC NULLS LAST, ds.id DESC
+	LIMIT $1 OFFSET $2`
+	pdpDataSetStatsPageByFirstUploadAsc = pdpDataSetStatsSelect + pdpDataSetStatsGroupBy + `
+	ORDER BY first_upload_at ASC NULLS LAST, ds.id DESC
+	LIMIT $1 OFFSET $2`
+
+	pdpDataSetStatsByIDsPageByIDDesc = pdpDataSetStatsSelect + `
+	WHERE ds.id = ANY($1)` + pdpDataSetStatsGroupBy + `
+	ORDER BY ds.id DESC
+	LIMIT $2 OFFSET $3`
+	pdpDataSetStatsByIDsPageByIDAsc = pdpDataSetStatsSelect + `
+	WHERE ds.id = ANY($1)` + pdpDataSetStatsGroupBy + `
+	ORDER BY ds.id ASC
+	LIMIT $2 OFFSET $3`
+	pdpDataSetStatsByIDsPageByObjectsDesc = pdpDataSetStatsSelect + `
+	WHERE ds.id = ANY($1)` + pdpDataSetStatsGroupBy + `
+	ORDER BY object_count DESC, ds.id DESC
+	LIMIT $2 OFFSET $3`
+	pdpDataSetStatsByIDsPageByObjectsAsc = pdpDataSetStatsSelect + `
+	WHERE ds.id = ANY($1)` + pdpDataSetStatsGroupBy + `
+	ORDER BY object_count ASC, ds.id DESC
+	LIMIT $2 OFFSET $3`
+	pdpDataSetStatsByIDsPageBySizeDesc = pdpDataSetStatsSelect + `
+	WHERE ds.id = ANY($1)` + pdpDataSetStatsGroupBy + `
+	ORDER BY size_bytes DESC, ds.id DESC
+	LIMIT $2 OFFSET $3`
+	pdpDataSetStatsByIDsPageBySizeAsc = pdpDataSetStatsSelect + `
+	WHERE ds.id = ANY($1)` + pdpDataSetStatsGroupBy + `
+	ORDER BY size_bytes ASC, ds.id DESC
+	LIMIT $2 OFFSET $3`
+	pdpDataSetStatsByIDsPageByFirstUploadDesc = pdpDataSetStatsSelect + `
+	WHERE ds.id = ANY($1)` + pdpDataSetStatsGroupBy + `
+	ORDER BY first_upload_at DESC NULLS LAST, ds.id DESC
+	LIMIT $2 OFFSET $3`
+	pdpDataSetStatsByIDsPageByFirstUploadAsc = pdpDataSetStatsSelect + `
+	WHERE ds.id = ANY($1)` + pdpDataSetStatsGroupBy + `
+	ORDER BY first_upload_at ASC NULLS LAST, ds.id DESC
+	LIMIT $2 OFFSET $3`
+)
+
+func normalizeDataSetSortBy(sortBy string) string {
+	switch strings.ToLower(strings.TrimSpace(sortBy)) {
+	case "object_count", "objectcount", "objects":
+		return "object_count"
+	case "size_bytes", "sizebytes", "size":
+		return "size_bytes"
+	case "first_upload_at", "firstupload", "first_upload":
+		return "first_upload_at"
+	default:
+		return "id"
+	}
+}
 
 const pdpDataSetStatsByID = `
 	SELECT
@@ -141,7 +221,7 @@ type pdpDataSetStatsRow struct {
 	UnrecoverableFailureEpoch sql.NullInt64 `db:"unrecoverable_proving_failure_epoch"`
 }
 
-func (a *WebRPC) PDPDataSetList(ctx context.Context, limit, offset int, filter string) (PDPDataSetListResult, error) {
+func (a *WebRPC) PDPDataSetList(ctx context.Context, limit, offset int, filter, sortBy string, ascending bool) (PDPDataSetListResult, error) {
 	out := PDPDataSetListResult{Items: []PDPDataSetSummary{}}
 	if limit <= 0 || limit > 200 {
 		limit = 50
@@ -149,28 +229,37 @@ func (a *WebRPC) PDPDataSetList(ctx context.Context, limit, offset int, filter s
 	if offset < 0 {
 		offset = 0
 	}
+	sortBy = normalizeDataSetSortBy(sortBy)
 
 	filter = strings.TrimSpace(filter)
 	net, _ := a.NetSummary(ctx)
 	head := net.Epoch
 
 	if looksLikeEthAddress(filter) {
-		ids, err := a.clientDataSetIDs(ctx, common.HexToAddress(filter), offset, limit)
+		addr := common.HexToAddress(filter)
+		total, terr := a.clientDataSetTotal(ctx, addr)
+		if terr != nil {
+			return out, terr
+		}
+		out.Total = total
+		if total == 0 {
+			return out, nil
+		}
+		// Fetch all client dataset IDs so DB sort/pagination can apply across the full set.
+		ids, err := a.clientDataSetIDs(ctx, addr, 0, total)
 		if err != nil {
 			return out, err
 		}
 		if len(ids) == 0 {
 			return out, nil
 		}
-		items, err := a.loadDataSetSummariesByIDs(ctx, ids, head)
+		rows, err := a.selectDataSetStatsByIDsPage(ctx, ids, limit, offset, sortBy, ascending)
 		if err != nil {
-			return out, err
+			return out, xerrors.Errorf("list datasets by wallet: %w", err)
 		}
-		out.Items = items
-		if total, terr := a.clientDataSetTotal(ctx, common.HexToAddress(filter)); terr == nil {
-			out.Total = total
-		} else {
-			out.Total = len(items)
+		out.Items = make([]PDPDataSetSummary, 0, len(rows))
+		for _, row := range rows {
+			out.Items = append(out.Items, summaryFromStatsRow(row, head))
 		}
 		return out, nil
 	}
@@ -198,8 +287,7 @@ func (a *WebRPC) PDPDataSetList(ctx context.Context, limit, offset int, filter s
 		return out, xerrors.Errorf("count datasets: %w", err)
 	}
 
-	var rows []pdpDataSetStatsRow
-	err = a.Deps.DB.Select(ctx, &rows, pdpDataSetStatsPage, limit, offset)
+	rows, err := a.selectDataSetStatsPage(ctx, limit, offset, sortBy, ascending)
 	if err != nil {
 		return out, xerrors.Errorf("list datasets: %w", err)
 	}
@@ -209,6 +297,54 @@ func (a *WebRPC) PDPDataSetList(ctx context.Context, limit, offset int, filter s
 		out.Items = append(out.Items, summaryFromStatsRow(row, head))
 	}
 	return out, nil
+}
+
+func (a *WebRPC) selectDataSetStatsPage(ctx context.Context, limit, offset int, sortBy string, ascending bool) ([]pdpDataSetStatsRow, error) {
+	var rows []pdpDataSetStatsRow
+	var err error
+	switch {
+	case sortBy == "object_count" && ascending:
+		err = a.Deps.DB.Select(ctx, &rows, pdpDataSetStatsPageByObjectsAsc, limit, offset)
+	case sortBy == "object_count":
+		err = a.Deps.DB.Select(ctx, &rows, pdpDataSetStatsPageByObjectsDesc, limit, offset)
+	case sortBy == "size_bytes" && ascending:
+		err = a.Deps.DB.Select(ctx, &rows, pdpDataSetStatsPageBySizeAsc, limit, offset)
+	case sortBy == "size_bytes":
+		err = a.Deps.DB.Select(ctx, &rows, pdpDataSetStatsPageBySizeDesc, limit, offset)
+	case sortBy == "first_upload_at" && ascending:
+		err = a.Deps.DB.Select(ctx, &rows, pdpDataSetStatsPageByFirstUploadAsc, limit, offset)
+	case sortBy == "first_upload_at":
+		err = a.Deps.DB.Select(ctx, &rows, pdpDataSetStatsPageByFirstUploadDesc, limit, offset)
+	case ascending:
+		err = a.Deps.DB.Select(ctx, &rows, pdpDataSetStatsPageByIDAsc, limit, offset)
+	default:
+		err = a.Deps.DB.Select(ctx, &rows, pdpDataSetStatsPageByIDDesc, limit, offset)
+	}
+	return rows, err
+}
+
+func (a *WebRPC) selectDataSetStatsByIDsPage(ctx context.Context, ids []int64, limit, offset int, sortBy string, ascending bool) ([]pdpDataSetStatsRow, error) {
+	var rows []pdpDataSetStatsRow
+	var err error
+	switch {
+	case sortBy == "object_count" && ascending:
+		err = a.Deps.DB.Select(ctx, &rows, pdpDataSetStatsByIDsPageByObjectsAsc, ids, limit, offset)
+	case sortBy == "object_count":
+		err = a.Deps.DB.Select(ctx, &rows, pdpDataSetStatsByIDsPageByObjectsDesc, ids, limit, offset)
+	case sortBy == "size_bytes" && ascending:
+		err = a.Deps.DB.Select(ctx, &rows, pdpDataSetStatsByIDsPageBySizeAsc, ids, limit, offset)
+	case sortBy == "size_bytes":
+		err = a.Deps.DB.Select(ctx, &rows, pdpDataSetStatsByIDsPageBySizeDesc, ids, limit, offset)
+	case sortBy == "first_upload_at" && ascending:
+		err = a.Deps.DB.Select(ctx, &rows, pdpDataSetStatsByIDsPageByFirstUploadAsc, ids, limit, offset)
+	case sortBy == "first_upload_at":
+		err = a.Deps.DB.Select(ctx, &rows, pdpDataSetStatsByIDsPageByFirstUploadDesc, ids, limit, offset)
+	case ascending:
+		err = a.Deps.DB.Select(ctx, &rows, pdpDataSetStatsByIDsPageByIDAsc, ids, limit, offset)
+	default:
+		err = a.Deps.DB.Select(ctx, &rows, pdpDataSetStatsByIDsPageByIDDesc, ids, limit, offset)
+	}
+	return rows, err
 }
 
 func (a *WebRPC) PDPDataSetDetail(ctx context.Context, id int64) (*PDPDataSetDetail, error) {
@@ -274,11 +410,6 @@ func (a *WebRPC) PDPDataSetDetail(ctx context.Context, id int64) (*PDPDataSetDet
 		ProvingPeriod:             nullInt64Ptr(row.ProvingPeriod),
 		NextProveAttemptAt:        nullInt64Ptr(row.NextProveAttemptAt),
 		UnrecoverableFailureEpoch: nullInt64Ptr(row.UnrecoverableFailureEpoch),
-		AvailableFunds:            "—",
-		FundedUntilEpoch:          "—",
-		LockupPeriod:              "—",
-		PaymentRate:               "—",
-		Interactions:              []PDPDataSetInteraction{},
 	}
 	if row.FirstUploadAt.Valid {
 		t := row.FirstUploadAt.Time
@@ -294,19 +425,44 @@ func (a *WebRPC) PDPDataSetDetail(ctx context.Context, id int64) (*PDPDataSetDet
 	if netErr == nil {
 		detail.HeadEpoch = net.Epoch
 	}
-
-	a.enrichDataSetFWSS(ctx, detail)
-	interactions, ierr := a.dataSetInteractions(ctx, id)
-	if ierr != nil {
-		log.Warnw("PDPDataSetDetail: interactions failed", "id", id, "error", ierr)
-	} else {
-		detail.Interactions = interactions
-	}
+	detail.ProvingStatus = provingStatusLabel(row.ProveAtEpoch, row.ChallengeWindow, row.ConsecutiveProveFailures, row.UnrecoverableFailureEpoch, detail.HeadEpoch)
 
 	return detail, nil
 }
 
-func (a *WebRPC) enrichDataSetFWSS(ctx context.Context, detail *PDPDataSetDetail) {
+func (a *WebRPC) PDPDataSetPayments(ctx context.Context, id int64) (*PDPDataSetPayments, error) {
+	if id <= 0 {
+		return nil, xerrors.Errorf("invalid dataset id")
+	}
+	out := &PDPDataSetPayments{
+		AvailableFunds:   "—",
+		FundedUntilEpoch: "—",
+		LockupPeriod:     "—",
+		PaymentRate:      "—",
+	}
+	if net, err := a.NetSummary(ctx); err == nil {
+		out.HeadEpoch = net.Epoch
+	}
+
+	// Bound chain RPCs so a stuck eth client cannot hang the UI forever.
+	chainCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
+	defer cancel()
+
+	a.enrichDataSetFWSS(chainCtx, id, out)
+	if out.Payer == "" && out.PdpRailID == "" {
+		out.Error = "chain payment data unavailable"
+	}
+	return out, nil
+}
+
+func (a *WebRPC) PDPDataSetInteractions(ctx context.Context, id int64) ([]PDPDataSetInteraction, error) {
+	if id <= 0 {
+		return nil, xerrors.Errorf("invalid dataset id")
+	}
+	return a.dataSetInteractions(ctx, id)
+}
+
+func (a *WebRPC) enrichDataSetFWSS(ctx context.Context, id int64, out *PDPDataSetPayments) {
 	eclient, err := a.Deps.EthClient.Val()
 	if err != nil {
 		return
@@ -314,7 +470,7 @@ func (a *WebRPC) enrichDataSetFWSS(ctx context.Context, detail *PDPDataSetDetail
 	serviceAddr := contract.ContractAddresses().AllowedPublicRecordKeepers.FWSService
 	viewAddr, err := contract.ResolveViewAddress(ctx, serviceAddr, eclient)
 	if err != nil {
-		log.Warnw("PDPDataSetDetail: resolve FWSS view", "error", err)
+		log.Warnw("PDPDataSetPayments: resolve FWSS view", "error", err)
 		return
 	}
 	fwssView, err := FWSS.NewFilecoinWarmStorageServiceStateView(viewAddr, eclient)
@@ -322,23 +478,23 @@ func (a *WebRPC) enrichDataSetFWSS(ctx context.Context, detail *PDPDataSetDetail
 		return
 	}
 
-	info, err := fwssView.GetDataSet(contract.EthCallOpts(ctx), big.NewInt(detail.ID))
+	info, err := fwssView.GetDataSet(contract.EthCallOpts(ctx), big.NewInt(id))
 	if err != nil {
-		log.Warnw("PDPDataSetDetail: GetDataSet", "id", detail.ID, "error", err)
+		log.Warnw("PDPDataSetPayments: GetDataSet", "id", id, "error", err)
 		return
 	}
-	detail.Payer = info.Payer.Hex()
-	detail.Payee = info.Payee.Hex()
-	detail.ServiceProvider = info.ServiceProvider.Hex()
+	out.Payer = info.Payer.Hex()
+	out.Payee = info.Payee.Hex()
+	out.ServiceProvider = info.ServiceProvider.Hex()
 	if info.PdpRailId != nil {
-		detail.PdpRailID = info.PdpRailId.String()
+		out.PdpRailID = info.PdpRailId.String()
 	}
 	if info.PdpEndEpoch != nil {
-		detail.PdpEndEpoch = info.PdpEndEpoch.String()
+		out.PdpEndEpoch = info.PdpEndEpoch.String()
 	}
 
-	if proven, perr := fwssView.ProvenThisPeriod(contract.EthCallOpts(ctx), big.NewInt(detail.ID)); perr == nil {
-		detail.ProvenThisPeriod = &proven
+	if proven, perr := fwssView.ProvenThisPeriod(contract.EthCallOpts(ctx), big.NewInt(id)); perr == nil {
+		out.ProvenThisPeriod = &proven
 	}
 
 	if info.PdpRailId == nil || info.PdpRailId.Sign() == 0 {
@@ -356,37 +512,37 @@ func (a *WebRPC) enrichDataSetFWSS(ctx context.Context, detail *PDPDataSetDetail
 
 	rail, err := payments.GetRail(contract.EthCallOpts(ctx), info.PdpRailId)
 	if err != nil {
-		log.Warnw("PDPDataSetDetail: GetRail", "rail", info.PdpRailId, "error", err)
+		log.Warnw("PDPDataSetPayments: GetRail", "rail", info.PdpRailId, "error", err)
 		return
 	}
 	if rail.LockupPeriod != nil {
-		detail.LockupPeriod = rail.LockupPeriod.String()
+		out.LockupPeriod = rail.LockupPeriod.String()
 	}
 	if rail.PaymentRate != nil {
-		detail.PaymentRate = rail.PaymentRate.String()
+		out.PaymentRate = rail.PaymentRate.String()
 	}
 
 	acct, err := payments.GetAccountInfoIfSettled(contract.EthCallOpts(ctx), rail.Token, info.Payer)
 	if err != nil {
-		log.Warnw("PDPDataSetDetail: GetAccountInfoIfSettled", "error", err)
+		log.Warnw("PDPDataSetPayments: GetAccountInfoIfSettled", "error", err)
 		return
 	}
 	if acct.AvailableFunds != nil {
-		detail.AvailableFunds = formatUsdfc(acct.AvailableFunds)
+		out.AvailableFunds = formatUsdfc(acct.AvailableFunds)
 	}
 	if acct.FundedUntilEpoch != nil {
-		detail.FundedUntilEpoch = acct.FundedUntilEpoch.String()
+		out.FundedUntilEpoch = acct.FundedUntilEpoch.String()
 	}
 
 	if acct.FundedUntilEpoch != nil && rail.LockupPeriod != nil && rail.LockupPeriod.Sign() > 0 {
-		head := big.NewInt(detail.HeadEpoch)
+		head := big.NewInt(out.HeadEpoch)
 		remainingEpochs := new(big.Int).Sub(acct.FundedUntilEpoch, head)
 		if remainingEpochs.Sign() < 0 {
 			remainingEpochs = big.NewInt(0)
 		}
 		paymentsLeft := new(big.Int).Div(remainingEpochs, rail.LockupPeriod)
 		v := paymentsLeft.Int64()
-		detail.PaymentsRemaining = &v
+		out.PaymentsRemaining = &v
 	}
 }
 
@@ -398,23 +554,49 @@ func (a *WebRPC) dataSetInteractions(ctx context.Context, id int64) ([]PDPDataSe
 		Success    sql.NullBool   `db:"send_success"`
 	}
 
+	// Cap piece-add hashes — joining every historical add against message_sends_eth
+	// with LOWER(TRIM(...)) was scanning huge sets (26s+). Prefer create/challenge
+	// plus a small recent sample.
+	// Restrict to send_success=TRUE so the planner can use the existing partial
+	// idx_message_sends_eth_signed_hash_norm (reorg-check index). Dataset-linked
+	// hashes are from broadcast sends, so this matches what we want to show.
 	var txs []txRow
 	err := a.Deps.DB.Select(ctx, &txs, `
 		WITH hashes AS (
-			SELECT create_message_hash AS h FROM pdp_data_sets WHERE id = $1 AND create_message_hash IS NOT NULL AND create_message_hash != ''
+			SELECT LOWER(TRIM(BOTH FROM create_message_hash)) AS h
+			FROM pdp_data_sets
+			WHERE id = $1 AND create_message_hash IS NOT NULL AND create_message_hash != ''
 			UNION
-			SELECT challenge_request_msg_hash FROM pdp_data_sets WHERE id = $1 AND challenge_request_msg_hash IS NOT NULL AND challenge_request_msg_hash != ''
+			SELECT LOWER(TRIM(BOTH FROM challenge_request_msg_hash))
+			FROM pdp_data_sets
+			WHERE id = $1 AND challenge_request_msg_hash IS NOT NULL AND challenge_request_msg_hash != ''
 			UNION
-			SELECT add_message_hash FROM pdp_data_set_pieces WHERE data_set = $1 AND add_message_hash IS NOT NULL
+			SELECT LOWER(TRIM(BOTH FROM add_message_hash))
+			FROM (
+				SELECT add_message_hash
+				FROM pdp_data_set_pieces
+				WHERE data_set = $1 AND add_message_hash IS NOT NULL
+				ORDER BY piece_id DESC
+				LIMIT 15
+			) recent_pieces
 			UNION
-			SELECT add_message_hash FROM pdp_data_set_piece_adds WHERE data_set = $1 AND add_message_hash IS NOT NULL
+			SELECT LOWER(TRIM(BOTH FROM add_message_hash))
+			FROM (
+				SELECT DISTINCT add_message_hash
+				FROM pdp_data_set_piece_adds
+				WHERE data_set = $1 AND add_message_hash IS NOT NULL
+				LIMIT 15
+			) recent_adds
 		)
-		SELECT lower(trim(both from mse.signed_hash)) AS tx_hash,
+		SELECT mse.signed_hash AS tx_hash,
 		       mse.send_reason,
 		       mse.send_time,
 		       mse.send_success
 		FROM hashes h
-		JOIN message_sends_eth mse ON lower(trim(both from mse.signed_hash)) = lower(trim(both from h.h))
+		JOIN message_sends_eth mse
+		  ON mse.send_success = TRUE
+		 AND mse.signed_hash IS NOT NULL
+		 AND LOWER(TRIM(BOTH FROM mse.signed_hash)) = h.h
 		ORDER BY mse.send_time DESC
 		LIMIT 10`, id)
 	if err != nil {
@@ -446,15 +628,59 @@ func (a *WebRPC) dataSetInteractions(ctx context.Context, id int64) ([]PDPDataSe
 		WorkEnd time.Time `db:"work_end"`
 	}
 	var proves []proveRow
-	err = a.Deps.DB.Select(ctx, &proves, `
-		SELECT h.task_id, h.result, COALESCE(h.err, '') AS err, h.work_end
-		FROM pdp_prove_tasks pt
-		JOIN harmony_task_history h ON h.task_id = pt.task_id
-		WHERE pt.data_set = $1
-		ORDER BY h.work_end DESC
-		LIMIT 10`, id)
+	// pdp_prove_tasks only exists while the prove task is in-flight (CASCADE delete on
+	// harmony_task completion). Do NOT join it to harmony_task_history in one statement:
+	// ORDER BY h.work_end LIMIT N makes the planner scan all of history probing for
+	// matches (minutes when the dataset has no in-flight prove rows).
+	var proveTaskIDs []int64
+	err = a.Deps.DB.Select(ctx, &proveTaskIDs, `
+		SELECT task_id FROM pdp_prove_tasks WHERE data_set = $1`, id)
 	if err != nil {
-		return nil, xerrors.Errorf("prove interactions: %w", err)
+		return nil, xerrors.Errorf("prove task ids: %w", err)
+	}
+	if len(proveTaskIDs) > 0 {
+		err = a.Deps.DB.Select(ctx, &proves, `
+			SELECT h.task_id,
+			       (h.result AND (h.err IS NULL OR h.err = '')) AS result,
+			       COALESCE(h.err, '') AS err,
+			       h.work_end
+			FROM harmony_task_history h
+			WHERE h.task_id = ANY($1)
+			ORDER BY h.work_end DESC
+			LIMIT 10`, proveTaskIDs)
+		if err != nil {
+			return nil, xerrors.Errorf("prove interactions: %w", err)
+		}
+	}
+	if len(proves) == 0 {
+		// Completed proves: recover dataset from err text ("dataset <id>") over a
+		// name+time window that can use harmony_task_history work_end/name indexes.
+		// Filter in Go — ILIKE '%dataset N%' can't use those indexes well either.
+		var recent []proveRow
+		err = a.Deps.DB.Select(ctx, &recent, `
+			SELECT h.task_id,
+			       (h.result AND (h.err IS NULL OR h.err = '')) AS result,
+			       COALESCE(h.err, '') AS err,
+			       h.work_end
+			FROM harmony_task_history h
+			WHERE h.name IN ('PDPv0_Prove', 'PDPProve')
+			  AND h.work_end > CURRENT_TIMESTAMP - INTERVAL '14 days'
+			  AND h.err IS NOT NULL AND h.err <> ''
+			ORDER BY h.work_end DESC
+			LIMIT 500`)
+		if err != nil {
+			return nil, xerrors.Errorf("prove history interactions: %w", err)
+		}
+		for _, p := range recent {
+			dsID, ok := parseDataSetIDFromErr(p.Err)
+			if !ok || dsID != id {
+				continue
+			}
+			proves = append(proves, p)
+			if len(proves) >= 10 {
+				break
+			}
+		}
 	}
 	for _, p := range proves {
 		succ := p.Result
@@ -463,7 +689,7 @@ func (a *WebRPC) dataSetInteractions(ctx context.Context, id int64) ([]PDPDataSe
 			Kind:      "prove",
 			TaskID:    &tid,
 			Success:   &succ,
-			Err:       p.Err,
+			Err:       cleanHistoryErr(p.Err),
 			Timestamp: p.WorkEnd,
 		})
 	}
