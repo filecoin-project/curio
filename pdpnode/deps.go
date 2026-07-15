@@ -85,6 +85,7 @@ func Open(ctx context.Context, cctx *cli.Context) (*Deps, error) {
 		return nil, xerrors.Errorf("load config: %w", err)
 	}
 
+	// Skiff-specific defaults. Empty function in the base package.
 	applySkiffDefaults(cfg)
 	if !cfg.Subsystems.EnablePDP {
 		cfg.Subsystems.EnablePDP = true

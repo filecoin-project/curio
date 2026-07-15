@@ -88,14 +88,14 @@ customElements.define('storage-paths-list', class StoragePathsList extends LitEl
         .mount-path {
             display: block;
             font-size: 0.95em;
-            color: #e6edf3;
+            color: var(--color-text-primary);
             word-break: break-all;
         }
         .mount-id {
             margin-top: 2px;
             font-size: 0.75em;
-            color: #8b949e;
-            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            color: var(--color-text-secondary);
+            font-family: var(--font-mono);
         }
     `;
 
@@ -211,7 +211,7 @@ customElements.define('storage-paths-list', class StoragePathsList extends LitEl
             return html`
                 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous">
                 <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'">
-                <div style="color: #B63333;">Error: ${this.error}</div>
+                <div style="color: var(--color-danger-fg);">Error: ${this.error}</div>
             `;
         }
 
@@ -223,7 +223,7 @@ customElements.define('storage-paths-list', class StoragePathsList extends LitEl
             
             <div style="max-width: 1600px;">
                 <h1 style="margin-bottom: 8px;">Storage Mounts</h1>
-                <p style="color: #8b949e; margin-bottom: 20px;">Each mount with capacity, usage, and health.</p>
+                <p style="color: var(--color-text-secondary); margin-bottom: 20px;">Each mount with capacity, usage, and health.</p>
                 
                 <div class="filters">
                     <label>
