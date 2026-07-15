@@ -1,4 +1,11 @@
 {
     "language": "ko",
-    "messages": []
+    "messages": [
+      {
+        "id": "Open the database in read-only mode (skip schema upgrades and harmony_machines writes)",
+        "translation": "",
+        "message": "Open the database in read-only mode (skip schema upgrades and harmony_machines writes)",
+        "placeholder": null
+      }
+    ]
   }
