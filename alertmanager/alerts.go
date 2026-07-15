@@ -28,6 +28,7 @@ import (
 	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/apiconn"
 	"github.com/filecoin-project/curio/lib/lists"
 	"github.com/filecoin-project/curio/tasks/tasknames"
 
@@ -35,7 +36,6 @@ import (
 	"github.com/filecoin-project/lotus/chain/actors/adt"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/types"
-	cliutil "github.com/filecoin-project/lotus/cli/util"
 )
 
 type AlertNow struct {
@@ -806,7 +806,7 @@ func chainSyncCheck(al *alerts) {
 
 	// For each unique API (chain), check if in sync
 	for _, info := range lists.UniqNoAlloc(rpcInfos) {
-		ai := cliutil.ParseApiInfo(info)
+		ai := apiconn.Parse(info)
 		if dedup[ai.Addr] {
 			continue
 		}

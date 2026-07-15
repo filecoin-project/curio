@@ -24,6 +24,7 @@ import (
 	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/ethchain"
+	"github.com/filecoin-project/curio/tasks/message/replace_mock"
 
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/build/buildconstants"
@@ -51,7 +52,7 @@ func (m *mockReplaceSigner) WalletSignMessage(ctx context.Context, addr address.
 type filecoinReplaceHarness struct {
 	ctx         context.Context
 	db          *harmonydb.DB
-	api         *MockMessageReplaceAPI
+	api         *replace_mock.MockMessageReplaceAPI
 	accountKeys map[string]address.Address
 	actors      map[string]*ltypes.Actor
 	signer      *mockReplaceSigner
@@ -67,7 +68,7 @@ func newFilecoinReplaceHarness(t *testing.T) *filecoinReplaceHarness {
 	db, err := harmonydb.NewFromConfigWithITestID(t)
 	require.NoError(t, err)
 
-	apiMock := NewMockMessageReplaceAPI(gomock.NewController(t))
+	apiMock := replace_mock.NewMockMessageReplaceAPI(gomock.NewController(t))
 	signer := &mockReplaceSigner{}
 	h := &filecoinReplaceHarness{
 		ctx:         ctx,

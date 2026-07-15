@@ -28,7 +28,6 @@ import (
 	"github.com/filecoin-project/curio/lib/ethchain"
 
 	"github.com/filecoin-project/lotus/chain/types"
-	cliutil "github.com/filecoin-project/lotus/cli/util"
 )
 
 var clog = logging.Logger("curio/chain")
@@ -69,7 +68,7 @@ func GetFullNodeAPIV1Curio(ctx *cli.Context, apis config.ApisConfig) (api.Chain,
 		httpHeads = append(httpHeads, httpHead{addr: addr, header: ainfo.AuthHeader()})
 	}
 
-	if cliutil.IsVeryVerbose {
+	if isChainAPIVeryVerbose() {
 		_, _ = fmt.Fprintln(ctx.App.Writer, "using full node API v1 endpoint:", httpHeads[0].addr)
 	}
 
@@ -389,7 +388,7 @@ func GetEthClient(cctx *cli.Context, apis config.ApisConfig) (ethchain.EthClient
 	var clients []ethchain.EthClient
 
 	for _, head := range httpHeads {
-		if cliutil.IsVeryVerbose {
+		if isChainAPIVeryVerbose() {
 			_, _ = fmt.Fprintln(cctx.App.Writer, "using eth client endpoint:", head.addr)
 		}
 

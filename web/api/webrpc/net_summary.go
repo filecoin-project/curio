@@ -10,8 +10,7 @@ import (
 
 	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/deps"
-
-	cliutil "github.com/filecoin-project/lotus/cli/util"
+	"github.com/filecoin-project/curio/lib/apiconn"
 )
 
 type NetSummaryResponse struct {
@@ -72,7 +71,7 @@ func (a *WebRPC) NetSummary(ctx context.Context) (NetSummaryResponse, error) {
 	var wg sync.WaitGroup
 
 	for _, endpoint := range endpoints {
-		ai := cliutil.ParseApiInfo(endpoint.ApiInfo)
+		ai := apiconn.Parse(endpoint.ApiInfo)
 		if _, ok := dedup[ai.Addr]; ok {
 			continue
 		}
@@ -81,7 +80,7 @@ func (a *WebRPC) NetSummary(ctx context.Context) (NetSummaryResponse, error) {
 		nodeLabel := ai.Addr
 
 		wg.Add(1)
-		go func(ai cliutil.APIInfo, nodeLabel string) {
+		go func(ai apiconn.Info, nodeLabel string) {
 			defer wg.Done()
 
 			addr, err := ai.DialArgs("v1")

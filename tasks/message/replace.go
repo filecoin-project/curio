@@ -20,7 +20,6 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 
 	"github.com/filecoin-project/lotus/api"
-	"github.com/filecoin-project/lotus/chain/messagepool"
 	"github.com/filecoin-project/lotus/chain/types"
 )
 
@@ -31,7 +30,37 @@ const (
 
 var MessageReplaceMaxFee = abi.TokenAmount(types.MustParseFIL("1 FIL"))
 
-//go:generate go run github.com/golang/mock/mockgen -source=replace.go -destination=replace_mock.go -package=message MessageReplaceAPI
+// These mirror the small Lotus messagepool helpers/errors needed for replacement.
+// Keeping them local avoids importing lotus/chain/messagepool, which pulls in
+// lotus/chain/vm and filecoin-ffi and breaks the skiff/PDP no-CGO build.
+var errMessageExistingNonce = errors.New("message with nonce already exists")
+
+func computeMessageRBF(curPrem abi.TokenAmount, replaceByFeeRatio types.Percent) abi.TokenAmount {
+	minPrice := types.BigDiv(types.BigMul(curPrem, types.NewInt(uint64(replaceByFeeRatio))), types.NewInt(100))
+	return types.BigAdd(minPrice, types.NewInt(1))
+}
+
+func capMessageGasFee(msg *types.Message, sendSpec *api.MessageSendSpec) {
+	var maxFee abi.TokenAmount
+	var maximizeFeeCap bool
+	if sendSpec != nil {
+		maxFee = sendSpec.MaxFee
+		maximizeFeeCap = sendSpec.MaximizeFeeCap
+	}
+	if maxFee.Int == nil || maxFee.Equals(big.Zero()) {
+		maxFee = MessageReplaceMaxFee
+	}
+
+	gaslimit := types.NewInt(uint64(msg.GasLimit))
+	totalFee := types.BigMul(msg.GasFeeCap, gaslimit)
+	if maximizeFeeCap || totalFee.GreaterThan(maxFee) {
+		msg.GasFeeCap = big.Div(maxFee, gaslimit)
+	}
+
+	msg.GasPremium = big.Min(msg.GasFeeCap, msg.GasPremium)
+}
+
+//go:generate go run github.com/golang/mock/mockgen -source=replace.go -destination=replace_mock/mock.go -package=replace_mock MessageReplaceAPI
 
 type MessageReplaceAPI interface {
 	StateMinerInfo(ctx context.Context, actor address.Address, tsk types.TipSetKey) (api.MinerInfo, error)
@@ -464,7 +493,7 @@ func (t *messageReplacer) prepareFeeReplacementMessage(ctx context.Context, tsk 
 	}
 
 	replacement = *estimated
-	rbfPremium := messagepool.ComputeRBF(latest.Message.GasPremium, types.Percent(MessageReplaceGasBumpPercent))
+	rbfPremium := computeMessageRBF(latest.Message.GasPremium, types.Percent(MessageReplaceGasBumpPercent))
 	replacement.GasPremium = big.Max(replacement.GasPremium, rbfPremium)
 	replacement.GasFeeCap = big.Max(replacement.GasFeeCap, replacement.GasPremium)
 
@@ -472,9 +501,7 @@ func (t *messageReplacer) prepareFeeReplacementMessage(ctx context.Context, tsk 
 		return nil, false, fmt.Errorf("estimated replacement gas limit is %d for %s nonce %d", replacement.GasLimit, from, candidate.Nonce)
 	}
 
-	messagepool.CapGasFee(func() (abi.TokenAmount, error) {
-		return MessageReplaceMaxFee, nil
-	}, &replacement, spec)
+	capMessageGasFee(&replacement, spec)
 
 	if replacement.GasFeeCap.LessThan(estimated.GasFeeCap) {
 		return nil, false, nil
@@ -606,6 +633,6 @@ func isMpoolExistingNonceError(err error) bool {
 		return false
 	}
 
-	return errors.Is(err, messagepool.ErrExistingNonce) ||
-		strings.Contains(err.Error(), messagepool.ErrExistingNonce.Error())
+	return errors.Is(err, errMessageExistingNonce) ||
+		strings.Contains(err.Error(), errMessageExistingNonce.Error())
 }
