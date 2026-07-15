@@ -76,7 +76,7 @@ func getSch(w http.ResponseWriter, r *http.Request) {
 				return &jsonschema.Schema{
 					Type:        "string",
 					Pattern:     durationPattern,
-					Description: `Go duration string (e.g. "1h30m", "1m1s", "30s"); units may be omitted when zero`,
+					Description: `Go duration string (e.g. "1h30m", "1m1s", "30s"); components may be omitted when zero`,
 				}
 			}
 			return nil

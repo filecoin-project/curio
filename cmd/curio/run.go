@@ -79,6 +79,9 @@ var runCmd = &cli.Command{
 				}
 			}
 		}()
+		// Close the app level shutdown handler
+		cmdShutdownChan <- struct{}{}
+
 		if !cctx.Bool("enable-gpu-proving") {
 			err := os.Setenv("BELLMAN_NO_GPU", "true")
 			if err != nil {
@@ -97,16 +100,26 @@ var runCmd = &cli.Command{
 			}
 		}
 
-		ctx := context.Background()
+		var ctx context.Context
 		shutdownChan := make(chan struct{})
+		var ctxclose func()
 		{
-			var ctxclose func()
-			ctx, ctxclose = context.WithCancel(ctx)
+			ctx, ctxclose = context.WithCancel(context.Background())
 			go func() {
 				<-shutdownChan
 				ctxclose()
 			}()
 		}
+		defer ctxclose()
+		// Close the app level shutdown handler
+		cmdShutdownChan <- struct{}{}
+		finishCh := shutdown.MonitorShutdown(shutdownChan, shutdown.ShutdownHandler{
+			Component: "curio",
+			StopFunc: func(context.Context) error {
+				ctxclose()
+				return nil
+			},
+		})
 
 		// Set the metric to one so it is published to the exporter
 		stats.Record(ctx, metrics.LotusInfo.M(1))
@@ -139,11 +152,12 @@ var runCmd = &cli.Command{
 
 		err = rpc.ListenAndServe(ctx, dependencies, shutdownChan) // Monitor for shutdown.
 		if err != nil {
+			if ctx.Err() != nil {
+				<-finishCh
+				return nil
+			}
 			return err
 		}
-
-		finishCh := shutdown.MonitorShutdown(shutdownChan) //node.ShutdownHandler{Component: "rpc server", StopFunc: rpcStopper},
-		//node.ShutdownHandler{Component: "curio", StopFunc: stop},
 
 		<-finishCh
 		return nil

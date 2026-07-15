@@ -209,8 +209,6 @@ jobs:
         test-suite:
           - name: test-all
             target: "`go list ./... | grep -v curio/itests | grep -v -E 'github.com/filecoin-project/curio/lib/proof($|/)'`"
-          - name: test-itest-alertnow
-            target: "./itests/alertnow_test.go"
           - name: test-itest-batching
             target: "./itests/batching_test.go"
           - name: test-itest-curio
@@ -229,6 +227,8 @@ jobs:
             target: "./itests/pieces_unseal_test.go"
           - name: test-itest-retrievals-test
             target: "./itests/retrievals_test.go"
+          - name: test-itest-shutdown-test
+            target: "./itests/shutdown_test.go"
           - name: test-itest-sql-idempotent-test
             target: "./itests/sql_idempotent_test.go"
           - name: test-itest-timestamp-tz

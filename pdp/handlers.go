@@ -58,7 +58,7 @@ const (
 	// MaxDeletePieceExtraDataSize defines the limit for extraData size in DeletePiece calls (256B).
 	MaxDeletePieceExtraDataSize = 256
 
-	MaxDeletePiecesBatchSize = 500
+	MaxDeletePiecesBatchSize = contract.ConservativeEnqueuedRemovalsLimit
 )
 
 // PDPService represents the service for managing data sets and pieces
@@ -1081,6 +1081,24 @@ func (p *PDPService) handleDeleteDataSetPiece(w http.ResponseWriter, r *http.Req
 	}
 	if foundCount != len(pieceIDsI64) {
 		http.Error(w, "One or more piece not found", http.StatusNotFound)
+		return
+	}
+
+	// Soft gate: refuse if the data set's on-chain removal queue is already at our
+	// conservative ceiling. This keeps us well clear of the on-chain MAX_ENQUEUED_REMOVALS.
+	pdpVerifier, err := contract.NewPDPVerifier(contract.ContractAddresses().PDPVerifier, p.ethClient)
+	if err != nil {
+		httpServerError(w, http.StatusInternalServerError, "Failed to instantiate PDPVerifier", err)
+		return
+	}
+	queued, err := pdpVerifier.GetScheduledRemovals(contract.EthCallOpts(ctx), big.NewInt(int64(dataSetId)))
+	if err != nil {
+		httpServerError(w, http.StatusInternalServerError, "Failed to read scheduled removals", err)
+		return
+	}
+	if len(queued) >= contract.ConservativeEnqueuedRemovalsLimit {
+		http.Error(w, fmt.Sprintf("data set %d already has %d scheduled removals queued (limit %d); retry after the next proving period flushes the queue",
+			dataSetId, len(queued), contract.ConservativeEnqueuedRemovalsLimit), http.StatusTooManyRequests)
 		return
 	}
 

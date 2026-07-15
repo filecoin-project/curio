@@ -257,7 +257,7 @@ func (deps *Deps) PopulateRemainingDeps(ctx context.Context, cctx *cli.Context, 
 	}
 
 	if deps.Al == nil {
-		deps.Al = curioalerting.NewAlertingSystem()
+		deps.Al = curioalerting.NewAlertingSystem(deps.DB)
 	}
 
 	if deps.Si == nil {
