@@ -123,44 +123,31 @@ func (t *PDPNotifyTask) schedule(ctx context.Context, taskFunc harmonytask.AddTa
 		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
 			stop = true // Assume we're done unless we find more tasks to schedule
 
-			// Query for pending notifications where:
-			// - piece_ref is not null
-			// - The piece_ref points to a parked_piece_refs entry
-			// - The parked_piece_refs entry points to a parked_pieces entry where complete = TRUE
-			// - notify_task_id is NULL
-
-			var uploads []struct {
-				ID string `db:"id"`
-			}
-
-			err := tx.Select(&uploads, `
-                SELECT pu.id
-                FROM pdp_piece_uploads pu
-                JOIN parked_piece_refs pr ON pr.ref_id = pu.piece_ref
-                JOIN parked_pieces pp ON pp.id = pr.piece_id
-                WHERE 
-                    pu.piece_ref IS NOT NULL
-                    AND pp.complete = TRUE
-                    AND pu.notify_task_id IS NULL
-                LIMIT 1
-            `)
-			if err != nil {
-				return false, xerrors.Errorf("getting uploads to notify: %w", err)
-			}
-
-			if len(uploads) == 0 {
-				// No uploads to process
-				return false, nil
-			}
-
-			// Update the pdp_piece_uploads entry to set notify_task_id
-			_, err = tx.Exec(`
-                UPDATE pdp_piece_uploads 
-                SET notify_task_id = $1 
-                WHERE id = $2 AND notify_task_id IS NULL
-            `, id, uploads[0].ID)
+			n, err := tx.Exec(`
+				WITH pending AS (
+					SELECT pu.id
+					FROM pdp_piece_uploads pu
+					JOIN parked_piece_refs pr ON pr.ref_id = pu.piece_ref
+					JOIN parked_pieces pp ON pp.id = pr.piece_id
+					WHERE pu.piece_ref IS NOT NULL
+					  AND pp.complete = TRUE
+					  AND pu.notify_task_id IS NULL
+					LIMIT 1
+				)
+				UPDATE pdp_piece_uploads pu
+				SET notify_task_id = $1
+				FROM pending
+				WHERE pu.id = pending.id
+				  AND pu.notify_task_id IS NULL
+			`, id)
 			if err != nil {
 				return false, xerrors.Errorf("updating notify_task_id: %w", err)
+			}
+			if n == 0 {
+				return false, nil
+			}
+			if n != 1 {
+				return false, xerrors.Errorf("updated %d rows assigning pdp notify task", n)
 			}
 
 			stop = false     // Continue scheduling as there might be more tasks

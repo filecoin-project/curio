@@ -22,14 +22,15 @@ type ShutdownHandler struct {
 // MonitorShutdown manages shutdown requests, by watching signals and invoking
 // the supplied handlers in order.
 //
-// It watches SIGTERM and SIGINT OS signals, as well as the trigger channel.
+// It watches SIGTERM, SIGINT, and SIGABRT OS signals, as well as the trigger
+// channel.
 // When any of them fire, it calls the supplied handlers in order. If any of
 // them errors, it merely logs the error.
 //
 // Once the shutdown has completed, it closes the returned channel. The caller
 // can watch this channel
 func MonitorShutdown(triggerCh <-chan struct{}, handlers ...ShutdownHandler) <-chan struct{} {
-	sigCh := make(chan os.Signal, 2)
+	sigCh := make(chan os.Signal, 3)
 	out := make(chan struct{})
 
 	go func() {
@@ -58,7 +59,7 @@ func MonitorShutdown(triggerCh <-chan struct{}, handlers ...ShutdownHandler) <-c
 		close(out)
 	}()
 
-	signal.Reset(syscall.SIGTERM, syscall.SIGINT)
-	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
+	signal.Reset(syscall.SIGTERM, syscall.SIGINT, syscall.SIGABRT)
+	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT, syscall.SIGABRT)
 	return out
 }

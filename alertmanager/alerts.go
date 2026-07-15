@@ -187,9 +187,9 @@ var pdpTasks = []string{
 }
 
 // taskFailureCheckWith is the parameterized core shared by taskFailureCheck
-// and pdpTaskFailureCheck. It queries harmony_task_history for failures over
-// the given interval, alerts on any failure in sensitiveTasks, and alerts on
-// >5 failures for all other tasks or machines.
+// and pdpTaskFailureCheck. It alerts on final task failures over the given
+// interval: any final failure in sensitiveTasks, and >5 final failures for all
+// other tasks or machines.
 func taskFailureCheckWith(al *alerts, name AlertName, interval time.Duration, sensitiveTasks []string) {
 	al.alertMap[name] = &alertOut{}
 
@@ -202,12 +202,26 @@ func taskFailureCheckWith(al *alerts, name AlertName, interval time.Duration, se
 	var taskFailures []taskFailure
 
 	err := al.db.Select(al.ctx, &taskFailures, `
+								WITH per_task AS (
+									SELECT
+										h.name,
+										h.task_id,
+										BOOL_OR(h.result) AS succeeded,
+										(ARRAY_AGG(h.completed_by_host_and_port ORDER BY h.work_end DESC, h.id DESC))[1] AS completed_by_host_and_port
+									FROM harmony_task_history h
+									WHERE h.work_end >= NOW() - $1::interval
+									GROUP BY h.name, h.task_id
+								)
 								SELECT completed_by_host_and_port, name, COUNT(*) AS failed_count
-								FROM harmony_task_history
-								WHERE result = FALSE
-								  AND work_end >= NOW() - $1::interval
-								GROUP BY completed_by_host_and_port, name
-								ORDER BY completed_by_host_and_port, name;`, fmt.Sprintf("%f Minutes", interval.Minutes()))
+								FROM per_task p
+								WHERE NOT p.succeeded
+								  AND NOT EXISTS (
+									  SELECT 1
+									  FROM harmony_task ht
+									  WHERE ht.id = p.task_id
+								  )
+									GROUP BY completed_by_host_and_port, name
+								ORDER BY completed_by_host_and_port, name`, fmt.Sprintf("%f Minutes", interval.Minutes()))
 	if err != nil {
 		al.alertMap[name].err = xerrors.Errorf("getting failed task count: %w", err)
 		return
@@ -1083,14 +1097,16 @@ func ipniSyncCheck(al *alerts) {
 	Name := Name_IPNISync
 	al.alertMap[Name] = &alertOut{}
 
-	var summary []struct {
-		SpId   int64  `db:"sp_id"`
-		PeerID string `db:"peer_id"`
-		Head   string `db:"head"`
+	type ipniSummary struct {
+		SpId   int64          `db:"sp_id"`
+		PeerID string         `db:"peer_id"`
+		Head   sql.NullString `db:"head"`
 		Miner  string
 	}
 
-	err := al.db.Select(al.ctx, &summary, `SELECT 
+	var summaries []ipniSummary
+
+	err := al.db.Select(al.ctx, &summaries, `SELECT 
 												ipp.sp_id,
 												ipp.peer_id,
 												ih.head
@@ -1099,6 +1115,13 @@ func ipniSyncCheck(al *alerts) {
 	if err != nil {
 		al.alertMap[Name].err = xerrors.Errorf("failed to fetch the provider details from DB: %w", err)
 		return
+	}
+
+	var summary []ipniSummary
+	for i := range summaries {
+		if summaries[i].Head.Valid {
+			summary = append(summary, summaries[i])
+		}
 	}
 
 	for i := range summary {
@@ -1165,7 +1188,7 @@ func ipniSyncCheck(al *alerts) {
 				al.alertMap[Name].err = xerrors.Errorf("Failed to unmarshal IPNI service response: %w", err)
 				return
 			}
-			if parsed.LastAdvertisement.Slash == d.Head {
+			if parsed.LastAdvertisement.Slash == d.Head.String {
 				continue
 			}
 

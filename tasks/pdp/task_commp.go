@@ -2,12 +2,10 @@ package pdp
 
 import (
 	"context"
-	"errors"
 	"io"
 	"time"
 
 	"github.com/ipfs/go-cid"
-	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-commp-utils/v2/writer"
@@ -210,24 +208,30 @@ func (c *PDPCommpTask) schedule(ctx context.Context, taskFunc harmonytask.AddTas
 		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
 			stop = true // assume we're done until we find a task to schedule
 
-			var did string
-			err := tx.QueryRow(`SELECT id FROM pdp_pipeline 
-								  WHERE commp_task_id IS NULL 
-									AND after_commp = FALSE
-									AND downloaded = TRUE`).Scan(&did)
-			if err != nil {
-				if errors.Is(err, pgx.ErrNoRows) {
-					return false, nil
-				}
-				return false, xerrors.Errorf("failed to query pdp_pipeline: %w", err)
-			}
-			if did == "" {
-				return false, xerrors.Errorf("no valid deal ID found for scheduling")
-			}
-
-			_, err = tx.Exec(`UPDATE pdp_pipeline SET commp_task_id = $1 WHERE id = $2 AND commp_task_id IS NULL AND after_commp = FALSE AND downloaded = TRUE`, id, did)
+			n, err := tx.Exec(`WITH pending AS (
+					SELECT id, aggr_index
+					FROM pdp_pipeline
+					WHERE commp_task_id IS NULL
+					  AND after_commp = FALSE
+					  AND downloaded = TRUE
+					LIMIT 1
+				)
+				UPDATE pdp_pipeline p
+				SET commp_task_id = $1
+				FROM pending
+				WHERE p.id = pending.id
+				  AND p.aggr_index = pending.aggr_index
+				  AND p.commp_task_id IS NULL
+				  AND p.after_commp = FALSE
+				  AND p.downloaded = TRUE`, id)
 			if err != nil {
 				return false, xerrors.Errorf("failed to update pdp_pipeline: %w", err)
+			}
+			if n == 0 {
+				return false, nil
+			}
+			if n != 1 {
+				return false, xerrors.Errorf("updated %d rows assigning pdp commp task", n)
 			}
 
 			stop = false // we found a task to schedule, keep going

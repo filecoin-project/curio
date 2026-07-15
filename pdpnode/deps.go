@@ -105,7 +105,7 @@ func Open(ctx context.Context, cctx *cli.Context) (*Deps, error) {
 
 	skiffDockerLog("initializing storage")
 
-	al := curioalerting.NewAlertingSystem()
+	al := curioalerting.NewAlertingSystem(db)
 	si := paths.NewDBIndex(al, db)
 
 	localPaths, err := newLocalStorage(skiffStorageRoot(cctx, cfg, repoPath), db.ReadOnly())

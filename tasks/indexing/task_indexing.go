@@ -514,57 +514,61 @@ func (i *IndexingTask) schedule(ctx context.Context, taskFunc harmonytask.AddTas
 		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
 			stop = true // assume we're done until we find a task to schedule
 
-			var mk12Pendings []struct {
-				UUID string `db:"uuid"`
-			}
-
 			// Indexing job must be created for every deal to make sure piece details are inserted in DB
 			// even if we don't want to index it. If piece is not supposed to be indexed then it will handled
 			// by the Do()
-			err := tx.Select(&mk12Pendings, `SELECT uuid FROM market_mk12_deal_pipeline 
-            										WHERE sealed = TRUE
-            										AND indexing_task_id IS NULL
-            										AND indexed = FALSE
-													ORDER BY indexing_created_at ASC LIMIT 1;`)
+			n, err := tx.Exec(`WITH pending AS (
+					SELECT uuid
+					FROM market_mk12_deal_pipeline
+					WHERE sealed = TRUE
+					  AND indexing_task_id IS NULL
+					  AND indexed = FALSE
+					ORDER BY indexing_created_at ASC
+					LIMIT 1
+				)
+				UPDATE market_mk12_deal_pipeline p
+				SET indexing_task_id = $1
+				FROM pending
+				WHERE p.uuid = pending.uuid
+				  AND p.sealed = TRUE
+				  AND p.indexing_task_id IS NULL
+				  AND p.indexed = FALSE`, id)
 			if err != nil {
-				return false, xerrors.Errorf("getting pending mk12 indexing tasks: %w", err)
+				return false, xerrors.Errorf("updating mk12 indexing task id: %w", err)
 			}
-
-			if len(mk12Pendings) > 0 {
-				pending := mk12Pendings[0]
-
-				_, err = tx.Exec(`UPDATE market_mk12_deal_pipeline SET indexing_task_id = $1 
-                             WHERE indexing_task_id IS NULL AND uuid = $2`, id, pending.UUID)
-				if err != nil {
-					return false, xerrors.Errorf("updating mk12 indexing task id: %w", err)
-				}
-
+			if n > 1 {
+				return false, xerrors.Errorf("updated %d rows assigning mk12 indexing task", n)
+			}
+			if n == 1 {
 				stop = false // we found a task to schedule, keep going
 				return true, nil
 			}
 
-			var mk20Pendings []struct {
-				UUID string `db:"id"`
-			}
-
-			err = tx.Select(&mk20Pendings, `SELECT id FROM market_mk20_pipeline 
-            										WHERE sealed = TRUE
-            										AND indexing_task_id IS NULL
-            										AND indexed = FALSE
-													ORDER BY indexing_created_at ASC LIMIT 1;`)
-			if err != nil {
-				return false, xerrors.Errorf("getting mk20 pending indexing tasks: %w", err)
-			}
-
-			if len(mk20Pendings) == 0 {
-				return false, nil
-			}
-
-			pending := mk20Pendings[0]
-			_, err = tx.Exec(`UPDATE market_mk20_pipeline SET indexing_task_id = $1 
-                             WHERE indexing_task_id IS NULL AND id = $2`, id, pending.UUID)
+			n, err = tx.Exec(`WITH pending AS (
+					SELECT id, aggr_index
+					FROM market_mk20_pipeline
+					WHERE sealed = TRUE
+					  AND indexing_task_id IS NULL
+					  AND indexed = FALSE
+					ORDER BY indexing_created_at ASC
+					LIMIT 1
+				)
+				UPDATE market_mk20_pipeline p
+				SET indexing_task_id = $1
+				FROM pending
+				WHERE p.id = pending.id
+				  AND p.aggr_index = pending.aggr_index
+				  AND p.sealed = TRUE
+				  AND p.indexing_task_id IS NULL
+				  AND p.indexed = FALSE`, id)
 			if err != nil {
 				return false, xerrors.Errorf("updating mk20 indexing task id: %w", err)
+			}
+			if n == 0 {
+				return false, nil
+			}
+			if n != 1 {
+				return false, xerrors.Errorf("updated %d rows assigning mk20 indexing task", n)
 			}
 
 			stop = false

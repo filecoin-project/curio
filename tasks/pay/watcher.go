@@ -11,20 +11,21 @@ import (
 
 	"github.com/filecoin-project/go-state-types/builtin"
 
+	"github.com/filecoin-project/curio/alertmanager/curioalerting"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/curio/lib/chainsched"
 	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/lib/filecoinpayment"
-	"github.com/filecoin-project/curio/lib/paths/alertinginterface"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/pdp/contract/FWSS"
+	"github.com/filecoin-project/curio/tasks/pdpv0"
 
 	chainTypes "github.com/filecoin-project/lotus/chain/types"
 )
 
 const (
-	alertName = "FilecoinPay"
-	alertType = "Settlements"
+	alertName                     = "FilecoinPay"
+	alertType                     = "Settlements"
+	temporaryDefaultGraceInEpochs = 30 * builtin.EpochsInDay
 )
 
 type settled struct {
@@ -42,20 +43,18 @@ type mwe struct {
 	Success *bool `db:"tx_success"`
 }
 
-func NewSettleWatcher(db *harmonydb.DB, ethClient ethchain.EthClient, pcs *chainsched.CurioChainSched, al alertinginterface.AlertingInterface) {
-	at := al.AddAlertType(alertName, alertType)
-	if err := pcs.AddHandler(func(ctx context.Context, revert, apply *chainTypes.TipSet) error {
-		err := processPendingTransactions(ctx, db, ethClient, al, at)
+func NewSettleWatcher(w *pdpv0.Watcher) {
+	if err := w.AddWatcher(func(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, al curioalerting.AlertingInterface, revert, apply *chainTypes.TipSet) {
+		err := processPendingTransactions(ctx, db, ethClient, al)
 		if err != nil {
 			log.Warnf("Failed to process pending settle transactions: %s", err)
 		}
-		return nil
-	}); err != nil {
+	}, pdpv0.WatcherOrderPaymentSettle); err != nil {
 		panic(err)
 	}
 }
 
-func processPendingTransactions(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, al alertinginterface.AlertingInterface, at alertinginterface.AlertType) error {
+func processPendingTransactions(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, al curioalerting.AlertingInterface) error {
 	// Handle failed settlements first - log error and clean up
 	// This JOINLESS query structure is a critical optimization to prevent the query planner from iterating the entire
 	// massive mwe table on each filecoin head change.  We've observed that mwe gets selected as driving table if we
@@ -95,9 +94,10 @@ func processPendingTransactions(ctx context.Context, db *harmonydb.DB, ethClient
 		if mwe.Status == "failed" || (mwe.Status == "confirmed" && (mwe.Success == nil || !*mwe.Success)) {
 			delete(goodSettles, mwe.Hash)
 			log.Errorw("settlement transaction failed on chain", "txHash", mwe.Hash)
-			al.Raise(at, map[string]interface{}{
-				"txHash": mwe.Hash,
-				"error":  "settlement transaction failed on chain",
+			_ = al.EmitEvent(ctx, curioalerting.AlertEvent{
+				System:    alertType,
+				Subsystem: alertName,
+				Message:   fmt.Sprintf("settlement transaction failed on chain txHash:%s", mwe.Hash),
 			})
 			_, err = db.Exec(ctx, `DELETE FROM filecoin_payment_transactions WHERE tx_hash = $1`, mwe.Hash)
 			if err != nil {
@@ -216,10 +216,9 @@ func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthC
 				}
 			}
 
-			// For live rails, check if we are fully unsettled 1 day before the lockup period ends.
-			// If so assume payer is in default and schedule deletion
+			// For live rails, allow a temporary 30 day grace beyond the lockup period.
 			threshold := big.NewInt(0).Add(view.SettledUpTo, view.LockupPeriod)
-			thresholdWithGrace := big.NewInt(0).Sub(threshold, big.NewInt(builtin.EpochsInDay))
+			thresholdWithGrace := big.NewInt(0).Add(threshold, big.NewInt(temporaryDefaultGraceInEpochs))
 
 			if thresholdWithGrace.Uint64() < current {
 				log.Infow("Rail soon to default, terminating dataSet", "dataSetId", dataSet.Int64(), "railId", railId, "settleTxHash", settle.Hash)
@@ -228,6 +227,7 @@ func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthC
 					return false, xerrors.Errorf("failed to ensure service termination for defaulting rail: %w", err)
 				}
 			}
+
 		}
 
 		// Delete the settle message from the DB

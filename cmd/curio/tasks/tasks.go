@@ -255,7 +255,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		})
 	})
 
-	amTask := alertmanager.NewAlertTask(full, db, cfg.Alerting, dependencies.Al)
+	amTask := alertmanager.NewAlertTask(full, db, cfg.Alerting)
 
 	{
 		var httpSD = servicedeps.Deps{
@@ -305,6 +305,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 			if err := pdpnode.Attach(ctx, dependencies, &activeTasks, &httpSD, chainSched); err != nil {
 				return nil, err
 			}
+			senderEth = httpSD.EthSender
 		}
 
 		idxMax := taskhelp.Max(cfg.Subsystems.IndexingMaxTasks)
@@ -361,7 +362,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 
 	}
 
-	if cfg.Subsystems.EnableWindowPost || hasAnySealingTask || senderEth != nil {
+	if chainSched.HasSubscribers() {
 		go chainSched.Run(ctx)
 	}
 
