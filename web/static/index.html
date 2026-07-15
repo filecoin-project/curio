@@ -6,16 +6,42 @@
         integrity="sha384-xcuj3WpfgjlKF+FXhSQFQ0ZNr39ln+hwjN3npfM9VBnUskLolQAcN80McRIVOPuO"
         crossorigin="anonymous"></script>
     <script type="module" src="index-boot.mjs"></script>
+    <style>
+        .porep-overview-page {
+            display: flex;
+            flex-direction: row;
+            align-items: flex-start;
+            gap: 0;
+            /* Undo horizontal page padding on the outer flex so the push drawer
+               can sit flush against the viewport edge while main content keeps padding. */
+            padding-right: 0;
+        }
+        .porep-overview-main {
+            flex: 1 1 auto;
+            min-width: 0;
+            padding-right: var(--space-6, 24px);
+        }
+        /* Always show the push drawer on this page (bypass ultra-wide overlay swap). */
+        .porep-overview-page > ui-drawer[push] {
+            display: block;
+        }
+    </style>
 </head>
 <body style="visibility:hidden">
     <curio-ux>
         <div class="page porep-overview-page">
-            <div class="page-header page-header-split">
-                <h1>PoRep Overview</h1>
-                <aside id="porep-status-aside"></aside>
-            </div>
+            <div class="porep-overview-main">
+                <div class="page-header page-header-split">
+                    <h1>PoRep Overview</h1>
+                    <aside id="porep-status-aside"></aside>
+                </div>
 
-            <porep-overview></porep-overview>
+                <porep-overview></porep-overview>
+            </div>
+            <ui-drawer push label="Cluster Tasks">
+                <h2 slot="title">Cluster Tasks</h2>
+                <cluster-tasks slot="content"></cluster-tasks>
+            </ui-drawer>
         </div>
     </curio-ux>
 </body>

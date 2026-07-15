@@ -46,6 +46,37 @@ function parseFilRough(s) {
   return Number.isFinite(n) ? n : null
 }
 
+/** Parse Go time.Duration strings like "5s", "2m0s", "1h2m3s" into milliseconds. */
+function parseGoDuration(s) {
+  if (s == null || s === '') return null
+  const re = /(-?\d+(?:\.\d+)?)(ns|us|µs|ms|s|m|h)/g
+  let ms = 0
+  let matched = false
+  let m
+  while ((m = re.exec(String(s))) !== null) {
+    matched = true
+    const n = Number(m[1])
+    switch (m[2]) {
+      case 'ns': ms += n / 1e6; break
+      case 'us':
+      case 'µs': ms += n / 1e3; break
+      case 'ms': ms += n; break
+      case 's': ms += n * 1000; break
+      case 'm': ms += n * 60_000; break
+      case 'h': ms += n * 3_600_000; break
+    }
+  }
+  return matched ? ms : null
+}
+
+/** Heartbeats are ~1m; treat >2m since last_contact as offline while the row still exists. */
+const MACHINE_OFFLINE_AFTER_MS = 2 * 60_000
+
+function isMachineOffline(m) {
+  const since = parseGoDuration(m?.SinceContact)
+  return since != null && since >= MACHINE_OFFLINE_AFTER_MS
+}
+
 function sumPipeline(rows) {
   const zero = {
     sdr: 0, trees: 0, precommit: 0, waitSeed: 0, porep: 0, commit: 0, done: 0, failed: 0, inFlight: 0,
@@ -99,6 +130,8 @@ customElements.define('porep-overview', class PorepOverview extends LitElement {
     alertTotal: { type: Number },
     alertsStatus: { type: String },
     dealsPending: { type: Number },
+    machines: { type: Array },
+    machinesStatus: { type: String },
   }
 
   constructor() {
@@ -114,6 +147,8 @@ customElements.define('porep-overview', class PorepOverview extends LitElement {
     this.alertTotal = 0
     this.alertsStatus = 'loading'
     this.dealsPending = null
+    this.machines = []
+    this.machinesStatus = 'loading'
     this._loadPromise = null
     pollRPC(() => this.load(), 30000)
     this.load()
@@ -209,7 +244,17 @@ customElements.define('porep-overview', class PorepOverview extends LitElement {
       this.dealsPending = null
     })
 
-    await Promise.all([actorsP, pipeP, alertsP, msgsP, chainP, marketP, dealsP])
+    const machinesP = RPCCall('ClusterMachines').then((machines) => {
+      this.machines = machines ?? []
+      this.machinesStatus = 'ok'
+      this.requestUpdate()
+    }).catch((e) => {
+      console.warn('ClusterMachines failed:', e)
+      if (this.machinesStatus !== 'ok') this.machinesStatus = 'error'
+      this.requestUpdate()
+    })
+
+    await Promise.all([actorsP, pipeP, alertsP, msgsP, chainP, marketP, dealsP, machinesP])
   }
 
   updated() {
@@ -229,6 +274,10 @@ customElements.define('porep-overview', class PorepOverview extends LitElement {
       return n !== null && n <= 0
     })
     const chainOk = !this.chain || this.chain.syncStatus === 'ok'
+    const machines = this.machines ?? []
+    const offline = machines.filter(isMachineOffline).length
+    const cordoned = machines.filter((m) => m.Unschedulable).length
+    const restarting = machines.filter((m) => m.Restarting).length
     return {
       pipe,
       post,
@@ -241,6 +290,11 @@ customElements.define('porep-overview', class PorepOverview extends LitElement {
       msgsOk: this.msgs != null && filPending === 0,
       alertsOk: this.alertsStatus === 'ok' && this.alertTotal === 0,
       chainOk,
+      machineCount: machines.length,
+      offline,
+      cordoned,
+      restarting,
+      machinesOk: this.machinesStatus === 'ok' && offline === 0,
     }
   }
 
@@ -304,12 +358,15 @@ customElements.define('porep-overview', class PorepOverview extends LitElement {
           </span>
         </div>
         <div class="cell">
-          <span class="cell-label">Wallets</span>
+          <span class="cell-label">Machines</span>
           <span class="cell-value">
-            ${this.toneIcon(h.walletsOk, actorsLoading)}
-            ${actorsLoading ? '…' : h.lowWallets.length
-              ? html`<a href="/pages/wallet/">${h.lowWallets.length} low</a>`
-              : html`${minerCount} funded`}
+            ${this.toneIcon(h.machinesOk, this.machinesStatus === 'loading')}
+            ${this.machinesStatus === 'loading' ? '…' : html`
+              <a href="/pages/tasks/">${h.machineCount}</a>
+              ${h.offline > 0
+                ? html` · <span class="emph">${h.offline} offline</span>`
+                : html` online`}
+            `}
           </span>
         </div>
         <div class="cell">
@@ -492,9 +549,62 @@ customElements.define('porep-overview', class PorepOverview extends LitElement {
     `
   }
 
+  renderMachines() {
+    const machines = this.machines ?? []
+    let body
+    if (this.machinesStatus === 'loading') {
+      body = html`<p class="status-muted">Loading machines…</p>`
+    } else if (this.machinesStatus === 'error') {
+      body = html`<p class="status-error">Machines unavailable</p>`
+    } else if (machines.length === 0) {
+      body = html`<p class="status-muted">No machines reported</p>`
+    } else {
+      body = html`
+        <ul class="machine-list">
+          ${machines.map((m) => {
+            const offline = isMachineOffline(m)
+            return html`
+              <li class="machine-item">
+                <a class="machine-name" href="/pages/node_info/?id=${m.ID}">${m.Name || m.Address || m.ID}</a>
+                <span class="machine-meta">
+                  ${offline
+                    ? html`<span class="emph">offline</span>`
+                    : m.Unschedulable
+                      ? html`<span class="emph">${m.RunningTasks > 0 ? `cordoned (${m.RunningTasks} tasks)` : 'cordoned'}</span>`
+                      : html`<span class="ok-text">online</span>`}
+                  ${m.Restarting ? html` · <span class="emph">restarting</span>` : ''}
+                  · ${m.SinceContact ?? '—'}
+                </span>
+              </li>
+            `
+          })}
+        </ul>
+      `
+    }
+    return html`
+      <div class="info-block dashboard-section">
+        <div class="block-header">
+          <h2>Machines</h2>
+          <a class="view-all" href="/pages/tasks/">Tasks →</a>
+        </div>
+        ${body}
+      </div>
+    `
+  }
+
   static styles = css`
     :host { display: block; }
     .dashboard-section { margin-bottom: 14px; }
+    .dashboard-cols {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 14px;
+      margin-bottom: 14px;
+    }
+    .dashboard-cols > .dashboard-section { margin-bottom: 0; }
+    @media (min-width: 900px) {
+      .dashboard-cols { grid-template-columns: 1fr 1fr; }
+    }
     .block-header {
       display: flex;
       align-items: center;
@@ -632,6 +742,33 @@ customElements.define('porep-overview', class PorepOverview extends LitElement {
       font-size: 11px;
       color: var(--color-text-secondary, #8b949e);
     }
+
+    .machine-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+    .machine-item {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      gap: 4px 10px;
+      padding: 5px 0;
+      border-bottom: 1px solid var(--color-border-default, #30363d);
+      font-size: 13px;
+    }
+    .machine-item:last-child { border-bottom: none; }
+    .machine-name {
+      color: var(--color-accent-fg, #4493f8);
+      text-decoration: none;
+      font-weight: 500;
+    }
+    .machine-name:hover { text-decoration: underline; }
+    .machine-meta {
+      font-size: 11px;
+      color: var(--color-text-secondary, #8b949e);
+    }
+    .ok-text { color: var(--color-success-fg, #3fb950); }
   `
 
   render() {
@@ -639,7 +776,10 @@ customElements.define('porep-overview', class PorepOverview extends LitElement {
       ${this.renderDataStrip()}
       ${this.renderActors()}
       ${this.renderPipelineTable()}
-      ${this.renderIssues()}
+      <div class="dashboard-cols">
+        ${this.renderMachines()}
+        ${this.renderIssues()}
+      </div>
     `
   }
 })

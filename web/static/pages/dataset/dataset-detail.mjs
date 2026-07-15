@@ -260,6 +260,20 @@ customElements.define('pdp-dataset-detail', class PdpDatasetDetail extends LitEl
           color: var(--color-text-secondary, #8b949e);
         }
         .back { margin-bottom: 16px; display: inline-block; }
+        .top-line {
+          display: flex;
+          align-items: center;
+          gap: 16px;
+          margin-bottom: 16px;
+          flex-wrap: nowrap;
+        }
+        .top-line .back { margin-bottom: 0; }
+        .top-line .title {
+          margin: 0;
+          font-size: 1.75rem;
+          font-weight: 600;
+          line-height: 1.2;
+        }
         .err { color: var(--color-danger-fg, #f85149); }
         .ok { color: var(--color-success-fg, #3fb950); }
         .muted { color: var(--color-text-secondary, #8b949e); }
@@ -285,7 +299,11 @@ customElements.define('pdp-dataset-detail', class PdpDatasetDetail extends LitEl
         }
       </style>
 
-      <a class="back" href="/pages/datasets/">← DataSets</a>
+      <div class="top-line">
+        <a class="back" href="/pages/datasets/">← DataSets</a>
+        <h1 class="title">DataSet</h1>
+        ${d.exploreUrl ? html`<a class="back" href="${d.exploreUrl}" target="_blank" rel="noopener noreferrer">Explore pieces ↗</a>` : ''}
+      </div>
 
       <div class="detail-grid">
         <div class="info-block">

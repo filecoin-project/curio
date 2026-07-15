@@ -156,11 +156,13 @@ var layersFlag = &cli.StringSliceFlag{
 }
 
 var webCmd = &cli.Command{
-	Name: "web",
+	Name:    "web",
+	Aliases: []string{"gui"},
 
 	Usage: translations.T("Start Curio web interface"),
 	Description: translations.T(`Start an instance of Curio web interface. 
-	This creates the 'web' layer if it does not exist, then calls run with that layer.`),
+	This creates the 'web' layer if it does not exist, then calls run with that layer.
+	In --db-readonly / CURIO_DB_READONLY mode, no config layer is written; the GUI is enabled in-memory.`),
 	Flags: []cli.Flag{
 		&cli.StringFlag{
 			Name:  "gui-listen",
@@ -178,6 +180,18 @@ var webCmd = &cli.Command{
 		db, err := deps.MakeDB(cctx)
 		if err != nil {
 			return err
+		}
+
+		if db.ReadOnly() {
+			// Do not persist a web layer; force GUI via gui-listen so deps enables it in-memory.
+			listen := cctx.String("gui-listen")
+			if listen == "" {
+				listen = "0.0.0.0:4701"
+			}
+			if err := cctx.Set("gui-listen", listen); err != nil {
+				return err
+			}
+			return runCmd.Action(cctx)
 		}
 
 		webtxt, err := getConfig(db, "web")

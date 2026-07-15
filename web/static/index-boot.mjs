@@ -12,6 +12,8 @@ if (isSkiff) {
         import('/chain-status.mjs'),
         import('/actor-summary.mjs'),
         import('/porep-overview.mjs'),
+        import('/cluster-tasks.mjs'),
         import('/ux/curio-ux.mjs'),
+        import('/ux/components/Drawer.mjs'),
     ])
 }

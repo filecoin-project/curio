@@ -15,6 +15,7 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/lib/filecoinpayment"
+	"github.com/filecoin-project/curio/lib/urlhelper"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/pdp/contract/FWSS"
 )
@@ -62,6 +63,7 @@ type PDPDataSetDetail struct {
 	Service                   string     `json:"service"`
 	HeadEpoch                 int64      `json:"headEpoch"`
 	ProvingStatus             string     `json:"provingStatus"`
+	ExploreURL                string     `json:"exploreUrl,omitempty"`
 }
 
 // PDPDataSetPayments is chain-derived wallet/payment state for a dataset.
@@ -426,6 +428,10 @@ func (a *WebRPC) PDPDataSetDetail(ctx context.Context, id int64) (*PDPDataSetDet
 		detail.HeadEpoch = net.Epoch
 	}
 	detail.ProvingStatus = provingStatusLabel(row.ProveAtEpoch, row.ChallengeWindow, row.ConsecutiveProveFailures, row.UnrecoverableFailureEpoch, detail.HeadEpoch)
+
+	if base, err := urlhelper.GetExternalURL(&a.Deps.Cfg.HTTP); err == nil && base != nil && strings.TrimSpace(base.Host) != "" {
+		detail.ExploreURL = strings.TrimRight(base.String(), "/") + "/explore/data-sets/" + strconv.FormatInt(id, 10)
+	}
 
 	return detail, nil
 }
