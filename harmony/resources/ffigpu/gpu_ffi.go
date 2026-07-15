@@ -1,33 +1,17 @@
 //go:build !skiff && !darwin
 
-package resources
+package ffigpu
 
 import (
-	"os"
-	"strconv"
 	"strings"
 
 	ffi "github.com/filecoin-project/filecoin-ffi"
 )
 
-var GpuOverprovisionFactor = 1
-
-func init() {
-	if nstr := os.Getenv("HARMONY_GPU_OVERPROVISION_FACTOR"); nstr != "" {
-		n, err := strconv.Atoi(nstr)
-		if err != nil {
-			logger.Errorf("parsing HARMONY_GPU_OVERPROVISION_FACTOR failed: %+v", err)
-		} else {
-			GpuOverprovisionFactor = n
-		}
-	}
-}
-
-func getGPUDevices() float64 { // GPU boolean
-	if n, ok := gpuOverrideCount(); ok {
-		return n
-	}
-
+// gpuCount reports the number of usable GPUs (scaled by GpuOverprovisionFactor),
+// detected via filecoin-ffi. HARMONY_OVERRIDE_GPUS, if set, is applied by
+// resources.System and takes precedence over this value.
+func gpuCount() float64 {
 	gpus, err := ffi.GetGPUDevices()
 	logger.Infow("GPUs", "list", gpus, "overprovision_factor", GpuOverprovisionFactor)
 	if err != nil {

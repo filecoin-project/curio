@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/filecoin-project/curio/harmony/resources"
+	"github.com/filecoin-project/curio/harmony/resources/ffigpu"
 )
 
 func TestNoGPUs(t *testing.T) {
@@ -34,10 +34,10 @@ func TestNoGPUs(t *testing.T) {
 }
 
 func TestOverprovisionFactor(t *testing.T) {
-	old := resources.GpuOverprovisionFactor
-	resources.GpuOverprovisionFactor = 2
+	old := ffigpu.GpuOverprovisionFactor
+	ffigpu.GpuOverprovisionFactor = 2
 	defer func() {
-		resources.GpuOverprovisionFactor = old
+		ffigpu.GpuOverprovisionFactor = old
 	}()
 
 	d := newDeviceOrdinalManager(func() ([]string, error) {
