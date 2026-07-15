@@ -139,13 +139,26 @@ func RegisterTasks(ctx context.Context, d *Deps) (*TaskResult, error) {
 
 	d.MachineID = int64(ht.ResourcesAvailable().MachineID)
 
+	ethClient := must.One(d.EthClient.Val())
+
 	// NewMessageWatcherEth registers itself with ht for side effects; no
 	// external handle is needed after construction.
-	watcherEth, err := message.NewMessageWatcherEth(d.DB, ht, chainSched, must.One(d.EthClient.Val()))
+	watcherEth, err := message.NewMessageWatcherEth(d.DB, ht, chainSched, ethClient)
 	if err != nil {
 		return nil, xerrors.Errorf("eth message watcher: %w", err)
 	}
 	_ = watcherEth
+
+	err = message.NewMessageReplacer(ctx, message.ReplacerConfig{
+		DB:         d.DB,
+		ChainSched: chainSched,
+		Eth: &message.EthReplacerConfig{
+			Client: ethClient,
+		},
+	})
+	if err != nil {
+		return nil, xerrors.Errorf("message replacer: %w", err)
+	}
 
 	go chainSched.Run(ctx)
 
