@@ -101,7 +101,7 @@ type StoragePathDetailResult struct {
 
 // StoragePathsSummary returns summary info about all storage paths sorted by capacity
 func (a *PoRep) StoragePathsSummary(ctx context.Context) ([]*StoragePathInfo, error) {
-	pathsInfo, err := a.Handler.StoragePathList(ctx)
+	pathsInfo, err := a.StoragePathList(ctx)
 	if err != nil {
 		return nil, err
 	}

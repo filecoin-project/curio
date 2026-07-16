@@ -262,9 +262,8 @@ type tunnelRuntimeStatus struct {
 }
 
 var (
-	tunnelMu      sync.Mutex
-	tunnelCmd     *exec.Cmd
-	tunnelLogPath string
+	tunnelMu  sync.Mutex
+	tunnelCmd *exec.Cmd
 )
 
 func (a *WebRPC) tunnelWorkDir() string {
@@ -382,7 +381,6 @@ func startCloudflaredTunnel(bin, token, dir string) error {
 	}
 
 	tunnelCmd = cmd
-	tunnelLogPath = logPath
 
 	go func() {
 		_ = cmd.Wait()

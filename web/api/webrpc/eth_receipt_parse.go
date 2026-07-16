@@ -1,14 +1,10 @@
 package webrpc
 
 import (
-	"encoding/json"
 	"fmt"
 	"math/big"
 	"strconv"
 	"strings"
-
-	"github.com/ethereum/go-ethereum/common"
-	ethtypes "github.com/ethereum/go-ethereum/core/types"
 )
 
 // railSettledTopic is keccak256("RailSettled(uint256,uint256,uint256,uint256,uint256,uint256)").
@@ -117,27 +113,6 @@ func receiptGasFeeFromFields(gasUsedStr, gasPriceStr string) (*big.Int, error) {
 		return nil, err
 	}
 	return new(big.Int).Mul(price, new(big.Int).SetUint64(gasUsed)), nil
-}
-
-type receiptLogJSON struct {
-	Address string   `json:"address"`
-	Topics  []string `json:"topics"`
-	Data    string   `json:"data"`
-}
-
-func ethLogFromJSON(raw []byte) (ethtypes.Log, error) {
-	var j receiptLogJSON
-	if err := json.Unmarshal(raw, &j); err != nil {
-		return ethtypes.Log{}, err
-	}
-	log := ethtypes.Log{
-		Address: common.HexToAddress(j.Address),
-		Data:    common.FromHex(j.Data),
-	}
-	for _, topic := range j.Topics {
-		log.Topics = append(log.Topics, common.HexToHash(topic))
-	}
-	return log, nil
 }
 
 // stripEthHexPrefix removes only a leading 0x/0X.
