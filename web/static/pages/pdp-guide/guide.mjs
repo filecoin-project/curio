@@ -629,7 +629,7 @@ customElements.define('pdp-guide', class PDPGuideElement extends LitElement {
         const readyForRegister = !!(s?.wallet?.ok && s?.storage?.ok && s?.dns?.domainConfigured);
 
         return html`
-            <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+            <link rel="stylesheet" href="/ux/vendor/bootstrap.min.css">
             <link rel="stylesheet" href="/ux/main.css">
 
             <p class="lead">

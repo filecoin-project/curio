@@ -1,6 +1,10 @@
 /* Curio Admin — functional design tokens (see STYLE.md) */
 
-:root {
+/* :host is required when this sheet is linked inside Lit shadow roots:
+   :root alone does not define tokens in that scope, so var(--color-*-fg)
+   on .success/.warning becomes invalid and status text inherits table color. */
+:root,
+:host {
     /* Surfaces */
     --color-bg-canvas: #0d1117;
     --color-bg-subtle: #161b22;
@@ -156,21 +160,21 @@ a:hover {
     text-decoration: underline;
 }
 
-/* Status text utilities */
+/* Status text utilities — hex fallbacks cover shadow-DOM link edge cases */
 .success {
-    color: var(--color-success-fg);
+    color: var(--color-success-fg, #3fb950);
 }
 
 .warning {
-    color: var(--color-warning-fg);
+    color: var(--color-warning-fg, #d29922);
 }
 
 .error {
-    color: var(--color-danger-fg);
+    color: var(--color-danger-fg, #f85149);
 }
 
 .info {
-    color: var(--color-info-fg);
+    color: var(--color-info-fg, #58a6ff);
 }
 
 /* Status badges */
@@ -184,18 +188,18 @@ a:hover {
 }
 
 .badge-success {
-    color: var(--color-success-fg);
-    background: var(--color-success-muted);
+    color: var(--color-success-fg, #3fb950);
+    background: var(--color-success-muted, rgba(63, 185, 80, 0.15));
 }
 
 .badge-warning {
-    color: var(--color-warning-fg);
-    background: var(--color-warning-muted);
+    color: var(--color-warning-fg, #d29922);
+    background: var(--color-warning-muted, rgba(210, 153, 34, 0.15));
 }
 
 .badge-danger {
-    color: var(--color-danger-fg);
-    background: var(--color-danger-muted);
+    color: var(--color-danger-fg, #f85149);
+    background: var(--color-danger-muted, rgba(248, 81, 73, 0.15));
 }
 
 .badge-info {

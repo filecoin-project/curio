@@ -47,7 +47,7 @@ Legacy aliases (`--color-bg`, `--color-fg`, `--color-primary-main`, etc.) map to
 
 ## Typography
 
-- **UI:** Inter 400 (body), 500 (labels), 600 (headings)
+- **UI:** Inter 400 (body), 500 (labels), 600 (headings) — local via `/ux/fonts.css`
 - **Data:** `ui-monospace` for PieceCIDs, addresses, git hashes, epochs, SQL
 
 | Role | Size | Weight |

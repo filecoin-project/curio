@@ -86,19 +86,19 @@
 [data-bs-theme="dark"] .alert-success {
     background-color: var(--color-success-muted);
     border-color: var(--color-success-fg);
-    color: var(--color-text-primary);
+    color: var(--color-success-fg, #3fb950);
 }
 
 [data-bs-theme="dark"] .alert-warning {
     background-color: var(--color-warning-muted);
     border-color: var(--color-warning-fg);
-    color: var(--color-text-primary);
+    color: var(--color-warning-fg, #d29922);
 }
 
 [data-bs-theme="dark"] .alert-danger {
     background-color: var(--color-danger-muted);
     border-color: var(--color-danger-fg);
-    color: var(--color-text-primary);
+    color: var(--color-danger-fg, #f85149);
 }
 
 [data-bs-theme="dark"] .nav-pills .nav-link {
