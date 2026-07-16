@@ -46,6 +46,19 @@ func resetProvingFailures(tx *harmonydb.Tx, dataSetId int64) error {
 	return err
 }
 
+var getPDPVerifierNextChallengeEpoch = func(ctx context.Context, ethClient ethchain.EthClient, dataSetId int64) (*big.Int, error) {
+	pdpVerifier, err := contract.NewPDPVerifier(contract.ContractAddresses().PDPVerifier, ethClient)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to instantiate PDPVerifier: %w", err)
+	}
+
+	challengeEpoch, err := pdpVerifier.GetNextChallengeEpoch(contract.EthCallOpts(ctx), big.NewInt(dataSetId))
+	if err != nil {
+		return nil, xerrors.Errorf("failed to get next challenge epoch: %w", err)
+	}
+	return challengeEpoch, nil
+}
+
 // skipCurrentOnChainProvingPeriod reconciles a dataset when initPP/nextPP learns
 // that the contract has already scheduled the next challenge period.
 //
@@ -63,14 +76,9 @@ func resetProvingFailures(tx *harmonydb.Tx, dataSetId int64) error {
 // on an already-applied period transition. Skipping one already-scheduled period
 // avoids both cases and lets the existing scheduler recover at the next window.
 func skipCurrentOnChainProvingPeriod(ctx context.Context, tx *harmonydb.Tx, ethClient ethchain.EthClient, dataSetId int64, currentHeight int64) error {
-	pdpVerifier, err := contract.NewPDPVerifier(contract.ContractAddresses().PDPVerifier, ethClient)
+	challengeEpoch, err := getPDPVerifierNextChallengeEpoch(ctx, ethClient, dataSetId)
 	if err != nil {
-		return xerrors.Errorf("failed to instantiate PDPVerifier: %w", err)
-	}
-
-	challengeEpoch, err := pdpVerifier.GetNextChallengeEpoch(contract.EthCallOpts(ctx), big.NewInt(dataSetId))
-	if err != nil {
-		return xerrors.Errorf("failed to get next challenge epoch: %w", err)
+		return err
 	}
 	if challengeEpoch == nil {
 		return xerrors.Errorf("next challenge epoch is nil for data set %d", dataSetId)

@@ -8,8 +8,6 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/ethereum/go-ethereum"
-	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/stretchr/testify/require"
 
 	"github.com/filecoin-project/curio/alertmanager/curioalerting"
@@ -34,23 +32,6 @@ func (r *recordingAlerting) ActivateCondition(context.Context, curioalerting.Ale
 
 func (r *recordingAlerting) ResolveCondition(context.Context, curioalerting.AlertCondition) error {
 	return nil
-}
-
-type getChallengeEpochEthClient struct {
-	ethchain.EthClient
-
-	challengeEpoch int64
-	calls          int
-}
-
-func (m *getChallengeEpochEthClient) CallContract(context.Context, ethereum.CallMsg, *big.Int) ([]byte, error) {
-	m.calls++
-
-	uint256Ty, err := abi.NewType("uint256", "", nil)
-	if err != nil {
-		return nil, err
-	}
-	return abi.Arguments{{Type: uint256Ty}}.Pack(big.NewInt(m.challengeEpoch))
 }
 
 type failureHandlingDataSetState struct {
@@ -147,19 +128,28 @@ func TestIntegration_HandleProvingSendError_SchedulerSkipCurrentPeriodReconciles
 	}
 	dataSetID := insertFailureHandlingDataSet(t, ctx, db, initialState)
 	alerts := &recordingAlerting{}
-	ethClient := &getChallengeEpochEthClient{challengeEpoch: 5200}
+	var calls int
+	oldGetNextChallengeEpoch := getPDPVerifierNextChallengeEpoch
+	getPDPVerifierNextChallengeEpoch = func(_ context.Context, _ ethchain.EthClient, gotDataSetID int64) (*big.Int, error) {
+		calls++
+		require.Equal(t, dataSetID, gotDataSetID)
+		return big.NewInt(5200), nil
+	}
+	t.Cleanup(func() {
+		getPDPVerifierNextChallengeEpoch = oldGetNextChallengeEpoch
+	})
 	sendErr := selectorRevert(contractErrorSelector(ErrFWSSNextProvingPeriodAlreadyCalled))
 	currentHeight := int64(4400)
 
 	committed, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
-		err := HandleProvingSendError(ctx, tx, ethClient, alerts, dataSetID, currentHeight, sendErr, contractErrorSourceNextPP)
+		err := HandleProvingSendError(ctx, tx, nil, alerts, dataSetID, currentHeight, sendErr, contractErrorSourceNextPP)
 		require.NoError(t, err)
 		return true, nil
 	}, harmonydb.OptionRetry())
 	require.NoError(t, err)
 	require.True(t, committed)
 
-	require.Equal(t, 1, ethClient.calls)
+	require.Equal(t, 1, calls)
 	require.Equal(t, failureHandlingDataSetState{
 		ConsecutiveFailure: 0,
 		InitReady:          true,
