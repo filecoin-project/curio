@@ -40,7 +40,6 @@ import (
 
 var clog = logging.Logger("curio/chain")
 
-
 func skiffDockerMode() bool {
 	return os.Getenv("SKIFF_DOCKER") != ""
 }

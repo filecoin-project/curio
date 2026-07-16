@@ -1018,7 +1018,7 @@ description: The default curio configuration
 # type: ApisConfig
 [Apis]
 
-  # ChainApiInfo is the API endpoint for the Lotus daemon.
+  # ChainApiInfo is the API endpoint for an external Lotus-compatible daemon.
   # Updates will affect running instances.
   #
   # type: []string
