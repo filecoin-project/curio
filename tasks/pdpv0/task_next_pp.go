@@ -37,6 +37,8 @@ type NextProvingPeriodTask struct {
 
 	fil NextProvingPeriodTaskChainApi
 
+	al curioalerting.AlertingInterface
+
 	addFunc promise.Promise[harmonytask.AddTaskFunc]
 }
 
@@ -50,6 +52,7 @@ func NewNextProvingPeriodTask(db *harmonydb.DB, ethClient ethchain.EthClient, fi
 		ethClient: ethClient,
 		sender:    sender,
 		fil:       fil,
+		al:        w.al,
 	}
 
 	_ = w.AddWatcher(func(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, al curioalerting.AlertingInterface, revert, apply *chainTypes.TipSet) {
@@ -233,7 +236,7 @@ func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() 
 	if sendErr != nil {
 		currentHeight := int64(ts.Height())
 		comm, err := n.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
-			handleErr := HandleProvingSendError(tx, dataSetId, currentHeight, sendErr)
+			handleErr := HandleProvingSendError(ctx, tx, n.ethClient, n.al, dataSetId, currentHeight, sendErr, contractErrorSourceNextPP)
 			if handleErr != nil {
 				return false, xerrors.Errorf("failed to handle proving send error: %w", handleErr)
 			}

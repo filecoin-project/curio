@@ -11,6 +11,7 @@ import (
 	"math/bits"
 	"sort"
 	"sync/atomic"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -31,6 +32,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
+	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/lib/proof"
@@ -42,6 +44,8 @@ import (
 	"github.com/filecoin-project/lotus/storage/pipeline/lib/nullreader"
 )
 
+const alertNameProving = "Proving"
+
 const LeafSize = proof.NODE_SIZE
 
 type ProveTask struct {
@@ -51,6 +55,8 @@ type ProveTask struct {
 	cpr       PieceReader
 	fil       ProveTaskChainApi
 	idx       ProofCacheStore
+
+	al curioalerting.AlertingInterface
 
 	head atomic.Pointer[chainTypes.TipSet]
 
@@ -70,6 +76,7 @@ func NewProveTask(db *harmonydb.DB, ethClient ethchain.EthClient, fil ProveTaskC
 		cpr:       cpr,
 		fil:       fil,
 		idx:       idx,
+		al:        w.al,
 	}
 
 	// ProveTasks are created on pdp_data_sets entries where
@@ -439,7 +446,7 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		currentHeight := int64(ts.Height())
 
 		comm, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
-			handleErr := HandleProvingSendError(tx, dataSetId, currentHeight, sendErr)
+			handleErr := HandleProvingSendError(ctx, tx, p.ethClient, p.al, dataSetId, currentHeight, sendErr, contractErrorSourceProve)
 			if handleErr != nil {
 				return false, xerrors.Errorf("failed to handle proving send error: %w", handleErr)
 			}
@@ -456,8 +463,19 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 
 	// Success, reset any accumulated failure count. We cannot fail the task here to avoid sending proof for same dataSet multiple times
 	// In case, this reset fails, it should be handled in task_chain_sync
-	if resetErr := ResetProvingFailures(ctx, p.db, dataSetId); resetErr != nil {
+	comm, resetErr := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+		err = resetProvingFailures(tx, dataSetId)
+		if err != nil {
+			return false, err
+		}
+		return true, nil
+	}, harmonydb.OptionRetry())
+	if resetErr != nil {
 		log.Warnw("Failed to reset proving failures after success", "error", resetErr, "dataSetId", dataSetId)
+	}
+
+	if !comm {
+		log.Warnw("Failed to reset proving failures after success", "error", "failed to commit database transaction", "dataSetId", dataSetId)
 	}
 
 	log.Infow("PDP Prove Task: transaction sent", "txHash", txHash, "dataSetId", dataSetId, "taskID", taskID)
@@ -968,6 +986,7 @@ func (p *ProveTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Ram: proveTaskRAM,
 		},
 		MaxFailures: 5,
+		RetryWait:   taskhelp.RetryWaitExp(10*time.Second, 2),
 	}
 }
 

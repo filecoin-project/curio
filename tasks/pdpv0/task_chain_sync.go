@@ -362,16 +362,15 @@ func (t *TaskChainSync) syncMissingCleanupPiecesMessageWaits(ctx context.Context
 	return nil
 }
 
-// syncProvenDataSetFailureState reconciles local proving backoff after PDPVerifier
-// reports that the data set has advanced past the local failure state.
+// syncProvenDataSetFailureState reconciles stale local proving failure state
+// after PDPVerifier reports that the data set was proven at or after Curio's
+// local prove_at_epoch.
 func (t *TaskChainSync) syncProvenDataSetFailureState(ctx context.Context) error {
 	var dataSets []struct {
-		ID                    int64         `db:"id"`
-		ProveAtEpoch          sql.NullInt64 `db:"prove_at_epoch"`
-		ConsecutiveFailures   int           `db:"consecutive_prove_failures"`
-		NextProveAttemptEpoch sql.NullInt64 `db:"next_prove_attempt_at"`
+		ID           int64         `db:"id"`
+		ProveAtEpoch sql.NullInt64 `db:"prove_at_epoch"`
 	}
-	if err := t.db.Select(ctx, &dataSets, `SELECT id, prove_at_epoch, consecutive_prove_failures, next_prove_attempt_at
+	if err := t.db.Select(ctx, &dataSets, `SELECT id, prove_at_epoch
 		FROM pdp_data_sets
 		WHERE unrecoverable_proving_failure_epoch IS NULL
 		  AND (consecutive_prove_failures > 0 OR next_prove_attempt_at IS NOT NULL)
@@ -408,14 +407,7 @@ func (t *TaskChainSync) syncProvenDataSetFailureState(ctx context.Context) error
 			continue
 		}
 
-		proofAfterLocalFailure := false
-		if dataSet.ProveAtEpoch.Valid && lastProvenEpoch.Cmp(big.NewInt(dataSet.ProveAtEpoch.Int64)) >= 0 {
-			proofAfterLocalFailure = true
-		} else if dataSet.ConsecutiveFailures > 0 && dataSet.NextProveAttemptEpoch.Valid {
-			lastFailureEpoch := dataSet.NextProveAttemptEpoch.Int64 - int64(CalculateBackoffBlocks(dataSet.ConsecutiveFailures))
-			proofAfterLocalFailure = lastProvenEpoch.Cmp(big.NewInt(lastFailureEpoch)) > 0
-		}
-		if !proofAfterLocalFailure {
+		if !dataSet.ProveAtEpoch.Valid || lastProvenEpoch.Cmp(big.NewInt(dataSet.ProveAtEpoch.Int64)) < 0 {
 			continue
 		}
 
