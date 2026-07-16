@@ -84,23 +84,6 @@ type PDPDataSetPayments struct {
 	Error             string `json:"error,omitempty"`
 }
 
-const pdpDataSetStatsByIDs = `
-	SELECT
-		ds.id,
-		COUNT(DISTINCT dsp.piece_id) FILTER (WHERE dsp.removed IS NOT TRUE) AS object_count,
-		COALESCE(SUM(CASE WHEN dsp.removed IS NOT TRUE THEN dsp.sub_piece_size ELSE 0 END), 0) AS size_bytes,
-		MIN(pr.created_at) AS first_upload_at,
-		ds.prove_at_epoch,
-		ds.challenge_window,
-		ds.consecutive_prove_failures,
-		ds.unrecoverable_proving_failure_epoch
-	FROM pdp_data_sets ds
-	LEFT JOIN pdp_data_set_pieces dsp ON dsp.data_set = ds.id
-	LEFT JOIN pdp_piecerefs pr ON pr.id = dsp.pdp_pieceref
-	WHERE ds.id = ANY($1)
-	GROUP BY ds.id, ds.prove_at_epoch, ds.challenge_window,
-	         ds.consecutive_prove_failures, ds.unrecoverable_proving_failure_epoch`
-
 const pdpDataSetStatsFrom = `
 	FROM pdp_data_sets ds
 	LEFT JOIN pdp_data_set_pieces dsp ON dsp.data_set = ds.id
@@ -754,34 +737,6 @@ func (a *WebRPC) clientDataSetTotal(ctx context.Context, client common.Address) 
 		return 0, nil
 	}
 	return int(n.Int64()), nil
-}
-
-func (a *WebRPC) loadDataSetSummariesByIDs(ctx context.Context, ids []int64, head int64) ([]PDPDataSetSummary, error) {
-	if len(ids) == 0 {
-		return []PDPDataSetSummary{}, nil
-	}
-	var rows []pdpDataSetStatsRow
-	err := a.Deps.DB.Select(ctx, &rows, pdpDataSetStatsByIDs, ids)
-	if err != nil {
-		return nil, xerrors.Errorf("load dataset summaries: %w", err)
-	}
-	byID := make(map[int64]PDPDataSetSummary, len(rows))
-	for _, row := range rows {
-		byID[row.ID] = summaryFromStatsRow(row, head)
-	}
-	// Preserve FWSS order; include missing local rows as stubs.
-	out := make([]PDPDataSetSummary, 0, len(ids))
-	for _, id := range ids {
-		if s, ok := byID[id]; ok {
-			out = append(out, s)
-			continue
-		}
-		out = append(out, PDPDataSetSummary{
-			ID:            id,
-			ProvingStatus: "unknown",
-		})
-	}
-	return out, nil
 }
 
 func summaryFromStatsRow(row pdpDataSetStatsRow, head int64) PDPDataSetSummary {
