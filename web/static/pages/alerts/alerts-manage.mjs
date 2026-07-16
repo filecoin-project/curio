@@ -295,7 +295,7 @@ class AlertsManage extends StyledLitElement {
     render() {
         if (this.loading) {
             return html`
-                <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous">
+                <link rel="stylesheet" href="/ux/vendor/bootstrap.min.css">
                 <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'">
                 <div style="padding: 20px;">Loading...</div>
             `;
@@ -303,7 +303,7 @@ class AlertsManage extends StyledLitElement {
 
         if (this.error) {
             return html`
-                <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous">
+                <link rel="stylesheet" href="/ux/vendor/bootstrap.min.css">
                 <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'">
                 <div style="padding: 20px; color: #B63333;">Error: ${this.error}</div>
             `;
@@ -312,7 +312,7 @@ class AlertsManage extends StyledLitElement {
         const activeAlertCount = this.alertsUnacknowledgedTotal + this.ongoingAlerts.length;
 
         return html`
-            <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous">
+            <link rel="stylesheet" href="/ux/vendor/bootstrap.min.css">
             <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'">
             
             <div style="padding: 20px;">

@@ -14,8 +14,8 @@ import (
 const filUsdPriceTTL = 30 * time.Minute
 
 var (
-	filUsdPriceMu      sync.Mutex
-	filUsdPriceCached  float64
+	filUsdPriceMu       sync.Mutex
+	filUsdPriceCached   float64
 	filUsdPriceCachedAt time.Time
 )
 

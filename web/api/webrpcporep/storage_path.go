@@ -51,14 +51,14 @@ type StoragePathSector struct {
 
 // StoragePathGCMark contains GC marks for this storage path
 type StoragePathGCMark struct {
-	MinerID    int64     `db:"sp_id" json:"MinerID"`
+	MinerID   int64     `db:"sp_id" json:"MinerID"`
 	SectorNum int64     `db:"sector_num" json:"SectorNum"`
 	FileType  int64     `db:"sector_filetype" json:"FileType"`
 	CreatedAt time.Time `db:"created_at" json:"CreatedAt"`
 	Approved  bool      `db:"approved" json:"Approved"`
 
 	// Computed
-	Miner         string `json:"Miner"`
+	Miner        string `json:"Miner"`
 	FileTypeStr  string `json:"FileTypeStr"`
 	CreatedAtStr string `json:"CreatedAtStr"`
 }
@@ -90,13 +90,13 @@ type StoragePathDetailResult struct {
 	GCMarks []StoragePathGCMark      `json:"GCMarks"`
 
 	// Summary stats
-	TotalSectorEntries int                      `json:"TotalSectorEntries"`
-	PrimaryEntries     int                      `json:"PrimaryEntries"`
-	SecondaryEntries   int                      `json:"SecondaryEntries"`
-	ByType             []StoragePathTypeSummary `json:"ByType"`
+	TotalSectorEntries int                       `json:"TotalSectorEntries"`
+	PrimaryEntries     int                       `json:"PrimaryEntries"`
+	SecondaryEntries   int                       `json:"SecondaryEntries"`
+	ByType             []StoragePathTypeSummary  `json:"ByType"`
 	ByMiner            []StoragePathMinerSummary `json:"ByMiner"`
-	PendingGC          int                      `json:"PendingGC"`
-	ApprovedGC         int                      `json:"ApprovedGC"`
+	PendingGC          int                       `json:"PendingGC"`
+	ApprovedGC         int                       `json:"ApprovedGC"`
 }
 
 // StoragePathsSummary returns summary info about all storage paths sorted by capacity

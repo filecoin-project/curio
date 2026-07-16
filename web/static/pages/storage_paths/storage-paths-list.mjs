@@ -201,7 +201,7 @@ customElements.define('storage-paths-list', class StoragePathsList extends LitEl
     render() {
         if (this.loading) {
             return html`
-                <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous">
+                <link rel="stylesheet" href="/ux/vendor/bootstrap.min.css">
                 <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'">
                 <div>Loading...</div>
             `;
@@ -209,7 +209,7 @@ customElements.define('storage-paths-list', class StoragePathsList extends LitEl
 
         if (this.error) {
             return html`
-                <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous">
+                <link rel="stylesheet" href="/ux/vendor/bootstrap.min.css">
                 <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'">
                 <div style="color: var(--color-danger-fg);">Error: ${this.error}</div>
             `;
@@ -218,7 +218,7 @@ customElements.define('storage-paths-list', class StoragePathsList extends LitEl
         const filtered = this.filteredPaths;
 
         return html`
-            <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous">
+            <link rel="stylesheet" href="/ux/vendor/bootstrap.min.css">
             <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'">
             
             <div style="max-width: 1600px;">
