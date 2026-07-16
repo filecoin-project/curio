@@ -432,68 +432,21 @@ customElements.define('porep-overview', class PorepOverview extends LitElement {
     `
   }
 
-  renderPipelineTable() {
-    const rows = this.pipeline ?? []
-    const totals = sumPipeline(rows)
-    const loading = this.pipelineStatus === 'loading'
-    const errored = this.pipelineStatus === 'error'
-
+  renderWins() {
     return html`
       <div class="info-block dashboard-section">
         <div class="block-header">
-          <h2>PoRep pipeline</h2>
-          <a class="view-all" href="/pages/pipeline_porep/">Detail →</a>
+          <h2>Recent Wins</h2>
         </div>
-        ${loading ? html`<p class="status-muted">Loading…</p>` : ''}
-        ${errored && !rows.length ? html`<p class="status-error">Pipeline unavailable</p>` : ''}
-        ${!loading && rows.length === 0 && !errored ? html`
-          <p class="all-clear">${this.toneIcon(true, false)} No sectors in pipeline</p>
-        ` : ''}
-        ${rows.length ? html`
-          <table class="tight-table">
-            <thead>
-              <tr>
-                <th>SP</th>
-                <th>SDR</th>
-                <th>Trees</th>
-                <th>Precommit</th>
-                <th>Seed</th>
-                <th>PoRep</th>
-                <th>Commit</th>
-                <th>Done</th>
-                <th>Failed</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${rows.map((item) => html`
-                <tr>
-                  <td class="mono"><a href="/pages/pipeline_porep/">${item.Actor}</a></td>
-                  <td class=${item.CountSDR ? 'hot' : ''}>${item.CountSDR}</td>
-                  <td class=${item.CountTrees ? 'hot' : ''}>${item.CountTrees}</td>
-                  <td class=${item.CountPrecommitMsg ? 'hot' : ''}>${item.CountPrecommitMsg}</td>
-                  <td class=${item.CountWaitSeed ? 'hot' : ''}>${item.CountWaitSeed}</td>
-                  <td class=${item.CountPoRep ? 'hot' : ''}>${item.CountPoRep}</td>
-                  <td class=${item.CountCommitMsg ? 'hot' : ''}>${item.CountCommitMsg}</td>
-                  <td>${item.CountDone}</td>
-                  <td class=${item.CountFailed ? 'bad' : 'ok-num'}>${item.CountFailed}</td>
-                </tr>
-              `)}
-              ${rows.length > 1 ? html`
-                <tr class="total-row">
-                  <td>Total</td>
-                  <td>${totals.sdr}</td>
-                  <td>${totals.trees}</td>
-                  <td>${totals.precommit}</td>
-                  <td>${totals.waitSeed}</td>
-                  <td>${totals.porep}</td>
-                  <td>${totals.commit}</td>
-                  <td>${totals.done}</td>
-                  <td class=${totals.failed ? 'bad' : 'ok-num'}>${totals.failed}</td>
-                </tr>
-              ` : ''}
-            </tbody>
-          </table>
-        ` : ''}
+        <win-stats></win-stats>
+      </div>
+    `
+  }
+
+  renderPipeline() {
+    return html`
+      <div class="dashboard-section">
+        <pipeline-porep></pipeline-porep>
       </div>
     `
   }
@@ -775,7 +728,8 @@ customElements.define('porep-overview', class PorepOverview extends LitElement {
     return html`
       ${this.renderDataStrip()}
       ${this.renderActors()}
-      ${this.renderPipelineTable()}
+      ${this.renderWins()}
+      ${this.renderPipeline()}
       <div class="dashboard-cols">
         ${this.renderMachines()}
         ${this.renderIssues()}
