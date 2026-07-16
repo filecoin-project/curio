@@ -12,10 +12,15 @@ type EthTransactionManager interface {
 	AssignPendingToMachine(ctx context.Context, machineID int64) (int, error)
 
 	// GetPendingForMachine gets all pending transactions assigned to a machine
-	GetPendingForMachine(ctx context.Context, machineID int64) ([]string, error)
+	GetPendingForMachine(ctx context.Context, machineID int64) ([]PendingEthTx, error)
 
 	// UpdateToConfirmed updates a transaction to confirmed status with all the details
 	UpdateToConfirmed(ctx context.Context, signedTxHash string, blockNumber int64, confirmedTxHash string, txData []byte, receipt []byte, success bool) error
+}
+
+type PendingEthTx struct {
+	WaitHash   string `db:"wait_hash"`
+	LookupHash string `db:"lookup_hash"`
 }
 
 // HarmonyEthTxManager is the real implementation using HarmonyDB
@@ -34,23 +39,37 @@ func (h *HarmonyEthTxManager) AssignPendingToMachine(ctx context.Context, machin
 }
 
 // GetPendingForMachine gets all pending transactions assigned to a machine
-func (h *HarmonyEthTxManager) GetPendingForMachine(ctx context.Context, machineID int64) ([]string, error) {
-	var txs []struct {
-		TxHash string `db:"signed_tx_hash"`
-	}
+func (h *HarmonyEthTxManager) GetPendingForMachine(ctx context.Context, machineID int64) ([]PendingEthTx, error) {
+	var txs []PendingEthTx
 
-	err := h.db.Select(ctx, &txs, `SELECT signed_tx_hash FROM message_waits_eth WHERE waiter_machine_id = $1 AND tx_status = 'pending' LIMIT 10000`, machineID)
-	if err != nil {
-		return nil, err
-	}
-
-	// Convert to simple string slice
-	result := make([]string, len(txs))
-	for i, tx := range txs {
-		result[i] = tx.TxHash
-	}
-
-	return result, nil
+	// Pending waits are keyed by the original caller-facing hash in message_waits_eth.
+	// If that transaction was replaced, message_send_eth_replacements gives us the
+	// latest successful replacement hash to query on chain while keeping the wait row
+	// update anchored to the original hash.
+	err := h.db.Select(ctx, &txs, `
+		SELECT
+			mwe.signed_tx_hash AS wait_hash,
+			COALESCE(latest.signed_hash, mwe.signed_tx_hash) AS lookup_hash
+		FROM message_waits_eth mwe
+		LEFT JOIN LATERAL (
+			SELECT r.signed_hash
+			FROM message_send_eth_replacements r
+			WHERE r.original_signed_hash = mwe.signed_tx_hash
+				AND r.send_success = TRUE
+				AND r.signed_hash IS NOT NULL
+				AND NOT EXISTS (
+					SELECT 1
+					FROM message_send_eth_replacements next
+					WHERE next.original_signed_hash = r.original_signed_hash
+						AND next.send_success = TRUE
+						AND next.replaces_signed_hash = r.signed_hash
+				)
+			LIMIT 1
+		) latest ON TRUE
+		WHERE mwe.waiter_machine_id = $1
+			AND mwe.tx_status = 'pending'
+		LIMIT 10000`, machineID)
+	return txs, err
 }
 
 // UpdateToConfirmed updates a transaction to confirmed status with all the details
