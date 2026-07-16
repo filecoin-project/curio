@@ -1207,6 +1207,14 @@ func TestStorageReadSize(t *testing.T) {
 	assert.Equal(t, int64(ReadBuf)+1, storageReadSize(int64(ReadBuf)+1))
 	assert.Equal(t, MinRandomReadSize, storageReadSize(MinRandomReadSize))
 	assert.Equal(t, MinRandomReadSize*2, storageReadSize(MinRandomReadSize*2))
+
+	// Read-ahead sizes (the only path that allocates internally) stay ≤ 1MiB.
+	for _, req := range []int64{ExactReadAtMax + 1, int64(ReadBuf) - 1, int64(ReadBuf)} {
+		got := storageReadSize(req)
+		if got != req { // amplified
+			assert.LessOrEqual(t, got, MinRandomReadSize)
+		}
+	}
 }
 
 // TestPieceReader_ReadInto tests the readInto internal function
