@@ -21,6 +21,11 @@ import (
 // non-zero last modified time.
 var lastModified = time.UnixMilli(1)
 
+// MIME_SNIFF_BYTES is the net/http / WHATWG sniff window. Tied to
+// pieceprovider.ExactReadAtMax so peeks are not amplified on ReadAt.
+// It's also the same size buff
+const MIME_SNIFF_BYTES = 512
+
 func (rp *Provider) handleByPieceCid(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	startTime := time.Now()
@@ -62,14 +67,11 @@ func (rp *Provider) handleByPieceCid(w http.ResponseWriter, r *http.Request) {
 		_ = reader.Close()
 	}()
 
-	buf := make([]byte, 512)
-	n, _ := reader.Read(buf)
-	contentType := http.DetectContentType(buf[:n])
-
-	// rewind reader before sending
-	_, err = reader.Seek(0, io.SeekStart)
+	// Exact MIME_SNIFF_BYTES ReadAt (no Seek). HEAD still sniffs for Content-Type;
+	// ServeContent below writes no body for HEAD.
+	contentType, err := sniffContentType(reader)
 	if err != nil {
-		log.Errorf("error rewinding reader for piece CID %s: %s", pieceCid, err)
+		log.Errorf("error sniffing content type for piece CID %s: %s", pieceCid, err)
 		w.WriteHeader(http.StatusInternalServerError)
 		stats.Record(ctx, remoteblockstore.HttpPieceByCid500ResponseCount.M(1))
 		return
@@ -87,6 +89,15 @@ func (rp *Provider) handleByPieceCid(w http.ResponseWriter, r *http.Request) {
 	stats.Record(ctx, remoteblockstore.HttpPieceByCid200ResponseCount.M(1))
 	stats.Record(ctx, remoteblockstore.HttpPieceByCidRequestDuration.M(float64(time.Since(startTime).Milliseconds())))
 
+}
+
+func sniffContentType(r io.ReaderAt) (string, error) {
+	buf := make([]byte, MIME_SNIFF_BYTES)
+	n, err := r.ReadAt(buf, 0)
+	if n == 0 && err != nil && err != io.EOF {
+		return "", err
+	}
+	return http.DetectContentType(buf[:n]), nil
 }
 
 func setHeaders(w http.ResponseWriter, pieceCid cid.Cid, contentType string) {
