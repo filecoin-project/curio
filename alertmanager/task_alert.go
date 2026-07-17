@@ -286,7 +286,7 @@ func (a *AlertTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		payloadData := &plugin.AlertPayload{
 			Summary:  "Curio Alert",
 			Severity: "critical", // This can be critical, error, warning or info.
-			Source:   "Curio Cluster",
+			Source:   AlertSource(a.cfg.ClusterName),
 			Details:  details,
 			Time:     now,
 		}

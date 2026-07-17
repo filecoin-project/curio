@@ -37,7 +37,7 @@ func (p *Apprise) SendAlert(data *AlertPayload) error {
 	}
 
 	payload := map[string]any{
-		"title":  data.Summary,
+		"title":  "🚨 " + data.Summary + " [" + data.Source + "]",
 		"body":   strings.TrimSpace(body.String()),
 		"type":   "failure",
 		"format": "markdown",
