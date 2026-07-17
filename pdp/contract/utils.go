@@ -39,13 +39,17 @@ const (
 	CapServiceURL       = "serviceURL"
 	CapMinPieceSize     = "minPieceSizeInBytes"
 	CapMaxPieceSize     = "maxPieceSizeInBytes"
-	CapIpniPiece        = "ipniPiece"  // Optional
-	CapIpniIpfs         = "ipniIpfs"   // Optional
-	CapIpniPeerID       = "ipniPeerId" // Optional, IPNI peer ID for discovery
 	CapStoragePrice     = "storagePricePerTibPerDay"
 	CapMinProvingPeriod = "minProvingPeriodInEpochs"
 	CapLocation         = "location"
 	CapPaymentToken     = "paymentTokenAddress"
+
+	// Optional PDP keys, including advertised storage capacity, are documented in ServiceProviderRegistry.sol:
+	// https://github.com/FilOzone/filecoin-services/blob/main/service_contracts/src/ServiceProviderRegistry.sol#L22
+	CapIpniPiece   = "ipniPiece"
+	CapIpniIpfs    = "ipniIpfs"
+	CapIpniPeerID  = "ipniPeerId"
+	CapCapacityTiB = "capacityTiB"
 
 	// CapIpniPeerIDDeprecated is the old key for the IPNI peer ID. It was incorrectly cased
 	// and does not match the suggested key in the ServiceProviderRegistry contract. New
@@ -66,6 +70,7 @@ type PDPOfferingData struct {
 	MinProvingPeriodInEpochs *mbig.Int
 	Location                 string
 	PaymentTokenAddress      common.Address
+	CapacityTiB              *mbig.Int
 }
 
 func encodeBigIntCapability(i *mbig.Int) []byte {
@@ -119,6 +124,11 @@ func OfferingToCapabilities(offering PDPOfferingData, additionalCaps map[string]
 		// Also write the deprecated key for compatibility with older SDK versions
 		keys = append(keys, CapIpniPeerIDDeprecated)
 		values = append(values, []byte(offering.IpniPeerID))
+	}
+
+	if offering.CapacityTiB != nil {
+		keys = append(keys, CapCapacityTiB)
+		values = append(values, encodeBigIntCapability(offering.CapacityTiB))
 	}
 
 	// Add custom capabilities
