@@ -20,14 +20,12 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
-	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/big"
 	"github.com/filecoin-project/go-state-types/builtin"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/ethchain"
 
-	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/chain/types/ethtypes"
 )
@@ -246,7 +244,7 @@ func GetDataSetMetadataAtKey(ctx context.Context, listenerAddr common.Address, e
 	return out.Exists, out.Value, nil
 }
 
-func FSRegister(ctx context.Context, db *harmonydb.DB, full api.FullNode, ethClient ethchain.EthClient, name, description string, pdpOffering PDPOfferingData, capabilities map[string]string) error {
+func FSRegister(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, name, description string, pdpOffering PDPOfferingData, capabilities map[string]string) error {
 	if len(name) > 128 {
 		return xerrors.Errorf("name is too long, max 128 characters allowed")
 	}
@@ -285,19 +283,16 @@ func FSRegister(ctx context.Context, db *harmonydb.DB, full api.FullNode, ethCli
 		return xerrors.Errorf("failed to get sender: %w", err)
 	}
 
-	ac, err := full.StateGetActor(ctx, fSender, types.EmptyTSK)
-	if err != nil {
-		return xerrors.Errorf("failed to get actor: %w", err)
-	}
-
 	amount, err := types.ParseFIL("5 FIL")
 	if err != nil {
 		return fmt.Errorf("failed to parse 5 FIL: %w", err)
 	}
 
-	token := abi.NewTokenAmount(amount.Int64())
-
-	if ac.Balance.LessThan(big.NewInt(token.Int64())) {
+	balance, err := ethClient.BalanceAt(ctx, sender, nil)
+	if err != nil {
+		return xerrors.Errorf("failed to get wallet balance: %w", err)
+	}
+	if balance.Cmp(amount.Int) < 0 {
 		return xerrors.Errorf("wallet balance is too low")
 	}
 

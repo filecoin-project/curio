@@ -24,7 +24,6 @@ import (
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/lib/urlhelper"
-	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/ipni/ipniculib"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/tasks/tasknames"
@@ -33,10 +32,10 @@ import (
 type PieceGCTask struct {
 	cfg *config.HTTPConfig
 	db  *harmonydb.DB
-	idx *indexstore.IndexStore
+	idx IndexCleaner
 }
 
-func NewPieceGCTask(cfg *config.HTTPConfig, db *harmonydb.DB, idx *indexstore.IndexStore) *PieceGCTask {
+func NewPieceGCTask(cfg *config.HTTPConfig, db *harmonydb.DB, idx IndexCleaner) *PieceGCTask {
 	return &PieceGCTask{
 		cfg: cfg,
 		db:  db,
@@ -121,7 +120,7 @@ func _processPendingCleanup(ctx context.Context, db *harmonydb.DB, ethClient eth
 	return nil
 }
 
-func processIndexingAndIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *config.HTTPConfig, idx *indexstore.IndexStore) error {
+func processIndexingAndIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *config.HTTPConfig, idx IndexCleaner) error {
 
 	var pieces []struct {
 		ID        int64  `db:"id"`
