@@ -32,6 +32,7 @@ var MinRandomReadSize = int64(1 << 20)
 
 // ExactReadAtMax is the largest ReadAt satisfied without read-ahead.
 // Matches net/http MIME sniff length so HEAD/content-type peeks do not pull MinRandomReadSize.
+// market/retrieval.MIME_SNIFF_BYTES aliases this constant.
 const ExactReadAtMax int64 = 512
 
 type pieceGetter func(offset, size uint64) (io.ReadCloser, error)

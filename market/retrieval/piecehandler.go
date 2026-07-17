@@ -13,6 +13,7 @@ import (
 	"go.opencensus.io/stats"
 
 	"github.com/filecoin-project/curio/lib/cachedreader"
+	"github.com/filecoin-project/curio/lib/pieceprovider"
 	"github.com/filecoin-project/curio/market/retrieval/remoteblockstore"
 )
 
@@ -21,10 +22,9 @@ import (
 // non-zero last modified time.
 var lastModified = time.UnixMilli(1)
 
-// MIME_SNIFF_BYTES is the net/http / WHATWG sniff window. Tied to
+// MIME_SNIFF_BYTES is the net/http / WHATWG sniff window. Aliased to
 // pieceprovider.ExactReadAtMax so peeks are not amplified on ReadAt.
-// It's also the same size buff
-const MIME_SNIFF_BYTES = 512
+const MIME_SNIFF_BYTES = pieceprovider.ExactReadAtMax
 
 func (rp *Provider) handleByPieceCid(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()

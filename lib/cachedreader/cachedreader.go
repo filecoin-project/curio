@@ -528,49 +528,53 @@ func (cpr *CachedPieceReader) GetSharedPieceReader(ctx context.Context, pieceCid
 		defer close(r.ready)
 
 		reader, size, err := cpr.getPieceReaderFromPDPPark(readerCtx, pieceCid)
-		if err != nil {
+		var finalErr error
+		switch {
+		case err == nil:
+			// PDP park hit
+		case errors.Is(err, errPDPParkNotFound):
 			log.Debugw("pdp park miss, trying aggregate", "piececid", pieceCid.String(), "err", err)
+			pdpMiss := err
 
 			reader, size, err = cpr.getPieceReaderFromAggregate(readerCtx, pieceCid, retrieval)
 			if err != nil {
 				log.Debugw("failed to get piece reader from aggregate", "piececid", pieceCid.String(), "err", err)
-
-				aerr := err
+				aggErr := err
 
 				reader, size, err = cpr.getPieceReaderFromMarketPieceDeal(readerCtx, pieceCid, retrieval)
 				if err != nil {
 					log.Debugw("failed to get piece reader", "piececid", pieceCid, "err", err)
-					finalErr := fmt.Errorf("failed to get piece reader from pdp park, aggregate, sector or piece park: %w, %w", aerr, err)
-
-					// Record error metric
-					_ = stats.RecordWithTags(context.Background(), []tag.Mutator{
-						tag.Upsert(reasonKey, "piece_not_found"),
-					}, CachedReaderMeasures.ReaderErrors.M(1))
-
-					// Cache the error in the error cache
-					cpr.pieceErrorCacheMu.Lock()
-					cpr.pieceErrorCache.Set(pieceCid, &cachedError{err: finalErr, pieceCid: pieceCid})
-					// Record error cache size
-					_ = stats.RecordWithTags(context.Background(), []tag.Mutator{
-						tag.Upsert(cacheTypeKey, "piece_error"),
-					}, CachedReaderMeasures.CacheSize.M(int64(cpr.pieceErrorCache.Count())))
-					cpr.pieceErrorCacheMu.Unlock()
-
-					// Remove the failed reader from the main cache
-					cpr.pieceReaderCacheMu.Lock()
-					cpr.pieceReaderCache.Remove(pieceCid)
-					// Record updated cache size
-					_ = stats.RecordWithTags(context.Background(), []tag.Mutator{
-						tag.Upsert(cacheTypeKey, "piece_reader"),
-					}, CachedReaderMeasures.CacheSize.M(int64(cpr.pieceReaderCache.Count())))
-					cpr.pieceReaderCacheMu.Unlock()
-
-					r.err = finalErr
-					readerCtxCancel()
-
-					return nil, 0, finalErr
+					finalErr = fmt.Errorf("failed to get piece reader from pdp park, aggregate, sector or piece park: %w, %w, %w", pdpMiss, aggErr, err)
 				}
 			}
+		default:
+			log.Debugw("failed to get piece reader from pdp park", "piececid", pieceCid.String(), "err", err)
+			finalErr = fmt.Errorf("failed to get piece reader from pdp park: %w", err)
+		}
+
+		if finalErr != nil {
+			_ = stats.RecordWithTags(context.Background(), []tag.Mutator{
+				tag.Upsert(reasonKey, "piece_not_found"),
+			}, CachedReaderMeasures.ReaderErrors.M(1))
+
+			cpr.pieceErrorCacheMu.Lock()
+			cpr.pieceErrorCache.Set(pieceCid, &cachedError{err: finalErr, pieceCid: pieceCid})
+			_ = stats.RecordWithTags(context.Background(), []tag.Mutator{
+				tag.Upsert(cacheTypeKey, "piece_error"),
+			}, CachedReaderMeasures.CacheSize.M(int64(cpr.pieceErrorCache.Count())))
+			cpr.pieceErrorCacheMu.Unlock()
+
+			cpr.pieceReaderCacheMu.Lock()
+			cpr.pieceReaderCache.Remove(pieceCid)
+			_ = stats.RecordWithTags(context.Background(), []tag.Mutator{
+				tag.Upsert(cacheTypeKey, "piece_reader"),
+			}, CachedReaderMeasures.CacheSize.M(int64(cpr.pieceReaderCache.Count())))
+			cpr.pieceReaderCacheMu.Unlock()
+
+			r.err = finalErr
+			readerCtxCancel()
+
+			return nil, 0, finalErr
 		}
 
 		// Record successful reader creation

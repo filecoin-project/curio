@@ -252,7 +252,7 @@ func (p *path) sectorPath(sid abi.SectorID, fileType storiface.SectorFileType) s
 // AcquireSector / StorageFindSector when this returns false.
 //
 // When multiple local roots are registered, Stats run sequentially on each path.
-// The random order should tend toward less disk activity then purely-parallel searching.
+// The random order should tend toward less disk activity than purely-parallel searching.
 func (st *Local) ExistingLocalFile(sid abi.SectorID, ft storiface.SectorFileType) (string, bool) {
 	candidates := make([]string, 0, len(st.paths))
 	st.localLk.RLock()
