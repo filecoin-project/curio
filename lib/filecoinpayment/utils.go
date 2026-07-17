@@ -106,7 +106,10 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchai
 			})
 			continue
 		}
-		if !ok || target == nil || target.Cmp(view.SettledUpTo) <= 0 {
+		if !ok || target == nil {
+			continue
+		}
+		if target.Cmp(view.SettledUpTo) <= 0 && !IsTerminatedRailFinalizationTarget(view, target) {
 			continue
 		}
 
@@ -238,13 +241,27 @@ func railNeedsSettlement(rail PaymentsRailView, current uint64) bool {
 	}
 
 	if rail.EndEpoch != nil && rail.EndEpoch.Sign() > 0 {
-		// Terminated rails should be retried until settlement reaches endEpoch.
-		// Filecoin Pay finalizes the rail only after this point, so using the
-		// active-rail interval here can leave payable lockup uncollected.
-		return rail.SettledUpTo.Cmp(rail.EndEpoch) < 0
+		// The equality case can still need one final settleRail call to zero the
+		// rail. Once finalized, getRail stops returning the rail.
+		return rail.SettledUpTo.Cmp(rail.EndEpoch) <= 0
 	}
 
 	return activeRailSettlementDue(rail, current)
+}
+
+// IsTerminatedRailFinalizationTarget reports whether settling to target can be
+// useful even without advancing settledUpTo. Filecoin Pay finalizes terminated
+// rails in a final settleRail call; until GetRail returns RailInactiveOrSettled,
+// a rail at settledUpTo == endEpoch may still need that call.
+func IsTerminatedRailFinalizationTarget(rail PaymentsRailView, target *big.Int) bool {
+	if rail.SettledUpTo == nil || rail.EndEpoch == nil || target == nil {
+		return false
+	}
+	if rail.EndEpoch.Sign() <= 0 {
+		return false
+	}
+
+	return rail.SettledUpTo.Cmp(rail.EndEpoch) == 0 && target.Cmp(rail.EndEpoch) == 0
 }
 
 func activeRailSettlementDue(rail PaymentsRailView, current uint64) bool {

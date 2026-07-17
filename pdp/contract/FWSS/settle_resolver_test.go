@@ -32,6 +32,14 @@ func TestFWSSStandardSettleTarget(t *testing.T) {
 			wantResolvable: true,
 		},
 		{
+			name:           "terminated rail at end epoch can finalize",
+			settledUpTo:    150,
+			endEpoch:       150,
+			currentEpoch:   200,
+			wantTarget:     150,
+			wantResolvable: true,
+		},
+		{
 			name:           "no progress skips settlement",
 			settledUpTo:    200,
 			currentEpoch:   200,
@@ -116,6 +124,16 @@ func TestFWSSPDPSettleTarget(t *testing.T) {
 			wantResolvable: true,
 		},
 		{
+			name:           "terminated rail at end epoch can finalize",
+			settledUpTo:    5000,
+			endEpoch:       5000,
+			currentEpoch:   7000,
+			activation:     1000,
+			provingPeriod:  2880,
+			wantTarget:     5000,
+			wantResolvable: true,
+		},
+		{
 			name:           "terminated rail before activation surfaces invalid contract range",
 			settledUpTo:    800,
 			endEpoch:       900,
@@ -123,6 +141,16 @@ func TestFWSSPDPSettleTarget(t *testing.T) {
 			activation:     1000,
 			provingPeriod:  2880,
 			wantTarget:     900,
+			wantResolvable: true,
+		},
+		{
+			name:           "terminated rail ending at activation can finalize after reaching end epoch",
+			settledUpTo:    1000,
+			endEpoch:       1000,
+			currentEpoch:   7000,
+			activation:     1000,
+			provingPeriod:  2880,
+			wantTarget:     1000,
 			wantResolvable: true,
 		},
 		{

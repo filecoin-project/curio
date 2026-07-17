@@ -56,12 +56,12 @@ func TestRailNeedsSettlement(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "fully settled terminated rail does not need work",
+			name: "terminated rail at end epoch still needs finalization",
 			rail: PaymentsRailView{
 				SettledUpTo: big.NewInt(200),
 				EndEpoch:    big.NewInt(200),
 			},
-			want: false,
+			want: true,
 		},
 		{
 			name: "active rail due after settlement interval",
@@ -93,6 +93,59 @@ func TestRailNeedsSettlement(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := railNeedsSettlement(tt.rail, current); got != tt.want {
 				t.Fatalf("railNeedsSettlement = %t, want %t", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsTerminatedRailFinalizationTarget(t *testing.T) {
+	tests := []struct {
+		name   string
+		rail   PaymentsRailView
+		target *big.Int
+		want   bool
+	}{
+		{
+			name: "terminated rail at end epoch",
+			rail: PaymentsRailView{
+				SettledUpTo: big.NewInt(200),
+				EndEpoch:    big.NewInt(200),
+			},
+			target: big.NewInt(200),
+			want:   true,
+		},
+		{
+			name: "terminated rail before end epoch",
+			rail: PaymentsRailView{
+				SettledUpTo: big.NewInt(100),
+				EndEpoch:    big.NewInt(200),
+			},
+			target: big.NewInt(200),
+			want:   false,
+		},
+		{
+			name: "active rail at target",
+			rail: PaymentsRailView{
+				SettledUpTo: big.NewInt(200),
+			},
+			target: big.NewInt(200),
+			want:   false,
+		},
+		{
+			name: "terminated rail with non-end target",
+			rail: PaymentsRailView{
+				SettledUpTo: big.NewInt(200),
+				EndEpoch:    big.NewInt(200),
+			},
+			target: big.NewInt(199),
+			want:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsTerminatedRailFinalizationTarget(tt.rail, tt.target); got != tt.want {
+				t.Fatalf("IsTerminatedRailFinalizationTarget = %t, want %t", got, tt.want)
 			}
 		})
 	}

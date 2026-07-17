@@ -88,7 +88,7 @@ func standardSettleTarget(rail filecoinpayment.PaymentsRailView, currentEpoch *b
 	if rail.EndEpoch != nil && rail.EndEpoch.Sign() > 0 && rail.EndEpoch.Cmp(target) < 0 {
 		target.Set(rail.EndEpoch)
 	}
-	if target.Cmp(rail.SettledUpTo) <= 0 {
+	if target.Cmp(rail.SettledUpTo) <= 0 && !filecoinpayment.IsTerminatedRailFinalizationTarget(rail, target) {
 		return nil, false
 	}
 
@@ -140,7 +140,7 @@ func pdpSettleTarget(rail filecoinpayment.PaymentsRailView, currentEpoch, activa
 		}
 	}
 
-	if target.Cmp(rail.SettledUpTo) <= 0 {
+	if target.Cmp(rail.SettledUpTo) <= 0 && !filecoinpayment.IsTerminatedRailFinalizationTarget(rail, target) {
 		return nil, false
 	}
 
