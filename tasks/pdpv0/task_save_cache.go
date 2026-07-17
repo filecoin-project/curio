@@ -16,7 +16,6 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
-	"github.com/filecoin-project/curio/lib/cachedreader"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/tasks/tasknames"
@@ -35,11 +34,11 @@ const MaxRawSizeForSkip = MinSizeForCache * 127 / 128
 
 type TaskPDPSaveCache struct {
 	db  *harmonydb.DB
-	cpr *cachedreader.CachedPieceReader
-	idx *indexstore.IndexStore
+	cpr PieceReader
+	idx ProofCacheStore
 }
 
-func NewTaskPDPSaveCache(db *harmonydb.DB, cpr *cachedreader.CachedPieceReader, idx *indexstore.IndexStore) *TaskPDPSaveCache {
+func NewTaskPDPSaveCache(db *harmonydb.DB, cpr PieceReader, idx ProofCacheStore) *TaskPDPSaveCache {
 	return &TaskPDPSaveCache{
 		db:  db,
 		cpr: cpr,

@@ -470,7 +470,7 @@ func (a *WebRPC) FSRegister(ctx context.Context, name, description, location str
 		CapacityTiB:              big.NewInt(capacityTiB),
 	}
 
-	err = contract.FSRegister(ctx, a.Deps.DB, a.Deps.Chain, eclient, name, description, offering, nil)
+	err = contract.FSRegister(ctx, a.Deps.DB, eclient, name, description, offering, nil)
 	if err != nil {
 		return xerrors.Errorf("failed to register storage provider with service contract: %w", err)
 	}
