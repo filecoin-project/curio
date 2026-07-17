@@ -15,6 +15,9 @@ var knownErrorClassifiers = []errorClassifier{
 	{name: "retry same proving period", fn: IsRetrySameProvingPeriodError},
 	{name: "insufficient challenge delay", fn: IsInsufficientChallengeDelayError},
 	{name: "skip current proving period", fn: IsSkipCurrentProvingPeriodError},
+	{name: "next proving period already called", fn: IsNextProvingPeriodAlreadyCalledError},
+	{name: "proving period not initialized", fn: IsProvingPeriodNotInitializedError},
+	{name: "next proving period empty dataset", fn: IsNextProvingPeriodEmptyDatasetError},
 	{name: "refresh proving state", fn: IsRefreshProvingStateError},
 	{name: "unexpected proving invariant", fn: IsUnexpectedProvingInvariantError},
 	{name: "FWSS proving not started", fn: IsFWSSProvingNotStartedError},
@@ -78,9 +81,19 @@ func TestKnownErrorClassifiers(t *testing.T) {
 			wantClassifier: "skip current proving period",
 		},
 		{
-			name:           "FWSS NextProvingPeriodAlreadyCalled skips current proving period",
+			name:           "FWSS NextProvingPeriodAlreadyCalled is PP-only",
 			err:            selectorRevert(contractErrorSelector(ErrFWSSNextProvingPeriodAlreadyCalled)),
-			wantClassifier: "skip current proving period",
+			wantClassifier: "next proving period already called",
+		},
+		{
+			name:           "FWSS ProvingPeriodNotInitialized is PP preflight reset",
+			err:            selectorRevert(contractErrorSelector(ErrFWSSProvingPeriodNotInitialized)),
+			wantClassifier: "proving period not initialized",
+		},
+		{
+			name:           "PDPVerifier empty dataset string stops next proving period",
+			err:            reasonRevert(provingRevertNoLeavesForProvingPeriod),
+			wantClassifier: "next proving period empty dataset",
 		},
 		{
 			name:           "PDPVerifier no challenge scheduled string skips current proving period",
@@ -93,9 +106,9 @@ func TestKnownErrorClassifiers(t *testing.T) {
 			wantClassifier: "refresh proving state",
 		},
 		{
-			name:           "PDPVerifier leaf index string refreshes proving state",
+			name:           "PDPVerifier leaf index string is unexpected invariant",
 			err:            reasonRevert(provingRevertLeafIndexOutOfBounds),
-			wantClassifier: "refresh proving state",
+			wantClassifier: "unexpected proving invariant",
 		},
 		{
 			name:           "PDPVerifier ExcessiveChallengeDelay is unexpected invariant",
@@ -128,7 +141,7 @@ func TestKnownErrorClassifiers(t *testing.T) {
 			wantClassifier: "proof generation failure",
 		},
 		{
-			name:           "PDPVerifier DataSetNotFound is deletion cleanup signal",
+			name:           "PDPVerifier DataSetNotFound has its own category",
 			err:            selectorRevert(contractErrorSelector(ErrPDPVerifierDataSetNotFound)),
 			wantClassifier: "PDPVerifier data set not found",
 		},

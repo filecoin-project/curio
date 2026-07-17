@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"strings"
 	"time"
 
 	"github.com/ethereum/go-ethereum/core/types"
@@ -72,7 +71,6 @@ func NewNextProvingPeriodTask(db *harmonydb.DB, ethClient ethchain.EthClient, fi
                 WHERE challenge_request_task_id IS NULL
                   AND (prove_at_epoch + challenge_window) <= $1
                   AND unrecoverable_proving_failure_epoch IS NULL
-                  AND (next_prove_attempt_at IS NULL OR next_prove_attempt_at <= $1)
 	            `, currentHeight)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			_ = al.EmitEvent(ctx, curioalerting.AlertEvent{
@@ -107,27 +105,6 @@ func NewNextProvingPeriodTask(db *harmonydb.DB, ethClient ethchain.EthClient, fi
 	return n
 }
 
-// resetDatasetToInitPP resets a dataset so that InitProvingPeriodTask picks it up.
-// This is only appropriate for datasets whose on-chain proving period was never
-// initialized (e.g. ProvingPeriodNotInitialized error from the contract). InitPP
-// computes a fresh challenge window from config.InitChallengeWindowStart, which is
-// only valid for first-time initialization.
-func resetDatasetToInitPP(ctx context.Context, db *harmonydb.DB, dataSetId int64) error {
-	log.Infow("resetting dataset to init proving period state", "dataSetId", dataSetId)
-	_, err := db.Exec(ctx, `
-             UPDATE pdp_data_sets
-             SET challenge_request_msg_hash = NULL,
-                     prove_at_epoch = NULL,
-                     init_ready = TRUE,
-                     prev_challenge_request_epoch = NULL
-             WHERE id = $1
-     `, dataSetId)
-	if err != nil {
-		return xerrors.Errorf("failed to reset dataset to init state: %w", err)
-	}
-	return nil
-}
-
 func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	ctx := context.Background()
 	// Select the data set where challenge_request_task_id = taskID
@@ -159,9 +136,17 @@ func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() 
 		return false, xerrors.Errorf("failed to instantiate PDPVerifier contract: %w", err)
 	}
 
+	// Preflight handlers need the current height when a contract lookup proves
+	// the dataset is already terminal.
+	ts, err := n.fil.ChainHead(ctx)
+	if err != nil {
+		return false, xerrors.Errorf("failed to get chain head: %w", err)
+	}
+	currentHeight := int64(ts.Height())
+
 	listenerAddr, err := pdpVerifier.GetDataSetListener(contract.EthCallOpts(ctx), big.NewInt(dataSetId))
 	if err != nil {
-		return false, xerrors.Errorf("failed to get listener address for data set %d: %w", dataSetId, err)
+		return n.handleNextProvingPeriodPreflightError(ctx, dataSetId, currentHeight, xerrors.Errorf("failed to get listener address for data set %d: %w", dataSetId, err))
 	}
 
 	// Get the proving schedule from the listener (handles view contract indirection)
@@ -173,20 +158,12 @@ func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() 
 	// In case of contract migration update db schema with latest proving schedule
 	err = n.refreshProvingPeriod(ctx, dataSetId, provingSchedule)
 	if err != nil {
-		return false, xerrors.Errorf("failed to refresh proving period: %w", err)
+		return n.handleNextProvingPeriodPreflightError(ctx, dataSetId, currentHeight, xerrors.Errorf("failed to refresh proving period: %w", err))
 	}
 
 	next_prove_at, err := provingSchedule.NextPDPChallengeWindowStart(contract.EthCallOpts(ctx), big.NewInt(dataSetId))
 	if err != nil {
-		// not my favourite way to handle this but pragmatic
-		// for some reason we are in a proving loop running but it is not initialized
-		if strings.Contains(err.Error(), "0x999010d5") { // Error.ProvingPeriodNotInitialized
-			if err := resetDatasetToInitPP(ctx, n.db, dataSetId); err != nil {
-				return false, xerrors.Errorf("failed to reset to init: %w", err)
-			}
-			return true, nil // true as this task is done
-		}
-		return false, xerrors.Errorf("failed to get next challenge window start: %w", err)
+		return n.handleNextProvingPeriodPreflightError(ctx, dataSetId, currentHeight, xerrors.Errorf("failed to get next challenge window start: %w", err))
 	}
 
 	// Instantiate the PDPVerifier contract
@@ -221,22 +198,15 @@ func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() 
 
 	fromAddress, _, err := pdpVerifier.GetDataSetStorageProvider(contract.EthCallOpts(ctx), big.NewInt(dataSetId))
 	if err != nil {
-		return false, xerrors.Errorf("failed to get default sender address: %w", err)
-	}
-
-	// Get the current tipset
-	ts, err := n.fil.ChainHead(ctx)
-	if err != nil {
-		return false, xerrors.Errorf("failed to get chain head: %w", err)
+		return n.handleNextProvingPeriodPreflightError(ctx, dataSetId, currentHeight, xerrors.Errorf("failed to get default sender address: %w", err))
 	}
 
 	// Send the transaction
 	reason := "pdp-proving-period"
 	txHash, sendErr := n.sender.Send(ctx, fromAddress, txEth, reason)
 	if sendErr != nil {
-		currentHeight := int64(ts.Height())
 		comm, err := n.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
-			handleErr := HandleProvingSendError(ctx, tx, n.ethClient, n.al, dataSetId, currentHeight, sendErr, contractErrorSourceNextPP)
+			handleErr := handleNextProvingPeriodSendError(ctx, tx, n.ethClient, n.al, alertNameNextPP, dataSetId, currentHeight, sendErr)
 			if handleErr != nil {
 				return false, xerrors.Errorf("failed to handle proving send error: %w", handleErr)
 			}
@@ -435,3 +405,203 @@ func (n *NextProvingPeriodTask) Adder(taskFunc harmonytask.AddTaskFunc) {
 }
 
 var _ = harmonytask.Reg(&NextProvingPeriodTask{})
+
+// resetDatasetToInitPP resets a dataset so that InitProvingPeriodTask picks it up.
+// This is only appropriate for datasets whose on-chain proving period was never
+// initialized (e.g. ProvingPeriodNotInitialized error from the contract). InitPP
+// computes a fresh challenge window from config.InitChallengeWindowStart, which is
+// only valid for first-time initialization.
+func resetDatasetToInitPP(ctx context.Context, db *harmonydb.DB, dataSetId int64) error {
+	log.Infow("resetting dataset to init proving period state", "dataSetId", dataSetId)
+	_, err := db.Exec(ctx, `
+             UPDATE pdp_data_sets
+             SET challenge_request_msg_hash = NULL,
+                     prove_at_epoch = NULL,
+                     init_ready = TRUE,
+                     prev_challenge_request_epoch = NULL
+             WHERE id = $1
+     `, dataSetId)
+	if err != nil {
+		return xerrors.Errorf("failed to reset dataset to init state: %w", err)
+	}
+	return nil
+}
+
+// disableProvingForEmptyDataset clears the local proving schedule for datasets
+// that cannot start another proving period because PDPVerifier has no leaves to
+// challenge. New piece-addition flow is responsible for setting init_ready back
+// to true when the dataset has proving work again.
+func disableProvingForEmptyDataset(tx *harmonydb.Tx, dataSetId int64) error {
+	_, err := tx.Exec(`
+		UPDATE pdp_data_sets
+		SET challenge_request_msg_hash = NULL,
+			prove_at_epoch = NULL,
+			init_ready = FALSE,
+			prev_challenge_request_epoch = NULL
+		WHERE id = $1
+	`, dataSetId)
+	if err != nil {
+		return xerrors.Errorf("failed to disable proving: %w", err)
+	}
+	return nil
+}
+
+var getPDPVerifierNextChallengeEpoch = func(ctx context.Context, ethClient ethchain.EthClient, dataSetId int64) (*big.Int, error) {
+	pdpVerifier, err := contract.NewPDPVerifier(contract.ContractAddresses().PDPVerifier, ethClient)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to instantiate PDPVerifier: %w", err)
+	}
+
+	challengeEpoch, err := pdpVerifier.GetNextChallengeEpoch(contract.EthCallOpts(ctx), big.NewInt(dataSetId))
+	if err != nil {
+		return nil, xerrors.Errorf("failed to get next challenge epoch: %w", err)
+	}
+	return challengeEpoch, nil
+}
+
+// skipCurrentOnChainProvingPeriod reconciles a dataset when initPP/nextPP learns
+// that the contract has already scheduled the next challenge period.
+//
+// How: read PDPVerifier's authoritative next challenge epoch, clear the local
+// challenge_request_msg_hash so the prove watcher cannot submit for this period,
+// and store that on-chain epoch in prove_at_epoch. The nextPP watcher already
+// schedules the following period after prove_at_epoch+challenge_window, so this
+// leaves Curio in the normal path for the next period without inventing local
+// message_waits_eth state.
+//
+// Why dropping this period is better: Curio proves only after its own
+// challenge_request_msg_hash has a successful message_waits_eth row. If that
+// local confirmation is missing, fabricating a hash/wait row would make Curio
+// prove against state it did not confirm. Retrying initPP/nextPP can also loop
+// on an already-applied period transition. Skipping one already-scheduled period
+// avoids both cases and lets the existing scheduler recover at the next window.
+func skipCurrentOnChainProvingPeriod(ctx context.Context, tx *harmonydb.Tx, ethClient ethchain.EthClient, dataSetId int64, currentHeight int64) error {
+	challengeEpoch, err := getPDPVerifierNextChallengeEpoch(ctx, ethClient, dataSetId)
+	if err != nil {
+		return err
+	}
+	if challengeEpoch == nil {
+		return xerrors.Errorf("next challenge epoch is nil for data set %d", dataSetId)
+	}
+	if challengeEpoch.Sign() == 0 {
+		return xerrors.Errorf("data set %d has no scheduled challenge epoch on-chain", dataSetId)
+	}
+	if !challengeEpoch.IsInt64() {
+		return xerrors.Errorf("next challenge epoch %s does not fit in int64 for data set %d", challengeEpoch.String(), dataSetId)
+	}
+
+	// prev_challenge_request_epoch normally records the epoch where Curio sent
+	// initPP/nextPP. In this recovery path that exact send epoch is not useful,
+	// because the local challenge_request_msg_hash is intentionally dropped; use
+	// the reconciliation height as a marker while prove_at_epoch drives scheduling.
+	affected, err := tx.Exec(`
+			UPDATE pdp_data_sets
+			SET challenge_request_msg_hash = NULL,
+				prev_challenge_request_epoch = $2,
+				prove_at_epoch = $3
+			WHERE id = $1
+			  AND unrecoverable_proving_failure_epoch IS NULL
+	`, dataSetId, currentHeight, challengeEpoch.Int64())
+	if err != nil {
+		return xerrors.Errorf("failed to skip current proving period: %w", err)
+	}
+	if affected != 1 {
+		return xerrors.Errorf("expected to skip current proving period for 1 data set, updated %d", affected)
+	}
+
+	return nil
+}
+
+func (n *NextProvingPeriodTask) handleNextProvingPeriodPreflightError(ctx context.Context, dataSetId int64, currentHeight int64, err error) (bool, error) {
+	switch {
+	case IsUnrecoverableError(err), IsPDPVerifierDataSetNotFound(err):
+		committed, handleErr := n.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+			if err := markDatasetProvingUnrecoverableAndTerminate(tx, dataSetId, currentHeight); err != nil {
+				return false, err
+			}
+			return true, nil
+		}, harmonydb.OptionRetry())
+		if handleErr != nil {
+			return false, xerrors.Errorf("failed to handle terminal proving period preflight error: %w", handleErr)
+		}
+		if !committed {
+			return false, xerrors.Errorf("failed to commit terminal proving period preflight error handling")
+		}
+		log.Warnw("Terminal proving period preflight error, stopping proving attempts",
+			"dataSetId", dataSetId, "height", currentHeight, "error", err)
+		return true, nil
+	case IsProvingPeriodNotInitializedError(err):
+		if err := resetDatasetToInitPP(ctx, n.db, dataSetId); err != nil {
+			return false, xerrors.Errorf("failed to reset dataset to init proving period state: %w", err)
+		}
+		return true, nil
+	case IsUnexpectedProvingInvariantError(err):
+		emitProvingSendErrorAlert(n.al, alertNameNextPP, err)
+		return false, err
+	case IsContractRevert(err):
+		emitProvingSendErrorAlert(n.al, alertNameNextPP, err)
+		return false, err
+	default:
+		return false, err
+	}
+}
+
+func handleNextProvingPeriodSendError(ctx context.Context, tx *harmonydb.Tx, ethClient ethchain.EthClient, al curioalerting.AlertingInterface, alertSubsystem string, dataSetId int64, currentHeight int64, sendErr error) error {
+	switch {
+	case IsInsufficientChallengeDelayError(sendErr):
+		// The challenge epoch was too close to the current block. Retry the
+		// task so it recomputes challenge state and calldata instead of
+		// resending the same transaction.
+		emitProvingSendErrorAlert(al, alertSubsystem, sendErr)
+		log.Warnw("Retrying proving period scheduling after insufficient challenge delay",
+			"dataSetId", dataSetId, "subsystem", alertSubsystem, "height", currentHeight, "error", sendErr)
+		return sendErr
+	case IsUnrecoverableError(sendErr):
+		// FWSS payment/dataset state says proving cannot recover. Mark local
+		// state terminal and schedule FWSS termination instead of retrying.
+		if err := markDatasetProvingUnrecoverableAndTerminate(tx, dataSetId, currentHeight); err != nil {
+			return err
+		}
+		log.Warnw("Dataset unrecoverable, stopping proving period scheduling",
+			"dataSetId", dataSetId, "subsystem", alertSubsystem, "error", sendErr)
+		return nil
+	case IsNextProvingPeriodAlreadyCalledError(sendErr):
+		// The chain has already advanced the proving period, but Curio cannot
+		// safely prove it without its own confirmed challenge request message.
+		// Reconcile local schedule state from chain and complete this task so
+		// the nextPP watcher can pick up after this proving window closes.
+		log.Warnw("Proving period scheduling hit an already-applied period transition",
+			"dataSetId", dataSetId, "subsystem", alertSubsystem, "height", currentHeight, "error", sendErr)
+		if err := skipCurrentOnChainProvingPeriod(ctx, tx, ethClient, dataSetId, currentHeight); err != nil {
+			return xerrors.Errorf("failed to skip current on-chain proving period: %w", err)
+		}
+		return nil
+	case IsNextProvingPeriodEmptyDatasetError(sendErr):
+		// PDPVerifier cannot start a new proving period without leaves. Disable
+		// local proving until a later piece-addition path makes the dataset
+		// eligible again.
+		if err := disableProvingForEmptyDataset(tx, dataSetId); err != nil {
+			return err
+		}
+		log.Warnw("Stopping proving period scheduling for empty dataset",
+			"dataSetId", dataSetId, "subsystem", alertSubsystem, "height", currentHeight, "error", sendErr)
+		return nil
+	case IsRefreshProvingStateError(sendErr):
+		// The selected challenge epoch is no longer valid. Retry the task so it
+		// recomputes the proving schedule from chain/listener state.
+		return sendErr
+	case IsUnexpectedProvingInvariantError(sendErr):
+		// Curio should not hit these in the normal initPP/nextPP path. Alert and
+		// retry without mutating proving state so the condition can be investigated.
+		emitProvingSendErrorAlert(al, alertSubsystem, sendErr)
+		return sendErr
+	case IsContractRevert(sendErr):
+		// Fallback for unclassified contract reverts: alert and let Harmony
+		// retry without mutating proving state.
+		emitProvingSendErrorAlert(al, alertSubsystem, sendErr)
+		return sendErr
+	default:
+		// Non-contract send failures are transport/sender/task errors.
+		return sendErr
+	}
+}

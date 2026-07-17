@@ -66,8 +66,6 @@ CREATE TABLE pdp_data_sets (
     prove_at_epoch BIGINT,
     init_ready BOOLEAN NOT NULL DEFAULT FALSE,
     unrecoverable_proving_failure_epoch BIGINT,
-    next_prove_attempt_at BIGINT,
-    consecutive_prove_failures INT NOT NULL DEFAULT 0,
     ...
 );
 ```
@@ -95,11 +93,11 @@ From the PDPVerifier's perspective when PDP datasets are initialized they are no
 
 Curio waits for the `init_ready` flag to be set for a data set table entry.  This is triggered via the `DataSetWatch` chain scheduler callback when the first piece is added to the dataset.  Then the task executes essentially the same logic as that described above in the _Next Proving Period Task_ section.  The only significant difference is the init task's reference to the `initChallengeWindowStart` parameter in service contract's `getPDPConfig()` return type (as per `PDPVerifier`'s `IPDPProvingSchedule` interface).
 
-## Retries and unrecoverable errors 
+## Retries and unrecoverable errors
 
-Curio has some robustness against failures of `provePossession` and `nextProvingPeriod` calls.  The strategy is to retry with exponential backoff any failures in these "proving clock methods" until a certain threshold of failure is reached.  This threshold is reached after `MaxConsecutiveFailures = 5` retries.  The pdp_data_set table counts successive backoff attempts with the consecutive_prove_failures variable.  When this value is too high and a failure of one of the proving tasks occurs the data set is marked as unrecoverably failed and scheduled for deletion.  
+Curio classifies contract reverts from `provePossession` and `nextProvingPeriod` before deciding how to proceed. Known terminal proving errors mark `unrecoverable_proving_failure_epoch` and schedule FWSS termination. Non-terminal contract reverts are handled by their specific category or surfaced through alerting while Harmony task retry controls subsequent attempts.
 
-To ensure that this retry behavior is achieved scheduling of the three tasks under discussion involves checking the associated retry state for data set table entries.  In particular all three tasks ensure that the `unrecoverable_proving_failure_epoch` is unset and the `next_prove_attempt_at` is either NULL or in the past in addition to the other scheduling conditions already discussed.
+Scheduling of the three proving-clock tasks only checks that `unrecoverable_proving_failure_epoch` is unset in addition to the normal scheduling conditions already described.
 
 
 # Dataset Termination

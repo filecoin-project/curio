@@ -26,6 +26,7 @@ var (
 	ErrFWSSProvingPeriodPassed            abi.Error
 	ErrFWSSInvalidChallengeEpoch          abi.Error
 	ErrFWSSNextProvingPeriodAlreadyCalled abi.Error
+	ErrFWSSProvingPeriodNotInitialized    abi.Error
 
 	ErrPDPVerifierDataSetNotLive             abi.Error
 	ErrPDPVerifierInsufficientChallengeDelay abi.Error
@@ -38,15 +39,15 @@ var (
 	ErrFWSSInvalidChallengeCount          abi.Error
 )
 
-// PDP provePossession revert reason strings. These are Solidity
-// require(..., "reason") failures, so they do not have ABI custom-error
-// selectors.
+// PDPVerifier proving-flow revert reason strings. These are Solidity
+// require(..., "reason") failures, so they do not have ABI custom-error selectors.
 const (
 	provingRevertOnlyStorageProviderCanProve = "Only the storage provider can prove possession"
 	provingRevertPrematureProof              = "premature proof"
 	provingRevertNoChallengeScheduled        = "no challenge scheduled"
 	provingRevertLeafIndexOutOfBounds        = "Leaf index out of bounds"
 	provingRevertProofDidNotVerify           = "proof did not verify"
+	provingRevertNoLeavesForProvingPeriod    = "can only start proving once leaves are added"
 )
 
 func init() {
@@ -143,6 +144,17 @@ func init() {
 		panic("FWSS ABI missing NextProvingPeriodAlreadyCalled error")
 	}
 	ErrFWSSNextProvingPeriodAlreadyCalled = nextProvingPeriodAlreadyCalled
+
+	parsedFWSSStateView, err := FWSS.FilecoinWarmStorageServiceStateViewMetaData.GetAbi()
+	if err != nil {
+		panic("failed to parse FWSS state view ABI: " + err.Error())
+	}
+
+	provingPeriodNotInitialized, ok := parsedFWSSStateView.Errors["ProvingPeriodNotInitialized"]
+	if !ok {
+		panic("FWSS state view ABI missing ProvingPeriodNotInitialized error")
+	}
+	ErrFWSSProvingPeriodNotInitialized = provingPeriodNotInitialized
 }
 
 func contractErrorSelector(errDef abi.Error) string {
@@ -184,8 +196,8 @@ func IsInsufficientChallengeDelayError(err error) bool {
 	return strings.Contains(strings.ToLower(err.Error()), contractErrorSelector(ErrPDPVerifierInsufficientChallengeDelay))
 }
 
-// IsSkipCurrentProvingPeriodError returns true when the current proving-period
-// action should stop and let later scheduling pick up the next valid period.
+// IsSkipCurrentProvingPeriodError returns true when provePossession no longer
+// needs to submit a proof for the current proving period.
 func IsSkipCurrentProvingPeriodError(err error) bool {
 	if err == nil {
 		return false
@@ -193,19 +205,45 @@ func IsSkipCurrentProvingPeriodError(err error) bool {
 	errStr := strings.ToLower(err.Error())
 	return strings.Contains(errStr, contractErrorSelector(ErrFWSSProofAlreadySubmitted)) ||
 		strings.Contains(errStr, contractErrorSelector(ErrFWSSProvingPeriodPassed)) ||
-		strings.Contains(errStr, contractErrorSelector(ErrFWSSNextProvingPeriodAlreadyCalled)) ||
 		strings.Contains(errStr, strings.ToLower(provingRevertNoChallengeScheduled))
 }
 
-// IsRefreshProvingStateError returns true when local/on-chain proving state
-// should be refreshed before trying the proving workflow again.
+// IsNextProvingPeriodAlreadyCalledError returns true when initPP/nextPP learns
+// that FWSS has already advanced the proving period.
+func IsNextProvingPeriodAlreadyCalledError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), contractErrorSelector(ErrFWSSNextProvingPeriodAlreadyCalled))
+}
+
+// IsProvingPeriodNotInitializedError returns true when nextPP discovers local
+// state has a prove schedule but FWSS has no initialized proving period.
+func IsProvingPeriodNotInitializedError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), contractErrorSelector(ErrFWSSProvingPeriodNotInitialized))
+}
+
+// IsNextProvingPeriodEmptyDatasetError returns true when PDPVerifier refuses to
+// start the next proving period because the current proving set has no leaves.
+func IsNextProvingPeriodEmptyDatasetError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), strings.ToLower(provingRevertNoLeavesForProvingPeriod))
+}
+
+// IsRefreshProvingStateError returns true when initPP/nextPP selected a
+// challenge epoch that FWSS no longer accepts. The scheduler should retry so it
+// recomputes the proving-period calldata from fresh chain/listener state.
 func IsRefreshProvingStateError(err error) bool {
 	if err == nil {
 		return false
 	}
 	errStr := strings.ToLower(err.Error())
-	return strings.Contains(errStr, contractErrorSelector(ErrFWSSInvalidChallengeEpoch)) ||
-		strings.Contains(errStr, strings.ToLower(provingRevertLeafIndexOutOfBounds))
+	return strings.Contains(errStr, contractErrorSelector(ErrFWSSInvalidChallengeEpoch))
 }
 
 // IsUnexpectedProvingInvariantError returns true for contract reverts that are
@@ -219,6 +257,9 @@ func IsRefreshProvingStateError(err error) bool {
 //     should be invoked by PDPVerifier, not Curio.
 //   - InvalidChallengeCount: Curio generates contract.NumChallenges proofs,
 //     which should match FWSS CHALLENGES_PER_PROOF.
+//   - Leaf index out of bounds: Curio chooses challenges from PDPVerifier's
+//     challenge range before prove send; seeing this during prove send indicates
+//     verifier state drift, not normal proving-state refresh.
 func IsUnexpectedProvingInvariantError(err error) bool {
 	if err == nil {
 		return false
@@ -226,15 +267,16 @@ func IsUnexpectedProvingInvariantError(err error) bool {
 	errStr := strings.ToLower(err.Error())
 	return strings.Contains(errStr, contractErrorSelector(ErrPDPVerifierExcessiveChallengeDelay)) ||
 		strings.Contains(errStr, contractErrorSelector(ErrFWSSOnlyPDPVerifierAllowed)) ||
-		strings.Contains(errStr, contractErrorSelector(ErrFWSSInvalidChallengeCount))
+		strings.Contains(errStr, contractErrorSelector(ErrFWSSInvalidChallengeCount)) ||
+		strings.Contains(errStr, strings.ToLower(provingRevertLeafIndexOutOfBounds))
 }
 
 // IsFWSSProvingNotStartedError returns true when PDPVerifier had a non-zero
 // challenge epoch and called FWSS possessionProven, but FWSS had no active
 // proving deadline. This indicates local/PDPVerifier/FWSS proving state
-// divergence, not a timing retry or dataset termination. The handler should
-// stop the current proof attempt, clear stale local proving state, and
-// re-establish the proving schedule from chain state before proving again.
+// divergence, not a timing retry or dataset termination. The prove handler
+// should complete the current proof attempt and reset the dataset to initPP
+// scheduling so Curio re-establishes a proving deadline before proving again.
 func IsFWSSProvingNotStartedError(err error) bool {
 	if err == nil {
 		return false
@@ -261,9 +303,9 @@ func IsProofGenerationFailureError(err error) bool {
 	return strings.Contains(strings.ToLower(err.Error()), strings.ToLower(provingRevertProofDidNotVerify))
 }
 
-// IsPDPVerifierDataSetNotFound returns true if PDPVerifier reports that a
-// data set no longer exists. In the deletion pipeline this means on-chain
-// cleanup has already finalized and local cleanup can proceed.
+// IsPDPVerifierDataSetNotFound returns true if PDPVerifier reports that a data
+// set no longer exists. In prove preflight this is terminal for local proving;
+// in the deletion pipeline it means on-chain cleanup has finalized.
 func IsPDPVerifierDataSetNotFound(err error) bool {
 	if err == nil {
 		return false
