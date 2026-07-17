@@ -907,8 +907,10 @@ func (p *PDPService) handleGetPieceAdditionStatus(w http.ResponseWriter, r *http
 		}
 	}
 
-	if confirmedPieceIds != nil && len(confirmedPieceIds) != len(pieceAdds) {
-		msg := fmt.Sprintf("Mismatch in confirmed piece IDs count (%d) vs number of pieces added (%d) for tx %s", len(confirmedPieceIds), len(pieceAdds), txHash)
+	// pieceAdds has one row per sub-piece; compare confirmed piece IDs against
+	// the number of distinct pieces, not sub-piece rows.
+	if confirmedPieceIds != nil && len(confirmedPieceIds) != len(uniquePieceMap) {
+		msg := fmt.Sprintf("Mismatch in confirmed piece IDs count (%d) vs number of pieces added (%d) for tx %s", len(confirmedPieceIds), len(uniquePieceMap), txHash)
 		log.Error(msg)
 		http.Error(w, msg, http.StatusInternalServerError)
 		return
