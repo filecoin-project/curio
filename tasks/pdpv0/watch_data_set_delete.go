@@ -252,7 +252,7 @@ func cleanupFinalizedDataSet(ctx context.Context, db *harmonydb.DB, dataSetID in
 					pdp_data_set_piece_update (adjusts)
 				update pdp_piecerefs.data_set_refcount accordingly, so refcounts drop when pieces are removed.
 
-			pdp_pieceRefs will be cleaned up by watch_piece_delete.go process. It will also remove index entries and publish IPNI announcements.
+			pdp_pieceRefs will be cleaned up by watch_proving_period.go process. It will also remove index entries and publish IPNI announcements.
 		*/
 
 		_, err = tx.Exec(`DELETE FROM pdp_data_sets WHERE id = $1`, dataSetID)

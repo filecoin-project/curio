@@ -78,6 +78,7 @@ func buildPDPTasks(ctx context.Context, d *Deps, chainSched *chainsched.CurioCha
 	pay.NewSettleWatcher(w)
 	pdpv0.NewDataSetDeleteWatcher(w)
 	pdpv0.NewCleanupPiecesWatcher(w)
+	pdpv0.NewProvingPeriodWatcher(w)
 	pdpv0.NewTerminateServiceWatcher(w)
 
 	tasks = append(tasks,
