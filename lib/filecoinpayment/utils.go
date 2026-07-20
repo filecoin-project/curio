@@ -12,7 +12,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	logging "github.com/ipfs/go-log/v2"
-	"github.com/samber/lo"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-state-types/builtin"
@@ -26,12 +25,17 @@ import (
 
 var log = logging.Logger("filecoin-pay")
 
+// SettleTargetResolver returns the highest epoch a rail should settle to.
+// ok=false means the rail is valid but should not be settled in this pass.
+// Implementation must ensure that PaymentsRailView is not mutated
+type SettleTargetResolver func(ctx context.Context, railID *big.Int, rail PaymentsRailView, currentEpoch *big.Int) (target *big.Int, ok bool, err error)
+
 // gasOverestimation is applied on top of the eth_estimateGas result when
 // sending settleRail transactions, since it has been observed to fall short
 // at execution time and burn the whole gas limit.
 const gasOverestimation = 1.1
 
-func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, sender *message.SenderETH, from common.Address, payees []common.Address, operators []common.Address, al curioalerting.AlertingInterface, system, subsystem string) error {
+func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, sender *message.SenderETH, from common.Address, payees []common.Address, resolvers map[common.Address]SettleTargetResolver, al curioalerting.AlertingInterface, system, subsystem string) error {
 	paymentContractAddr, err := PaymentContractAddress()
 	if err != nil {
 		return fmt.Errorf("failed to get payment contract address: %w", err)
@@ -61,12 +65,7 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchai
 		}
 
 		for _, r := range rails.Results {
-			if !r.IsTerminated {
-				railIds = append(railIds, r.RailId)
-			}
-
-			// If rail's settlement deadline (endEpoch) passed less than 7 days ago, keep trying to settle it
-			if uint64(r.EndEpoch.Int64()) > current-(builtin.EpochsInDay*7) {
+			if shouldInspectRailForSettlement(r) {
 				railIds = append(railIds, r.RailId)
 			}
 		}
@@ -76,52 +75,49 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchai
 	type toSettleRail struct {
 		railId      *big.Int
 		settledUpTo *big.Int
+		target      *big.Int
 	}
 
 	var toSettle []toSettleRail
+	currentEpoch := new(big.Int).SetUint64(current)
 	for _, rail := range railIds {
+		railID := new(big.Int).Set(rail)
 		view, err := payment.GetRail(&bind.CallOpts{Context: ctx}, rail)
 		if err != nil {
 			return xerrors.Errorf("failed to get rail: %w", err)
 		}
 
-		// Let's only settle rail if it's our operator i.e., PDP related operator
-		if !lo.Contains(operators, view.Operator) {
+		resolver, ok := resolvers[view.Operator]
+		if !ok {
 			continue
 		}
 
-		// If rail is terminated but not settled yet, settle it
-		if view.EndEpoch.Int64() > 0 {
-			if view.SettledUpTo.Cmp(view.EndEpoch) == -1 {
-				toSettle = append(toSettle, toSettleRail{
-					railId:      rail,
-					settledUpTo: view.SettledUpTo,
-				})
-			}
-		} else {
-			// could be a constant, or a config variable this is the important tunable
-			settleInterval := big.NewInt(builtin.EpochsInDay * 7)
-
-			gracedLockup := new(big.Int).Sub(view.LockupPeriod, big.NewInt(builtin.EpochsInDay))
-			if gracedLockup.Sign() <= 0 {
-				// special case, lockup period is <= 1 day so settle every run
-				// alternatively adjust the grace down from a day to something smaller
-				toSettle = append(toSettle, toSettleRail{
-					railId:      rail,
-					settledUpTo: view.SettledUpTo,
-				})
-				continue
-			} else if gracedLockup.Cmp(settleInterval) < 0 {
-				settleInterval = gracedLockup
-			}
-
-			nextSettle := new(big.Int).Add(view.SettledUpTo, settleInterval)
-			if nextSettle.Uint64() < current {
-				toSettle = append(toSettle, toSettleRail{
-					settledUpTo: view.SettledUpTo,
-					railId:      rail})
-			}
+		if !railNeedsSettlement(view, current) {
+			continue
 		}
+
+		target, ok, err := resolver(ctx, railID, view, new(big.Int).Set(currentEpoch))
+		if err != nil {
+			log.Errorw("failed to resolve settle target", "railID", railID.String(), "operator", view.Operator, "error", err)
+			_ = al.EmitEvent(ctx, curioalerting.AlertEvent{
+				System:    system,
+				Subsystem: subsystem,
+				Message:   fmt.Sprintf("failed to resolve settle target for rail %s: %s", railID.String(), err.Error()),
+			})
+			continue
+		}
+		if !ok || target == nil {
+			continue
+		}
+		if target.Cmp(view.SettledUpTo) <= 0 && !IsTerminatedRailFinalizationTarget(view, target) {
+			continue
+		}
+
+		toSettle = append(toSettle, toSettleRail{
+			railId:      railID,
+			settledUpTo: new(big.Int).Set(view.SettledUpTo),
+			target:      new(big.Int).Set(target),
+		})
 	}
 
 	log.Debugw("Total number of rails to be settled", "total", len(railIds), "rails", railIds)
@@ -138,13 +134,17 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchai
 
 	transactionsToSend := make(map[*types.Transaction]settleRailTx)
 	for _, detail := range toSettle {
-		settleUpTo, err := calculateSettleUpTo(ctx, pabi, &paymentContractAddr, ethClient, detail.railId, from, detail.settledUpTo, big.NewInt(int64(current)))
+		settleUpTo, err := calculateSettleUpTo(ctx, pabi, &paymentContractAddr, ethClient, detail.railId, from, detail.settledUpTo, detail.target)
 		if err != nil {
-			log.Errorf("failed to gas estimate settle transaction: %s", err)
+			if isSkippableSettleRailError(err) {
+				log.Debugw("skipping settlement after non-actionable Pay settleRail revert", "railID", detail.railId.String(), "target", detail.target.String(), "error", err)
+				continue
+			}
+			log.Errorf("failed to gas estimate settle transaction for rail %s: %s", detail.railId.String(), err.Error())
 			_ = al.EmitEvent(ctx, curioalerting.AlertEvent{
 				System:    system,
 				Subsystem: subsystem,
-				Message:   fmt.Sprintf("failed to gas estimate settle transaction: %s", err.Error()),
+				Message:   fmt.Sprintf("failed to gas estimate settle transaction for rail %s: %s", detail.railId.String(), err.Error()),
 			})
 			continue
 		}
@@ -173,11 +173,15 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchai
 	for txToSend, details := range transactionsToSend {
 		txHash, err := sender.SendWithGasOverestimate(ctx, from, txToSend, "settleRail", gasOverestimation)
 		if err != nil {
+			if isSkippableSettleRailError(err) {
+				log.Debugw("skipping settlement send after non-actionable Pay settleRail revert", "railID", details.rail, "settleUpTo", details.upTo, "error", err)
+				continue
+			}
 			log.Errorw("failed to send settle transaction", "railIDs", details.rail, "settleUpTo", details.upTo, "error", err)
 			_ = al.EmitEvent(ctx, curioalerting.AlertEvent{
 				System:    system,
 				Subsystem: subsystem,
-				Message:   fmt.Sprintf("failed to send settle transaction: %s", err.Error()),
+				Message:   fmt.Sprintf("failed to send settle transaction for railID %d: %s", details.rail, err.Error()),
 			})
 			continue
 		}
@@ -218,8 +222,83 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchai
 	return nil
 }
 
-func calculateSettleUpTo(ctx context.Context, pabi *abi.ABI, paymentContractAddr *common.Address, ethClient ethchain.EthClient, id *big.Int, from common.Address, settledUpTo, currentEpoch *big.Int) (int64, error) {
-	next := currentEpoch
+func shouldInspectRailForSettlement(rail PaymentsRailInfo) bool {
+	if !rail.IsTerminated {
+		return true
+	}
+
+	// Terminated rails must stay visible until Filecoin Pay finalizes them.
+	// The final settlement to endEpoch is what collects any remaining rate payment
+	// from lockup and releases the rail's fixed lockup accounting.
+	return rail.EndEpoch != nil && rail.EndEpoch.Sign() > 0
+}
+
+func railNeedsSettlement(rail PaymentsRailView, current uint64) bool {
+	// settledUpTo is non-null on any valid Pay rail view; nil only protects
+	// against malformed test data or a failed/manual construction path.
+	if rail.SettledUpTo == nil {
+		return false
+	}
+
+	if rail.EndEpoch != nil && rail.EndEpoch.Sign() > 0 {
+		// The equality case can still need one final settleRail call to zero the
+		// rail. Once finalized, getRail stops returning the rail.
+		return rail.SettledUpTo.Cmp(rail.EndEpoch) <= 0
+	}
+
+	return activeRailSettlementDue(rail, current)
+}
+
+// IsTerminatedRailFinalizationTarget reports whether settling to target can be
+// useful even without advancing settledUpTo. Filecoin Pay finalizes terminated
+// rails in a final settleRail call; until GetRail returns RailInactiveOrSettled,
+// a rail at settledUpTo == endEpoch may still need that call.
+func IsTerminatedRailFinalizationTarget(rail PaymentsRailView, target *big.Int) bool {
+	if rail.SettledUpTo == nil || rail.EndEpoch == nil || target == nil {
+		return false
+	}
+	if rail.EndEpoch.Sign() <= 0 {
+		return false
+	}
+
+	return rail.SettledUpTo.Cmp(rail.EndEpoch) == 0 && target.Cmp(rail.EndEpoch) == 0
+}
+
+func activeRailSettlementDue(rail PaymentsRailView, current uint64) bool {
+	if rail.LockupPeriod == nil || rail.SettledUpTo == nil {
+		return false
+	}
+
+	// Active rails are settled before the lockup period becomes the only
+	// remaining guarantee. This protects the SP from a client withdrawing funds
+	// after Filecoin Pay can no longer keep enough account lockup reserved.
+	settleInterval := big.NewInt(builtin.EpochsInDay * 7)
+
+	// Keep one day of lockup as a safety buffer. Once settlement is this close to
+	// the lockup horizon, every pass should try to settle so the SP does not rely
+	// on funds the client may soon be able to withdraw.
+	gracedLockup := new(big.Int).Sub(rail.LockupPeriod, big.NewInt(builtin.EpochsInDay))
+	if gracedLockup.Sign() <= 0 {
+		return true
+	}
+
+	// Do not wait longer than the usable lockup window. The regular interval is a
+	// batching optimization; the lockup period is the actual payment guarantee.
+	if gracedLockup.Cmp(settleInterval) < 0 {
+		settleInterval = gracedLockup
+	}
+
+	// settledUpTo is the last epoch Pay has accounted for on this rail. If the next
+	// planned settlement point is behind the chain head, this rail needs a new
+	// settle attempt.
+	nextSettle := new(big.Int).Add(rail.SettledUpTo, settleInterval)
+	return nextSettle.Cmp(new(big.Int).SetUint64(current)) < 0
+}
+
+// calculateSettleUpTo starts from the resolver-provided semantic target and
+// only lowers it when gas estimation shows the settlement would run out of gas.
+func calculateSettleUpTo(ctx context.Context, pabi *abi.ABI, paymentContractAddr *common.Address, ethClient ethchain.EthClient, id *big.Int, from common.Address, settledUpTo, targetEpoch *big.Int) (int64, error) {
+	next := new(big.Int).Set(targetEpoch)
 	for {
 		data, err := pabi.Pack("settleRail", id, next)
 		if err != nil {
