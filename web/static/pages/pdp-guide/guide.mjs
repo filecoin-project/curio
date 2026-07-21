@@ -8,7 +8,6 @@ customElements.define('pdp-guide', class PDPGuideElement extends LitElement {
         error: { type: String },
         busy: { type: String },
         importMaterial: { type: String },
-        tunnelToken: { type: String },
         registerName: { type: String },
         registerDescription: { type: String },
         registerLocation: { type: String },
@@ -213,7 +212,6 @@ customElements.define('pdp-guide', class PDPGuideElement extends LitElement {
         this.error = '';
         this.busy = '';
         this.importMaterial = '';
-        this.tunnelToken = '';
         this.registerName = '';
         this.registerDescription = '';
         this.registerLocation = '';
@@ -311,38 +309,6 @@ customElements.define('pdp-guide', class PDPGuideElement extends LitElement {
             this.importMaterial = '';
             await this.refresh();
             this.actionMessage = `Imported wallet ${address}.`;
-        } catch (err) {
-            this.actionError = err?.message || String(err);
-        } finally {
-            this.busy = '';
-        }
-    }
-
-    async configureTunnel(e) {
-        e.preventDefault();
-        this.busy = 'tunnel';
-        this.actionError = '';
-        this.actionMessage = '';
-        try {
-            const msg = await RPCCall('PDPGuideConfigureCloudflareTunnel', [this.tunnelToken.trim()]);
-            this.tunnelToken = '';
-            await this.refresh();
-            this.actionMessage = msg;
-        } catch (err) {
-            this.actionError = err?.message || String(err);
-        } finally {
-            this.busy = '';
-        }
-    }
-
-    async stopTunnel() {
-        this.busy = 'tunnel-stop';
-        this.actionError = '';
-        this.actionMessage = '';
-        try {
-            await RPCCall('PDPGuideStopCloudflareTunnel', []);
-            await this.refresh();
-            this.actionMessage = 'Cloudflare Tunnel stopped.';
         } catch (err) {
             this.actionError = err?.message || String(err);
         } finally {
@@ -470,7 +436,7 @@ customElements.define('pdp-guide', class PDPGuideElement extends LitElement {
                         Curio-PDP scans writable mounts under <span class="mono">/data</span>
                         (or <span class="mono">DATA_STORAGE</span> / <span class="mono">[Subsystems].DataPath</span>).
                     </p>
-                    <a class="btn btn-secondary btn-sm" href=${storage?.docsURL || 'https://docs.curiostorage.org/curio-pdp#storage'} target="_blank" rel="noopener">
+                    <a class="btn btn-secondary btn-sm" href="https://docs.curiostorage.org/curio-pdp#storage" target="_blank" rel="noopener">
                         Storage docs for Curio-PDP
                     </a>
                 </div>
@@ -501,47 +467,20 @@ customElements.define('pdp-guide', class PDPGuideElement extends LitElement {
                         <div class="sub-meta">${dns?.serviceURL || ''}${dns?.reachableDetail ? ` — ${dns.reachableDetail}` : ''}</div>
                     </div>
                 </li>
-                <li class="sub">
-                    <span class="check" data-state=${this.stateOf(dns?.tunnelRunning, dns?.tunnelInstalled && !dns?.tunnelRunning)} aria-hidden="true"></span>
-                    <div>
-                        <div class="sub-label">Cloudflare Tunnel (optional)</div>
-                        <div class="sub-meta">${dns?.tunnelDetail || ''}</div>
-                    </div>
-                </li>
             </ul>
-            ${dns?.suggestTunnel || dns?.tunnelRunning ? html`
+            ${dns?.suggestTunnel ? html`
                 <div class="actions">
-                    ${dns?.suggestTunnel ? html`
-                        <p class="hint">
-                            Create a Cloudflare Tunnel in the Zero Trust dashboard, configure a public hostname
-                            to this node's HTTP listen address, then paste the tunnel token below.
-                            Set <span class="mono">HTTP.DomainName</span> to that hostname in configuration.
-                        </p>
-                        <form @submit=${(e) => this.configureTunnel(e)}>
-                            <label for="tunnel-token">Cloudflare Tunnel token</label>
-                            <textarea id="tunnel-token" rows="2" .value=${this.tunnelToken}
-                                      @input=${(e) => { this.tunnelToken = e.target.value; }}
-                                      placeholder="eyJhIjoi..."></textarea>
-                            <div class="row-btns">
-                                <button class="btn btn-primary btn-sm" type="submit" ?disabled=${!!this.busy || !this.tunnelToken.trim()}>
-                                    ${this.busy === 'tunnel' ? 'Configuring…' : 'Download cloudflared & start tunnel'}
-                                </button>
-                                ${dns?.tunnelRunning ? html`
-                                    <button class="btn btn-secondary btn-sm" type="button" ?disabled=${!!this.busy}
-                                            @click=${() => this.stopTunnel()}>
-                                        ${this.busy === 'tunnel-stop' ? 'Stopping…' : 'Stop tunnel'}
-                                    </button>
-                                ` : ''}
-                            </div>
-                        </form>
-                    ` : html`
-                        <div class="row-btns">
-                            <button class="btn btn-secondary btn-sm" type="button" ?disabled=${!!this.busy}
-                                    @click=${() => this.stopTunnel()}>
-                                ${this.busy === 'tunnel-stop' ? 'Stopping…' : 'Stop tunnel'}
-                            </button>
-                        </div>
-                    `}
+                    <p class="hint">
+                        If inbound ports are blocked, a tunnel is one possible design for exposing the PDP API.
+                        Cloudflare Tunnel is an example — install and run <span class="mono">cloudflared</span>
+                        yourself, point a public hostname at this node's HTTP listen address, and set
+                        <span class="mono">HTTP.DomainName</span> to that hostname.
+                    </p>
+                    <a class="btn btn-secondary btn-sm"
+                       href="https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/"
+                       target="_blank" rel="noopener">
+                        Cloudflare Tunnel documentation
+                    </a>
                 </div>
             ` : ''}
         `);

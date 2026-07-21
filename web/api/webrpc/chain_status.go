@@ -27,38 +27,36 @@ func rollupSyncStatus(states []RpcInfo) string {
 	if len(states) == 0 {
 		return "unknown"
 	}
-
 	reachable := 0
-	allOk := true
+	anyUnreachable := false
 	worst := "ok"
-
 	for _, s := range states {
 		if !s.Reachable {
-			worst = "unreachable"
+			anyUnreachable = true
 			continue
 		}
 		reachable++
-		if s.SyncState != "ok" {
-			allOk = false
-			switch {
-			case strings.HasPrefix(s.SyncState, "behind"):
-				worst = "behind"
-			case worst == "ok" && strings.HasPrefix(s.SyncState, "slow"):
-				worst = "slow"
-			}
+		syncState := strings.ToLower(s.SyncState)
+		switch {
+		case syncState == "ok":
+		case strings.HasPrefix(syncState, "behind"):
+			worst = "behind"
+		case strings.HasPrefix(syncState, "slow") && worst == "ok":
+			worst = "slow"
+		case worst == "ok":
+			worst = "degraded"
 		}
 	}
-
 	if reachable == 0 {
 		return "unreachable"
 	}
-	if allOk {
-		return "ok"
+	if worst != "ok" {
+		return worst
 	}
-	if worst == "unreachable" && reachable > 0 {
+	if anyUnreachable {
 		return "degraded"
 	}
-	return worst
+	return "ok"
 }
 
 func (a *WebRPC) ChainStatus(ctx context.Context) (ChainStatusResponse, error) {

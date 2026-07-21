@@ -5,15 +5,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"runtime"
 	"strings"
-	"sync"
 	"time"
 
-	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/urlhelper"
 
 	"github.com/filecoin-project/lotus/chain/types"
@@ -22,7 +16,6 @@ import (
 const (
 	pdpGuideMinStorageBytes         = 20 * 1024 * 1024 * 1024  // 20 GiB
 	pdpGuideRecommendedStorageBytes = 100 * 1024 * 1024 * 1024 // 100 GiB
-	pdpGuideStorageDocsURL          = "https://docs.curiostorage.org/curio-pdp#storage"
 	pdpGuideReachabilityTimeout     = 8 * time.Second
 )
 
@@ -54,7 +47,6 @@ type PDPGuideStorageStatus struct {
 	CapacityHuman    string `json:"capacityHuman"`
 	MeetsMinimum     bool   `json:"meetsMinimum"`
 	MeetsRecommended bool   `json:"meetsRecommended"`
-	DocsURL          string `json:"docsURL"`
 	Detail           string `json:"detail,omitempty"`
 }
 
@@ -67,9 +59,6 @@ type PDPGuideDNSStatus struct {
 	Reachable        bool   `json:"reachable"`
 	ReachableDetail  string `json:"reachableDetail,omitempty"`
 	SuggestTunnel    bool   `json:"suggestTunnel"`
-	TunnelInstalled  bool   `json:"tunnelInstalled"`
-	TunnelRunning    bool   `json:"tunnelRunning"`
-	TunnelDetail     string `json:"tunnelDetail,omitempty"`
 	Detail           string `json:"detail,omitempty"`
 }
 
@@ -116,9 +105,7 @@ func (a *WebRPC) pdpGuideWallet(ctx context.Context) PDPGuideWalletStatus {
 }
 
 func (a *WebRPC) pdpGuideStorage(ctx context.Context) PDPGuideStorageStatus {
-	out := PDPGuideStorageStatus{
-		DocsURL: pdpGuideStorageDocsURL,
-	}
+	out := PDPGuideStorageStatus{}
 
 	type row struct {
 		Available int64 `db:"available"`
@@ -166,14 +153,9 @@ func (a *WebRPC) pdpGuideDNS(ctx context.Context) PDPGuideDNSStatus {
 		HTTPEnabled:      a.Deps.Cfg.HTTP.Enable,
 	}
 
-	tunnel := cloudflareTunnelStatus(a.tunnelWorkDir())
-	out.TunnelInstalled = tunnel.Installed
-	out.TunnelRunning = tunnel.Running
-	out.TunnelDetail = tunnel.Detail
-
 	if !out.DomainConfigured {
 		out.SuggestTunnel = true
-		out.Detail = "HTTP.DomainName is not set. Configure a public DNS name or use a Cloudflare Tunnel."
+		out.Detail = "HTTP.DomainName is not set. Configure a public DNS name. A tunnel (for example Cloudflare Tunnel) is one possible design if inbound ports are blocked."
 		return out
 	}
 
@@ -193,7 +175,7 @@ func (a *WebRPC) pdpGuideDNS(ctx context.Context) PDPGuideDNSStatus {
 	if reachable {
 		out.Detail = "Public endpoint responds to /pdp/ping."
 	} else {
-		out.Detail = "Domain is configured but not reachable from this node. A Cloudflare Tunnel can expose the PDP API without opening inbound ports."
+		out.Detail = "Domain is configured but not reachable from this node. A tunnel (for example Cloudflare Tunnel) is one possible design to expose the PDP API without opening inbound ports."
 	}
 	return out
 }
@@ -251,205 +233,4 @@ func max64(a, b int64) int64 {
 		return a
 	}
 	return b
-}
-
-// --- Cloudflare Tunnel ---
-
-type tunnelRuntimeStatus struct {
-	Installed bool
-	Running   bool
-	Detail    string
-}
-
-var (
-	tunnelMu  sync.Mutex
-	tunnelCmd *exec.Cmd
-)
-
-func (a *WebRPC) tunnelWorkDir() string {
-	if bls, ok := a.Deps.LocalPaths.(*paths.BasicLocalStorage); ok && bls.PathToJSON != "" {
-		return filepath.Join(filepath.Dir(bls.PathToJSON), "cloudflared")
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return filepath.Join(os.TempDir(), "curio-cloudflared")
-	}
-	return filepath.Join(home, ".curio", "cloudflared")
-}
-
-func cloudflaredBinaryPath(dir string) string {
-	name := "cloudflared"
-	if runtime.GOOS == "windows" {
-		name = "cloudflared.exe"
-	}
-	return filepath.Join(dir, name)
-}
-
-func cloudflareTunnelStatus(dir string) tunnelRuntimeStatus {
-	bin := cloudflaredBinaryPath(dir)
-	st := tunnelRuntimeStatus{Installed: fileExists(bin)}
-
-	tunnelMu.Lock()
-	defer tunnelMu.Unlock()
-	if tunnelCmd != nil && tunnelCmd.Process != nil {
-		// Process is still tracked; assume running unless Wait already finished.
-		if tunnelCmd.ProcessState == nil || !tunnelCmd.ProcessState.Exited() {
-			st.Running = true
-			st.Detail = "cloudflared tunnel process is running."
-			return st
-		}
-	}
-	if st.Installed {
-		st.Detail = "cloudflared is installed but not running."
-	} else {
-		st.Detail = "cloudflared is not installed."
-	}
-	return st
-}
-
-// PDPGuideConfigureCloudflareTunnel downloads cloudflared (if needed) and starts it with the given tunnel token.
-func (a *WebRPC) PDPGuideConfigureCloudflareTunnel(ctx context.Context, token string) (string, error) {
-	token = strings.TrimSpace(token)
-	if token == "" {
-		return "", fmt.Errorf("cloudflare tunnel token is required")
-	}
-
-	dir := a.tunnelWorkDir()
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", fmt.Errorf("creating tunnel work dir: %w", err)
-	}
-
-	bin := cloudflaredBinaryPath(dir)
-	if !fileExists(bin) {
-		if err := downloadCloudflared(ctx, bin); err != nil {
-			return "", err
-		}
-	}
-
-	tokenPath := filepath.Join(dir, "tunnel.token")
-	if err := os.WriteFile(tokenPath, []byte(token+"\n"), 0o600); err != nil {
-		return "", fmt.Errorf("writing tunnel token: %w", err)
-	}
-
-	if err := startCloudflaredTunnel(bin, token, dir); err != nil {
-		return "", err
-	}
-
-	msg := "Cloudflare Tunnel started. Point the tunnel's public hostname at this node's HTTP listen address, and set HTTP.DomainName to that hostname."
-	if domain := strings.TrimSpace(a.Deps.Cfg.HTTP.DomainName); domain != "" {
-		msg = fmt.Sprintf("Cloudflare Tunnel started. Ensure the tunnel hostname matches HTTP.DomainName (%s) and forwards to this node's HTTP listen address.", domain)
-	}
-	return msg, nil
-}
-
-// PDPGuideStopCloudflareTunnel stops a tunnel process started by the guide.
-func (a *WebRPC) PDPGuideStopCloudflareTunnel(ctx context.Context) error {
-	_ = ctx
-	tunnelMu.Lock()
-	defer tunnelMu.Unlock()
-	if tunnelCmd == nil || tunnelCmd.Process == nil {
-		return fmt.Errorf("no cloudflared tunnel process is managed by this node")
-	}
-	if err := tunnelCmd.Process.Signal(os.Interrupt); err != nil {
-		_ = tunnelCmd.Process.Kill()
-	}
-	tunnelCmd = nil
-	return nil
-}
-
-func startCloudflaredTunnel(bin, token, dir string) error {
-	tunnelMu.Lock()
-	defer tunnelMu.Unlock()
-
-	if tunnelCmd != nil && tunnelCmd.Process != nil && (tunnelCmd.ProcessState == nil || !tunnelCmd.ProcessState.Exited()) {
-		return fmt.Errorf("cloudflared tunnel is already running")
-	}
-
-	logPath := filepath.Join(dir, "cloudflared.log")
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
-	if err != nil {
-		return fmt.Errorf("opening cloudflared log: %w", err)
-	}
-
-	cmd := exec.Command(bin, "tunnel", "--no-autoupdate", "run", "--token", token)
-	cmd.Stdout = logFile
-	cmd.Stderr = logFile
-	cmd.Dir = dir
-	if err := cmd.Start(); err != nil {
-		_ = logFile.Close()
-		return fmt.Errorf("starting cloudflared: %w", err)
-	}
-
-	tunnelCmd = cmd
-
-	go func() {
-		_ = cmd.Wait()
-		_ = logFile.Close()
-		tunnelMu.Lock()
-		if tunnelCmd == cmd {
-			tunnelCmd = nil
-		}
-		tunnelMu.Unlock()
-	}()
-
-	return nil
-}
-
-func downloadCloudflared(ctx context.Context, dest string) error {
-	url, err := cloudflaredDownloadURL()
-	if err != nil {
-		return err
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return err
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("downloading cloudflared: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("downloading cloudflared: HTTP %d", resp.StatusCode)
-	}
-
-	tmp := dest + ".tmp"
-	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
-	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(f, resp.Body); err != nil {
-		_ = f.Close()
-		_ = os.Remove(tmp)
-		return fmt.Errorf("writing cloudflared: %w", err)
-	}
-	if err := f.Close(); err != nil {
-		_ = os.Remove(tmp)
-		return err
-	}
-	if err := os.Rename(tmp, dest); err != nil {
-		_ = os.Remove(tmp)
-		return err
-	}
-	return nil
-}
-
-func cloudflaredDownloadURL() (string, error) {
-	// Official release assets: https://github.com/cloudflare/cloudflared/releases
-	// Bare binaries only (no archive extraction).
-	const base = "https://github.com/cloudflare/cloudflared/releases/latest/download/"
-	switch runtime.GOOS + "/" + runtime.GOARCH {
-	case "linux/amd64":
-		return base + "cloudflared-linux-amd64", nil
-	case "linux/arm64":
-		return base + "cloudflared-linux-arm64", nil
-	default:
-		return "", fmt.Errorf("automatic cloudflared download is not supported on %s/%s; install cloudflared into the node repo cloudflared/ directory manually", runtime.GOOS, runtime.GOARCH)
-	}
-}
-
-func fileExists(path string) bool {
-	st, err := os.Stat(path)
-	return err == nil && !st.IsDir()
 }
