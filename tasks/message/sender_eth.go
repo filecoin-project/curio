@@ -3,8 +3,10 @@ package message
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"math/big"
+	"strings"
 	"time"
 
 	"github.com/ethereum/go-ethereum"
@@ -62,6 +64,10 @@ func (s *SendTaskETH) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 		&dbTx.FromAddress, &dbTx.ToAddress, &dbTx.UnsignedTx, &dbTx.UnsignedHash, &dbTx.Nonce, &dbTx.SignedTx, &dbTx.SendSuccess, &dbTx.SendError)
 	if err != nil {
 		return false, xerrors.Errorf("getting transaction from db: %w", err)
+	}
+
+	if dbTx.SendSuccess.Valid {
+		return true, nil
 	}
 
 	// Deserialize the unsigned transaction
@@ -186,13 +192,46 @@ func (s *SendTaskETH) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 	}
 
 	// Send the transaction
-	err = s.client.SendTransaction(ethCtx, signedTx)
+	sendErr := s.client.SendTransaction(ethCtx, signedTx)
+	sendResult := classifyEthSendError(sendErr)
+	if sendResult == ethSendUnknown {
+		known, lookupErr := s.checkInTransactionPool(signedTx.Hash())
+		if lookupErr != nil {
+			log.Warnw("eth transaction send state unknown; failed to look up transaction before retry",
+				"task_id", taskID,
+				"from", dbTx.FromAddress,
+				"nonce", signedTx.Nonce(),
+				"hash", signedTx.Hash().Hex(),
+				"send_error", sendErr,
+				"lookup_error", lookupErr)
+			return false, multierr.Combine(
+				xerrors.Errorf("eth transaction send state unknown for %s: %w", signedTx.Hash().Hex(), sendErr),
+				xerrors.Errorf("looking up eth transaction %s: %w", signedTx.Hash().Hex(), lookupErr),
+			)
+		}
+		if !known {
+			log.Warnw("eth transaction send state unknown; leaving signed transaction for retry",
+				"task_id", taskID,
+				"from", dbTx.FromAddress,
+				"nonce", signedTx.Nonce(),
+				"hash", signedTx.Hash().Hex(),
+				"error", sendErr)
+			return false, xerrors.Errorf("eth transaction send state unknown for %s: %w", signedTx.Hash().Hex(), sendErr)
+		}
 
-	// Persist send result
-	var sendSuccess = err == nil
-	var sendError string
-	if err != nil {
-		sendError = err.Error()
+		log.Infow("eth transaction found after ambiguous send error",
+			"task_id", taskID,
+			"from", dbTx.FromAddress,
+			"nonce", signedTx.Nonce(),
+			"hash", signedTx.Hash().Hex(),
+			"error", sendErr)
+		sendResult = ethSendAccepted
+	}
+
+	sendSuccess := sendResult == ethSendAccepted
+	sendError := ""
+	if sendResult == ethSendDefinitiveError {
+		sendError = sendErr.Error()
 	}
 
 	_, err = s.db.Exec(ctx,
@@ -204,6 +243,27 @@ func (s *SendTaskETH) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 	}
 
 	return true, nil
+}
+
+// checkInTransactionPool returns true when Lotus can resolve the exact signed
+// tx hash, either as pending or already mined.
+func (s *SendTaskETH) checkInTransactionPool(hash common.Hash) (bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), defaultEthCallTimeout)
+	defer cancel()
+
+	tx, pending, err := s.client.TransactionByHash(ctx, hash)
+	if err != nil {
+		if errors.Is(err, ethereum.NotFound) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return false, nil
+		}
+		return false, err
+	}
+
+	if pending || tx != nil {
+		return true, nil
+	}
+
+	return false, nil
 }
 
 func (s *SendTaskETH) signTransaction(ctx context.Context, fromAddress common.Address, tx *types.Transaction) (*types.Transaction, error) {
@@ -256,6 +316,7 @@ func (s *SendTaskETH) TypeDetails() harmonytask.TaskTypeDetails {
 		},
 		MaxFailures: 1000,
 		Follows:     nil,
+		RetryWait:   taskhelp.RetryWaitLinear(time.Second, 2*time.Second),
 	}
 }
 
@@ -440,4 +501,138 @@ func (s *SenderETH) send(ctx context.Context, fromAddress common.Address, tx *ty
 	log.Infow("sent transaction", "hash", signedHash, "task_id", sendTaskID, "send_error", sendErr, "poll_loops", pollLoops)
 
 	return signedHash, sendErr
+}
+
+type ethSendResult int
+
+const (
+	ethSendAccepted ethSendResult = iota
+	ethSendDefinitiveError
+	ethSendUnknown
+)
+
+// classifyEthSendError classifies only source-backed outcomes.
+//
+// Sources:
+//   - Lotus node/impl/eth/send.go, ethSendRawTransaction: raw tx parse, tx hash,
+//     and Filecoin message conversion all happen before MpoolPush/MpoolPushUntrusted.
+//   - Lotus chain/messagepool/messagepool.go, MessagePool.Push/addTs/addLocked:
+//     validation happens before addLocked, while duplicate-same-message is reported
+//     from addLocked as ErrExistingNonce.
+//
+// Transport, context, JSON-RPC, storage, publish, soft-validation, and nonce-low
+// errors are left unknown unless listed below. Those errors can happen after a
+// previous send attempt may already have been accepted or landed.
+func classifyEthSendError(err error) ethSendResult {
+	if err == nil {
+		return ethSendAccepted
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return ethSendUnknown
+	}
+
+	msg := strings.ToLower(err.Error())
+	if ethSendErrorContainsAny(msg, ethSendAmbiguousErrors) {
+		return ethSendUnknown
+	}
+	if ethSendErrorContainsAny(msg, ethSendDefinitiveErrors) {
+		return ethSendDefinitiveError
+	}
+
+	return ethSendUnknown
+}
+
+func ethSendErrorContainsAny(msg string, parts []string) bool {
+	for _, part := range parts {
+		if strings.Contains(msg, part) {
+			return true
+		}
+	}
+	return false
+}
+
+// Source: Lotus chain/messagepool/messagepool.go, ErrExistingNonce.
+// The same signed Filecoin message is already in the local mpool.
+var errMessageWithNonceExists = "message with nonce already exists"
+
+var ethSendAmbiguousErrors = []string{
+	errMessageWithNonceExists,
+}
+
+var ethSendDefinitiveErrors = []string{
+	// Source: Lotus chain/types/ethtypes/eth_transactions.go, ParseEthTransaction.
+	// ethSendRawTransaction returns these before calling MpoolPush.
+	"empty data",
+	"eip-2930 transaction is not supported",
+	"unsupported transaction type",
+	"failed to parse legacy transaction",
+
+	// Source: Lotus chain/types/ethtypes/eth_1559_transactions.go, parseEip1559Tx,
+	// and chain/types/ethtypes/rlp.go, DecodeRLP.
+	"invalid rlp data",
+	"not an eip-1559 transaction",
+	"access list should be an empty list",
+	"eip-1559 transactions only support 0 or 1 for v",
+	"cannot parse interface to int",
+	"cannot parse interface to ethuint64",
+	"cannot parse interface to big.int",
+	"cannot parse interface into bytes",
+	"cannot parse bytes into an ethaddress",
+
+	// Source: Lotus chain/types/ethtypes/eth_transactions.go,
+	// ToSignedFilecoinMessage. These happen before MpoolPush.
+	"failed to calculate sender",
+	"failed to convert to unsigned msg",
+	"failed to calculate signature",
+	"signature is not 65 bytes",
+
+	// Source: Lotus chain/types/ethtypes/eth_1559_transactions.go,
+	// Eth1559TxArgs.ToUnsignedFilecoinMessage, and
+	// chain/types/ethtypes/eth_types.go, EthAddress.ToFilecoinAddress.
+	"invalid chain id",
+	"failed to write input args",
+	"failed to convert ethaddress to filecoin address",
+	"cannot get filecoin address",
+	"expected a class 4 address",
+
+	// Source: Lotus chain/types/ethtypes/eth_transactions.go and
+	// eth_legacy_155_transactions.go, legacy transaction parsing.
+	"unsupported legacy transaction",
+	"not a legacy eth transaction",
+	"not a legacy transaction",
+	"legacy homestead transactions only support",
+	"failed to validate eip155 chain id",
+
+	// Source: Lotus node/impl/full/mpool.go, sanityCheckOutgoingMessage.
+	// MpoolPush/MpoolPushUntrusted run this before MessagePool.Push.
+	"delegated address but not a valid eth address",
+
+	// Source: Lotus chain/messagepool/messagepool.go, checkMessage.
+	// MessagePool.Push runs this before addTs/addLocked.
+	"message too big",
+	"mpool message too large",
+	"message not valid for block inclusion",
+	"message had invalid to address",
+	"cannot send more filecoin than will ever exist",
+	"gas fee cap too low",
+	"signature verification failed",
+	"failed to validate signature",
+
+	// Source: Lotus chain/messagepool/messagepool.go, addTs/checkBalance.
+	// These are hard rejects before addLocked inserts the message into the mpool.
+	"not enough funds (required:",
+	"not enough funds to execute transaction",
+	"is not a valid top-level sender",
+	"network version should be at least",
+
+	// Source: Lotus chain/messagepool/messagepool.go, msgSet.add.
+	// These reject the candidate instead of adding it as pending.
+	"replace by fee has too low gaspremium",
+	"too many pending messages for actor",
+	"unfulfilled nonce gap",
+
+	// Source: Lotus node/impl/eth/send.go, EthSendDisabled, and
+	// node/modules/eth.go, GatewayEthSend.
+	"ethsendrawtransactionuntrusted is not supported",
+	"module disabled",
 }

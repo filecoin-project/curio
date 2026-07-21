@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	gethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -516,17 +517,39 @@ func (t *transactionReplacer) sendAndRecordReplacementTransactions(ctx context.C
 			ethCtx, cancel := context.WithTimeout(ctx, defaultEthCallTimeout)
 			sendErr := t.client.SendTransaction(ethCtx, tx)
 			cancel()
-			if isEthTransactionAlreadyKnownError(sendErr) {
-				log.Infow("transaction replacement already known", "from", replacement.Candidate.FromAddress, "nonce", replacement.Candidate.Nonce, "hash", tx.Hash().Hex())
-				sendErr = nil
+
+			sendResult := classifyEthSendError(sendErr)
+			if sendResult == ethSendUnknown {
+				known, lookupErr := t.checkInTransactionPool(ctx, tx.Hash())
+				if lookupErr != nil {
+					log.Warnw("transaction replacement send state unknown; failed to look up transaction before retry",
+						"from", replacement.Candidate.FromAddress,
+						"nonce", replacement.Candidate.Nonce,
+						"hash", tx.Hash().Hex(),
+						"send_error", sendErr,
+						"lookup_error", lookupErr)
+					continue
+				}
+				if !known {
+					log.Warnw("transaction replacement send state unknown; leaving signed claim for retry",
+						"from", replacement.Candidate.FromAddress,
+						"nonce", replacement.Candidate.Nonce,
+						"hash", tx.Hash().Hex(),
+						"error", sendErr)
+					continue
+				}
+
+				log.Infow("transaction replacement found after ambiguous send error",
+					"from", replacement.Candidate.FromAddress,
+					"nonce", replacement.Candidate.Nonce,
+					"hash", tx.Hash().Hex(),
+					"error", sendErr)
+				sendResult = ethSendAccepted
 			}
-			if errors.Is(sendErr, context.Canceled) || errors.Is(sendErr, context.DeadlineExceeded) {
-				log.Warnw("transaction replacement send timed out; leaving signed claim for retry", "from", replacement.Candidate.FromAddress, "nonce", replacement.Candidate.Nonce, "hash", tx.Hash().Hex(), "error", sendErr)
-				continue
-			}
-			sendSuccess := sendErr == nil
+
+			sendSuccess := sendResult == ethSendAccepted
 			sendError := ""
-			if sendErr != nil {
+			if sendResult == ethSendDefinitiveError {
 				sendError = sendErr.Error()
 				log.Warnw("transaction replacement send failed", "from", replacement.Candidate.FromAddress, "nonce", replacement.Candidate.Nonce, "hash", tx.Hash().Hex(), "error", sendErr)
 			}
@@ -557,6 +580,27 @@ func (t *transactionReplacer) sendAndRecordReplacementTransactions(ctx context.C
 	}
 
 	return nil
+}
+
+// checkInTransactionPool returns true when Lotus can resolve the exact signed
+// tx hash, either as pending or already mined.
+func (t *transactionReplacer) checkInTransactionPool(ctx context.Context, hash common.Hash) (bool, error) {
+	ethCtx, cancel := context.WithTimeout(ctx, defaultEthCallTimeout)
+	defer cancel()
+
+	tx, pending, err := t.client.TransactionByHash(ethCtx, hash)
+	if err != nil {
+		if errors.Is(err, ethereum.NotFound) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return false, nil
+		}
+		return false, err
+	}
+
+	if pending || tx != nil {
+		return true, nil
+	}
+
+	return false, nil
 }
 
 func (t *transactionReplacer) deleteTransactionReplacementClaims(ctx context.Context, candidates []transactionReplaceCandidate) error {
@@ -634,15 +678,4 @@ func maxInt(a, b *big.Int) *big.Int {
 		return new(big.Int).Set(a)
 	}
 	return new(big.Int).Set(b)
-}
-
-func isEthTransactionAlreadyKnownError(err error) bool {
-	if err == nil {
-		return false
-	}
-
-	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "already known") ||
-		strings.Contains(msg, "already imported") ||
-		strings.Contains(msg, "already in the txpool")
 }

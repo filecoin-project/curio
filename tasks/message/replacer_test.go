@@ -5,11 +5,13 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"database/sql"
+	"errors"
 	"fmt"
 	mathbig "math/big"
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	gethtypes "github.com/ethereum/go-ethereum/core/types"
 	gethcrypto "github.com/ethereum/go-ethereum/crypto"
@@ -603,9 +605,10 @@ func TestTransactionReplacerReplacesFeeStuckTransaction(t *testing.T) {
 	require.True(t, sendSuccess)
 }
 
-func TestTransactionReplacerTreatsAlreadyKnownAsSuccess(t *testing.T) {
+func TestTransactionReplacerAmbiguousSendSucceedsAfterExactLookup(t *testing.T) {
 	h := newEthReplaceHarness(t)
-	h.client.sendErr = fmt.Errorf("already known")
+	h.client.sendErr = errors.New(errMessageWithNonceExists)
+	h.client.lookupSentTx = true
 
 	privateKey, err := gethcrypto.GenerateKey()
 	require.NoError(t, err)
@@ -620,6 +623,8 @@ func TestTransactionReplacerTreatsAlreadyKnownAsSuccess(t *testing.T) {
 
 	h.run(t)
 
+	require.Equal(t, 1, h.client.txCalls)
+
 	var sendSuccess bool
 	var sendError string
 	err = h.db.QueryRow(h.ctx, `
@@ -629,6 +634,41 @@ func TestTransactionReplacerTreatsAlreadyKnownAsSuccess(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, sendSuccess)
 	require.Empty(t, sendError)
+}
+
+func TestTransactionReplacerDoesNotTrustAmbiguousSendWithoutExactLookup(t *testing.T) {
+	h := newEthReplaceHarness(t)
+	h.client.sendErr = errors.New(errMessageWithNonceExists)
+
+	privateKey, err := gethcrypto.GenerateKey()
+	require.NoError(t, err)
+	from := gethcrypto.PubkeyToAddress(privateKey.PublicKey)
+	to := common.HexToAddress("0x1000000000000000000000000000000000000009")
+	nonce := uint64(19)
+	h.client.nonce = nonce
+	h.insertKey(t, from, gethcrypto.FromECDSA(privateKey))
+
+	original, originalData := signedDynamicTx(t, privateKey, to, nonce, 100, 10)
+	h.insertTransactionSend(t, from, to, original, originalData, h.oldSendTime())
+
+	h.run(t)
+
+	require.Equal(t, 1, h.client.txCalls)
+
+	var signedHash sql.NullString
+	var sendSuccess sql.NullBool
+	var sendTime sql.NullTime
+	var sendError sql.NullString
+	err = h.db.QueryRow(h.ctx, `
+		SELECT signed_hash, send_success, send_time, send_error
+		FROM message_send_eth_replacements
+		WHERE from_address = $1 AND nonce = $2`, from.Hex(), nonce).Scan(&signedHash, &sendSuccess, &sendTime, &sendError)
+	require.NoError(t, err)
+	require.True(t, signedHash.Valid)
+	require.Equal(t, h.client.sentTxs[0].Hash().Hex(), signedHash.String)
+	require.False(t, sendSuccess.Valid)
+	require.False(t, sendTime.Valid)
+	require.False(t, sendError.Valid)
 }
 
 func TestTransactionReplacerRetriesSignedClaim(t *testing.T) {
@@ -758,6 +798,7 @@ func TestTransactionReplacerLeavesSignedClaimOnSendTimeout(t *testing.T) {
 	h.run(t)
 
 	require.Len(t, h.client.sentTxs, 1)
+	require.Equal(t, 1, h.client.txCalls)
 
 	var signedHash sql.NullString
 	var sendSuccess sql.NullBool
@@ -778,18 +819,22 @@ func TestTransactionReplacerLeavesSignedClaimOnSendTimeout(t *testing.T) {
 type replaceEthClient struct {
 	ethchain.EthClient
 
-	nonce     uint64
-	nonceErr  error
-	header    *gethtypes.Header
-	headerErr error
-	gasTipCap *mathbig.Int
-	tipCapErr error
-	sendErr   error
+	nonce         uint64
+	nonceErr      error
+	header        *gethtypes.Header
+	headerErr     error
+	gasTipCap     *mathbig.Int
+	tipCapErr     error
+	sendErr       error
+	lookupSentTx  bool
+	lookupPending bool
+	lookupErr     error
 
 	nonceCalls  int
 	headerCalls int
 	tipCapCalls int
 	sendCalls   int
+	txCalls     int
 	sentTxs     []*gethtypes.Transaction
 }
 
@@ -821,6 +866,21 @@ func (m *replaceEthClient) SendTransaction(ctx context.Context, tx *gethtypes.Tr
 	m.sendCalls++
 	m.sentTxs = append(m.sentTxs, tx)
 	return m.sendErr
+}
+
+func (m *replaceEthClient) TransactionByHash(ctx context.Context, hash common.Hash) (*gethtypes.Transaction, bool, error) {
+	m.txCalls++
+	if m.lookupErr != nil {
+		return nil, false, m.lookupErr
+	}
+	if m.lookupSentTx {
+		for _, tx := range m.sentTxs {
+			if tx.Hash() == hash {
+				return tx, m.lookupPending, nil
+			}
+		}
+	}
+	return nil, false, ethereum.NotFound
 }
 
 func replaceTestStuckDuration() time.Duration {
