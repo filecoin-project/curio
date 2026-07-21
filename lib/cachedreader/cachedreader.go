@@ -521,9 +521,9 @@ func (cpr *CachedPieceReader) GetSharedPieceReader(ctx context.Context, pieceCid
 
 		cpr.pieceReaderCacheMu.Unlock()
 
-		// We just added a cached reader, so get its underlying piece reader.
-		// Order: PDP park (common parent / Synapse path) → aggregate (subpieces)
-		// → market deals / sector / park fallback.
+		// Cache miss: populate the slot by resolving a piece reader.
+		// Try PDP park first (Synapse/PDP parent pieces), then MK20
+		// aggregates (subpieces), then market deals (sector / piece park).
 		readerCtx, readerCtxCancel := context.WithCancel(context.Background())
 		defer close(r.ready)
 

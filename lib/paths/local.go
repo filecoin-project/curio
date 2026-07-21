@@ -261,9 +261,13 @@ func (st *Local) ExistingLocalFile(sid abi.SectorID, ft storiface.SectorFileType
 			continue
 		}
 		candidates = append(candidates, p.sectorPath(sid, ft))
+		if len(candidates) >= 5 {
+			return "", false // this is no fast path, return false
+		}
 	}
 	st.localLk.RUnlock()
 	for _, spath := range candidates {
+		// Worst= O(Log(dirLength)) which should be very fast for most cases.
 		if fi, err := os.Stat(spath); err == nil && !fi.IsDir() {
 			return spath, true
 		}
