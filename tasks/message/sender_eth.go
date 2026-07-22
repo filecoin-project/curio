@@ -561,6 +561,7 @@ var errMessageWithNonceExists = "message with nonce already exists"
 
 var ethSendAmbiguousErrors = []string{
 	errMessageWithNonceExists,
+	"i/o timeout",
 }
 
 var ethSendDefinitiveErrors = []string{
