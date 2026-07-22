@@ -17,6 +17,7 @@ func DefaultCurioConfig() *CurioConfig {
 			RequireActivationSuccess:       true,
 			RequireNotificationSuccess:     true,
 			PDPPullPieceMaxTasks:           20,
+			PDPUnclaimedUploadKeepHours:    NewDynamic(2),
 			IndexingMaxTasks:               8,
 			RemoteProofMaxUploads:          15,
 			ParkPieceMinFreeStoragePercent: 5,
@@ -420,6 +421,11 @@ type CurioSubsystemsConfig struct {
 	// PDPPullPieceMaxTasks is the maximum number of PDPv0 pull-piece download tasks that can run simultaneously.
 	// Set 0 for unlimited. (Default: 20)
 	PDPPullPieceMaxTasks int
+
+	// PDPUnclaimedUploadKeepHours is how many hours to keep unclaimed PDP piece uploads (orphaned pdp_piecerefs
+	// with data_set_refcount = 0) before PieceGC deletes them. Must be >= 1. (Default: 2)
+	// Updates will affect running instances.
+	PDPUnclaimedUploadKeepHours *Dynamic[int]
 
 	// EnableCommP enables the commP task on te node. CommP is calculated before sending PublishDealMessage for a Mk12 deal
 	// Must have EnableDealMarket = True (Default: false)
