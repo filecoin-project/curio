@@ -293,6 +293,13 @@ description: The default curio configuration
   # type: int
   #PDPPullPieceMaxTasks = 20
 
+  # PDPUnclaimedUploadKeepHours is how many hours to keep unclaimed PDP piece uploads (orphaned pdp_piecerefs
+  # with data_set_refcount = 0) before PieceGC deletes them. Must be >= 1. (Default: 2)
+  # Updates will affect running instances.
+  #
+  # type: int
+  #PDPUnclaimedUploadKeepHours = 2
+
   # EnableCommP enables the commP task on te node. CommP is calculated before sending PublishDealMessage for a Mk12 deal
   # Must have EnableDealMarket = True (Default: false)
   #

@@ -908,6 +908,14 @@ Overridden by the DATA_STORAGE env var and the --data CLI flag. (Default: /data)
 Set 0 for unlimited. (Default: 20)`,
 		},
 		{
+			Name: "PDPUnclaimedUploadKeepHours",
+			Type: "int",
+
+			Comment: `PDPUnclaimedUploadKeepHours is how many hours to keep unclaimed PDP piece uploads (orphaned pdp_piecerefs
+with data_set_refcount = 0) before PieceGC deletes them. Must be >= 1. (Default: 2)
+Updates will affect running instances.`,
+		},
+		{
 			Name: "EnableCommP",
 			Type: "bool",
 
