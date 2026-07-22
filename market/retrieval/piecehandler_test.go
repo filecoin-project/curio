@@ -11,6 +11,44 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type sniffReaderAt struct {
+	data      []byte
+	lastSize  int
+	readCount int
+}
+
+func (s *sniffReaderAt) ReadAt(p []byte, off int64) (int, error) {
+	s.readCount++
+	s.lastSize = len(p)
+	if off >= int64(len(s.data)) {
+		return 0, io.EOF
+	}
+	n := copy(p, s.data[off:])
+	if n < len(p) {
+		return n, io.EOF
+	}
+	return n, nil
+}
+
+func TestSniffContentTypeReadsExactWindow(t *testing.T) {
+	payload := append([]byte("%PDF-1.4"), bytes.Repeat([]byte("x"), 4096)...)
+	r := &sniffReaderAt{data: payload}
+
+	ct, err := sniffContentType(r)
+	require.NoError(t, err)
+	require.Equal(t, "application/pdf", ct)
+	require.Equal(t, 1, r.readCount)
+	require.Equal(t, int(MIME_SNIFF_BYTES), r.lastSize)
+}
+
+func TestSniffContentTypeShortPiece(t *testing.T) {
+	r := &sniffReaderAt{data: []byte("hello")}
+	ct, err := sniffContentType(r)
+	require.NoError(t, err)
+	require.Equal(t, "text/plain; charset=utf-8", ct)
+	require.Equal(t, int(MIME_SNIFF_BYTES), r.lastSize)
+}
+
 func TestServeContentHeadRequest(t *testing.T) {
 	req := httptest.NewRequest(http.MethodHead, "/piece/test", nil)
 	w := httptest.NewRecorder()
