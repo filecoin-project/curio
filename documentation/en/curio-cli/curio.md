@@ -1385,6 +1385,7 @@ COMMANDS:
    downgrade            Downgrade a cluster's database to a previous software version.
    fix-boost-migration  Fix Boost migration
    import-pieces        Imports already existing pieces from storage to piece park system
+   aggregate-pieces     Aggregates already existing pieces from storage into PODSI and park them
    help, h              Shows a list of commands or help for one command
 
 OPTIONS:
@@ -1451,6 +1452,22 @@ OPTIONS:
    --result value      path to write the JSON result
    --batch-size value  number of pieces to move to permanent storage (default: 20)
    --help, -h          show help
+```
+
+### curio toolbox aggregate-pieces
+```
+NAME:
+   curio toolbox aggregate-pieces - Aggregates already existing pieces from storage into PODSI and park them
+
+USAGE:
+   curio toolbox aggregate-pieces [command options]
+
+OPTIONS:
+   --source value  path to read the pieces from
+   --target value  path to storage directory in Curio's attached permanent storage
+   --result value  path to write the JSON result
+   --input value   path to read the CIDs from
+   --help, -h      show help
 ```
 
 ## curio batch
