@@ -10,6 +10,7 @@ import (
 	"math/big"
 	"math/bits"
 	"sort"
+	"strconv"
 	"sync/atomic"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -301,6 +302,13 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		return false, xerrors.Errorf("failed to get chain randomness from beacon for pdp prove: %w", err)
 	}
 
+	// Phase 1: materialize any Create/Add waits whose effects are already on chain.
+	// GenerateProofs may still resolve challenge pieces from pending piece_adds by chain CID.
+	remainingReceipts, prepErr := ConsiderOutstandingReceipts(ctx, p.db, p.ethClient, dataSetId)
+	if prepErr != nil {
+		log.Warnw("failed to prepare receipts before prove", "dataSetId", dataSetId, "error", prepErr)
+	}
+
 	log.Debugw("PDPv0_Prove: generating proofs", "dataSetId", dataSetId, "challengeEpoch", challengeEpoch, "totalLeaves", totalLeaves, "numChallenges", contract.NumChallenges)
 
 	proofs, err := p.GenerateProofs(ctx, pdpVerifier, dataSetId, seed, totalLeaves, contract.NumChallenges)
@@ -425,6 +433,18 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 
 	reason := "pdp-prove"
 	txHash, sendErr := p.sender.Send(ctx, fromAddress, txEth, reason)
+
+	// Phase 2: resolve receipt waits that were still outstanding after Phase 1.
+	resolveReceiptsAfterProve := func(height int64) {
+		if len(remainingReceipts) == 0 {
+			return
+		}
+		if resolveErr := ResolveRemainingReceipts(ctx, p.db, p.ethClient, remainingReceipts, proveAtEpoch, height); resolveErr != nil {
+			log.Warnw("failed to resolve remaining receipts after prove",
+				"dataSetId", dataSetId, "error", resolveErr)
+		}
+	}
+
 	if sendErr != nil {
 		// Get current height for error handling
 		ts, heightErr := p.fil.ChainHead(ctx)
@@ -434,7 +454,7 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		}
 		if ts == nil {
 			// No chain state available, let harmony retry
-			return false, xerrors.Errorf("failed to send transaction (no chain state): %w", err)
+			return false, xerrors.Errorf("failed to send transaction (no chain state): %w", sendErr)
 		}
 		currentHeight := int64(ts.Height())
 
@@ -451,6 +471,7 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		if !comm {
 			return false, xerrors.Errorf("failed to commit transaction")
 		}
+		resolveReceiptsAfterProve(currentHeight)
 		return true, nil
 	}
 
@@ -459,6 +480,12 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	if resetErr := ResetProvingFailures(ctx, p.db, dataSetId); resetErr != nil {
 		log.Warnw("Failed to reset proving failures after success", "error", resetErr, "dataSetId", dataSetId)
 	}
+
+	resolveHeight := int64(ts.Height())
+	if head, headErr := p.fil.ChainHead(ctx); headErr == nil && head != nil {
+		resolveHeight = int64(head.Height())
+	}
+	resolveReceiptsAfterProve(resolveHeight)
 
 	log.Infow("PDP Prove Task: transaction sent", "txHash", txHash, "dataSetId", dataSetId, "taskID", taskID)
 
@@ -484,10 +511,16 @@ func (p *ProveTask) GenerateProofs(ctx context.Context, pdpService *contract.PDP
 
 	for i := range numChallenges {
 		piece := pieceId[i]
+		if piece.PieceId == nil || !piece.PieceId.IsInt64() {
+			return nil, xerrors.Errorf("challenge %d returned non-int64 piece id", i)
+		}
+		if piece.Offset == nil || !piece.Offset.IsInt64() {
+			return nil, xerrors.Errorf("challenge %d returned non-int64 offset", i)
+		}
 
 		log.Debugw("GenerateProofs: proving piece", "challengeIdx", i, "dataSetId", dataSetId, "pieceId", piece.PieceId, "offset", piece.Offset)
 
-		proof, err := p.provePiece(ctx, dataSetId, piece.PieceId.Int64(), piece.Offset.Int64())
+		proof, err := p.provePiece(ctx, pdpService, dataSetId, piece.PieceId.Int64(), piece.Offset.Int64())
 		if err != nil {
 			return nil, xerrors.Errorf("failed to prove piece %d (%d, %d, %d): %w", i, dataSetId, piece.PieceId.Int64(), piece.Offset.Int64(), err)
 		}
@@ -634,29 +667,29 @@ func (c *idxProofCache) GetLayer(ctx context.Context, pieceCidV2 cid.Cid, layerI
 	return out, nil
 }
 
-func (p *ProveTask) provePiece(ctx context.Context, dataSetId int64, pieceId int64, challengedLeaf int64) (contract.IPDPTypesProof, error) {
-	const arity = 2
+type proveSubPieceMeta struct {
+	PieceRefId                 int64  `db:"pieceref_id"`
+	CachedProofgenFailureCount int64  `db:"cached_proofgen_failure_count"` // consecutive cached-proofgen failures for this subpiece
+	Piece                      string `db:"piece"`
+	SubPiece                   string `db:"sub_piece"`
+	SubPieceOffset             int64  `db:"sub_piece_offset"` // padded offset
+	SubPieceSize               int64  `db:"sub_piece_size"`   // padded piece size
+	Removed                    bool   `db:"removed"`
+	PieceRawSize               uint64 `db:"piece_raw_size"` // raw size from parked_pieces, for constructing v2 CID
+	AddMessageIndex            uint64 `db:"add_message_index"`
+	AddMessageHash             string `db:"add_message_hash"`
+}
 
-	pieceChallengeOffset := challengedLeaf * LeafSize
-
-	// Retrieve the piece and subpiece
-	type subPieceMeta struct {
-		PieceRefId                 int64  `db:"pieceref_id"`
-		CachedProofgenFailureCount int64  `db:"cached_proofgen_failure_count"` // The number of consecutive times cached proofgen has failed for this subpiece
-		Piece                      string `db:"piece"`
-		SubPiece                   string `db:"sub_piece"`
-		SubPieceOffset             int64  `db:"sub_piece_offset"` // padded offset
-		SubPieceSize               int64  `db:"sub_piece_size"`   // padded piece size
-		Removed                    bool   `db:"removed"`
-		PieceRawSize               uint64 `db:"piece_raw_size"` // raw size from parked_pieces, for constructing v2 CID
-	}
-
-	var subPieces []subPieceMeta
-
-	err := p.db.Select(context.Background(), &subPieces, `
+// loadProveSubPieces loads local subpiece rows for an on-chain challenge piece_id.
+// Prefer pdp_data_set_pieces; if that row is not materialized yet, resolve the piece
+// CID from chain and use matching pending piece_adds — no DB writes during prove.
+func (p *ProveTask) loadProveSubPieces(ctx context.Context, pdpService *contract.PDPVerifier, dataSetId, pieceId int64) ([]proveSubPieceMeta, error) {
+	var subPieces []proveSubPieceMeta
+	err := p.db.Select(ctx, &subPieces, `
 			SELECT ppr.id as pieceref_id, ppr.cached_proofgen_failure_count as cached_proofgen_failure_count,
 				   dsp.piece, dsp.sub_piece, dsp.sub_piece_offset, dsp.sub_piece_size, dsp.removed,
-			       pp.piece_raw_size
+			       pp.piece_raw_size, COALESCE(dsp.add_message_index, 0) as add_message_index,
+			       COALESCE(dsp.add_message_hash, '') as add_message_hash
 			FROM pdp_data_set_pieces dsp
 			JOIN pdp_piecerefs ppr ON ppr.id = dsp.pdp_pieceref
 			JOIN parked_piece_refs pprf ON pprf.ref_id = ppr.piece_ref
@@ -665,11 +698,89 @@ func (p *ProveTask) provePiece(ctx context.Context, dataSetId int64, pieceId int
 			ORDER BY dsp.sub_piece_offset ASC
 		`, dataSetId, pieceId)
 	if err != nil {
-		return contract.IPDPTypesProof{}, xerrors.Errorf("failed to get piece and subPiece: %w", err)
+		return nil, xerrors.Errorf("failed to get piece and subPiece: %w", err)
+	}
+	if len(subPieces) > 0 {
+		return subPieces, nil
+	}
+
+	chainCid, err := pdpService.GetPieceCid(contract.EthCallOpts(ctx), big.NewInt(dataSetId), big.NewInt(pieceId))
+	if err != nil {
+		return nil, xerrors.Errorf("GetPieceCid(%d,%d) for prove: %w", dataSetId, pieceId, err)
+	}
+
+	var addRows []proveSubPieceMeta
+	err = p.db.Select(ctx, &addRows, `
+			SELECT ppr.id as pieceref_id, ppr.cached_proofgen_failure_count as cached_proofgen_failure_count,
+				   a.piece, a.sub_piece, a.sub_piece_offset, a.sub_piece_size, FALSE as removed,
+			       pp.piece_raw_size, a.add_message_index, a.add_message_hash
+			FROM pdp_data_set_piece_adds a
+			JOIN pdp_piecerefs ppr ON ppr.id = a.pdp_pieceref
+			JOIN parked_piece_refs pprf ON pprf.ref_id = ppr.piece_ref
+			JOIN parked_pieces pp ON pp.id = pprf.piece_id
+			WHERE a.data_set = $1 AND a.pieces_added = FALSE
+			ORDER BY a.add_message_hash ASC, a.add_message_index ASC, a.sub_piece_offset ASC
+		`, dataSetId)
+	if err != nil {
+		return nil, xerrors.Errorf("loading pending piece_adds for prove %d:%d: %w", dataSetId, pieceId, err)
+	}
+
+	type pieceGroup struct {
+		rawSize uint64
+		rows    []proveSubPieceMeta
+	}
+	groups := make(map[string]*pieceGroup)
+	order := make([]string, 0)
+	groupKey := func(r proveSubPieceMeta) string {
+		return normalizeTxHash(r.AddMessageHash) + ":" + strconv.FormatUint(r.AddMessageIndex, 10)
+	}
+	for _, r := range addRows {
+		key := groupKey(r)
+		g, ok := groups[key]
+		if !ok {
+			g = &pieceGroup{}
+			groups[key] = g
+			order = append(order, key)
+		}
+		g.rawSize += r.PieceRawSize
+		g.rows = append(g.rows, r)
+	}
+	for _, key := range order {
+		g := groups[key]
+		if len(g.rows) == 0 {
+			continue
+		}
+		v1, parseErr := cid.Parse(g.rows[0].Piece)
+		if parseErr != nil {
+			continue
+		}
+		v2, v2Err := commcid.PieceCidV2FromV1(v1, g.rawSize)
+		if v2Err != nil {
+			continue
+		}
+		if string(v2.Bytes()) != string(chainCid.Data) {
+			continue
+		}
+		log.Infow("proving from pending piece_adds matched to chain piece CID",
+			"dataSetId", dataSetId, "pieceId", pieceId, "txHash", g.rows[0].AddMessageHash)
+		return g.rows, nil
+	}
+
+	return nil, xerrors.Errorf("challenge piece %d missing locally (not in pieces or matching piece_adds)", pieceId)
+}
+
+func (p *ProveTask) provePiece(ctx context.Context, pdpService *contract.PDPVerifier, dataSetId int64, pieceId int64, challengedLeaf int64) (contract.IPDPTypesProof, error) {
+	const arity = 2
+
+	pieceChallengeOffset := challengedLeaf * LeafSize
+
+	subPieces, err := p.loadProveSubPieces(ctx, pdpService, dataSetId, pieceId)
+	if err != nil {
+		return contract.IPDPTypesProof{}, err
 	}
 
 	// find first subpiece with subpiece_offset >= pieceChallengeOffset
-	challSubPiece, challSubPieceIdx, ok := lo.FindLastIndexOf(subPieces, func(subPiece subPieceMeta) bool {
+	challSubPiece, challSubPieceIdx, ok := lo.FindLastIndexOf(subPieces, func(subPiece proveSubPieceMeta) bool {
 		return subPiece.SubPieceOffset <= pieceChallengeOffset
 	})
 	if !ok {
