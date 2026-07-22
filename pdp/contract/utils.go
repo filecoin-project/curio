@@ -21,14 +21,11 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
-	"github.com/filecoin-project/go-state-types/abi"
-	"github.com/filecoin-project/go-state-types/big"
 	"github.com/filecoin-project/go-state-types/builtin"
 
 	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 
-	lapi "github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/chain/types/ethtypes"
 )
@@ -40,13 +37,17 @@ const (
 	CapServiceURL       = "serviceURL"
 	CapMinPieceSize     = "minPieceSizeInBytes"
 	CapMaxPieceSize     = "maxPieceSizeInBytes"
-	CapIpniPiece        = "ipniPiece"  // Optional
-	CapIpniIpfs         = "ipniIpfs"   // Optional
-	CapIpniPeerID       = "ipniPeerId" // Optional, IPNI peer ID for discovery
 	CapStoragePrice     = "storagePricePerTibPerDay"
 	CapMinProvingPeriod = "minProvingPeriodInEpochs"
 	CapLocation         = "location"
 	CapPaymentToken     = "paymentTokenAddress"
+
+	// Optional PDP keys, including advertised storage capacity, are documented in ServiceProviderRegistry.sol:
+	// https://github.com/FilOzone/filecoin-services/blob/main/service_contracts/src/ServiceProviderRegistry.sol#L22
+	CapIpniPiece   = "ipniPiece"
+	CapIpniIpfs    = "ipniIpfs"
+	CapIpniPeerID  = "ipniPeerId"
+	CapCapacityTiB = "capacityTiB"
 
 	// CapIpniPeerIDDeprecated is the old key for the IPNI peer ID. It was incorrectly cased
 	// and does not match the suggested key in the ServiceProviderRegistry contract. New
@@ -67,6 +68,7 @@ type PDPOfferingData struct {
 	MinProvingPeriodInEpochs *mbig.Int
 	Location                 string
 	PaymentTokenAddress      common.Address
+	CapacityTiB              *mbig.Int
 }
 
 func encodeBigIntCapability(i *mbig.Int) []byte {
@@ -120,6 +122,11 @@ func OfferingToCapabilities(offering PDPOfferingData, additionalCaps map[string]
 		// Also write the deprecated key for compatibility with older SDK versions
 		keys = append(keys, CapIpniPeerIDDeprecated)
 		values = append(values, []byte(offering.IpniPeerID))
+	}
+
+	if offering.CapacityTiB != nil {
+		keys = append(keys, CapCapacityTiB)
+		values = append(values, encodeBigIntCapability(offering.CapacityTiB))
 	}
 
 	// Add custom capabilities
@@ -238,7 +245,7 @@ func GetDataSetMetadataAtKey(ctx context.Context, listenerAddr common.Address, e
 	return out.Exists, out.Value, nil
 }
 
-func FSRegister(ctx context.Context, db *harmonydb.DB, full lapi.FullNode, ethClient api.EthClientInterface, name, description string, pdpOffering PDPOfferingData, capabilities map[string]string) error {
+func FSRegister(ctx context.Context, db *harmonydb.DB, ethClient api.EthClientInterface, name, description string, pdpOffering PDPOfferingData, capabilities map[string]string) error {
 	if len(name) > 128 {
 		return xerrors.Errorf("name is too long, max 128 characters allowed")
 	}
@@ -277,19 +284,16 @@ func FSRegister(ctx context.Context, db *harmonydb.DB, full lapi.FullNode, ethCl
 		return xerrors.Errorf("failed to get sender: %w", err)
 	}
 
-	ac, err := full.StateGetActor(ctx, fSender, types.EmptyTSK)
-	if err != nil {
-		return xerrors.Errorf("failed to get actor: %w", err)
-	}
-
 	amount, err := types.ParseFIL("5 FIL")
 	if err != nil {
 		return fmt.Errorf("failed to parse 5 FIL: %w", err)
 	}
 
-	token := abi.NewTokenAmount(amount.Int64())
-
-	if ac.Balance.LessThan(big.NewInt(token.Int64())) {
+	balance, err := ethClient.BalanceAt(ctx, sender, nil)
+	if err != nil {
+		return xerrors.Errorf("failed to get wallet balance: %w", err)
+	}
+	if balance.Cmp(amount.Int) < 0 {
 		return xerrors.Errorf("wallet balance is too low")
 	}
 

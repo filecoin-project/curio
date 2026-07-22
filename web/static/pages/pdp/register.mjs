@@ -17,16 +17,14 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
         name: { type: String },
         description: { type: String },
         location: { type: String },
+        capacityTiB: { type: String },
 
         // PDP update state
         pdpServiceURL: { type: String },
-        pdpMinPieceSize: { type: Number },
-        pdpMaxPieceSize: { type: Number },
         pdpIpniPiece: { type: Boolean },
         pdpIpniIpfs: { type: Boolean },
-        pdpPrice: { type: Number },
-        pdpMinProvingPeriod: { type: Number },
         pdpLocation: { type: String },
+        pdpCapacityTiB: { type: String },
 
         // deregister confirmation input
         deregisterConfirmation: { type: String },
@@ -94,16 +92,14 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
         this.name = '';
         this.description = '';
         this.location = '';
+        this.capacityTiB = '';
 
         // PDP update state
         this.pdpServiceURL = '';
-        this.pdpMinPieceSize = 0;
-        this.pdpMaxPieceSize = 0;
         this.pdpIpniPiece = true;
         this.pdpIpniIpfs = true;
-        this.pdpPrice = 0;
-        this.pdpMinProvingPeriod = 0;
         this.pdpLocation = '';
+        this.pdpCapacityTiB = '';
 
         this.capabilities = {};
 
@@ -150,18 +146,31 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
         this.name = '';
         this.description = '';
         this.location = '';
+        this.capacityTiB = '';
         this.showRegisterModal = true;
     }
     closeRegister() { this.showRegisterModal = false; }
+
+    parsePositiveInteger(value) {
+        const trimmed = String(value ?? '').trim();
+        if (trimmed === '') return null;
+        const parsed = Number(trimmed);
+        return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+    }
 
     async submitRegister(e) {
         e.preventDefault();
         const name = this.name.trim();
         const description = this.description.trim();
         const location = this.location.trim();
+        const capacityTiB = this.parsePositiveInteger(this.capacityTiB);
 
         if (!name || !description || !location) {
-            alert('Please fill all fields (name, description, location).');
+            alert('Please fill all fields (name, description, location, storage capacity).');
+            return;
+        }
+        if (capacityTiB === null) {
+            alert('Storage capacity must be a positive whole number of TiB.');
             return;
         }
 
@@ -171,7 +180,7 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
         }
 
         try {
-            await RPCCall('FSRegister', [name, description, location]);
+            await RPCCall('FSRegister', [name, description, location, capacityTiB]);
             this.showRegisterModal = false;
             await this.loadStatus();
             alert('Provider registered successfully. Please wait for the 5 epochs to see the updated status.');
@@ -263,13 +272,10 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
     openUpdatePDP() {
         const pdp = this.status?.pdp_service || {};
         this.pdpServiceURL = pdp.service_url || '';
-        this.pdpMinPieceSize = pdp.min_size || 0;
-        this.pdpMaxPieceSize = pdp.max_size || 0;
         this.pdpIpniPiece = pdp.ipni_piece || false;
         this.pdpIpniIpfs = pdp.ipni_ipfs || false;
-        this.pdpPrice = pdp.price || 0;
-        this.pdpMinProvingPeriod = pdp.min_proving_period || 0;
         this.pdpLocation = pdp.location || '';
+        this.pdpCapacityTiB = String(pdp.capacity_tib || '');
         this.capabilities = this.status?.capabilities || {};
         this.showUpdatePDPModal = true;
     }
@@ -287,16 +293,11 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
     async submitUpdatePDP(e) {
         e.preventDefault();
 
+        const capacityTiB = this.parsePositiveInteger(this.pdpCapacityTiB);
         const pdpOffering = {
             service_url: this.pdpServiceURL.trim(),
-            min_size: parseInt(this.pdpMinPieceSize, 10),
-            max_size: parseInt(this.pdpMaxPieceSize, 10),
-            ipni_piece: this.pdpIpniPiece,
-            ipni_ipfs: this.pdpIpniIpfs,
-            ipni_peer_id: this.status?.pdp_service?.ipni_peer_id || '',
-            price: parseInt(this.pdpPrice, 10),
-            min_proving_period: parseInt(this.pdpMinProvingPeriod, 10),
             location: this.pdpLocation.trim(),
+            capacity_tib: capacityTiB,
         };
 
         // Validate location format
@@ -306,9 +307,12 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
         }
 
         // Validate fields
-        if (!pdpOffering.service_url || !pdpOffering.location ||
-            pdpOffering.min_size <= 0 || pdpOffering.max_size <= 0 || pdpOffering.price < 0 || pdpOffering.min_proving_period <= 0) {
+        if (!pdpOffering.service_url || !pdpOffering.location) {
             alert('Please provide all required fields with valid data.');
+            return;
+        }
+        if (pdpOffering.capacity_tib === null) {
+            alert('Storage capacity must be a positive whole number of TiB.');
             return;
         }
 
@@ -346,41 +350,12 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
             <table class="table table-dark table-striped table-bordered mb-0">
                 <tbody>
                 ${this.renderKV('Service URL', pdp.service_url)}
-                ${this.renderKV('Min Piece Size', this.formatBytes(pdp.min_size))}
-                ${this.renderKV('Max Piece Size', this.formatBytes(pdp.max_size))}
-                ${this.renderKV('IPNI Piece', String(!!pdp.ipni_piece))}
-                ${this.renderKV('IPNI IPFS', String(!!pdp.ipni_ipfs))}
-                ${this.renderKV('IPNI Peer ID', pdp.ipni_peer_id)}
-                ${this.renderKV('Price (per TiB per day)', this.unitsToUSDFCPerTiBPerDay(pdp.price))}
-                ${this.renderKV('Price (per TiB per month)', (parseFloat(this.unitsToUSDFCPerTiBPerDay(pdp.price)) * 30).toFixed(4))}
-                ${this.renderKV('Min Proving Period (epochs)', pdp.min_proving_period)}
+                ${this.renderKV('Storage Capacity (TiB)', pdp.capacity_tib)}
                 ${this.renderKV('Location', pdp.location)}
                 ${this.renderKV('Capabilities', this.renderCapabilities(capabilities))}
                 </tbody>
             </table>
         `;
-    }
-
-    formatBytes(bytes) {
-        if (bytes === 0) return '0 Bytes';
-        const k = 1024;
-        const sizes = ['Bytes', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB'];
-        const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-    }
-
-    get UNIT_PER_USDFC() {
-        return 1e18;
-    }
-
-    unitsToUSDFCPerTiBPerDay(value) {
-        const inUSDFC = value / this.UNIT_PER_USDFC;
-        return inUSDFC.toFixed(4);
-    }
-
-    USDFCToUnitsPerTibPerDay(value) {
-        const inUnits = value * this.UNIT_PER_USDFC;
-        return Math.round(inUnits);
     }
 
     render() {
@@ -472,6 +447,11 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
                                                @input=${e=>this.location=e.target.value} required />
                                         <div class="form-text text-warning">Location must be in format "C=US;ST=California;L=San Francisco"</div>
                                     </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Storage Capacity (TiB)</label>
+                                        <input class="form-control" type="number" min="1" step="1" .value=${this.capacityTiB}
+                                               @input=${e=>this.capacityTiB=e.target.value} required />
+                                    </div>
                                 </div>
                                 <div class="modal-footer">
                                     <button type="button" class="btn btn-secondary" @click=${this.closeRegister}>Cancel</button>
@@ -530,70 +510,6 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
                                         />
                                     </div>
                                     <div class="mb-3">
-                                        <label class="form-label">Minimum Piece Size (Bytes)</label>
-                                        <input
-                                                class="form-control"
-                                                type="number"
-                                                .value=${this.pdpMinPieceSize}
-                                                @input=${e => this.pdpMinPieceSize = e.target.value}
-                                                required
-                                        />
-                                        <div class="form-text">
-                                            ${this.formatBytes(this.pdpMinPieceSize)}
-                                        </div>
-                                    </div>
-                                    <div class="mb-3">
-                                        <label class="form-label">Maximum Piece Size (Bytes)</label>
-                                        <input
-                                                class="form-control"
-                                                type="number"
-                                                .value=${this.pdpMaxPieceSize}
-                                                @input=${e => this.pdpMaxPieceSize = e.target.value}
-                                                required
-                                        />
-                                        <div class="form-text">
-                                            ${this.formatBytes(this.pdpMaxPieceSize)}
-                                        </div>
-                                    </div>
-                                    <div class="mb-3">
-                                        <label class="form-label">IPNI Piece</label>
-                                        <input
-                                                type="checkbox"
-                                                .checked=${this.pdpIpniPiece}
-                                                @change=${e => this.pdpIpniPiece = e.target.checked}
-                                        />
-                                    </div>
-                                    <div class="mb-3">
-                                        <label class="form-label">IPNI IPFS</label>
-                                        <input
-                                                type="checkbox"
-                                                .checked=${this.pdpIpniIpfs}
-                                                @change=${e => this.pdpIpniIpfs = e.target.checked}
-                                        />
-                                    </div>
-                                    <div class="mb-3">
-                                        <label class="form-label">Storage Price (per TiB per day in USDFC)</label>
-                                        <input
-                                                class="form-control"
-                                                type="number"
-                                                step="0.0001"
-                                                .value=${this.unitsToUSDFCPerTiBPerDay(this.pdpPrice)}
-                                                @input=${e => this.pdpPrice = this.USDFCToUnitsPerTibPerDay(parseFloat(e.target.value))}
-                                                required
-                                        />
-                                        <div class="form-text">Approximately ${(parseFloat(this.unitsToUSDFCPerTiBPerDay(this.pdpPrice)) * 30).toFixed(2)} USDFC per TiB per month</div>
-                                    </div>
-                                    <div class="mb-3">
-                                        <label class="form-label">Minimum Proving Period (Epochs)</label>
-                                        <input
-                                                class="form-control"
-                                                type="number"
-                                                .value=${this.pdpMinProvingPeriod}
-                                                @input=${e => this.pdpMinProvingPeriod = e.target.value}
-                                                required
-                                        />
-                                    </div>
-                                    <div class="mb-3">
                                         <label class="form-label">Location</label>
                                         <input
                                                 class="form-control"
@@ -602,6 +518,18 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
                                                 required
                                         />
                                         <div class="form-text text-warning">Location must be in format "C=US;ST=California;L=San Francisco"</div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Storage Capacity (TiB)</label>
+                                        <input
+                                                class="form-control"
+                                                type="number"
+                                                min="1"
+                                                step="1"
+                                                .value=${this.pdpCapacityTiB}
+                                                @input=${e => this.pdpCapacityTiB = e.target.value}
+                                                required
+                                        />
                                     </div>
                                 </div>
                                 <div class="mb-3">

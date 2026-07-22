@@ -176,6 +176,12 @@ including collateral and other operational resources.`,
 	},
 	"CurioAlertingConfig": {
 		{
+			Name: "ClusterName",
+			Type: "string",
+
+			Comment: `ClusterName identifies the Curio cluster in external alerts. When empty, the hostname of the node sending the alert is used.`,
+		},
+		{
 			Name: "MinimumWalletBalance",
 			Type: "types.FIL",
 

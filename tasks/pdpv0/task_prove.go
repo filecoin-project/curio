@@ -31,11 +31,9 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
-	"github.com/filecoin-project/curio/lib/cachedreader"
 	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/lib/proof"
-	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/tasks/message"
 	"github.com/filecoin-project/curio/tasks/tasknames"
@@ -50,9 +48,9 @@ type ProveTask struct {
 	db        *harmonydb.DB
 	ethClient ethchain.EthClient
 	sender    *message.SenderETH
-	cpr       *cachedreader.CachedPieceReader
+	cpr       PieceReader
 	fil       ProveTaskChainApi
-	idx       *indexstore.IndexStore
+	idx       ProofCacheStore
 
 	head atomic.Pointer[chainTypes.TipSet]
 
@@ -64,7 +62,7 @@ type ProveTaskChainApi interface {
 	ChainHead(context.Context) (*chainTypes.TipSet, error)                                                                              //perm:read
 }
 
-func NewProveTask(db *harmonydb.DB, ethClient ethchain.EthClient, fil ProveTaskChainApi, w *Watcher, sender *message.SenderETH, cpr *cachedreader.CachedPieceReader, idx *indexstore.IndexStore) *ProveTask {
+func NewProveTask(db *harmonydb.DB, ethClient ethchain.EthClient, fil ProveTaskChainApi, w *Watcher, sender *message.SenderETH, cpr PieceReader, idx ProofCacheStore) *ProveTask {
 	pt := &ProveTask{
 		db:        db,
 		ethClient: ethClient,
@@ -596,7 +594,7 @@ func (p *ProveTask) genSubPieceMemtree(ctx context.Context, subPieceCid string, 
 // NOTE: On main branch, GetSharedPieceReader accepts v2 natively so this
 // conversion can be dropped when pdpv0 merges.
 type cprPieceReader struct {
-	cpr *cachedreader.CachedPieceReader
+	cpr PieceReader
 }
 
 func (r *cprPieceReader) GetPieceReader(ctx context.Context, pieceCid cid.Cid) (proof.SectionReadCloser, uint64, error) {
@@ -609,7 +607,7 @@ func (r *cprPieceReader) GetPieceReader(ctx context.Context, pieceCid cid.Cid) (
 
 // idxProofCache adapts IndexStore to the proof.ProofCache interface.
 type idxProofCache struct {
-	idx *indexstore.IndexStore
+	idx ProofCacheStore
 }
 
 func (c *idxProofCache) GetLayerIndex(ctx context.Context, pieceCidV2 cid.Cid) (bool, int, error) {

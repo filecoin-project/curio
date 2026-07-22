@@ -36,6 +36,17 @@ type Storage interface {
 	// This allows some other system to claim space for this task. Returns a cleanup function
 	Claim(taskID int) (func() error, error)
 }
+
+// ResourceInspector reports the machine resources available to the task engine.
+// It is injected into Register (via harmonytask.New) so that the GPU probe — the
+// only part that requires filecoin-ffi/CGO — lives outside this package. Curio
+// supplies an FFI-backed implementation (harmony/resources/ffigpu); consumers
+// that build without CGO supply their own (e.g. a GPU-less stub). Implementations
+// should fill Cpu, Ram and Gpu; MachineID is assigned by Register.
+type ResourceInspector interface {
+	GetResources() (Resources, error)
+}
+
 type Reg struct {
 	Resources
 	shutdown atomic.Bool
@@ -45,10 +56,10 @@ var logger = logging.Logger("harmonytask")
 
 var lotusRE = regexp.MustCompile("lotus-worker|lotus-harmony|yugabyted|yb-master|yb-tserver")
 
-func Register(db *harmonydb.DB, hostnameAndPort string) (*Reg, error) {
+func Register(db *harmonydb.DB, hostnameAndPort string, inspector ResourceInspector) (*Reg, error) {
 	var reg Reg
 	var err error
-	reg.Resources, err = getResources()
+	reg.Resources, err = inspector.GetResources()
 	if err != nil {
 		return nil, err
 	}
@@ -119,7 +130,13 @@ func (res *Reg) Shutdown() {
 	res.shutdown.Store(true)
 }
 
-func getResources() (res Resources, err error) {
+// System gathers the FFI-free machine resources: CPU count (runtime.NumCPU) and
+// available RAM (go-sysinfo), plus a sanity check for co-located lotus/curio
+// processes. The GPU count is supplied by the caller (via an injected
+// ResourceInspector) since detecting GPUs requires filecoin-ffi/CGO, which this
+// package must not depend on. If HARMONY_OVERRIDE_GPUS is set it wins over the
+// passed value, preserving the historical override-first behavior.
+func System(gpu float64) (res Resources, err error) {
 	b, err := exec.Command(`ps`, `-ef`).CombinedOutput()
 	if err != nil {
 		logger.Warn("Could not safety check for 2+ processes: ", err)
@@ -145,10 +162,14 @@ func getResources() (res Resources, err error) {
 		return Resources{}, err
 	}
 
+	if n, ok := gpuOverrideCount(); ok {
+		gpu = n
+	}
+
 	res = Resources{
 		Cpu: runtime.NumCPU(),
 		Ram: mem.Available,
-		Gpu: getGPUDevices(),
+		Gpu: gpu,
 	}
 
 	return res, nil
