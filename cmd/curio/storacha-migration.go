@@ -166,7 +166,7 @@ var importPiecesCmd = &cli.Command{
 			return err
 		}
 
-		si := paths.NewDBIndex(curioalerting.NewAlertingSystem(), db)
+		si := paths.NewDBIndex(curioalerting.NewAlertingSystem(db), db)
 
 		out, err = runImportPieces(ctx, db, si, storageID, sourcePath, targetPath, cctx.Int("batch-size"))
 		if err != nil {
@@ -217,7 +217,7 @@ func runImportPieces(ctx context.Context, db *harmonydb.DB, si paths.SectorIndex
 				continue
 			}
 
-			result, err := importStagedStorachaPiece(ctx, db, si, storageID, targetPath, filepath.Join(staging, entry.Name()))
+			result, err := importStagedStorachaPiece(ctx, db, si, storageID, targetPath, filepath.Join(staging, entry.Name()), true)
 			if err != nil {
 				return out, err
 			}
@@ -276,7 +276,7 @@ func runImportPieces(ctx context.Context, db *harmonydb.DB, si paths.SectorIndex
 			return out, xerrors.Errorf("renaming old path: %w", err)
 		}
 
-		result, err := importStagedStorachaPiece(ctx, db, si, storageID, targetPath, stagingPath)
+		result, err := importStagedStorachaPiece(ctx, db, si, storageID, targetPath, stagingPath, true)
 		if err != nil {
 			return out, err
 		}
@@ -334,13 +334,15 @@ func storachaPieceInfoFromFileName(name string) (*mk20.PieceInfo, bool, error) {
 
 // importStagedStorachaPiece finishes one target/storacha-staging/<cid>.car.
 // It first creates or reuses parked_pieces/refs in a committed DB transaction.
+// makePDPPieceRef keeps import-pieces behavior unchanged while letting aggregate
+// imports use the aggregate migration data_url and skip the public PDP piece ref.
 // If an existing incomplete parked_piece still has a live task, it returns
 // Imported=false and leaves the staged file untouched for a later retry.
 // Otherwise it consumes the staged file: remove it if the final
 // target/piece/s-t00-<id> already exists, or rename it to that final path. It
 // then declares the piece location and marks parked_pieces.complete unless the
 // row was already complete.
-func importStagedStorachaPiece(ctx context.Context, db *harmonydb.DB, si paths.SectorIndex, storageID storiface.ID, targetPath, stagingPath string) (storachaImportResult, error) {
+func importStagedStorachaPiece(ctx context.Context, db *harmonydb.DB, si paths.SectorIndex, storageID storiface.ID, targetPath, stagingPath string, makePDPPieceRef bool) (storachaImportResult, error) {
 	info, err := os.Stat(stagingPath)
 	if err != nil {
 		return storachaImportResult{}, xerrors.Errorf("checking staging file: %w", err)
@@ -383,7 +385,7 @@ func importStagedStorachaPiece(ctx context.Context, db *harmonydb.DB, si paths.S
 			return true, nil
 		}
 
-		if err := ensureStorachaRefsTx(tx, parkedPieceID, pi); err != nil {
+		if err := ensureStorachaRefsTx(tx, parkedPieceID, pi, makePDPPieceRef); err != nil {
 			return false, err
 		}
 
@@ -474,7 +476,7 @@ func recoverFinalStorachaPieces(ctx context.Context, db *harmonydb.DB, si paths.
 			break
 		}
 
-		imported, err := recoverFinalStorachaPiece(ctx, db, si, storageID, targetPath, row)
+		imported, err := recoverFinalStorachaPiece(ctx, db, si, storageID, targetPath, row, true)
 		if err != nil {
 			return err
 		}
@@ -510,7 +512,7 @@ func storachaPieceCIDV2FromRow(row storachaFinalRecoveryRow) (string, error) {
 // DB row, reuses the same claim/ref checks as staged import, then declares the
 // final file and marks the parked piece complete. It returns false when the
 // final file is missing or a live task still owns the parked_piece.
-func recoverFinalStorachaPiece(ctx context.Context, db *harmonydb.DB, si paths.SectorIndex, storageID storiface.ID, targetPath string, row storachaFinalRecoveryRow) (bool, error) {
+func recoverFinalStorachaPiece(ctx context.Context, db *harmonydb.DB, si paths.SectorIndex, storageID storiface.ID, targetPath string, row storachaFinalRecoveryRow, makePDPPieceRef bool) (bool, error) {
 	finalPath := storachaFinalPiecePath(targetPath, row.ID)
 	info, err := os.Stat(finalPath)
 	if os.IsNotExist(err) {
@@ -542,7 +544,7 @@ func recoverFinalStorachaPiece(ctx context.Context, db *harmonydb.DB, si paths.S
 		if !state.UseStagedFile {
 			return true, nil
 		}
-		if err := ensureStorachaRefsTx(tx, row.ID, pi); err != nil {
+		if err := ensureStorachaRefsTx(tx, row.ID, pi, makePDPPieceRef); err != nil {
 			return false, err
 		}
 		return true, nil
@@ -617,12 +619,15 @@ func claimExistingStorachaPieceTx(tx *harmonydb.Tx, parkedPieceID int64) (storac
 	return state, nil
 }
 
-// ensureStorachaRefsTx enforces the intended one-to-one shape for this import.
-// It locks storacha-migration parked_piece_refs for this parked piece, fails if
-// more than one exists, inserts the missing ref if needed, then does the same
-// for pdp_piecerefs through the unique piece_ref relation. Existing PDP refs
-// must already point at the same service and piece CID.
-func ensureStorachaRefsTx(tx *harmonydb.Tx, parkedPieceID int64, pi *mk20.PieceInfo) error {
+// ensureStorachaRefsTx enforces the intended one-to-one shape for this migration
+// mode. Direct imports create storacha-migration refs and PDP refs; aggregate
+// imports create storacha-migration-aggregate refs and intentionally skip PDP refs.
+func ensureStorachaRefsTx(tx *harmonydb.Tx, parkedPieceID int64, pi *mk20.PieceInfo, makePDPPieceRef bool) error {
+	dataURL := storachaMigrationAggregateDataURL
+	if makePDPPieceRef {
+		dataURL = storachaMigrationDataURL
+	}
+
 	var refs []struct {
 		RefID int64 `db:"ref_id"`
 	}
@@ -633,7 +638,7 @@ func ensureStorachaRefsTx(tx *harmonydb.Tx, parkedPieceID int64, pi *mk20.PieceI
 		  AND data_url = $2
 		  AND long_term = TRUE
 		ORDER BY ref_id
-		FOR UPDATE`, parkedPieceID, storachaMigrationDataURL)
+		FOR UPDATE`, parkedPieceID, dataURL)
 	if err != nil {
 		return xerrors.Errorf("query storacha parked piece refs: %w", err)
 	}
@@ -648,18 +653,26 @@ func ensureStorachaRefsTx(tx *harmonydb.Tx, parkedPieceID int64, pi *mk20.PieceI
 		err = tx.QueryRow(`
 			INSERT INTO parked_piece_refs (piece_id, data_url, long_term)
 			VALUES ($1, $2, TRUE)
-			RETURNING ref_id`, parkedPieceID, storachaMigrationDataURL).Scan(&pieceRef)
+			RETURNING ref_id`, parkedPieceID, dataURL).Scan(&pieceRef)
 		if err != nil {
 			return xerrors.Errorf("insert storacha parked piece ref: %w", err)
 		}
 	}
 
+	if !makePDPPieceRef {
+		return nil
+	}
+
+	return ensurePDPPieceRef(tx, pieceRef, pi)
+}
+
+func ensurePDPPieceRef(tx *harmonydb.Tx, pieceRef int64, pi *mk20.PieceInfo) error {
 	var pdpRefs []struct {
 		ID       int64  `db:"id"`
 		Service  string `db:"service"`
 		PieceCID string `db:"piece_cid"`
 	}
-	err = tx.Select(&pdpRefs, `
+	err := tx.Select(&pdpRefs, `
 		SELECT id, service, piece_cid
 		FROM pdp_piecerefs
 		WHERE piece_ref = $1

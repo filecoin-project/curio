@@ -34,6 +34,7 @@ import (
 )
 
 const storachaAggregateDefaultPieceSize = abi.PaddedPieceSize(1 << 30)
+const storachaMigrationAggregateDataURL = "storacha-migration-aggregate"
 
 // storachaAggregatePieceSize is a variable only so tests can exercise the
 // recovery paths without writing 1 GiB aggregate files. Production uses the
@@ -290,7 +291,7 @@ var aggregatePiecesCmd = &cli.Command{
 			return err
 		}
 
-		si := paths.NewDBIndex(curioalerting.NewAlertingSystem(), db)
+		si := paths.NewDBIndex(curioalerting.NewAlertingSystem(db), db)
 
 		workDir, err = runAggregatePieces(ctx, db, si, storageID, sortPath, inputPath, sourcePath, targetPath)
 		if err != nil {
@@ -1771,7 +1772,7 @@ func recoverStorachaAggregateFromFinal(ctx context.Context, db *harmonydb.DB, si
 			return false, err
 		}
 
-		imported, err := recoverFinalStorachaPiece(ctx, db, si, storageID, targetPath, row)
+		imported, err := recoverFinalStorachaPiece(ctx, db, si, storageID, targetPath, row, false)
 		if err != nil {
 			return false, err
 		}
@@ -2045,7 +2046,7 @@ func importStagedStorachaAggregateFile(ctx context.Context, db *harmonydb.DB, si
 		return xerrors.Errorf("aggregate staging file %s size mismatch: expected %d, got %d; cleanup manually before retrying", stagingPath, verified.RawSize, info.Size())
 	}
 
-	result, err := importStagedStorachaPiece(ctx, db, si, storageID, targetPath, stagingPath)
+	result, err := importStagedStorachaPiece(ctx, db, si, storageID, targetPath, stagingPath, false)
 	if err != nil {
 		return err
 	}

@@ -156,6 +156,7 @@ func TestStorachaAggregateRecoversFromFinalFileAndFixesDB(t *testing.T) {
 	tempPath, verified := createStorachaAggregateTempFileForTest(t, env, workDir, group)
 	pieceID := insertAggregateParkedPiece(t, env, verified, false)
 	assertStorachaRefs(t, env, pieceID, 0)
+	assertStorachaRefsWithDataURL(t, env, pieceID, storachaMigrationAggregateDataURL, 0)
 	assertSectorLocation(t, env, pieceID, 0)
 
 	finalPath := storachaFinalPiecePath(env.targetDir, pieceID)
@@ -166,8 +167,9 @@ func TestStorachaAggregateRecoversFromFinalFileAndFixesDB(t *testing.T) {
 
 	pp := parkedPieceByID(t, env, pieceID)
 	require.True(t, pp.complete)
-	assertStorachaRefs(t, env, pieceID, 1)
-	assertPDPRefs(t, env, pieceID, group.PieceCIDV1, 1)
+	assertStorachaRefs(t, env, pieceID, 0)
+	assertStorachaRefsWithDataURL(t, env, pieceID, storachaMigrationAggregateDataURL, 1)
+	assertPDPRefs(t, env, pieceID, group.PieceCIDV1, 0)
 	assertSectorLocation(t, env, pieceID, 1)
 
 	complete := assertStorachaAggregateImported(t, env, workDir, group)
@@ -407,8 +409,9 @@ func assertStorachaAggregateImported(t *testing.T, env storachaMigrationTestEnv,
 
 	pp := parkedPieceByID(t, env, rows[0].ID)
 	require.True(t, pp.complete)
-	assertStorachaRefs(t, env, rows[0].ID, 1)
-	assertPDPRefs(t, env, rows[0].ID, group.PieceCIDV1, 1)
+	assertStorachaRefs(t, env, rows[0].ID, 0)
+	assertStorachaRefsWithDataURL(t, env, rows[0].ID, storachaMigrationAggregateDataURL, 1)
+	assertPDPRefs(t, env, rows[0].ID, group.PieceCIDV1, 0)
 	assertSectorLocation(t, env, rows[0].ID, 1)
 
 	_, err = verifyStorachaAggregateFileForTest(storachaFinalPiecePath(env.targetDir, rows[0].ID), pcidV1, abi.PaddedPieceSize(group.PaddedSize))

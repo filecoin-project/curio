@@ -666,6 +666,11 @@ func parkedPieceByID(t *testing.T, env storachaMigrationTestEnv, pieceID int64) 
 
 func storachaRefIDs(t *testing.T, env storachaMigrationTestEnv, pieceID int64) []int64 {
 	t.Helper()
+	return storachaRefIDsForDataURL(t, env, pieceID, storachaMigrationDataURL)
+}
+
+func storachaRefIDsForDataURL(t *testing.T, env storachaMigrationTestEnv, pieceID int64, dataURL string) []int64 {
+	t.Helper()
 
 	var rows []struct {
 		RefID int64 `db:"ref_id"`
@@ -677,7 +682,7 @@ func storachaRefIDs(t *testing.T, env storachaMigrationTestEnv, pieceID int64) [
 		  AND data_url = $2
 		  AND long_term = TRUE
 		ORDER BY ref_id
-	`, pieceID, storachaMigrationDataURL)
+	`, pieceID, dataURL)
 	require.NoError(t, err)
 
 	out := make([]int64, 0, len(rows))
@@ -705,6 +710,11 @@ func pdpRefsForPiece(t *testing.T, env storachaMigrationTestEnv, pieceID int64) 
 func assertStorachaRefs(t *testing.T, env storachaMigrationTestEnv, pieceID int64, expected int) {
 	t.Helper()
 	require.Len(t, storachaRefIDs(t, env, pieceID), expected)
+}
+
+func assertStorachaRefsWithDataURL(t *testing.T, env storachaMigrationTestEnv, pieceID int64, dataURL string, expected int) {
+	t.Helper()
+	require.Len(t, storachaRefIDsForDataURL(t, env, pieceID, dataURL), expected)
 }
 
 func assertPDPRefs(t *testing.T, env storachaMigrationTestEnv, pieceID int64, pieceCID string, expected int) {
