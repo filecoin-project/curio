@@ -200,12 +200,14 @@ func (a *WebRPC) pdpGuideRegistry(ctx context.Context) PDPGuideRegistryStatus {
 	if status == nil {
 		return PDPGuideRegistryStatus{Detail: "Not registered with the Filecoin Onchain Cloud service provider registry."}
 	}
+	ok := true
 	detail := fmt.Sprintf("Registered as %q (provider id %d).", status.Name, status.ID)
 	if !status.Active {
 		detail += " Provider is inactive."
+		ok = false
 	}
 	return PDPGuideRegistryStatus{
-		OK:         true,
+		OK:         ok,
 		Registered: true,
 		ProviderID: status.ID,
 		Name:       status.Name,
