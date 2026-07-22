@@ -41,6 +41,7 @@ var toolboxCmd = &cli.Command{
 		downgradeCmd,
 		fixBoostMigrationCmd,
 		importPiecesCmd,
+		aggregatePiecesCmd,
 	},
 }
 
