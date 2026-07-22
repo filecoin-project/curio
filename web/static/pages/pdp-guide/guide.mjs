@@ -338,9 +338,17 @@ customElements.define('pdp-guide', class PDPGuideElement extends LitElement {
 
     renderWallet(wallet) {
         const configured = !!wallet?.configured;
+        const balanceKnown = !!wallet?.balanceKnown;
         const funded = !!wallet?.funded;
         const actor = !!wallet?.actorExists;
         const ok = !!wallet?.ok;
+        const balanceLabel = !configured
+            ? '—'
+            : !balanceKnown
+                ? (wallet.balance || 'Err')
+                : funded
+                    ? (wallet.balance || 'funded')
+                    : 'Unfunded';
         return this.wrapItem('wallet', ok, 'Have a wallet with balance', html`
             <p class="item-detail" style="margin-left: 30px;">${wallet?.detail || ''}</p>
             <ul class="subs">
@@ -366,10 +374,10 @@ customElements.define('pdp-guide', class PDPGuideElement extends LitElement {
                     </div>
                 </li>
                 <li class="sub">
-                    <span class="check" data-state=${this.stateOf(funded)} aria-hidden="true"></span>
+                    <span class="check" data-state=${this.stateOf(funded, configured && !balanceKnown)} aria-hidden="true"></span>
                     <div>
                         <div class="sub-label">Balance</div>
-                        <div class="sub-meta">${funded ? (wallet.balance || 'funded') : 'Unfunded'}</div>
+                        <div class="sub-meta">${balanceLabel}</div>
                     </div>
                 </li>
             </ul>

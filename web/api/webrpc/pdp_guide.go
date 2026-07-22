@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/filecoin-project/curio/lib/urlhelper"
+	"github.com/filecoin-project/curio/pdp"
 
 	"github.com/filecoin-project/lotus/chain/types"
 )
@@ -28,14 +29,15 @@ type PDPGuideStatus struct {
 }
 
 type PDPGuideWalletStatus struct {
-	OK          bool   `json:"ok"`
-	Configured  bool   `json:"configured"`
-	Address     string `json:"address,omitempty"`
-	FilAddress  string `json:"filAddress,omitempty"`
-	Balance     string `json:"balance,omitempty"`
-	Funded      bool   `json:"funded"`
-	ActorExists bool   `json:"actorExists"`
-	Detail      string `json:"detail,omitempty"`
+	OK           bool   `json:"ok"`
+	Configured   bool   `json:"configured"`
+	Address      string `json:"address,omitempty"`
+	FilAddress   string `json:"filAddress,omitempty"`
+	Balance      string `json:"balance,omitempty"`
+	BalanceKnown bool   `json:"balanceKnown"`
+	Funded       bool   `json:"funded"`
+	ActorExists  bool   `json:"actorExists"`
+	Detail       string `json:"detail,omitempty"`
 }
 
 type PDPGuideStorageStatus struct {
@@ -85,16 +87,22 @@ func (a *WebRPC) pdpGuideWallet(ctx context.Context) PDPGuideWalletStatus {
 		return PDPGuideWalletStatus{Detail: err.Error()}
 	}
 	out := PDPGuideWalletStatus{
-		Configured:  status.Configured,
-		Address:     status.Address,
-		FilAddress:  status.FilAddress,
-		Balance:     status.Balance,
-		Funded:      status.Funded,
-		ActorExists: status.ActorExists,
+		Configured:   status.Configured,
+		Address:      status.Address,
+		FilAddress:   status.FilAddress,
+		Balance:      status.Balance,
+		BalanceKnown: status.BalanceKnown,
+		Funded:       status.Funded,
+		ActorExists:  status.ActorExists,
+	}
+	if status.Configured && !status.BalanceKnown {
+		out.Balance = "Err"
 	}
 	switch {
 	case !status.Configured:
 		out.Detail = "No PDP wallet configured. Create a key or import a hex key / lotus wallet export."
+	case !status.BalanceKnown:
+		out.Detail = "Wallet configured but balance could not be fetched from the chain."
 	case !status.Funded:
 		out.Detail = "Wallet configured but unfunded. Send FIL/tFIL to the address before registering."
 	default:
@@ -219,13 +227,17 @@ func probePDPReachability(ctx context.Context, serviceURL string) (bool, string)
 		return false, err.Error()
 	}
 	defer func() { _ = resp.Body.Close() }()
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1024))
-	if resp.StatusCode >= 200 && resp.StatusCode < 500 {
-		// 2xx/3xx/4xx means something is listening on the public name.
-		// Auth/method errors still prove reachability.
-		return true, fmt.Sprintf("HTTP %d from %s", resp.StatusCode, pingURL)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1024))
+	if err != nil {
+		return false, fmt.Sprintf("failed to read %s: %v", pingURL, err)
 	}
-	return false, fmt.Sprintf("HTTP %d from %s", resp.StatusCode, pingURL)
+	if resp.StatusCode != http.StatusOK {
+		return false, fmt.Sprintf("HTTP %d from %s", resp.StatusCode, pingURL)
+	}
+	if string(body) != pdp.PingOKBody {
+		return false, fmt.Sprintf("unexpected body from %s: %q (want %q)", pingURL, string(body), pdp.PingOKBody)
+	}
+	return true, fmt.Sprintf("HTTP 200 with expected body from %s", pingURL)
 }
 
 func max64(a, b int64) int64 {

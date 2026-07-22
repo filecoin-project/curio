@@ -343,7 +343,7 @@ func (a *WebRPC) pdpIncome30d(ctx context.Context) (settled *big.Int, accrued *b
 
 	paymentAddr, err := filecoinpayment.PaymentContractAddress()
 	if err != nil {
-		return settled, accrued, nil
+		return settled, accrued, err
 	}
 
 	eclient, err := a.Deps.EthClient.Val()

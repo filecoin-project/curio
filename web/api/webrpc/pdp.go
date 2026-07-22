@@ -720,6 +720,11 @@ func (a *WebRPC) FSUpdatePDP(ctx context.Context, pdpOffering *FSPDPOffering, ca
 		return xerrors.Errorf("provider is not registered")
 	}
 
+	tokenAddress, err := contract.USDFCAddress()
+	if err != nil {
+		return xerrors.Errorf("failed to get USDFC address: %w", err)
+	}
+
 	offering := contract.PDPOfferingData{
 		ServiceURL:               pdpOffering.ServiceURL,
 		MinPieceSizeInBytes:      big.NewInt(pdpOffering.MinPieceSizeInBytes),
@@ -730,7 +735,7 @@ func (a *WebRPC) FSUpdatePDP(ctx context.Context, pdpOffering *FSPDPOffering, ca
 		StoragePricePerTibPerDay: big.NewInt(pdpOffering.StoragePricePerTibPerDay),
 		MinProvingPeriodInEpochs: big.NewInt(pdpOffering.MinProvingPeriodInEpochs),
 		Location:                 pdpOffering.Location,
-		PaymentTokenAddress:      common.HexToAddress("0x0000000000000000000000000000000000000000"),
+		PaymentTokenAddress:      tokenAddress,
 	}
 
 	hash, err := contract.FSUpdatePDPService(ctx, a.Deps.DB, eclient, offering, capabilities)
