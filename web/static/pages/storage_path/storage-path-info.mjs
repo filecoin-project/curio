@@ -1,5 +1,6 @@
 import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs';
+import { loadingBlock, loadingStyles } from '/lib/loading.mjs';
 
 customElements.define('storage-path-info', class StoragePathInfo extends LitElement {
     static properties = {
@@ -13,7 +14,7 @@ customElements.define('storage-path-info', class StoragePathInfo extends LitElem
         hostMachineMap: { type: Object },
     };
 
-    static styles = css`
+    static styles = [loadingStyles, css`
         .info-grid {
             display: grid;
             grid-template-columns: auto 1fr;
@@ -181,7 +182,7 @@ customElements.define('storage-path-info', class StoragePathInfo extends LitElem
             border-radius: 3px;
             font-size: 0.8em;
         }
-    `;
+    `];
 
     constructor() {
         super();
@@ -267,7 +268,7 @@ customElements.define('storage-path-info', class StoragePathInfo extends LitElem
             return html`
                 <link rel="stylesheet" href="/ux/vendor/bootstrap.min.css">
                 <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'">
-                <div style="padding: 20px;">Loading...</div>
+                ${loadingBlock('Loading…')}
             `;
         }
 

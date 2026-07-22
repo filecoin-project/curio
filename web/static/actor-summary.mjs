@@ -141,7 +141,7 @@ class ActorSummary extends LitElement {
         this.data = [];
         this._hoverState = null;
         pollRPC(async () => {
-            this.data = await RPCCall('ActorSummary');
+            this.data = (await RPCCall('ActorSummary')) ?? [];
         }, 30000);
     }
 
@@ -265,7 +265,7 @@ class ActorSummary extends LitElement {
                     </tr>
                 </thead>
                 <tbody>
-                    ${this.data.map((entry, actorIndex) => html`
+                    ${(this.data ?? []).map((entry, actorIndex) => html`
                         <tr>
                             <td>
                                 <div class="address-container">
@@ -274,10 +274,10 @@ class ActorSummary extends LitElement {
                                 </div>
                             </td>
                             <td>
-                                ${entry.CLayers.map(layer => html`<span>${layer} </span>`)}
+                                ${(entry.CLayers ?? []).map(layer => html`<span>${layer} </span>`)}
                             </td>
                             <td>${entry.QualityAdjustedPower}</td>
-                            <td>${this.renderDeadlines(actorIndex, entry.Address, entry.Deadlines)}</td>
+                            <td>${this.renderDeadlines(actorIndex, entry.Address, entry.Deadlines ?? [])}</td>
                             <td>${entry.ActorBalance}</td>
                             <td>${entry.ActorAvailable}</td>
                             <td>${entry.Win1}/${entry.Win7}/${entry.Win30}</td>

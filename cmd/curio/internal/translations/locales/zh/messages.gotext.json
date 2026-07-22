@@ -3135,6 +3135,12 @@
       "translation": "以只读模式打开数据库（跳过架构升级和 harmony_machines 写入）",
       "message": "Open the database in read-only mode (skip schema upgrades and harmony_machines writes)",
       "placeholder": null
+    },
+    {
+      "id": "Start an instance of Curio web interface. \n\tThis creates the 'web' layer if it does not exist, then calls run with that layer.\n\tIn --db-readonly / CURIO_DB_READONLY mode, no config layer is written; the GUI is enabled in-memory.",
+      "translation": "启动 Curio 网络界面实例。\n\t如果 'web' 层不存在，则创建该层，然后调用 run 使用该层。\n\t在 --db-readonly / CURIO_DB_READONLY 模式下，不写入配置层；GUI 在内存中启用。",
+      "message": "Start an instance of Curio web interface. \n\tThis creates the 'web' layer if it does not exist, then calls run with that layer.\n\tIn --db-readonly / CURIO_DB_READONLY mode, no config layer is written; the GUI is enabled in-memory.",
+      "placeholder": null
     }
   ]
 }

@@ -3165,6 +3165,12 @@
       "translation": "데이터베이스를 읽기 전용 모드로 엽니다 (스키마 업그레이드 및 harmony_machines 쓰기 건너뛰기)",
       "message": "Open the database in read-only mode (skip schema upgrades and harmony_machines writes)",
       "placeholder": null
+    },
+    {
+      "id": "Start an instance of Curio web interface. \n\tThis creates the 'web' layer if it does not exist, then calls run with that layer.\n\tIn --db-readonly / CURIO_DB_READONLY mode, no config layer is written; the GUI is enabled in-memory.",
+      "translation": "Curio 웹 인터페이스의 인스턴스를 시작합니다.\n\t이는 'web' 레이어가 존재하지 않으면 생성하고, 해당 레이어를 사용하여 run을 호출합니다.\n\t--db-readonly / CURIO_DB_READONLY 모드에서는 설정 레이어가 작성되지 않으며, GUI는 메모리에서 활성화됩니다.",
+      "message": "Start an instance of Curio web interface. \n\tThis creates the 'web' layer if it does not exist, then calls run with that layer.\n\tIn --db-readonly / CURIO_DB_READONLY mode, no config layer is written; the GUI is enabled in-memory.",
+      "placeholder": null
     }
   ]
 }

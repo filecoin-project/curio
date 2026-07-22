@@ -453,7 +453,9 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		if !comm {
 			return false, xerrors.Errorf("failed to commit transaction")
 		}
-		return true, nil
+		// Complete the task (no harmony retry) but retain the send error in task history
+		// as a non-failing error so the proving UI can surface what went wrong.
+		return true, sendErr
 	}
 
 	// Success, reset any accumulated failure count. We cannot fail the task here to avoid sending proof for same dataSet multiple times
