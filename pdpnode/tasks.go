@@ -9,6 +9,7 @@ import (
 	"github.com/filecoin-project/curio/alertmanager"
 	"github.com/filecoin-project/curio/cuhttp/servicedeps"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
+	"github.com/filecoin-project/curio/harmony/resources/ffigpu"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/chainsched"
 	"github.com/filecoin-project/curio/tasks/gc"
@@ -137,7 +138,7 @@ func RegisterTasks(ctx context.Context, d *Deps) (*TaskResult, error) {
 		return nil, err
 	}
 
-	ht, err := harmonytask.New(d.DB, bundle.tasks, d.MachineHost)
+	ht, err := harmonytask.New(d.DB, bundle.tasks, d.MachineHost, ffigpu.Inspector{})
 	if err != nil {
 		return nil, err
 	}

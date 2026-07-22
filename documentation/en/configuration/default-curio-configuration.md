@@ -1018,6 +1018,11 @@ description: The default curio configuration
 # type: CurioAlertingConfig
 [Alerting]
 
+  # ClusterName identifies the Curio cluster in external alerts. When empty, the hostname of the node sending the alert is used.
+  #
+  # type: string
+  #ClusterName = ""
+
   # MinimumWalletBalance is the minimum balance all active wallets. If the balance is below this value, an
   # alerts will be triggered for the wallet
   # Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "5 FIL")
