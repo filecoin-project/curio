@@ -317,10 +317,10 @@ func (P *PDPV0IPNITask) TypeDetails() harmonytask.TaskTypeDetails {
 			Ram: 1 << 30,
 		},
 		MaxFailures: 3,
-		IAmBored: passcall.Every(30*time.Second, func(taskFunc harmonytask.AddTaskFunc) error {
+		IAmBored: passcall.Every(5*time.Second, func(taskFunc harmonytask.AddTaskFunc) error {
 			return P.schedule(context.Background(), taskFunc)
 		}),
-		Max: P.max,
+		Max: taskhelp.Max(50),
 	}
 }
 

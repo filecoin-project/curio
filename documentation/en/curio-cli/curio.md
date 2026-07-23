@@ -1384,6 +1384,8 @@ COMMANDS:
    fix-msg              Updated DB with message data missing from chain node
    downgrade            Downgrade a cluster's database to a previous software version.
    fix-boost-migration  Fix Boost migration
+   import-pieces        Imports already existing pieces from storage to piece park system
+   aggregate-pieces     Aggregates already existing pieces from storage into PODSI and park them
    help, h              Shows a list of commands or help for one command
 
 OPTIONS:
@@ -1434,6 +1436,38 @@ OPTIONS:
    --boostd-data-username value                             yugabyte username to connect to over cassandra interface eg 'cassandra'
    --boostd-data-password value                             yugabyte password to connect to over cassandra interface eg 'cassandra'
    --help, -h                                               show help
+```
+
+### curio toolbox import-pieces
+```
+NAME:
+   curio toolbox import-pieces - Imports already existing pieces from storage to piece park system
+
+USAGE:
+   curio toolbox import-pieces [command options]
+
+OPTIONS:
+   --source value      path to store the pieces from
+   --target value      path to storage directory in Curio's attached permanent storage
+   --result value      path to write the JSON result
+   --batch-size value  number of pieces to move to permanent storage (default: 20)
+   --help, -h          show help
+```
+
+### curio toolbox aggregate-pieces
+```
+NAME:
+   curio toolbox aggregate-pieces - Aggregates already existing pieces from storage into PODSI and park them
+
+USAGE:
+   curio toolbox aggregate-pieces [command options]
+
+OPTIONS:
+   --source value  path to read the pieces from
+   --target value  path to storage directory in Curio's attached permanent storage
+   --result value  path to write the JSON result
+   --input value   path to read the CIDs from
+   --help, -h      show help
 ```
 
 ## curio batch
