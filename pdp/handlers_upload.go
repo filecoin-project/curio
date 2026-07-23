@@ -33,8 +33,17 @@ import (
 
 var log = logging.Logger("pdpv0")
 
-// PieceSizeLimit in bytes
-var PieceSizeLimit = abi.PaddedPieceSize(proof.MaxMemtreeSize).Unpadded()
+var (
+	// 127
+	PieceSizeMinLimit = abi.PaddedPieceSize(128).Unpadded()
+	// 1065353216
+	PieceSizeMaxLimit = abi.PaddedPieceSize(proof.MaxMemtreeSize).Unpadded()
+)
+var (
+	ErrPieceTooSmall       = fmt.Errorf("piece data is below the minimum allowed size (%d bytes)", PieceSizeMinLimit)
+	ErrPieceTooLarge       = fmt.Errorf("piece data exceeds the maximum allowed size (%d bytes)", PieceSizeMaxLimit)
+	ErrExceedsDeclaredSize = fmt.Errorf("piece data exceeds the declared piece size")
+)
 
 func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 	// Verify that the request is authorized using ECDSA JWT
@@ -58,8 +67,12 @@ func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 		httpServerError(w, http.StatusBadRequest, "Invalid request body: invalid pieceCid: "+err.Error(), err)
 		return
 	}
-	if pieceInfo.RawSize > uint64(PieceSizeLimit) {
-		httpServerError(w, http.StatusBadRequest, "Piece size exceeds the maximum allowed size", err)
+	if pieceInfo.RawSize < uint64(PieceSizeMinLimit) {
+		httpServerError(w, http.StatusBadRequest, ErrPieceTooSmall.Error(), nil)
+		return
+	}
+	if pieceInfo.RawSize > uint64(PieceSizeMaxLimit) {
+		httpServerError(w, http.StatusRequestEntityTooLarge, ErrPieceTooLarge.Error(), nil)
 		return
 	}
 	pieceCidV1 := pieceInfo.CidV1
@@ -211,8 +224,7 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Limit the size of the piece data
-	maxPieceSize := checkSize
+	declaredPieceSize := checkSize
 
 	// Create a commp.Calc instance for calculating commP
 	cp := &commp.Calc{}
@@ -221,7 +233,7 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 
 	// Function to write data into StashStore and calculate commP
 	writeFunc := func(f *os.File) error {
-		limitedReader := io.LimitReader(r.Body, maxPieceSize+1) // +1 to detect exceeding the limit
+		limitedReader := io.LimitReader(r.Body, declaredPieceSize+1) // +1 to detect exceeding the limit
 		multiWriter := io.MultiWriter(cp, f)
 
 		// Copy data from limitedReader to multiWriter
@@ -230,8 +242,8 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 			return fmt.Errorf("failed to read and write piece data: %w", err)
 		}
 
-		if n > maxPieceSize {
-			return fmt.Errorf("piece data exceeds the maximum allowed size")
+		if n > declaredPieceSize {
+			return fmt.Errorf("read %d bytes, declared %d: %w", n, declaredPieceSize, ErrExceedsDeclaredSize)
 		}
 
 		readSize = n
@@ -239,10 +251,11 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 		return nil
 	}
 	// Upload into StashStore
-	stashID, err := p.storage.StashCreate(ctx, maxPieceSize, writeFunc)
+	stashID, err := p.storage.StashCreate(ctx, declaredPieceSize, writeFunc)
 	if err != nil {
-		if err.Error() == "piece data exceeds the maximum allowed size" {
-			httpServerError(w, http.StatusRequestEntityTooLarge, err.Error(), err)
+		if errors.Is(err, ErrExceedsDeclaredSize) {
+			msg := fmt.Sprintf("piece data exceeds the size declared in pieceCid (%d bytes)", declaredPieceSize)
+			httpServerError(w, http.StatusBadRequest, msg, err)
 			return
 		} else {
 			log.Errorw("Failed to store piece data in StashStore", "error", err)
@@ -477,8 +490,9 @@ func (p *PDPService) handleStreamingUpload(w http.ResponseWriter, r *http.Reques
 			return fmt.Errorf("failed to read and write piece data: %w", err)
 		}
 
-		if n > UploadSizeLimit {
-			return fmt.Errorf("piece data exceeds the maximum allowed size")
+		// already limited the maximum read size in TimeoutLimitReader
+		if n < int64(PieceSizeMinLimit) {
+			return ErrPieceTooSmall
 		}
 
 		readSize = n
@@ -487,10 +501,13 @@ func (p *PDPService) handleStreamingUpload(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Upload into StashStore
-	stashID, err := p.storage.StashCreate(ctx, UploadSizeLimit, writeFunc)
+	stashID, err := p.storage.StashCreate(ctx, int64(PieceSizeMaxLimit), writeFunc)
 	if err != nil {
-		if err.Error() == "piece data exceeds the maximum allowed size" {
-			httpServerError(w, http.StatusRequestEntityTooLarge, err.Error(), err)
+		if errors.Is(err, ErrPieceTooLarge) {
+			httpServerError(w, http.StatusRequestEntityTooLarge, ErrPieceTooLarge.Error(), err)
+			return
+		} else if errors.Is(err, ErrPieceTooSmall) {
+			httpServerError(w, http.StatusBadRequest, ErrPieceTooSmall.Error(), err)
 			return
 		} else {
 			log.Errorw("Failed to store piece data in StashStore", "error", err)
@@ -707,15 +724,13 @@ func NewTimeoutLimitReader(r io.Reader, timeout time.Duration) *TimeoutLimitRead
 	}
 }
 
-const UploadSizeLimit = int64(1065353216) // 1 GiB.Unpadded()
-
 func (t *TimeoutLimitReader) Read(p []byte) (int, error) {
 	deadline := time.Now().Add(t.timeout)
 	for {
 		// Attempt to read
 		n, err := t.r.Read(p)
-		if t.totalBytes+int64(n) > UploadSizeLimit {
-			return 0, fmt.Errorf("upload size limit exceeded: %d bytes", UploadSizeLimit)
+		if t.totalBytes+int64(n) > int64(PieceSizeMaxLimit) {
+			return 0, ErrPieceTooLarge
 		} else {
 			t.totalBytes += int64(n)
 		}
