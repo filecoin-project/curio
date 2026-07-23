@@ -24,6 +24,10 @@ const (
 	// Used by CalculateBackoffBlocks to cap the delay. In practice,
 	// MaxConsecutiveFailures is reached before this cap applies.
 	MaxBackoffBlocks = 28800
+
+	// StaleReceiptWaitEpochs is how far into the proof window we wait before
+	// marking a still-missing Create/Add receipt wait as lost (failed).
+	StaleReceiptWaitEpochs = 5
 )
 
 // CalculateBackoffBlocks computes exponential backoff: base * 2^(failures-1)

@@ -28,6 +28,7 @@ import (
 	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/apiconn"
 	"github.com/filecoin-project/curio/lib/lists"
 	"github.com/filecoin-project/curio/tasks/tasknames"
 
@@ -35,7 +36,6 @@ import (
 	"github.com/filecoin-project/lotus/chain/actors/adt"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/types"
-	cliutil "github.com/filecoin-project/lotus/cli/util"
 )
 
 type AlertNow struct {
@@ -349,120 +349,12 @@ func permanentStorageCheck(al *alerts) {
 // The function iterates over layers, storing decoded configuration and verifying address existence in addrMap.
 // It ends by setting unique addresses and miner slices in the alerts struct which others can reuse. This must be called before other alerts funcs.
 func (al *alerts) getAddresses() error {
-	// MachineDetails represents the structure of data received from the SQL query.
-	type machineDetail struct {
-		ID          int
-		HostAndPort string
-		Layers      sql.NullString // NULL when harmony_machine_details row is missing
-	}
-	var machineDetails []machineDetail
-
-	// Get all layers in use
-	err := al.db.Select(al.ctx, &machineDetails, `
-				SELECT m.id, m.host_and_port, d.layers
-				FROM harmony_machines m
-				LEFT JOIN harmony_machine_details d ON m.id = d.machine_id;`)
+	wallets, miners, err := config.GetAddressesFromConfig(al.ctx, al.db, al.api)
 	if err != nil {
-		return xerrors.Errorf("getting config layers for all machines: %w", err)
+		return err
 	}
 
-	// UniqueLayers takes an array of MachineDetails and returns a slice of unique layers.
-
-	layerMap := make(map[string]bool)
-	var uniqueLayers []string
-
-	// Get unique layers in use
-	for _, machine := range machineDetails {
-		if !machine.Layers.Valid {
-			continue
-		}
-		// Split the Layers field into individual layers
-		layers := strings.SplitSeq(machine.Layers.String, ",")
-		for layer := range layers {
-			layer = strings.TrimSpace(layer)
-			if _, exists := layerMap[layer]; !exists && layer != "" {
-				layerMap[layer] = true
-				uniqueLayers = append(uniqueLayers, layer)
-			}
-		}
-	}
-
-	addrMap := make(map[string]struct{})
-	minerMap := make(map[string]struct{})
-
-	if len(uniqueLayers) > 0 {
-		type minimalAddressInfo struct {
-			Addresses []config.CurioAddresses `toml:"Addresses"`
-		}
-
-		err = config.ForEachConfig[minimalAddressInfo](al.ctx, al.db, func(name string, info minimalAddressInfo) error {
-			if !slices.Contains(uniqueLayers, name) {
-				return nil
-			}
-
-			for i := range info.Addresses {
-				prec := info.Addresses[i].PreCommitControl
-				com := info.Addresses[i].CommitControl
-				term := info.Addresses[i].TerminateControl
-				miners := info.Addresses[i].MinerAddresses
-				for j := range prec {
-					if prec[j] != "" {
-						addrMap[prec[j]] = struct{}{}
-					}
-				}
-				for j := range com {
-					if com[j] != "" {
-						addrMap[com[j]] = struct{}{}
-					}
-				}
-				for j := range term {
-					if term[j] != "" {
-						addrMap[term[j]] = struct{}{}
-					}
-				}
-				for j := range miners {
-					if miners[j] != "" {
-						minerMap[miners[j]] = struct{}{}
-					}
-				}
-			}
-			return nil
-		})
-		if err != nil {
-			return err
-		}
-	}
-
-	var wallets, minerAddrs []address.Address
-
-	// Get control and wallet addresses from chain
-	for m := range minerMap {
-		maddr, err := address.NewFromString(m)
-		if err != nil {
-			return err
-		}
-		info, err := al.api.StateMinerInfo(al.ctx, maddr, types.EmptyTSK)
-		if err != nil {
-			return err
-		}
-		minerAddrs = append(minerAddrs, maddr)
-		addrMap[info.Worker.String()] = struct{}{}
-		for _, w := range info.ControlAddresses {
-			if _, ok := addrMap[w.String()]; !ok {
-				addrMap[w.String()] = struct{}{}
-			}
-		}
-	}
-
-	for w := range addrMap {
-		waddr, err := address.NewFromString(w)
-		if err != nil {
-			return err
-		}
-		wallets = append(wallets, waddr)
-	}
-
-	al.minerAddrs = minerAddrs
+	al.minerAddrs = miners
 	al.walletAddrs = wallets
 
 	return nil
@@ -914,7 +806,7 @@ func chainSyncCheck(al *alerts) {
 
 	// For each unique API (chain), check if in sync
 	for _, info := range lists.UniqNoAlloc(rpcInfos) {
-		ai := cliutil.ParseApiInfo(info)
+		ai := apiconn.Parse(info)
 		if dedup[ai.Addr] {
 			continue
 		}

@@ -42,7 +42,6 @@ import (
 	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/pieceprovider"
-	"github.com/filecoin-project/curio/lib/repo"
 	"github.com/filecoin-project/curio/lib/robusthttp"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/indexstore"
@@ -52,7 +51,6 @@ import (
 	lapi "github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/node/modules/dtypes"
-	lrepo "github.com/filecoin-project/lotus/node/repo"
 )
 
 var log = logging.Logger("curio/deps")
@@ -186,19 +184,8 @@ func (deps *Deps) PopulateRemainingDeps(ctx context.Context, cctx *cli.Context, 
 		// Open repo
 		repoPath := cctx.String(FlagRepoPath)
 		fmt.Println("repopath", repoPath)
-		r, err := lrepo.NewFS(repoPath)
-		if err != nil {
+		if err := ensureCurioRepo(repoPath); err != nil {
 			return err
-		}
-
-		ok, err := r.Exists()
-		if err != nil {
-			return err
-		}
-		if !ok {
-			if err := r.Init(repo.Curio); err != nil {
-				return err
-			}
 		}
 	}
 
