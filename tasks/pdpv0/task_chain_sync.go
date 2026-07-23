@@ -40,6 +40,13 @@ func (t *TaskChainSync) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 	if !stillOwned() {
 		return false, nil
 	}
+	if err := SyncStaleCreateAddReceipts(ctx, t.db, t.ethClient); err != nil {
+		return false, xerrors.Errorf("syncing stale Create/Add receipt waits: %w", err)
+	}
+
+	if !stillOwned() {
+		return false, nil
+	}
 	if err := t.syncMissingDataSetTerminationMessageWaits(ctx); err != nil {
 		return false, xerrors.Errorf("syncing missing PDP termination message waits: %w", err)
 	}
