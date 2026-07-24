@@ -131,6 +131,10 @@ func validateSegments(segments []datasegment.SegmentDesc) []datasegment.SegmentD
 // record sink failed. The raw length is derived from the CAR block layout, not
 // from caller-provided piece metadata.
 func IndexCAR(r IndexReader, buffSize int, recs chan<- indexstore.Record, addFail <-chan struct{}) (uint64, int64, bool, error) {
+	return indexCAR(r, buffSize, recs, addFail, 0)
+}
+
+func indexCAR(r IndexReader, buffSize int, recs chan<- indexstore.Record, addFail <-chan struct{}, recordOffset uint64) (uint64, int64, bool, error) {
 	blockReader, err := carv2.NewBlockReader(bufio.NewReaderSize(r, buffSize), carv2.ZeroLengthSectionAsEOF(true))
 	if err != nil {
 		return 0, 0, false, fmt.Errorf("getting block reader over piece: %w", err)
@@ -167,7 +171,7 @@ func IndexCAR(r IndexReader, buffSize int, recs chan<- indexstore.Record, addFai
 		select {
 		case recs <- indexstore.Record{
 			Cid:    blockMetadata.Cid,
-			Offset: blockMetadata.SourceOffset,
+			Offset: recordOffset + blockMetadata.SourceOffset,
 			Size:   blockMetadata.Size,
 		}:
 		case <-addFail:
@@ -217,13 +221,13 @@ func IndexAggregate(pieceCid cid.Cid,
 		return 0, nil, false, xerrors.Errorf("expected at least 2 sub pieces, got 0")
 	}
 
-	return indexSegments(pieceCid, reader, valid, func(j int, _ datasegment.SegmentDesc, sectionReader *io.SectionReader, bufferSize int) (cid.Cid, int64, bool, error) {
+	return indexSegments(pieceCid, reader, valid, func(j int, entry datasegment.SegmentDesc, sectionReader *io.SectionReader, bufferSize int) (cid.Cid, int64, bool, error) {
 		sp := subPieces[j]
 		if sp.Format.Car == nil {
 			return sp.PieceCID, 0, false, nil
 		}
 
-		_, b, inter, err := IndexCAR(sectionReader, bufferSize, recs, addFail)
+		_, b, inter, err := indexCAR(sectionReader, bufferSize, recs, addFail, entry.UnpaddedOffest())
 		if err != nil {
 			return cid.Undef, b, false, xerrors.Errorf("indexing subPiece %d: %w", j, err)
 		}
@@ -254,7 +258,7 @@ func IndexPDPv0(pieceCid cid.Cid,
 		log.Infow("Indexing PDPv0 aggregate", "piece_cid", pieceCid, "piece_size", size, "num_chunks", len(valid))
 
 		return indexSegments(pieceCid, reader, valid, func(j int, entry datasegment.SegmentDesc, sectionReader *io.SectionReader, bufferSize int) (cid.Cid, int64, bool, error) {
-			rawSize, b, inter, err := IndexCAR(sectionReader, bufferSize, recs, addFail)
+			rawSize, b, inter, err := indexCAR(sectionReader, bufferSize, recs, addFail, entry.UnpaddedOffest())
 			if err != nil {
 				return cid.Undef, b, false, xerrors.Errorf("indexing PDPv0 aggregate segment %d: %w", j, err)
 			}

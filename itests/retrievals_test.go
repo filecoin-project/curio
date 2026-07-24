@@ -124,6 +124,7 @@ type retrievalFixtureSeed struct {
 type retrievalFixtures struct {
 	mk12                           helpers.PieceFixture
 	aggregateSubpiece              helpers.PieceFixture
+	aggregateSibling               helpers.PieceFixture
 	aggregate                      helpers.PieceFixture
 	aggregateSubPieces             []mk20.DataSource
 	denylisted                     helpers.PieceFixture
@@ -222,6 +223,7 @@ func buildRetrievalFixtures(t *testing.T, dir string) retrievalFixtures {
 	return retrievalFixtures{
 		mk12:                           mk12Fixture,
 		aggregateSubpiece:              aggregateSubpieceFixture,
+		aggregateSibling:               aggregateSiblingFixture,
 		aggregate:                      aggregateFixture,
 		aggregateSubPieces:             aggregateSubPieces,
 		denylisted:                     helpers.CreatePieceFixture(t, dir, 448),
@@ -540,20 +542,70 @@ func runRetrievalScenarios(
 		require.Equal(t, http.StatusOK, status)
 		require.Equal(t, fixtures.aggregateSubpiece.CarBytes, body)
 		helpers.AssertPieceResponseHeaders(t, headers, fixtures.aggregateSubpiece.PieceCIDV2.String(), len(fixtures.aggregateSubpiece.CarBytes))
+
+		status, body, headers = helpers.HTTPGetWithHeaders(t, baseURL, "/ipfs/"+fixtures.aggregateSibling.RootCID.String(), map[string]string{
+			"Accept": "application/vnd.ipld.car",
+		})
+		require.Equal(t, http.StatusOK, status)
+		helpers.AssertIPFSCarResponseHeaders(t, headers)
+
+		br, err := carv2.NewBlockReader(bytes.NewReader(body))
+		require.NoError(t, err)
+		require.Contains(t, br.Roots, fixtures.aggregateSibling.RootCID)
 	})
 
 	t.Run("pdpv0 aggregate retrieval by payload cid from both cars and child piece cids", func(t *testing.T) {
-		assertIPFSRootRetrieval(t, baseURL, fixtures.pdpv0AggregateSubpieceA.RootCID)
-		assertIPFSRootRetrieval(t, baseURL, fixtures.pdpv0AggregateSubpieceB.RootCID)
+		status, body, headers := helpers.HTTPGetWithHeaders(t, baseURL, "/ipfs/"+fixtures.pdpv0AggregateSubpieceA.RootCID.String(), map[string]string{
+			"Accept": "application/vnd.ipld.car",
+		})
+		require.Equal(t, http.StatusOK, status)
+		helpers.AssertIPFSCarResponseHeaders(t, headers)
 
-		assertPieceRetrieval(t, baseURL, fixtures.pdpv0AggregateSubpieceA.PieceCIDV2, fixtures.pdpv0AggregateSubpieceA)
-		assertPieceRetrieval(t, baseURL, fixtures.pdpv0AggregateSubpieceB.PieceCIDV2, fixtures.pdpv0AggregateSubpieceB)
+		br, err := carv2.NewBlockReader(bytes.NewReader(body))
+		require.NoError(t, err)
+		require.Contains(t, br.Roots, fixtures.pdpv0AggregateSubpieceA.RootCID)
+
+		status, body, headers = helpers.HTTPGetWithHeaders(t, baseURL, "/ipfs/"+fixtures.pdpv0AggregateSubpieceB.RootCID.String(), map[string]string{
+			"Accept": "application/vnd.ipld.car",
+		})
+		require.Equal(t, http.StatusOK, status)
+		helpers.AssertIPFSCarResponseHeaders(t, headers)
+
+		br, err = carv2.NewBlockReader(bytes.NewReader(body))
+		require.NoError(t, err)
+		require.Contains(t, br.Roots, fixtures.pdpv0AggregateSubpieceB.RootCID)
+
+		status, body, headers = helpers.HTTPGetWithHeaders(t, baseURL, "/piece/"+fixtures.pdpv0AggregateSubpieceA.PieceCIDV2.String(), nil)
+		require.Equal(t, http.StatusOK, status)
+		require.Equal(t, fixtures.pdpv0AggregateSubpieceA.CarBytes, body)
+		helpers.AssertPieceResponseHeaders(t, headers, fixtures.pdpv0AggregateSubpieceA.PieceCIDV2.String(), len(fixtures.pdpv0AggregateSubpieceA.CarBytes))
+
+		status, body, headers = helpers.HTTPGetWithHeaders(t, baseURL, "/piece/"+fixtures.pdpv0AggregateSubpieceB.PieceCIDV2.String(), nil)
+		require.Equal(t, http.StatusOK, status)
+		require.Equal(t, fixtures.pdpv0AggregateSubpieceB.CarBytes, body)
+		helpers.AssertPieceResponseHeaders(t, headers, fixtures.pdpv0AggregateSubpieceB.PieceCIDV2.String(), len(fixtures.pdpv0AggregateSubpieceB.CarBytes))
 	})
 
 	t.Run("pdpv0 fallback CAR retrieval by piece cid and payload cid", func(t *testing.T) {
-		assertPieceRetrieval(t, baseURL, fixtures.pdpv0Fallback.PieceCIDV1, fixtures.pdpv0Fallback)
-		assertPieceRetrieval(t, baseURL, fixtures.pdpv0Fallback.PieceCIDV2, fixtures.pdpv0Fallback)
-		assertIPFSRootRetrieval(t, baseURL, fixtures.pdpv0Fallback.RootCID)
+		status, body, headers := helpers.HTTPGetWithHeaders(t, baseURL, "/piece/"+fixtures.pdpv0Fallback.PieceCIDV1.String(), nil)
+		require.Equal(t, http.StatusOK, status)
+		require.Equal(t, fixtures.pdpv0Fallback.CarBytes, body)
+		helpers.AssertPieceResponseHeaders(t, headers, fixtures.pdpv0Fallback.PieceCIDV1.String(), len(fixtures.pdpv0Fallback.CarBytes))
+
+		status, body, headers = helpers.HTTPGetWithHeaders(t, baseURL, "/piece/"+fixtures.pdpv0Fallback.PieceCIDV2.String(), nil)
+		require.Equal(t, http.StatusOK, status)
+		require.Equal(t, fixtures.pdpv0Fallback.CarBytes, body)
+		helpers.AssertPieceResponseHeaders(t, headers, fixtures.pdpv0Fallback.PieceCIDV2.String(), len(fixtures.pdpv0Fallback.CarBytes))
+
+		status, body, headers = helpers.HTTPGetWithHeaders(t, baseURL, "/ipfs/"+fixtures.pdpv0Fallback.RootCID.String(), map[string]string{
+			"Accept": "application/vnd.ipld.car",
+		})
+		require.Equal(t, http.StatusOK, status)
+		helpers.AssertIPFSCarResponseHeaders(t, headers)
+
+		br, err := carv2.NewBlockReader(bytes.NewReader(body))
+		require.NoError(t, err)
+		require.Contains(t, br.Roots, fixtures.pdpv0Fallback.RootCID)
 	})
 
 	t.Run("pdp parked piece retrieval by pieceCIDv1", func(t *testing.T) {
@@ -1025,29 +1077,6 @@ func addAggregateIndexWithoutUniquenessCheck(ctx context.Context, idx *indexstor
 	}
 
 	return nil
-}
-
-func assertPieceRetrieval(t *testing.T, baseURL string, pieceCID cid.Cid, fixture helpers.PieceFixture) {
-	t.Helper()
-
-	status, body, headers := helpers.HTTPGetWithHeaders(t, baseURL, "/piece/"+pieceCID.String(), nil)
-	require.Equal(t, http.StatusOK, status)
-	require.Equal(t, fixture.CarBytes, body)
-	helpers.AssertPieceResponseHeaders(t, headers, pieceCID.String(), len(fixture.CarBytes))
-}
-
-func assertIPFSRootRetrieval(t *testing.T, baseURL string, root cid.Cid) {
-	t.Helper()
-
-	status, body, headers := helpers.HTTPGetWithHeaders(t, baseURL, "/ipfs/"+root.String(), map[string]string{
-		"Accept": "application/vnd.ipld.car",
-	})
-	require.Equal(t, http.StatusOK, status)
-	helpers.AssertIPFSCarResponseHeaders(t, headers)
-
-	br, err := carv2.NewBlockReader(bytes.NewReader(body))
-	require.NoError(t, err)
-	require.Contains(t, br.Roots, root)
 }
 
 type trackingStorifaceReader struct {
