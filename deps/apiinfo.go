@@ -204,17 +204,28 @@ const preferredAllBad = -1
 
 // FullNodeProxy creates a proxy for the Chain API
 func FullNodeProxy[T api.Chain](ins *config.Dynamic[[]T], outstr *api.ChainStruct) {
-	providerCount := len(ins.Get())
-
 	var healthyLk sync.Mutex
-	unhealthyProviders := make([]bool, providerCount)
+	unhealthyProviders := make([]bool, len(ins.Get()))
 
-	nextHealthyProvider := func(start int) int {
+	ensureHealthyLen := func(n int) {
+		if len(unhealthyProviders) == n {
+			return
+		}
+		next := make([]bool, n)
+		copy(next, unhealthyProviders)
+		unhealthyProviders = next
+	}
+
+	nextHealthyProvider := func(start, count int) int {
 		healthyLk.Lock()
 		defer healthyLk.Unlock()
+		if count <= 0 {
+			return preferredAllBad
+		}
+		ensureHealthyLen(count)
 
-		for i := range providerCount {
-			idx := (start + i) % providerCount
+		for i := range count {
+			idx := (start + i) % count
 			if !unhealthyProviders[idx] {
 				return idx
 			}
@@ -224,31 +235,35 @@ func FullNodeProxy[T api.Chain](ins *config.Dynamic[[]T], outstr *api.ChainStruc
 
 	// watch provider health
 	startWatch := func() {
-		if len(ins.Get()) == 1 {
-			// not like we have any onter node to go to..
-			return
-		}
-
 		// don't bother for short-running commands
 		time.Sleep(250 * time.Millisecond)
 
 		var bestKnownTipset, nextBestKnownTipset *ltypes.TipSet
 
 		for {
-			var wg sync.WaitGroup
-			wg.Add(providerCount)
+			providers := ins.Get()
+			count := len(providers)
+			if count <= 1 {
+				// not like we have any other node to go to..
+				time.Sleep(5 * time.Second)
+				continue
+			}
 
-			for i := range providerCount {
+			var wg sync.WaitGroup
+			wg.Add(count)
+
+			for i := range count {
 				go func(i int) {
 					defer wg.Done()
 
 					toctx, cancel := context.WithTimeout(context.Background(), 5*time.Second) // todo better timeout
-					ch, err := ins.Get()[i].ChainHead(toctx)
+					ch, err := providers[i].ChainHead(toctx)
 					cancel()
 
 					// error is definitely not healthy
 					if err != nil {
 						healthyLk.Lock()
+						ensureHealthyLen(count)
 						unhealthyProviders[i] = true
 						healthyLk.Unlock()
 
@@ -257,6 +272,7 @@ func FullNodeProxy[T api.Chain](ins *config.Dynamic[[]T], outstr *api.ChainStruc
 					}
 
 					healthyLk.Lock()
+					ensureHealthyLen(count)
 					// maybe set best next
 					if nextBestKnownTipset == nil || fbig.Cmp(ch.ParentWeight(), nextBestKnownTipset.ParentWeight()) > 0 || len(ch.Blocks()) > len(nextBestKnownTipset.Blocks()) {
 						nextBestKnownTipset = ch
@@ -282,44 +298,30 @@ func FullNodeProxy[T api.Chain](ins *config.Dynamic[[]T], outstr *api.ChainStruc
 	var starWatchOnce sync.Once
 
 	// populate output api proxy
-	populateProxyMethods(outstr, ins, nextHealthyProvider, startWatch, &starWatchOnce, providerCount)
+	populateProxyMethods(outstr, ins, nextHealthyProvider, startWatch, &starWatchOnce)
 }
 
 // populateProxyMethods sets up the proxy methods for the API struct with retry and health monitoring
-func populateProxyMethods[T, U any](outstr U, ins *config.Dynamic[[]T], nextHealthyProvider func(int) int, startWatch func(), starWatchOnce *sync.Once, providerCount int) {
+func populateProxyMethods[T, U any](outstr U, ins *config.Dynamic[[]T], nextHealthyProvider func(start, count int) int, startWatch func(), starWatchOnce *sync.Once) {
 	outs := api.GetInternalStructs(outstr)
 
 	var apiProviders []reflect.Value
 	apiProvidersMx := sync.Mutex{}
-	setupProviders := func() {
+	providerFuncs := make([][][]reflect.Value, len(outs))
+
+	refreshProviders := func() {
+		apiProviders = nil
 		for _, in := range ins.Get() {
 			apiProviders = append(apiProviders, reflect.ValueOf(in))
 		}
-	}
-	setupProviders()
-	ins.OnChange(func() {
-		apiProvidersMx.Lock()
-		apiProviders = nil
-		setupProviders()
-		apiProvidersMx.Unlock()
-	})
-
-	providerFuncs := make([][][]reflect.Value, len(outs))
-	setProviderFuncs := func() {
 		for outIdx, out := range outs {
 			rOutStruct := reflect.ValueOf(out).Elem()
 			providerFuncs[outIdx] = make([][]reflect.Value, rOutStruct.NumField())
 
 			for f := 0; f < rOutStruct.NumField(); f++ {
 				field := rOutStruct.Type().Field(f)
-
-				var p []reflect.Value
-				apiProvidersMx.Lock()
-				p = apiProviders
-				apiProvidersMx.Unlock()
-
-				providerFuncs[outIdx][f] = make([]reflect.Value, len(p))
-				for pIdx, rin := range p {
+				providerFuncs[outIdx][f] = make([]reflect.Value, len(apiProviders))
+				for pIdx, rin := range apiProviders {
 					mv := rin.MethodByName(field.Name)
 					if !mv.IsValid() {
 						continue
@@ -329,13 +331,16 @@ func populateProxyMethods[T, U any](outstr U, ins *config.Dynamic[[]T], nextHeal
 			}
 		}
 	}
-	setProviderFuncs()
+rpLockFunc :=func(){
+	apiProvidersMx.Lock()
+	defer apiProvidersMx.Unlock()
+	refreshProviders()
+}
+rpLockFunc()
 	ins.OnChange(func() {
-		apiProvidersMx.Lock()
-		apiProviders = nil
-		setProviderFuncs()
-		apiProvidersMx.Unlock()
+		rpLockFunc()
 	})
+
 	for outIdx, out := range outs {
 		rOutStruct := reflect.ValueOf(out).Elem()
 		for f := 0; f < rOutStruct.NumField(); f++ {
@@ -347,9 +352,21 @@ func populateProxyMethods[T, U any](outstr U, ins *config.Dynamic[[]T], nextHeal
 
 				ctx := args[0].Interface().(context.Context)
 
+				apiProvidersMx.Lock()
+				providerCount := len(providerFuncs[outIdx][f])
+				apiProvidersMx.Unlock()
+
 				preferredProvider := new(int)
-				*preferredProvider = nextHealthyProvider(0)
+				*preferredProvider = nextHealthyProvider(0, providerCount)
 				if *preferredProvider == preferredAllBad {
+					if providerCount <= 0 {
+						var out []reflect.Value
+						for out0 := range field.Type.Outs() {
+							out = append(out, reflect.Zero(out0))
+						}
+						out[len(out)-1] = reflect.ValueOf(&api.ChainError{Err: xerrors.Errorf("no providers available")})
+						return out
+					}
 					// select at random, retry will do it's best
 					*preferredProvider = rand.Intn(providerCount)
 				}
@@ -365,17 +382,33 @@ func populateProxyMethods[T, U any](outstr U, ins *config.Dynamic[[]T], nextHeal
 				}
 
 				result, rerr := Retry(ctx, maxRetryAttempts, initialBackoff, errorsToRetry, func(isRetry bool) ([]reflect.Value, error) {
+					apiProvidersMx.Lock()
+					funcs := providerFuncs[outIdx][f]
+					count := len(funcs)
+					apiProvidersMx.Unlock()
+
+					if count == 0 {
+						return nil, xerrors.Errorf("no providers available")
+					}
+
 					if isRetry {
-						pp := nextHealthyProvider(*preferredProvider + 1)
-						if pp == -1 {
+						pp := nextHealthyProvider(*preferredProvider+1, count)
+						if pp == preferredAllBad {
 							return nil, xerrors.Errorf("no healthy providers")
 						}
 						*preferredProvider = pp
 					}
 
+					if *preferredProvider < 0 || *preferredProvider >= count {
+						return nil, xerrors.Errorf("provider index out of range")
+					}
+
 					apiProvidersMx.Lock()
 					fn := providerFuncs[outIdx][f][*preferredProvider]
 					apiProvidersMx.Unlock()
+					if !fn.IsValid() {
+						return nil, xerrors.Errorf("provider method unavailable")
+					}
 
 					result := fn.Call(args)
 					if result[len(result)-1].IsNil() {
@@ -517,17 +550,28 @@ func GetEthClient(cctx *cli.Context, apis config.ApisConfig) (ethchain.EthClient
 }
 
 func EthClientProxy(ins *config.Dynamic[[]ethchain.EthClient], outstr api.EthClientInterface) {
-	providerCount := len(ins.Get())
-
 	var healthyLk sync.Mutex
-	unhealthyProviders := make([]bool, providerCount)
+	unhealthyProviders := make([]bool, len(ins.Get()))
 
-	nextHealthyProvider := func(start int) int {
+	ensureHealthyLen := func(n int) {
+		if len(unhealthyProviders) == n {
+			return
+		}
+		next := make([]bool, n)
+		copy(next, unhealthyProviders)
+		unhealthyProviders = next
+	}
+
+	nextHealthyProvider := func(start, count int) int {
 		healthyLk.Lock()
 		defer healthyLk.Unlock()
+		if count <= 0 {
+			return preferredAllBad
+		}
+		ensureHealthyLen(count)
 
-		for i := 0; i < providerCount; i++ {
-			idx := (start + i) % providerCount
+		for i := 0; i < count; i++ {
+			idx := (start + i) % count
 			if !unhealthyProviders[idx] {
 				return idx
 			}
@@ -540,7 +584,7 @@ func EthClientProxy(ins *config.Dynamic[[]ethchain.EthClient], outstr api.EthCli
 	var starWatchOnce sync.Once
 
 	// Use the existing populateProxyMethods function
-	populateProxyMethods(outstr, ins, nextHealthyProvider, startWatch, &starWatchOnce, providerCount)
+	populateProxyMethods(outstr, ins, nextHealthyProvider, startWatch, &starWatchOnce)
 }
 
 // dynamicEthAdapter adapts the dynamic api.EthClientInterface proxy to ethchain.EthClient.

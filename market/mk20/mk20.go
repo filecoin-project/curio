@@ -86,9 +86,22 @@ func NewMK20Handler(
 		return nil, xerrors.Errorf("MaximumChunkSize must be a power of 2")
 	}
 
+	if ethClient == nil {
+		return nil, xerrors.Errorf("eth client is required")
+	}
+	if bp == nil {
+		return nil, xerrors.Errorf("backpressure is required")
+	}
+	if miners == nil {
+		return nil, xerrors.Errorf("miners is required")
+	}
+
 	b, err := bp.Val()
 	if err != nil {
 		return nil, xerrors.Errorf("getting backpressure: %w", err)
+	}
+	if b == nil {
+		return nil, xerrors.Errorf("backpressure module is nil")
 	}
 
 	sm := config.NewDynamic(make(map[address.Address]abi.SectorSize))
