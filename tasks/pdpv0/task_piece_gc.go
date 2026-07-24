@@ -30,16 +30,18 @@ import (
 )
 
 type PieceGCTask struct {
-	cfg *config.HTTPConfig
-	db  *harmonydb.DB
-	idx IndexCleaner
+	cfg       *config.HTTPConfig
+	db        *harmonydb.DB
+	idx       IndexCleaner
+	keepHours *config.Dynamic[int]
 }
 
-func NewPieceGCTask(cfg *config.HTTPConfig, db *harmonydb.DB, idx IndexCleaner) *PieceGCTask {
+func NewPieceGCTask(cfg *config.HTTPConfig, db *harmonydb.DB, idx IndexCleaner, keepHours *config.Dynamic[int]) *PieceGCTask {
 	return &PieceGCTask{
-		cfg: cfg,
-		db:  db,
-		idx: idx,
+		cfg:       cfg,
+		db:        db,
+		idx:       idx,
+		keepHours: keepHours,
 	}
 }
 
@@ -47,7 +49,7 @@ func (t *PieceGCTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 	if !stillOwned() {
 		return false, nil
 	}
-	if err := processIndexingAndIPNICleanup(context.Background(), t.db, t.cfg, t.idx); err != nil {
+	if err := processIndexingAndIPNICleanup(context.Background(), t.db, t.cfg, t.idx, t.keepHours); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -67,7 +69,7 @@ func (t *PieceGCTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Ram: 64 << 20,
 		},
 		MaxFailures: 3,
-		IAmBored:    harmonytask.SingletonTaskAdder(6*time.Hour, t),
+		IAmBored:    harmonytask.SingletonTaskAdder(1*time.Hour, t),
 	}
 }
 
@@ -120,7 +122,9 @@ func _processPendingCleanup(ctx context.Context, db *harmonydb.DB, ethClient eth
 	return nil
 }
 
-func processIndexingAndIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *config.HTTPConfig, idx IndexCleaner) error {
+func processIndexingAndIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *config.HTTPConfig, idx IndexCleaner, keepHours *config.Dynamic[int]) error {
+
+	hours := min(1, keepHours.Get())
 
 	var pieces []struct {
 		ID        int64  `db:"id"`
@@ -140,13 +144,13 @@ func processIndexingAndIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *c
 										    JOIN parked_piece_refs ppr ON pr.piece_ref = ppr.ref_id
 										    JOIN parked_pieces pp ON ppr.piece_id = pp.id
 										WHERE pr.data_set_refcount = 0
-										  AND pr.created_at <= TIMEZONE('UTC', NOW()) - INTERVAL '24 hours'
+										  AND pr.created_at <= TIMEZONE('UTC', NOW()) - ($1::BIGINT * INTERVAL '1 hour')
 										  AND NOT EXISTS (
 										      SELECT 1 FROM pdp_data_set_piece_adds a
 										      WHERE a.pdp_pieceref = pr.id
 										        AND a.pieces_added = FALSE
 										        AND (a.add_message_ok IS NULL OR a.add_message_ok = TRUE)
-										  )`)
+										  )`, hours)
 	if err != nil {
 		return xerrors.Errorf("failed to select pending piece deletes: %w", err)
 	}
