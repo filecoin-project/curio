@@ -140,7 +140,17 @@ func (s *SendTaskETH) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 		}
 
 		// Update the transaction with the assigned nonce
-		tx = types.NewTransaction(assignedNonce, *tx.To(), tx.Value(), tx.Gas(), tx.GasPrice(), tx.Data())
+		tx = types.NewTx(&types.DynamicFeeTx{
+			ChainID:    tx.ChainId(),
+			Nonce:      assignedNonce,
+			GasTipCap:  tx.GasTipCap(),
+			GasFeeCap:  tx.GasFeeCap(),
+			Gas:        tx.Gas(),
+			To:         tx.To(),
+			Value:      tx.Value(),
+			Data:       tx.Data(),
+			AccessList: tx.AccessList(),
+		})
 
 		// Sign the transaction
 		signedTx, err = s.signTransaction(ethCtx, fromAddress, tx)
@@ -285,6 +295,10 @@ func (s *SenderETH) send(ctx context.Context, fromAddress common.Address, tx *ty
 	// Ensure the transaction has zero nonce; it will be assigned during send task
 	if tx.Nonce() != 0 {
 		return common.Hash{}, xerrors.Errorf("Send expects transaction nonce to be 0, was %d", tx.Nonce())
+	}
+
+	if tx.Value() == nil {
+		return common.Hash{}, xerrors.Errorf("Send expects transaction value to be non-nil")
 	}
 
 	if tx.Gas() == 0 {

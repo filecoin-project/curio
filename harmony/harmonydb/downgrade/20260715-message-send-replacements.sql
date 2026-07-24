@@ -1,0 +1,1 @@
+-- no-op downgrade: replacement tables are retained

@@ -12,8 +12,7 @@ import (
 	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps"
-
-	cliutil "github.com/filecoin-project/lotus/cli/util"
+	"github.com/filecoin-project/curio/lib/apiconn"
 )
 
 type RpcInfo struct {
@@ -37,7 +36,7 @@ func (a *WebRPC) SyncerState(ctx context.Context) ([]RpcInfo, error) {
 
 	var wg sync.WaitGroup
 	for _, endpoint := range endpoints {
-		ai := cliutil.ParseApiInfo(endpoint.ApiInfo)
+		ai := apiconn.Parse(endpoint.ApiInfo)
 		if dedup[ai.Addr] {
 			continue
 		}

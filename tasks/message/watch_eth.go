@@ -117,45 +117,49 @@ func (mw *MessageWatcherEth) update() {
 	}
 
 	// Get transactions assigned to us
-	txHashes, err := mw.txMgr.GetPendingForMachine(ctx, int64(machineID))
+	pendingTxs, err := mw.txMgr.GetPendingForMachine(ctx, int64(machineID))
 	if err != nil {
 		log.Errorf("failed to get assigned transactions: %+v", err)
 		return
 	}
 
-	log.Infow("Processing pending transactions", "count", len(txHashes), "machineID", machineID)
+	log.Infow("Processing pending transactions", "count", len(pendingTxs), "machineID", machineID)
 
 	// Track statistics
 	var processed, stillPending, waitingConfirmations, confirmed, errorCount int
 
 	// Check if any of the transactions we have assigned are now confirmed
-	for _, txHashStr := range txHashes {
+	for _, pendingTx := range pendingTxs {
 		processed++
 		processStart := time.Now()
 
-		txHash := common.HexToHash(txHashStr)
-		log.Debugw("Checking transaction", "txHash", txHash.Hex())
+		// Query the chain using the latest replacement hash, but keep all DB
+		// updates on WaitHash so callers can continue watching their original row.
+		lookupHash := common.HexToHash(pendingTx.LookupHash)
+		log.Debugw("Checking transaction", "waitHash", pendingTx.WaitHash, "lookupHash", lookupHash.Hex())
 
 		ethCtx, ethCancel := context.WithTimeout(ctx, mw.ethCallTimeout)
 
-		receipt, err := mw.api.TransactionReceipt(ethCtx, txHash)
+		receipt, err := mw.api.TransactionReceipt(ethCtx, lookupHash)
 		if err != nil {
 			ethCancel()
 			if errors.Is(err, ethereum.NotFound) {
 				// Transaction is still pending
 				stillPending++
-				log.Debugw("Transaction still pending", "txHash", txHash.Hex())
+				log.Debugw("Transaction still pending", "waitHash", pendingTx.WaitHash, "lookupHash", lookupHash.Hex())
 				continue
 			}
 			if errors.Is(err, context.DeadlineExceeded) {
 				errorCount++
 				log.Debugw("Eth calls timed out - continuing with next tx",
-					"txHash", txHash.Hex())
+					"waitHash", pendingTx.WaitHash,
+					"lookupHash", lookupHash.Hex())
 				continue
 			}
 			errorCount++
 			log.Errorw("Failed to get transaction receipt - continuing with next tx",
-				"txHash", txHash.Hex(),
+				"waitHash", pendingTx.WaitHash,
+				"lookupHash", lookupHash.Hex(),
 				"error", err,
 				"errorType", fmt.Sprintf("%T", err))
 			continue
@@ -163,7 +167,8 @@ func (mw *MessageWatcherEth) update() {
 
 		// Transaction receipt found
 		log.Debugw("Transaction receipt found",
-			"txHash", txHash.Hex(),
+			"waitHash", pendingTx.WaitHash,
+			"lookupHash", lookupHash.Hex(),
 			"blockNumber", receipt.BlockNumber,
 			"status", receipt.Status)
 
@@ -174,7 +179,8 @@ func (mw *MessageWatcherEth) update() {
 			// Not enough confirmations yet
 			waitingConfirmations++
 			log.Debugw("Transaction waiting for confirmations",
-				"txHash", txHash.Hex(),
+				"waitHash", pendingTx.WaitHash,
+				"lookupHash", lookupHash.Hex(),
 				"confirmations", confirmations,
 				"required", MinEthConfidence,
 				"blockNumber", receipt.BlockNumber)
@@ -182,24 +188,26 @@ func (mw *MessageWatcherEth) update() {
 		}
 
 		// Get the transaction data using same timeout context
-		txData, _, err := mw.api.TransactionByHash(ethCtx, txHash)
+		txData, _, err := mw.api.TransactionByHash(ethCtx, lookupHash)
 		ethCancel()
 
 		if err != nil {
 			if errors.Is(err, ethereum.NotFound) {
 				errorCount++
-				log.Errorw("Transaction data not found - continuing", "txHash", txHash.Hex())
+				log.Errorw("Transaction data not found - continuing", "waitHash", pendingTx.WaitHash, "lookupHash", lookupHash.Hex())
 				continue
 			}
 			if errors.Is(err, context.DeadlineExceeded) {
 				errorCount++
 				log.Debugw("Eth calls timed out - continuing with next tx",
-					"txHash", txHash.Hex())
+					"waitHash", pendingTx.WaitHash,
+					"lookupHash", lookupHash.Hex())
 				continue
 			}
 			errorCount++
 			log.Errorw("Failed to get transaction by hash - continuing",
-				"txHash", txHash.Hex(),
+				"waitHash", pendingTx.WaitHash,
+				"lookupHash", lookupHash.Hex(),
 				"error", err)
 			continue
 		}
@@ -208,7 +216,8 @@ func (mw *MessageWatcherEth) update() {
 		if err != nil {
 			errorCount++
 			log.Errorw("Failed to marshal transaction data - continuing",
-				"txHash", txHash.Hex(),
+				"waitHash", pendingTx.WaitHash,
+				"lookupHash", lookupHash.Hex(),
 				"error", err)
 			continue
 		}
@@ -217,7 +226,8 @@ func (mw *MessageWatcherEth) update() {
 		if err != nil {
 			errorCount++
 			log.Errorw("Failed to marshal receipt data - continuing",
-				"txHash", txHash.Hex(),
+				"waitHash", pendingTx.WaitHash,
+				"lookupHash", lookupHash.Hex(),
 				"error", err)
 			continue
 		}
@@ -225,14 +235,15 @@ func (mw *MessageWatcherEth) update() {
 		txSuccess := receipt.Status == 1
 
 		log.Infow("Updating transaction to confirmed",
-			"txHash", txHash.Hex(),
+			"waitHash", pendingTx.WaitHash,
+			"lookupHash", lookupHash.Hex(),
 			"success", txSuccess,
 			"blockNumber", receipt.BlockNumber,
 			"confirmations", confirmations)
 
 		// Update the database
 		err = mw.txMgr.UpdateToConfirmed(ctx,
-			txHashStr,
+			pendingTx.WaitHash,
 			receipt.BlockNumber.Int64(),
 			receipt.TxHash.Hex(),
 			txDataJSON,
@@ -242,18 +253,20 @@ func (mw *MessageWatcherEth) update() {
 		if err != nil {
 			errorCount++
 			log.Errorw("Failed to update message wait - continuing",
-				"txHash", txHash.Hex(),
+				"waitHash", pendingTx.WaitHash,
+				"lookupHash", lookupHash.Hex(),
 				"error", err)
 			continue
 		}
 
 		confirmed++
-		log.Infow("Successfully confirmed transaction", "txHash", txHash.Hex())
+		log.Infow("Successfully confirmed transaction", "waitHash", pendingTx.WaitHash, "lookupHash", lookupHash.Hex())
 
 		processDuration := time.Since(processStart)
 		if processDuration > 5*time.Second {
 			log.Warnw("Transaction processing took longer than expected",
-				"txHash", txHash.Hex(),
+				"waitHash", pendingTx.WaitHash,
+				"lookupHash", lookupHash.Hex(),
 				"duration", processDuration)
 		}
 	}
@@ -264,7 +277,7 @@ func (mw *MessageWatcherEth) update() {
 		"stillPending", stillPending,
 		"waitingConfirmations", waitingConfirmations,
 		"errors", errorCount,
-		"total", len(txHashes))
+		"total", len(pendingTxs))
 }
 
 func (mw *MessageWatcherEth) Stop(ctx context.Context) error {
