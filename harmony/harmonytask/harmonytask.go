@@ -357,7 +357,7 @@ func NewWithReg(
 		}
 		for _, w := range taskRet {
 			h := e.taskMap[w.Name]
-			if h == nil || !h.considerWork(workSourceRecover, []task{{ID: TaskID(w.ID), UpdateTime: w.UpdateTime, PostedTime: w.PostedTime, Retries: w.Retries}}, eventEmitter{e.schedulerChannel}) {
+			if h == nil || !h.considerWork(workSourceRecover, []task{{ID: TaskID(w.ID), UpdateTime: w.UpdateTime, PostedTime: w.PostedTime, Retries: w.Retries}}, eventEmitter{schedulerChannel: e.schedulerChannel}) {
 				// Task type no longer registered on this node (config change);
 				// release the claim so another node can pick it up.
 				_, err := db.Exec(e.cfg.ctx, `UPDATE harmony_task SET owner_id=NULL WHERE id=$1 AND owner_id=$2`, w.ID, e.cfg.ownerID)
@@ -604,6 +604,16 @@ func (e *TaskEngine) OwnerID() int { return e.cfg.ownerID }
 
 // TestONLY_SetPollDuration overrides the DB polling interval (useful for tests).
 func (e *TaskEngine) TestONLY_SetPollDuration(d time.Duration) { e.atomics.pollDuration.Store(d) }
+
+// TestONLY_SeedAcceptCache injects pre-computed CanAccept IDs for a task type
+// (integration tests for accept-cache miss vs refuse behavior).
+func (e *TaskEngine) TestONLY_SeedAcceptCache(taskType string, ids []int64) {
+	h := e.taskMap[taskType]
+	if h == nil || h.accept == nil {
+		return
+	}
+	h.accept.Add(ids)
+}
 
 // TestONLY_TimeSensitiveSchedulerStarts returns how often the scheduler handled
 // schedulerSourceStartTimeSensitive (preempt + claim) for integration tests.

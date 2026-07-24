@@ -186,13 +186,13 @@ func (e *TaskEngine) startScheduler() {
 		for _, h := range e.handlers {
 			availableTasks[h.Name] = &taskSchedule{hasID: make(map[TaskID]task)}
 		}
+		ee := eventEmitter{schedulerChannel: e.schedulerChannel, availableTasks: availableTasks}
 		tryStartNow := func(taskName string) {
-			if err := e.tryStartTask(taskName, taskSourceLocal{availableTasks}, eventEmitter{e.schedulerChannel}); err != nil {
+			if err := e.tryStartTask(taskName, taskSourceLocal{availableTasks}, ee); err != nil {
 				log.Errorw("failed to try start task", "taskType", taskName, "error", err)
 			}
 		}
 		ts := taskSourceLocal{availableTasks}
-		ee := eventEmitter{e.schedulerChannel}
 
 		for {
 			select {
@@ -269,10 +269,11 @@ func (e *TaskEngine) startScheduler() {
 					}
 
 				case schedulerSourceTaskStarted:
-					// A local goroutine claimed and started a task. Remove from
-					// available set and notify peers.
-					avail := availableTasks[event.TaskType]
-					delete(avail.hasID, event.TaskID)
+					// Peer notify (+ idempotent local delete; NoteClaimed usually
+					// already cleared the ID on the claim path).
+					if avail := availableTasks[event.TaskType]; avail != nil {
+						delete(avail.hasID, event.TaskID)
+					}
 					e.peering.TellOthers(messageTypeStarted, event.TaskType, event.TaskID)
 
 				case schedulerSourcePeerStarted:
@@ -302,7 +303,7 @@ func (e *TaskEngine) startScheduler() {
 					e.executePreemption(plan)
 					tasks := taskSourceLocal{availableTasks}.GetTasks(event.TaskType)
 					if len(tasks) > 0 {
-						h.considerWork(workSourcePreempt, tasks, eventEmitter{e.schedulerChannel})
+						h.considerWork(workSourcePreempt, tasks, ee)
 						e.atomics.Count_TimeSensitivePreempt.Add(1)
 					}
 				case schedulerSourceInitialPoll:
@@ -384,13 +385,29 @@ func (t taskSourceLocal) GetTasks(taskName string) []task {
 // they cannot modify the scheduler's in-memory state directly. Instead,
 // they emit events that the scheduler processes on its own thread.
 //
-// Emits are called from other threads, so we cannot change t.availableTasks.
-// This pattern keeps the scheduler single-threaded (no locks on
-// availableTasks) while allowing concurrent task execution to communicate
-// state changes: a task starting (remove from available), completing
-// (re-evaluate capacity), or failing with retry (re-add to available).
+// Emits are called from other threads, so they must not mutate availableTasks
+// directly — only the scheduler goroutine may. NoteClaimed is the exception:
+// it runs on the scheduler thread from considerWork before task goroutines
+// start, so clearing the local available set is race-free. TaskStarted events
+// still notify peers (and idempotently re-delete).
 type eventEmitter struct {
 	schedulerChannel chan schedulerEvent
+	availableTasks   map[string]*taskSchedule // nil outside the scheduler loop
+}
+
+// NoteClaimed removes claimed IDs from the in-memory available set immediately
+// so a subsequent waterfall in the same process cannot re-claim them.
+func (ee eventEmitter) NoteClaimed(taskName string, ids []TaskID) {
+	if ee.availableTasks == nil || len(ids) == 0 {
+		return
+	}
+	avail := ee.availableTasks[taskName]
+	if avail == nil {
+		return
+	}
+	for _, id := range ids {
+		delete(avail.hasID, id)
+	}
 }
 
 func (ee eventEmitter) EmitTaskStarted(taskName string, taskID TaskID) {

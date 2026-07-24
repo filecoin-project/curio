@@ -1171,3 +1171,95 @@ func TestContextCancellationOnGracefulShutdown(t *testing.T) {
 		t.Fatal("task did not receive context cancellation within 5s")
 	}
 }
+
+// TestNoLocalDoubleClaimWhileTaskRunning is the end-to-end guard for the
+// single-node "already Taken" / Work-not-accepted storm: after a task is
+// claimed and Do() is running, TaskCompleted-driven waterfalls must not
+// re-enter Do() for that same task ID.
+func TestNoLocalDoubleClaimWhileTaskRunning(t *testing.T) {
+	db := getDB(t)
+
+	var mu sync.Mutex
+	doCounts := map[harmonytask.TaskID]int{}
+	started := make(chan harmonytask.TaskID, 8)
+	release := make(chan struct{})
+
+	held := newTestTask("ClaimRace", 5)
+	held.doFunc = func(ctx context.Context, id harmonytask.TaskID, so func() bool) (bool, error) {
+		mu.Lock()
+		doCounts[id]++
+		n := doCounts[id]
+		mu.Unlock()
+		if n > 1 {
+			t.Errorf("Do() re-entered for task %d (count=%d)", id, n)
+		}
+		started <- id
+		select {
+		case <-release:
+		case <-ctx.Done():
+			return false, ctx.Err()
+		}
+		held.doneCh <- id
+		return true, nil
+	}
+
+	// Completing these triggers schedulerSourceTaskCompleted → pollerTryAllWork
+	// while ClaimRace is still in-flight.
+	trig := newTestTask("ClaimTrig", 5)
+	t.Cleanup(cleanupTasks(held, trig))
+
+	e := makeEngine(t, db, []harmonytask.TaskInterface{held, trig}, "claimrace:1000")
+	e.TestONLY_SetPollDuration(time.Hour) // event-driven only
+
+	e.AddTaskByName("ClaimRace", func(id harmonytask.TaskID, tx *harmonydb.Tx) (bool, error) { return true, nil })
+	heldID := waitForTask(t, started, taskTimeout)
+
+	const waves = 25
+	for i := 0; i < waves; i++ {
+		e.AddTaskByName("ClaimTrig", func(id harmonytask.TaskID, tx *harmonydb.Tx) (bool, error) { return true, nil })
+		waitForTask(t, trig.doneCh, taskTimeout)
+	}
+
+	// Second ClaimRace while the first is held: must schedule independently.
+	e.AddTaskByName("ClaimRace", func(id harmonytask.TaskID, tx *harmonydb.Tx) (bool, error) { return true, nil })
+	secondID := waitForTask(t, started, taskTimeout)
+	require.NotEqual(t, heldID, secondID)
+
+	close(release)
+	waitForTasks(t, held.doneCh, 2, taskTimeout)
+	waitForNamedSuccessCount(t, db, "ClaimRace", 2, taskTimeout)
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Equal(t, 1, doCounts[heldID], "held task must not be Do()'d again across %d waterfalls", waves)
+	require.Equal(t, 1, doCounts[secondID])
+	require.Len(t, doCounts, 2)
+	require.Equal(t, int32(2), atomic.LoadInt32(&held.attempts))
+}
+
+// TestAcceptCacheMissStillSchedulesNewTask guards the SendTransaction-class
+// bug: a fresh acceptcache filled with unrelated IDs must not be treated as
+// CanAccept() refusal for a newly added task.
+func TestAcceptCacheMissStillSchedulesNewTask(t *testing.T) {
+	db := getDB(t)
+
+	var liveCalls int32
+	task := newTestTask("CacheMissT", 5)
+	task.canAcceptFunc = func(ids []harmonytask.TaskID, te *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
+		atomic.AddInt32(&liveCalls, 1)
+		return ids, nil
+	}
+	t.Cleanup(cleanupTasks(task))
+
+	e := makeEngine(t, db, []harmonytask.TaskInterface{task}, "cachemiss:1000")
+	e.TestONLY_SetPollDuration(time.Hour)
+	// Simulate poller cache for older backlog IDs that are not this add.
+	e.TestONLY_SeedAcceptCache("CacheMissT", []int64{1, 2, 3})
+
+	e.AddTaskByName("CacheMissT", func(id harmonytask.TaskID, tx *harmonydb.Tx) (bool, error) { return true, nil })
+	id := waitForTask(t, task.doneCh, taskTimeout)
+	require.NotContains(t, []harmonytask.TaskID{1, 2, 3}, id)
+	require.GreaterOrEqual(t, atomic.LoadInt32(&liveCalls), int32(1),
+		"live CanAccept must run when cache has no overlap with the new task")
+	waitForHistory(t, db, id, taskTimeout)
+}

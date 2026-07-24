@@ -144,8 +144,10 @@ func (p *PeerHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // ConnectToPeer creates or returns an existing connection to a peer.
 // Unlike the test pipe implementation, HTTP connections are lazy: no
-// actual network call happens here. The first SendMessage will make
-// the HTTP POST, and the remote's ServeHTTP will trigger OnConnect.
+// actual network call happens here, so this method does not surface dial
+// failures (harmonytask falls back to pollFrequently on handshake/send
+// errors in handlePeer instead). The first SendMessage will make the HTTP
+// POST, and the remote's ServeHTTP will trigger OnConnect.
 func (p *PeerHTTP) ConnectToPeer(peerID string) (harmonytask.PeerConnection, error) {
 	p.connMu.Lock()
 	defer p.connMu.Unlock()
