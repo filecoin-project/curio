@@ -360,10 +360,7 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
 
     render() {
         return html`
-            <link
-                    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
-                    rel="stylesheet"
-            />
+            <link rel="stylesheet" href="/ux/vendor/bootstrap.min.css">
             <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'">
             <p></p>
 
@@ -373,6 +370,11 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
                 ${this.keyStatusLoading ? '' : !this.keyStatus?.configured ? html`
                     <div class="alert alert-danger">
                         PDP wallet not configured. Create or import a key on the Wallets page before registering.
+                    </div>
+                ` : !this.keyStatus?.balanceKnown ? html`
+                    <div class="alert alert-warning">
+                        PDP wallet balance could not be fetched from the chain right now.
+                        Address: <code>${this.keyStatus.address}</code>
                     </div>
                 ` : !this.keyStatus?.funded ? html`
                     <div class="alert alert-warning">

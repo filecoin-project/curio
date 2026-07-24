@@ -295,7 +295,7 @@ class AlertsManage extends StyledLitElement {
     render() {
         if (this.loading) {
             return html`
-                <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous">
+                <link rel="stylesheet" href="/ux/vendor/bootstrap.min.css">
                 <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'">
                 <div style="padding: 20px;">Loading...</div>
             `;
@@ -303,7 +303,7 @@ class AlertsManage extends StyledLitElement {
 
         if (this.error) {
             return html`
-                <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous">
+                <link rel="stylesheet" href="/ux/vendor/bootstrap.min.css">
                 <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'">
                 <div style="padding: 20px; color: #B63333;">Error: ${this.error}</div>
             `;
@@ -312,7 +312,7 @@ class AlertsManage extends StyledLitElement {
         const activeAlertCount = this.alertsUnacknowledgedTotal + this.ongoingAlerts.length;
 
         return html`
-            <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous">
+            <link rel="stylesheet" href="/ux/vendor/bootstrap.min.css">
             <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'">
             
             <div style="padding: 20px;">
@@ -673,7 +673,7 @@ AlertsManage.styles = css`
         display: flex;
         gap: 5px;
         margin-bottom: 20px;
-        border-bottom: 1px solid rgba(255,255,255,0.1);
+        border-bottom: 1px solid var(--color-border-default, #30363d);
         padding-bottom: 10px;
     }
     .tab {
@@ -681,22 +681,22 @@ AlertsManage.styles = css`
         padding: 10px 20px;
         cursor: pointer;
         border-radius: 4px 4px 0 0;
-        background: rgba(255,255,255,0.05);
-        color: #aaa;
+        background: var(--color-bg-elevated, #21262d);
+        color: var(--color-text-secondary, #8b949e);
     }
     .tab:hover {
-        background: rgba(255,255,255,0.1);
-        color: #fff;
+        background: var(--color-border-default, #30363d);
+        color: var(--color-text-primary, #e6edf3);
     }
     .tab.active {
-        background: rgba(59, 130, 246, 0.3);
-        color: #fff;
+        background: var(--color-accent-muted, rgba(94, 106, 210, 0.15));
+        color: var(--color-text-primary, #e6edf3);
     }
     .tab-badge {
         margin-left: 8px;
         padding: 2px 8px;
         border-radius: 10px;
-        background: rgba(255,255,255,0.2);
+        background: var(--color-bg-elevated, #21262d);
         font-size: 0.85em;
     }
     .tab-content {
@@ -724,7 +724,7 @@ AlertsManage.styles = css`
     .empty-state {
         text-align: center;
         padding: 40px;
-        color: #aaa;
+        color: var(--color-text-secondary, #8b949e);
     }
     .empty-state.compact {
         padding: 15px;
@@ -749,14 +749,15 @@ AlertsManage.styles = css`
         gap: 10px;
     }
     .alert-card {
-        background: rgba(255,255,255,0.05);
-        border-left: 4px solid #B63333;
-        border-radius: 4px;
+        background: var(--color-bg-subtle, #161b22);
+        border: 1px solid var(--color-border-default, #30363d);
+        border-left: 4px solid var(--color-danger-fg, #f85149);
+        border-radius: 6px;
         padding: 15px;
     }
     .alert-card.acknowledged {
-        border-left-color: #4BB543;
-        opacity: 0.7;
+        border-left-color: var(--color-success-fg, #3fb950);
+        opacity: 0.85;
     }
     .alert-card.ongoing-alert-card {
         border-left-color: #FFC107;
@@ -780,7 +781,7 @@ AlertsManage.styles = css`
         font-size: 1.1em;
     }
     .alert-time {
-        color: #aaa;
+        color: var(--color-text-secondary, #8b949e);
         font-size: 0.85em;
     }
     .alert-actions {
@@ -788,16 +789,16 @@ AlertsManage.styles = css`
         gap: 8px;
     }
     .alert-message {
-        background: rgba(0,0,0,0.2);
+        background: var(--color-bg-elevated, #21262d);
         padding: 10px;
-        border-radius: 4px;
+        border-radius: 6px;
         margin-bottom: 10px;
         white-space: pre-wrap;
         word-break: break-word;
     }
     .alert-meta {
         font-size: 0.85em;
-        color: #aaa;
+        color: var(--color-text-secondary, #8b949e);
     }
     .pagination {
         display: flex;
@@ -806,7 +807,7 @@ AlertsManage.styles = css`
         gap: 15px;
         margin-top: 20px;
         padding-top: 20px;
-        border-top: 1px solid rgba(255,255,255,0.1);
+        border-top: 1px solid var(--color-border-default, #30363d);
     }
     
     /* Tags */
@@ -817,20 +818,20 @@ AlertsManage.styles = css`
         font-size: 0.8em;
     }
     .tag-sent {
-        background: rgba(59, 130, 246, 0.3);
-        color: #3B82F6;
+        background: var(--color-info-muted, rgba(88, 166, 255, 0.15));
+        color: var(--color-info-fg, #58a6ff);
     }
     .tag-local {
-        background: rgba(170, 170, 170, 0.3);
-        color: #aaa;
+        background: var(--color-bg-elevated, #21262d);
+        color: var(--color-text-secondary, #8b949e);
     }
     .tag-acked {
-        background: rgba(75, 181, 67, 0.3);
-        color: #4BB543;
+        background: var(--color-success-muted, rgba(63, 185, 80, 0.15));
+        color: var(--color-success-fg, #3fb950);
     }
     .tag-active {
-        background: rgba(75, 181, 67, 0.3);
-        color: #4BB543;
+        background: var(--color-success-muted, rgba(63, 185, 80, 0.15));
+        color: var(--color-success-fg, #3fb950);
     }
     .tag-inactive {
         background: rgba(170, 170, 170, 0.3);

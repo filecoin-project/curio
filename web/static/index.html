@@ -1,138 +1,51 @@
 <!doctype html>
-<html lang="en" style="background:rgb(11, 22, 34)">
+<html lang="en">
 <head>
-    <title>Curio Cluster Overview</title>
+    <title>Curio Overview</title>
     <script src="https://unpkg.com/htmx.org@1.9.5"
         integrity="sha384-xcuj3WpfgjlKF+FXhSQFQ0ZNr39ln+hwjN3npfM9VBnUskLolQAcN80McRIVOPuO"
         crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script type="module" src="index-boot.mjs"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
-          integrity="sha512-iecdLmaskl7CVkqkXNQ/ZH/XLlvWZOJyj7Yy7tcenmpD1ypASozpmT/E0iPtmFIB46ZmdtAc9eNBvH0H/ZpiBw=="
-            crossorigin="anonymous" />
-    <style>
-        .drawer {
-          display: block;
-        }
-
-        .wide-content {
-          display: none;
-        }
-
-        @media (min-width: 2210px) {
-          .drawer {
-            display: none;
-          }
-
-          .wide-content {
-            display: block;
-          }
-        }
-    </style>
 </head>
 <body style="visibility:hidden">
     <curio-ux>
-        <div class="page" style="margin-left: 20px; margin-right: 10px">
-            <div class="row">
-                <div class="col-md-auto" style="max-width: 1000px">
-                    <div class="info-block">
-                        <h2>Chain Connectivity</h2>
-                        <chain-connectivity></chain-connectivity>
-                    </div>
-                </div>
-                <div class="col-md-auto">
-                </div>
+        <div class="page">
+            <div class="page-header">
+                <h1>Overview</h1>
             </div>
 
-            <div class="row">
-                <div class="col-md-auto" style="max-width: 1000px">
-                    <div class="info-block" style="display: inline-block; margin-bottom: 1.5rem;">
-                        <h2>Chain Node Network</h2>
-                        <network-summary></network-summary>
-                    </div>
-                </div>
-                <div class="col-md-auto">
-                </div>
+            <div class="section curio-only">
+                <chain-status></chain-status>
             </div>
 
-            <cluster-machines></cluster-machines>
-
-            <div class="row curio-only">
-                <div class="col-md-auto">
-                    <div class="info-block">
-                        <h2>Storage Use</h2>
-                        <storage-use></storage-use>
-                    </div>
-                </div>
-                <div class="col-md-auto">
-                    <div class="info-block">
-                        <h2>Storage GC</h2>
-                        <div>
-                            <a href="/gc/">Manage Storage GC</a>
+            <div id="curio-overview">
+                <div class="row">
+                    <div class="col-md-auto">
+                        <div class="info-block">
+                            <h2>Recently Finished Tasks</h2>
+                            <cluster-task-history></cluster-task-history>
                         </div>
-                        <storage-gc-stats></storage-gc-stats>
                     </div>
-                </div>
-            </div>
-
-            <div class="row curio-only">
-                <div class="col-md-auto" style="max-width: 1000px">
-                    <div class="info-block">
-                        <h2>Actor Summary</h2>
-                        <actor-summary></actor-summary>
-                    </div>
-                </div>
-            </div>
-
-            <div class="row curio-only">
-                <div class="col-md-auto">
-                    <div class="info-block">
-                        <h2>Recent Wins</h2>
-                        <win-stats></win-stats>
-                    </div>
-                </div>
-            </div>
-
-            <div class="row">
-                <div class="col-md-auto">
-                    <div class="info-block">
-                        <h2>Recently Finished Tasks</h2>
-                        <cluster-task-history></cluster-task-history>
-                    </div>
-                </div>
-                <div class="col-md-auto">
-                    <div class="info-block">
-                        <h2>24h task counts</h2>
-                        <harmony-task-counts></harmony-task-counts>
-                    </div>
-                </div>
-            </div>
-
-            <div class="row">
-                <div class="col-md-auto" style="max-width: 1000px">
-                    <div class="info-block">
-                        <div class="wide-content">
-                            <h2>Cluster Tasks</h2>
-                            <cluster-tasks></cluster-tasks>
+                    <div class="col-md-auto">
+                        <div class="info-block">
+                            <h2>24h task counts</h2>
+                            <harmony-task-counts></harmony-task-counts>
                         </div>
-
-                        <ui-drawer class="drawer" label="Cluster Tasks">
-                            <h2 slot="title">Cluster Tasks</h2>
-                            <cluster-tasks slot="content"></cluster-tasks>
-                        </ui-drawer>
                     </div>
                 </div>
-                <div class="col-md-auto">
-                </div>
-            </div>
 
-            <div class="curio-only">
-            <pipeline-porep></pipeline-porep>
-            <pipeline-stats></pipeline-stats>
+                <div class="wide-content">
+                    <div class="info-block" style="max-width: 1000px">
+                        <h2>Cluster Tasks</h2>
+                        <cluster-tasks></cluster-tasks>
+                    </div>
+                </div>
+                <ui-drawer class="drawer" label="Cluster Tasks">
+                    <h2 slot="title">Cluster Tasks</h2>
+                    <cluster-tasks slot="content"></cluster-tasks>
+                </ui-drawer>
             </div>
         </div>
     </curio-ux>
 </body>
-
 </html>

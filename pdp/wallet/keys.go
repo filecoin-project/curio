@@ -3,6 +3,7 @@ package wallet
 import (
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"strings"
 
 	"github.com/ethereum/go-ethereum/crypto"
@@ -10,6 +11,8 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+
+	"github.com/filecoin-project/lotus/chain/types"
 )
 
 const rolePDP = "pdp"
@@ -21,10 +24,66 @@ type CreatedKey struct {
 }
 
 type Status struct {
-	Configured bool   `json:"configured"`
-	Address    string `json:"address,omitempty"`
-	Balance    string `json:"balance,omitempty"`
-	Funded     bool   `json:"funded"`
+	Configured   bool   `json:"configured"`
+	Address      string `json:"address,omitempty"`
+	FilAddress   string `json:"filAddress,omitempty"`
+	Balance      string `json:"balance,omitempty"`
+	UsdfcBalance string `json:"usdfcBalance,omitempty"`
+	// BalanceKnown is true only when FIL balance was successfully fetched.
+	// When false, Funded must not be treated as "unfunded".
+	BalanceKnown bool `json:"balanceKnown"`
+	UsdfcKnown   bool `json:"usdfcKnown"`
+	Funded       bool `json:"funded"`
+	ActorExists  bool `json:"actorExists"`
+}
+
+// ParsePrivateKeyMaterial accepts a hex secp256k1 private key or a lotus wallet export
+// (hex-encoded KeyInfo JSON, or KeyInfo JSON itself) and returns the 32-byte private key.
+func ParsePrivateKeyMaterial(input string) ([]byte, error) {
+	input = strings.TrimSpace(input)
+	if input == "" {
+		return nil, xerrors.Errorf("private key cannot be empty")
+	}
+
+	// Lotus wallet export is hex-encoded KeyInfo JSON.
+	if decoded, err := hex.DecodeString(strings.TrimPrefix(strings.TrimPrefix(input, "0x"), "0X")); err == nil {
+		if len(decoded) == 32 {
+			return decoded, nil
+		}
+		if key, err := keyInfoPrivateKey(decoded); err == nil {
+			return key, nil
+		}
+	}
+
+	// Raw KeyInfo JSON (e.g. after xxd -r -p on lotus wallet export).
+	if key, err := keyInfoPrivateKey([]byte(input)); err == nil {
+		return key, nil
+	}
+
+	// Plain hex private key (with or without 0x).
+	normalized, err := NormalizeHexPrivateKey(input)
+	if err != nil {
+		return nil, xerrors.Errorf("unrecognized private key format (expected hex key or lotus wallet export): %w", err)
+	}
+	return hex.DecodeString(normalized)
+}
+
+func keyInfoPrivateKey(raw []byte) ([]byte, error) {
+	var ki types.KeyInfo
+	if err := json.Unmarshal(raw, &ki); err != nil {
+		return nil, err
+	}
+	if len(ki.PrivateKey) == 0 {
+		return nil, xerrors.Errorf("key info has empty private key")
+	}
+	// Delegated/secp256k1 keys are 32 bytes; tolerate longer encodings by taking the last 32.
+	if len(ki.PrivateKey) == 32 {
+		return ki.PrivateKey, nil
+	}
+	if len(ki.PrivateKey) > 32 {
+		return ki.PrivateKey[len(ki.PrivateKey)-32:], nil
+	}
+	return nil, xerrors.Errorf("private key length %d is too short", len(ki.PrivateKey))
 }
 
 func NormalizeHexPrivateKey(hexPrivateKey string) (string, error) {
@@ -91,14 +150,10 @@ func InsertPDPKey(ctx context.Context, db *harmonydb.DB, privateKeyBytes []byte)
 	return address, nil
 }
 
-func ImportPDPKeyHex(ctx context.Context, db *harmonydb.DB, hexPrivateKey string) (string, error) {
-	normalized, err := NormalizeHexPrivateKey(hexPrivateKey)
+func ImportPDPKeyHex(ctx context.Context, db *harmonydb.DB, keyMaterial string) (string, error) {
+	privateKeyBytes, err := ParsePrivateKeyMaterial(keyMaterial)
 	if err != nil {
 		return "", err
-	}
-	privateKeyBytes, err := hex.DecodeString(normalized)
-	if err != nil {
-		return "", xerrors.Errorf("failed to decode private key: %w", err)
 	}
 	return InsertPDPKey(ctx, db, privateKeyBytes)
 }

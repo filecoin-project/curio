@@ -1,16 +1,34 @@
 <!doctype html>
-<html lang="en" style="background:rgb(11, 22, 34)">
+<html lang="en">
 <head>
-    <title>Storage Paths - Curio</title>
+    <title>Storage - Curio</title>
     <script src="https://unpkg.com/htmx.org@1.9.5"
             integrity="sha384-xcuj3WpfgjlKF+FXhSQFQ0ZNr39ln+hwjN3npfM9VBnUskLolQAcN80McRIVOPuO"
             crossorigin="anonymous"></script>
-    <script type="module" src="storage-paths-list.mjs"></script>
-    <script type="module" src="/ux/curio-ux.mjs"></script>
+    <script type="module" src="storage-boot.mjs"></script>
 </head>
 <body style="visibility:hidden">
 <curio-ux>
-    <storage-paths-list></storage-paths-list>
+    <div class="page">
+        <div class="row curio-only">
+            <div class="col-md-auto">
+                <div class="info-block">
+                    <h2>Storage Use</h2>
+                    <storage-use></storage-use>
+                </div>
+            </div>
+            <div class="col-md-auto">
+                <div class="info-block">
+                    <h2>Storage GC</h2>
+                    <div>
+                        <a href="/gc/">Manage Storage GC</a>
+                    </div>
+                    <storage-gc-stats></storage-gc-stats>
+                </div>
+            </div>
+        </div>
+        <storage-paths-list></storage-paths-list>
+    </div>
 </curio-ux>
 </body>
 </html>

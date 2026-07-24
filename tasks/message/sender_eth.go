@@ -356,6 +356,12 @@ func (s *SenderETH) send(ctx context.Context, fromAddress common.Address, tx *ty
 
 	// Push the task
 	taskAdder := s.sendTask.sendTF.Val(ctx)
+	if taskAdder == nil {
+		if err := ctx.Err(); err != nil {
+			return common.Hash{}, err
+		}
+		return common.Hash{}, xerrors.Errorf("eth message send task adder is not available")
+	}
 
 	var sendTaskID *harmonytask.TaskID
 	taskAdder(func(id harmonytask.TaskID, txdb *harmonydb.Tx) (shouldCommit bool, seriousError error) {

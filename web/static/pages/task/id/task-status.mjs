@@ -85,7 +85,7 @@ class HarmonyTaskStatus extends LitElement {
         const canRestart = this.status.status === 'failed';
 
         return html`
-            <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+            <link rel="stylesheet" href="/ux/vendor/bootstrap.min.css">
             <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'">
 
             <div class="task-status">

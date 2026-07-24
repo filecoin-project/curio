@@ -146,7 +146,9 @@ var runCmd = &cli.Command{
 		if err != nil {
 			return xerrors.Errorf("starting tasks: %w", err)
 		}
-		defer taskEngine.GracefullyTerminate()
+		if taskEngine != nil {
+			defer taskEngine.GracefullyTerminate()
+		}
 
 		err = rpc.ListenAndServe(ctx, dependencies, shutdownChan) // Monitor for shutdown.
 		if err != nil {

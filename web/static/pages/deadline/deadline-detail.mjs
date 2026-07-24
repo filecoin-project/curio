@@ -75,7 +75,7 @@ customElements.define('deadline-detail', class DeadlineDetail extends LitElement
         const totalActive = this.data.partitions.reduce((sum, p) => sum + p.active_sectors, 0);
 
         return html`
-            <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+            <link rel="stylesheet" href="/ux/vendor/bootstrap.min.css">
             <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'">
             <link rel="stylesheet" href="/ux/dark-table.css" onload="document.body.style.visibility = 'initial'">
             

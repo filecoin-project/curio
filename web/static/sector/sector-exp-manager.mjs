@@ -712,7 +712,7 @@ customElements.define('sector-exp-manager', class SectorExpManager extends LitEl
     render() {
         if (this.loading) {
             return html`
-                <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+                <link rel="stylesheet" href="/ux/vendor/bootstrap.min.css">
                 <link rel="stylesheet" href="/ux/main.css">
                 <link rel="stylesheet" href="/ux/dark-table.css" onload="document.body.style.visibility = 'initial'">
                 <div class="loading">Loading expiration manager data...</div>
@@ -721,7 +721,7 @@ customElements.define('sector-exp-manager', class SectorExpManager extends LitEl
 
         if (this.error) {
             return html`
-                <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+                <link rel="stylesheet" href="/ux/vendor/bootstrap.min.css">
                 <link rel="stylesheet" href="/ux/main.css">
                 <link rel="stylesheet" href="/ux/dark-table.css" onload="document.body.style.visibility = 'initial'">
                 <div class="error">${this.error}</div>
@@ -729,7 +729,7 @@ customElements.define('sector-exp-manager', class SectorExpManager extends LitEl
         }
 
         return html`
-            <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+            <link rel="stylesheet" href="/ux/vendor/bootstrap.min.css">
             <link rel="stylesheet" href="/ux/main.css">
             <link rel="stylesheet" href="/ux/dark-table.css" onload="document.body.style.visibility = 'initial'">
             
