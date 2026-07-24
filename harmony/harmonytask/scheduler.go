@@ -206,8 +206,10 @@ func (e *TaskEngine) startScheduler() {
 				case schedulerSourceDBPoll:
 					// Replace the entire available-tasks map with the DB snapshot.
 					// This garbage-collects stale entries (tasks claimed/deleted by
-					// others).
-					hasNew := false
+					// others). Always re-enter the waterfall afterward: RetryWait
+					// may have elapsed for existing IDs, CanAccept cache was
+					// refreshed, and IAmBored must run when capacity remains with
+					// no claimable work (not only when new IDs appear).
 					for taskName, tasks := range event.DBTasks {
 						sched := availableTasks[taskName]
 						if sched == nil {
@@ -216,21 +218,14 @@ func (e *TaskEngine) startScheduler() {
 						newHas := lo.Associate(tasks, func(t task) (TaskID, task) {
 							return t.ID, t
 						})
-						for id := range newHas {
-							if _, exists := sched.hasID[id]; !exists {
-								hasNew = true
-							}
-						}
 						availableTasks[taskName] = &taskSchedule{
 							hasID:  newHas,
 							choked: len(tasks) >= chokePoint,
 						}
 					}
 
-					if hasNew {
-						if err := e.pollerTryAllWork(ts, ee); err != nil {
-							log.Errorw("failed tryAllWork", "error", err)
-						}
+					if err := e.pollerTryAllWork(ts, ee); err != nil {
+						log.Errorw("failed tryAllWork", "error", err)
 					}
 
 				case schedulerSourceAdded:
@@ -319,11 +314,11 @@ func (e *TaskEngine) startScheduler() {
 				}
 			case taskName := <-bundleSleep:
 				tryStartNow(taskName)
-			case <-time.After(e.atomics.pollDuration.Load().(time.Duration)):
-				if err := e.pollerTryAllWork(ts, ee); err != nil {
-					log.Errorw("failed tryAllWork", "error", err)
-					continue
-				}
+			case <-time.After(idleTryInterval):
+				// Quiet-period tick: IAmBored only. Does not claim known work
+				// or query the DB — discovery/claims stay on events + the rare
+				// background poller. Per-task passcall.Every throttles work.
+				e.invokeIAmBored()
 			}
 		}
 	}()

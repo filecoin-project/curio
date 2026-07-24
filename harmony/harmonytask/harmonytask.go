@@ -35,6 +35,12 @@ const pollRarely = time.Second * 30
 // polling-heavy mode until peering is re-established.
 const pollFrequently = time.Second * 3
 
+// idleTryInterval is how often the scheduler invokes IAmBored when the event
+// loop is otherwise quiet. This does not poll the DB for existing work — that
+// stays on the rare background poller. Per-task Every/SingletonTaskAdder remain
+// the rate limiters for speculative work.
+const idleTryInterval = time.Second
+
 // cleanupFrequency controls how often dead worker cleanup runs. Each node
 // independently checks for stale harmony_machines entries on this interval.
 var cleanupFrequency = 5 * time.Minute
@@ -65,9 +71,12 @@ type TaskTypeDetails struct {
 	RetryWait func(retries int) time.Duration
 
 	// IAmBored is called (when populated) when there's capacity but no work.
+	// Invoked after the waterfall considers known tasks, and on a short idle
+	// tick (idleTryInterval) that does not poll/claim existing DB work.
+	// Rate-limit inside the callback (passcall.Every / SingletonTaskAdder).
 	// Tasks added will be proposed to CanAccept() on this machine.
 	// Ex: make new CC sectors, clean-up, or retrying pipelines that failed in later states.
-
+	//
 	// This is starved on busy machines, so use it to gather "above and beyond" work only.
 	IAmBored func(AddTaskFunc) error
 
@@ -417,7 +426,8 @@ type task struct {
 //
 // When capacity remains after processing all known work, IAmBored callbacks
 // are invoked in separate goroutines to avoid blocking the scheduler with
-// DB writes from speculative work creation.
+// DB writes from speculative work creation. Per-task rate limits belong in
+// IAmBored itself (passcall.Every / SingletonTaskAdder).
 func (e *TaskEngine) pollerTryAllWork(taskSource taskSource, eventEmitter eventEmitter) error {
 	schedulable := !e.atomics.yieldBackground.Load()
 	defer func() {
@@ -479,25 +489,35 @@ func (e *TaskEngine) pollerTryAllWork(taskSource taskSource, eventEmitter eventE
 		return nil
 	}
 
-	// IAmBored: when all known work is exhausted and capacity remains, let
-	// handlers generate speculative work (e.g., new CC sectors). Runs in a
-	// goroutine to keep DB writes off the scheduler thread.
+	e.invokeIAmBored()
+	return nil
+}
+
+// invokeIAmBored asks each handler with spare capacity to create speculative
+// work. It does not query or claim existing harmony_task rows — that remains
+// on the event-driven waterfall / rare DB poll. Safe to call on a short idle
+// tick; handlers rate-limit themselves.
+func (e *TaskEngine) invokeIAmBored() {
+	if e.atomics.yieldBackground.Load() {
+		return
+	}
 	for _, v := range e.handlers {
 		if ct, err := v.AssertMachineHasCapacity(); err != nil || ct == 0 {
 			continue
 		}
-		if v.IAmBored != nil {
-			go func() {
-				err := v.IAmBored(func(extraInfo func(TaskID, *harmonydb.Tx) (shouldCommit bool, seriousError error)) {
-					e.AddTaskByName(v.Name, extraInfo)
-				})
-				if err != nil {
-					log.Error("IAmBored failed: ", err)
-				}
-			}()
+		if v.IAmBored == nil {
+			continue
 		}
+		h := v
+		go func() {
+			err := h.IAmBored(func(extraInfo func(TaskID, *harmonydb.Tx) (shouldCommit bool, seriousError error)) {
+				e.AddTaskByName(h.Name, extraInfo)
+			})
+			if err != nil {
+				log.Error("IAmBored failed: ", err)
+			}
+		}()
 	}
-	return nil
 }
 
 func oldestFirstSeq(taskTypes map[string]*taskTypeHandler, ts taskSource, preferredTaskRunOrder map[string][]string) []*taskTypeHandler {
