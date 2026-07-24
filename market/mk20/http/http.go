@@ -41,22 +41,39 @@ const (
 
 type MK20DealHandler struct {
 	cfg *config.CurioConfig
-	db  *harmonydb.DB // Replace with your actual DB wrapper if different
-	dm  *storage_market.CurioStorageDealMarket
+	db  *harmonydb.DB
+	h   *mk20.MK20
 }
 
 func NewMK20DealHandler(db *harmonydb.DB, cfg *config.CurioConfig, dm *storage_market.CurioStorageDealMarket) (*MK20DealHandler, error) {
-	return &MK20DealHandler{db: db, dm: dm, cfg: cfg}, nil
+	if dm == nil || dm.MK20Handler == nil {
+		return nil, errors.New("deal market with started MK20 handler is required")
+	}
+	return &MK20DealHandler{db: db, cfg: cfg, h: dm.MK20Handler}, nil
 }
 
 func dealRateLimitMiddleware(requestLimit int) func(http.Handler) http.Handler {
 	return httprate.LimitByIP(requestLimit, 1*time.Second)
 }
 
+func recoverMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if p := recover(); p != nil {
+				log.Errorw("panic in mk20 http handler", "panic", p, "path", r.URL.Path, "method", r.Method, "stack", string(debug.Stack()))
+				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			}
+		}()
+		next.ServeHTTP(w, r)
+	})
+}
+
 func registerRateLimitedRoute(mux chi.Router, authMiddleware func(http.Handler) http.Handler, requestLimit int, method, pattern string, handler http.Handler) {
 	// Each route gets its own limiter so hot upload traffic does not consume other endpoints' budgets.
-	mux.With(dealRateLimitMiddleware(requestLimit), authMiddleware).Method(method, pattern, handler)
+	// recoverMiddleware sits inside auth so TimeoutHandler re-panics become 500s instead of process crashes.
+	mux.With(dealRateLimitMiddleware(requestLimit), authMiddleware, recoverMiddleware).Method(method, pattern, handler)
 }
+
 
 func AuthMiddleware(db *harmonydb.DB, cfg *config.CurioConfig) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
@@ -257,7 +274,7 @@ func (mdh *MK20DealHandler) mk20deal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result := mdh.dm.MK20Handler.ExecuteDeal(r.Context(), &deal, authHeader)
+	result := mdh.h.ExecuteDeal(r.Context(), &deal, authHeader)
 
 	log.Infow("deal processed",
 		"id", deal.Identifier,
@@ -295,7 +312,7 @@ func (mdh *MK20DealHandler) mk20status(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result := mdh.dm.MK20Handler.DealStatus(r.Context(), id)
+	result := mdh.h.DealStatus(r.Context(), id)
 
 	if result.HTTPCode != http.StatusOK {
 		w.WriteHeader(result.HTTPCode)
@@ -366,7 +383,7 @@ func (mdh *MK20DealHandler) mk20supportedContracts(w http.ResponseWriter, r *htt
 // @Failure 500 {string} string "Internal Server Error"
 // @Failure 200 {object} mk20.SupportedProducts "Array of products supported by the SP"
 func (mdh *MK20DealHandler) supportedProducts(w http.ResponseWriter, r *http.Request) {
-	prods, _, err := mdh.dm.MK20Handler.Supported(r.Context())
+	prods, _, err := mdh.h.Supported(r.Context())
 	if err != nil {
 		log.Errorw("failed to get supported producers and sources", "err", err)
 		http.Error(w, "", http.StatusInternalServerError)
@@ -400,7 +417,7 @@ func (mdh *MK20DealHandler) supportedProducts(w http.ResponseWriter, r *http.Req
 // @Failure 500 {string} string "Internal Server Error"
 // @Failure 200 {object} mk20.SupportedDataSources "Array of dats sources supported by the SP"
 func (mdh *MK20DealHandler) supportedDataSources(w http.ResponseWriter, r *http.Request) {
-	_, srcs, err := mdh.dm.MK20Handler.Supported(r.Context())
+	_, srcs, err := mdh.h.Supported(r.Context())
 	if err != nil {
 		log.Errorw("failed to get supported producers and sources", "err", err)
 		http.Error(w, "", http.StatusInternalServerError)
@@ -451,7 +468,7 @@ func (mdh *MK20DealHandler) mk20UploadStatus(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "invalid id in url", http.StatusBadRequest)
 		return
 	}
-	mdh.dm.MK20Handler.HandleUploadStatus(r.Context(), id, w)
+	mdh.h.HandleUploadStatus(r.Context(), id, w)
 }
 
 // mk20UploadDealChunks handles uploading of deal file chunks.
@@ -505,7 +522,7 @@ func (mdh *MK20DealHandler) mk20UploadDealChunks(w http.ResponseWriter, r *http.
 		return
 	}
 
-	mdh.dm.MK20Handler.HandleUploadChunk(r.Context(), id, chunkNum, r.Body, w)
+	mdh.h.HandleUploadChunk(r.Context(), id, chunkNum, r.Body, w)
 }
 
 // mk20UploadStart handles the initiation of an upload process for MK20 deal data.
@@ -560,7 +577,7 @@ func (mdh *MK20DealHandler) mk20UploadStart(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	mdh.dm.MK20Handler.HandleUploadStart(r.Context(), id, upload, w)
+	mdh.h.HandleUploadStart(r.Context(), id, upload, w)
 
 }
 
@@ -620,7 +637,7 @@ func (mdh *MK20DealHandler) mk20FinalizeUpload(w http.ResponseWriter, r *http.Re
 
 	if len(bytes.TrimSpace(body)) == 0 {
 		log.Debugw("no deal provided, using empty deal to finalize upload", "id", idStr)
-		mdh.dm.MK20Handler.HandleUploadFinalize(r.Context(), id, nil, w, authHeader)
+		mdh.h.HandleUploadFinalize(r.Context(), id, nil, w, authHeader)
 		return
 	}
 
@@ -645,7 +662,7 @@ func (mdh *MK20DealHandler) mk20FinalizeUpload(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	mdh.dm.MK20Handler.HandleUploadFinalize(r.Context(), id, &deal, w, authHeader)
+	mdh.h.HandleUploadFinalize(r.Context(), id, &deal, w, authHeader)
 }
 
 // mk20UpdateDeal handles updating an MK20 deal based on the provided HTTP request.
@@ -720,7 +737,7 @@ func (mdh *MK20DealHandler) mk20UpdateDeal(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	result := mdh.dm.MK20Handler.UpdateDeal(r.Context(), id, &deal, authHeader)
+	result := mdh.h.UpdateDeal(r.Context(), id, &deal, authHeader)
 
 	log.Infow("deal updated",
 		"id", deal.Identifier,
@@ -762,7 +779,7 @@ func (mdh *MK20DealHandler) mk20SerialUpload(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	mdh.dm.MK20Handler.HandleSerialUpload(r.Context(), id, r.Body, w)
+	mdh.h.HandleSerialUpload(r.Context(), id, r.Body, w)
 }
 
 // mk20SerialUploadFinalize finalizes the serial upload process for a given deal by processing the request and updating the associated deal in the system if required.
@@ -822,7 +839,7 @@ func (mdh *MK20DealHandler) mk20SerialUploadFinalize(w http.ResponseWriter, r *h
 
 	if len(bytes.TrimSpace(body)) == 0 {
 		log.Debugw("no deal provided, using empty deal to finalize upload", "id", idStr)
-		mdh.dm.MK20Handler.HandleSerialUploadFinalize(r.Context(), id, nil, w, authHeader)
+		mdh.h.HandleSerialUploadFinalize(r.Context(), id, nil, w, authHeader)
 		return
 	}
 
@@ -842,7 +859,7 @@ func (mdh *MK20DealHandler) mk20SerialUploadFinalize(w http.ResponseWriter, r *h
 		return
 	}
 
-	mdh.dm.MK20Handler.HandleSerialUploadFinalize(r.Context(), id, &deal, w, authHeader)
+	mdh.h.HandleSerialUploadFinalize(r.Context(), id, &deal, w, authHeader)
 }
 
 const maxRequestSize = 1 << 20
