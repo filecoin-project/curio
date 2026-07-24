@@ -12,13 +12,20 @@ import (
 	"github.com/filecoin-project/curio/market/retrieval"
 )
 
+// MountRetrievalPublicRoutes mounts piece/IPFS retrieval with bad-bits denylist filtering.
+// Skiff and full Curio both use this; tests can mount it without standing up IPNI.
+func MountRetrievalPublicRoutes(ctx context.Context, r *chi.Mux, d *deps.Deps) *denylist.Filter {
+	df := denylist.NewFilter(ctx, d.Cfg.HTTP.DenylistServers)
+	rp := retrieval.NewRetrievalProvider(ctx, d.DB, d.IndexStore, d.CachedPieceReader, df)
+	retrieval.Router(r, rp, df)
+	return df
+}
+
 // MountCommonPublicRoutes mounts public endpoints shared by curio and skiff:
 // piece/IPFS retrieval with bad-bits denylist filtering, and IPNI provider routes.
 // The returned IPNI provider is started for publishing and can be passed to PDP route mounting.
 func MountCommonPublicRoutes(ctx context.Context, r *chi.Mux, d *deps.Deps) (*ipni_provider.Provider, error) {
-	df := denylist.NewFilter(ctx, d.Cfg.HTTP.DenylistServers)
-	rp := retrieval.NewRetrievalProvider(ctx, d.DB, d.IndexStore, d.CachedPieceReader, df)
-	retrieval.Router(r, rp, df)
+	_ = MountRetrievalPublicRoutes(ctx, r, d)
 
 	ipp, err := ipni_provider.NewProvider(d)
 	if err != nil {

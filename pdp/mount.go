@@ -12,7 +12,6 @@ import (
 	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/lib/paths"
 	ipni_provider "github.com/filecoin-project/curio/market/ipni/ipni-provider"
-	"github.com/filecoin-project/curio/tasks/message"
 )
 
 // MountDeps holds dependencies for mounting PDP HTTP routes.
@@ -21,7 +20,7 @@ type MountDeps struct {
 	LocalStore paths.StashStore
 	EthClient  ethchain.EthClient
 	Chain      api.Chain
-	EthSender  *message.SenderETH
+	EthSender  ETHTxSender
 	AlertTask  *alertmanager.AlertTask
 }
 
