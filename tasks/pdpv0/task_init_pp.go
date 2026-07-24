@@ -35,6 +35,8 @@ type InitProvingPeriodTask struct {
 
 	fil NextProvingPeriodTaskChainApi
 
+	al curioalerting.AlertingInterface
+
 	addFunc promise.Promise[harmonytask.AddTaskFunc]
 }
 
@@ -48,6 +50,7 @@ func NewInitProvingPeriodTask(db *harmonydb.DB, ethClient ethchain.EthClient, fi
 		ethClient: ethClient,
 		sender:    sender,
 		fil:       fil,
+		al:        w.al,
 	}
 
 	_ = w.AddWatcher(func(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, al curioalerting.AlertingInterface, revert, apply *chainTypes.TipSet) {
@@ -67,7 +70,6 @@ func NewInitProvingPeriodTask(db *harmonydb.DB, ethClient ethchain.EthClient, fi
                 WHERE challenge_request_task_id IS NULL
                   AND init_ready AND prove_at_epoch IS NULL
                   AND unrecoverable_proving_failure_epoch IS NULL
-                  AND (next_prove_attempt_at IS NULL OR next_prove_attempt_at <= $1)
 	            `, currentHeight)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			_ = al.EmitEvent(ctx, curioalerting.AlertEvent{
@@ -220,7 +222,7 @@ func (ipp *InitProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func(
 	if sendErr != nil {
 		currentHeight := int64(ts.Height())
 		comm, err := ipp.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
-			handleErr := HandleProvingSendError(tx, dataSetId, currentHeight, sendErr)
+			handleErr := handleNextProvingPeriodSendError(ctx, tx, ipp.ethClient, ipp.al, alertNameInitPP, dataSetId, currentHeight, sendErr)
 			if handleErr != nil {
 				return false, xerrors.Errorf("failed to handle proving send error: %w", handleErr)
 			}
