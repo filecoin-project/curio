@@ -17,6 +17,8 @@ import (
 	"github.com/filecoin-project/curio/tasks/indexing"
 )
 
+// AddIndexFromCAR indexes a CAR fixture into the test index store for the
+// supplied piece CID.
 func AddIndexFromCAR(ctx context.Context, idx *indexstore.IndexStore, pieceCID cid.Cid, carBytes []byte) error {
 	recs := make(chan indexstore.Record, 64)
 	addFail := make(chan struct{})
@@ -26,7 +28,7 @@ func AddIndexFromCAR(ctx context.Context, idx *indexstore.IndexStore, pieceCID c
 		return idx.AddIndex(ctx, pieceCID, recs)
 	})
 
-	_, interrupted, idxErr := indexing.IndexCAR(bytes.NewReader(carBytes), 4<<20, recs, addFail)
+	_, _, interrupted, idxErr := indexing.IndexCAR(bytes.NewReader(carBytes), 4<<20, recs, addFail)
 	close(recs)
 
 	addErr := eg.Wait()
@@ -42,6 +44,9 @@ func AddIndexFromCAR(ctx context.Context, idx *indexstore.IndexStore, pieceCID c
 	return nil
 }
 
+// AddAggregateIndexFromPiece indexes an aggregate fixture and stores both its
+// payload block index and aggregate child-piece mappings in the test index
+// store.
 func AddAggregateIndexFromPiece(t *testing.T, ctx context.Context, idx *indexstore.IndexStore, aggregate PieceFixture, subPieces []mk20.DataSource) error {
 	recs := make(chan indexstore.Record, 64)
 	addFail := make(chan struct{})
@@ -90,6 +95,57 @@ func AddAggregateIndexFromPiece(t *testing.T, ctx context.Context, idx *indexsto
 	return nil
 }
 
+// AddPDPv0IndexFromPiece indexes a PDPv0 parked piece for retrieval tests.
+func AddPDPv0IndexFromPiece(t *testing.T, ctx context.Context, idx *indexstore.IndexStore, piece PieceFixture) error {
+	recs := make(chan indexstore.Record, 64)
+	addFail := make(chan struct{})
+
+	var eg errgroup.Group
+	eg.Go(func() error {
+		return idx.AddIndex(ctx, piece.PieceCIDV2, recs)
+	})
+
+	blocks, aggidx, interrupted, idxErr := indexing.IndexPDPv0(
+		piece.PieceCIDV2,
+		bytes.NewReader(piece.CarBytes),
+		piece.PieceSize,
+		recs,
+		addFail,
+	)
+	close(recs)
+
+	addErr := eg.Wait()
+
+	if idxErr != nil {
+		return idxErr
+	}
+	if addErr != nil {
+		return addErr
+	}
+	if interrupted {
+		return fmt.Errorf("PDPv0 indexing was interrupted for piece %s", piece.PieceCIDV2)
+	}
+	if blocks <= 0 {
+		return fmt.Errorf("PDPv0 piece %s produced no indexed blocks", piece.PieceCIDV2)
+	}
+
+	for k, v := range aggidx {
+		if err := idx.InsertAggregateIndex(ctx, k, v); err != nil {
+			return fmt.Errorf("inserting PDPv0 aggregate index for %s: %w", k, err)
+		}
+		for i := range v {
+			pieces, err := idx.FindPieceInAggregate(ctx, v[i].Cid)
+			require.NoError(t, err)
+			require.Len(t, pieces, 1)
+			require.True(t, piece.PieceCIDV2.Equals(pieces[0].Cid))
+		}
+	}
+
+	return nil
+}
+
+// LogIPNIStatus writes the current IPNI rows to the test log for debugging
+// retrieval/indexing test failures.
 func LogIPNIStatus(t *testing.T, ctx context.Context, db *harmonydb.DB) {
 	var ipnirows []struct {
 		AdCID      string         `db:"ad_cid"`

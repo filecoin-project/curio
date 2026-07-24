@@ -134,6 +134,10 @@ type retrievalFixtures struct {
 	rawSizeValid                   helpers.PieceFixture
 	rawSizeZero                    helpers.PieceFixture
 	missingMetadata                helpers.PieceFixture
+	pdpv0AggregateSubpieceA        helpers.PieceFixture
+	pdpv0AggregateSubpieceB        helpers.PieceFixture
+	pdpv0Aggregate                 helpers.PieceFixture
+	pdpv0Fallback                  helpers.PieceFixture
 	aggregateRetrySub              helpers.PieceFixture
 	aggregateRetryFail             helpers.PieceFixture
 	aggregateRetryFailSubPieces    []mk20.DataSource
@@ -146,6 +150,8 @@ type retrievalParkedPieceIDs struct {
 	parkWithDealPieceID int64
 	pdpPieceID          int64
 	cacheReusePieceID   int64
+	pdpv0AggregateID    int64
+	pdpv0FallbackID     int64
 }
 
 type retrievalSeedState struct {
@@ -185,6 +191,12 @@ func buildRetrievalFixtures(t *testing.T, dir string) retrievalFixtures {
 	})
 	rawSizeValidFixture := createPaddedRetrievalFixture(t, dir, 331)
 	rawSizeZeroFixture := createPaddedRetrievalFixture(t, dir, 347)
+	pdpv0AggregateSubpieceA := helpers.CreatePieceFixture(t, dir, 151)
+	pdpv0AggregateSubpieceB := helpers.CreatePieceFixture(t, dir, 163)
+	pdpv0AggregateFixture, _ := helpers.CreateAggregateFixtureFromSubpieces(t, []helpers.PieceFixture{
+		pdpv0AggregateSubpieceA,
+		pdpv0AggregateSubpieceB,
+	})
 	aggregateRetrySubFixture := helpers.CreatePieceFixture(t, dir, 141)
 	aggregateRetrySiblingA := helpers.CreatePieceFixture(t, dir, 149)
 	aggregateRetrySiblingB := helpers.CreatePieceFixture(t, dir, 157)
@@ -220,6 +232,10 @@ func buildRetrievalFixtures(t *testing.T, dir string) retrievalFixtures {
 		rawSizeValid:                   rawSizeValidFixture,
 		rawSizeZero:                    rawSizeZeroFixture,
 		missingMetadata:                helpers.CreatePieceFixture(t, dir, 352),
+		pdpv0AggregateSubpieceA:        pdpv0AggregateSubpieceA,
+		pdpv0AggregateSubpieceB:        pdpv0AggregateSubpieceB,
+		pdpv0Aggregate:                 pdpv0AggregateFixture,
+		pdpv0Fallback:                  helpers.CreatePieceFixture(t, dir, 372),
 		aggregateRetrySub:              aggregateRetrySubFixture,
 		aggregateRetryFail:             aggregateRetryFail,
 		aggregateRetryFailSubPieces:    aggregateRetryFailSubPieces,
@@ -311,6 +327,8 @@ func seedRetrievalFixtures(
 	require.NoError(t, helpers.WriteParkedPieceFixture(dir, parkedIDs.parkWithDealPieceID, fixtures.parkWithDeal.CarBytes))
 	require.NoError(t, helpers.WriteParkedPieceFixture(dir, parkedIDs.pdpPieceID, fixtures.pdpParked.CarBytes))
 	require.NoError(t, helpers.WriteParkedPieceFixture(dir, parkedIDs.cacheReusePieceID, fixtures.cacheReuse.CarBytes))
+	require.NoError(t, helpers.WriteParkedPieceFixture(dir, parkedIDs.pdpv0AggregateID, fixtures.pdpv0Aggregate.CarBytes))
+	require.NoError(t, helpers.WriteParkedPieceFixture(dir, parkedIDs.pdpv0FallbackID, fixtures.pdpv0Fallback.CarBytes))
 
 	for _, seed := range seeds {
 		if seed.SkipIndex {
@@ -325,6 +343,8 @@ func seedRetrievalFixtures(
 
 	require.NoError(t, addAggregateIndexWithoutUniquenessCheck(ctx, idxStore, fixtures.aggregateRetryFail, fixtures.aggregateRetryFailSubPieces))
 	require.NoError(t, addAggregateIndexWithoutUniquenessCheck(ctx, idxStore, fixtures.aggregateRetrySuccess, fixtures.aggregateRetrySuccessSubPieces))
+	require.NoError(t, helpers.AddPDPv0IndexFromPiece(t, ctx, idxStore, fixtures.pdpv0Aggregate))
+	require.NoError(t, helpers.AddPDPv0IndexFromPiece(t, ctx, idxStore, fixtures.pdpv0Fallback))
 
 	return retrievalSeedState{
 		cacheReusePieceID: parkedIDs.cacheReusePieceID,
@@ -409,11 +429,37 @@ func seedParkedRetrievalFixturesTx(tx *harmonydb.Tx, fixtures retrievalFixtures)
 		return retrievalParkedPieceIDs{}, err
 	}
 
+	pdpv0AggregateID, err := helpers.InsertCompletedParkedPiece(tx, fixtures.pdpv0Aggregate.PieceCIDV1.String(), fixtures.pdpv0Aggregate.PieceSize, fixtures.pdpv0Aggregate.RawSize, true)
+	if err != nil {
+		return retrievalParkedPieceIDs{}, err
+	}
+	pdpv0AggregateRefID, err := helpers.InsertParkedPieceRef(tx, pdpv0AggregateID, "", nil, true)
+	if err != nil {
+		return retrievalParkedPieceIDs{}, err
+	}
+	if _, err := tx.Exec(`INSERT INTO pdp_piecerefs (service, piece_cid, piece_ref, created_at) VALUES ($1, $2, $3, NOW())`, "retrievals-itest-pdp", fixtures.pdpv0Aggregate.PieceCIDV1.String(), pdpv0AggregateRefID); err != nil {
+		return retrievalParkedPieceIDs{}, err
+	}
+
+	pdpv0FallbackID, err := helpers.InsertCompletedParkedPiece(tx, fixtures.pdpv0Fallback.PieceCIDV1.String(), fixtures.pdpv0Fallback.PieceSize, fixtures.pdpv0Fallback.RawSize, true)
+	if err != nil {
+		return retrievalParkedPieceIDs{}, err
+	}
+	pdpv0FallbackRefID, err := helpers.InsertParkedPieceRef(tx, pdpv0FallbackID, "", nil, true)
+	if err != nil {
+		return retrievalParkedPieceIDs{}, err
+	}
+	if _, err := tx.Exec(`INSERT INTO pdp_piecerefs (service, piece_cid, piece_ref, created_at) VALUES ($1, $2, $3, NOW())`, "retrievals-itest-pdp", fixtures.pdpv0Fallback.PieceCIDV1.String(), pdpv0FallbackRefID); err != nil {
+		return retrievalParkedPieceIDs{}, err
+	}
+
 	return retrievalParkedPieceIDs{
 		parkOnlyPieceID:     parkOnlyPieceID,
 		parkWithDealPieceID: parkWithDealPieceID,
 		pdpPieceID:          pdpPieceID,
 		cacheReusePieceID:   cacheReusePieceID,
+		pdpv0AggregateID:    pdpv0AggregateID,
+		pdpv0FallbackID:     pdpv0FallbackID,
 	}, nil
 }
 
@@ -494,6 +540,20 @@ func runRetrievalScenarios(
 		require.Equal(t, http.StatusOK, status)
 		require.Equal(t, fixtures.aggregateSubpiece.CarBytes, body)
 		helpers.AssertPieceResponseHeaders(t, headers, fixtures.aggregateSubpiece.PieceCIDV2.String(), len(fixtures.aggregateSubpiece.CarBytes))
+	})
+
+	t.Run("pdpv0 aggregate retrieval by payload cid from both cars and child piece cids", func(t *testing.T) {
+		assertIPFSRootRetrieval(t, baseURL, fixtures.pdpv0AggregateSubpieceA.RootCID)
+		assertIPFSRootRetrieval(t, baseURL, fixtures.pdpv0AggregateSubpieceB.RootCID)
+
+		assertPieceRetrieval(t, baseURL, fixtures.pdpv0AggregateSubpieceA.PieceCIDV2, fixtures.pdpv0AggregateSubpieceA)
+		assertPieceRetrieval(t, baseURL, fixtures.pdpv0AggregateSubpieceB.PieceCIDV2, fixtures.pdpv0AggregateSubpieceB)
+	})
+
+	t.Run("pdpv0 fallback CAR retrieval by piece cid and payload cid", func(t *testing.T) {
+		assertPieceRetrieval(t, baseURL, fixtures.pdpv0Fallback.PieceCIDV1, fixtures.pdpv0Fallback)
+		assertPieceRetrieval(t, baseURL, fixtures.pdpv0Fallback.PieceCIDV2, fixtures.pdpv0Fallback)
+		assertIPFSRootRetrieval(t, baseURL, fixtures.pdpv0Fallback.RootCID)
 	})
 
 	t.Run("pdp parked piece retrieval by pieceCIDv1", func(t *testing.T) {
@@ -965,6 +1025,29 @@ func addAggregateIndexWithoutUniquenessCheck(ctx context.Context, idx *indexstor
 	}
 
 	return nil
+}
+
+func assertPieceRetrieval(t *testing.T, baseURL string, pieceCID cid.Cid, fixture helpers.PieceFixture) {
+	t.Helper()
+
+	status, body, headers := helpers.HTTPGetWithHeaders(t, baseURL, "/piece/"+pieceCID.String(), nil)
+	require.Equal(t, http.StatusOK, status)
+	require.Equal(t, fixture.CarBytes, body)
+	helpers.AssertPieceResponseHeaders(t, headers, pieceCID.String(), len(fixture.CarBytes))
+}
+
+func assertIPFSRootRetrieval(t *testing.T, baseURL string, root cid.Cid) {
+	t.Helper()
+
+	status, body, headers := helpers.HTTPGetWithHeaders(t, baseURL, "/ipfs/"+root.String(), map[string]string{
+		"Accept": "application/vnd.ipld.car",
+	})
+	require.Equal(t, http.StatusOK, status)
+	helpers.AssertIPFSCarResponseHeaders(t, headers)
+
+	br, err := carv2.NewBlockReader(bytes.NewReader(body))
+	require.NoError(t, err)
+	require.Contains(t, br.Roots, root)
 }
 
 type trackingStorifaceReader struct {

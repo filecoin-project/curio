@@ -295,7 +295,7 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 	if task.Mk20 && len(subPieces) > 0 {
 		blocks, aggidx, interrupted, err = IndexAggregate(pc2, reader, task.Size, subPieces, recs, addFail)
 	} else {
-		blocks, interrupted, err = IndexCAR(reader, 4<<20, recs, addFail)
+		_, blocks, interrupted, err = IndexCAR(reader, 4<<20, recs, addFail)
 	}
 
 	if err != nil {

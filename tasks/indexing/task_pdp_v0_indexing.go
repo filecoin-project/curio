@@ -130,9 +130,11 @@ func (P *PDPIndexingV0Task) Do(taskID harmonytask.TaskID, stillOwned func() bool
 
 	eg.Go(func() error {
 		defer close(addFail)
-		return P.indexStore.AddIndex(ctx, pcid, recs)
+		return P.indexStore.AddIndex(ctx, pcid2, recs)
 	})
-	blocks, interrupted, err = IndexCAR(reader, 4<<20, recs, addFail)
+	var aggidx map[cid.Cid][]indexstore.Record
+
+	blocks, aggidx, interrupted, err = IndexPDPv0(pcid2, reader, task.PieceSize, recs, addFail)
 	if err != nil {
 		// Indexing itself failed, stop early
 		close(recs) // still safe to close, AddIndex will exit on channel close
@@ -151,6 +153,15 @@ func (P *PDPIndexingV0Task) Do(taskID harmonytask.TaskID, stillOwned func() bool
 	}
 
 	log.Infof("Indexing piece %d took %0.3f seconds", task.ID, time.Since(startTime).Seconds())
+
+	for k, v := range aggidx {
+		if len(v) > 0 {
+			err = P.indexStore.InsertAggregateIndex(ctx, k, v)
+			if err != nil {
+				return false, xerrors.Errorf("inserting PDPv0 aggregate index: %w", err)
+			}
+		}
+	}
 
 	err = P.recordCompletion(ctx, taskID, task.ID, true)
 	if err != nil {

@@ -159,7 +159,7 @@ func (P *PDPIndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 	if len(subPieces) > 0 {
 		blocks, aggidx, interrupted, err = IndexAggregate(pcid2, reader, pi.Size, subPieces, recs, addFail)
 	} else {
-		blocks, interrupted, err = IndexCAR(reader, 4<<20, recs, addFail)
+		_, blocks, interrupted, err = IndexCAR(reader, 4<<20, recs, addFail)
 	}
 
 	if err != nil {
