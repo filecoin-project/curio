@@ -31,7 +31,7 @@ import (
 	"github.com/filecoin-project/curio/lib/proof"
 )
 
-var log = logging.Logger("pdpv0")
+var log = logging.Logger("pdp")
 
 // PieceSizeLimit in bytes
 var PieceSizeLimit = abi.PaddedPieceSize(proof.MaxMemtreeSize).Unpadded()

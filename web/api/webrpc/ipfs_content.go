@@ -62,7 +62,7 @@ func (a *WebRPC) FindContentByCID(ctx context.Context, cs string) ([]ContentInfo
 				PieceCID: pcid2.String(),
 				Offset:   off,
 				Size:     offset.BlockSize,
-				Err:      err.Error(),
+				Err:      "",
 			})
 			continue
 		}

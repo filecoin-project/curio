@@ -10,8 +10,8 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/pdp/contract"
 )
 
@@ -36,7 +36,7 @@ type PieceAddEntry struct {
 
 // processPendingDataSetPieceAdds processes piece additions that have been confirmed on-chain
 // it is called from proofset_watch.go
-func processPendingDataSetPieceAdds(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient) error {
+func processPendingDataSetPieceAdds(ctx context.Context, db *harmonydb.DB, ethClient api.EthClientInterface) error {
 	// Query for pdp_data_set_piece_adds entries where add_message_ok = TRUE
 	var pieceAdds []DataSetPieceAdd
 
@@ -67,7 +67,7 @@ func processPendingDataSetPieceAdds(ctx context.Context, db *harmonydb.DB, ethCl
 	return nil
 }
 
-func processDataSetPieceAdd(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, pieceAdd DataSetPieceAdd) error {
+func processDataSetPieceAdd(ctx context.Context, db *harmonydb.DB, ethClient api.EthClientInterface, pieceAdd DataSetPieceAdd) error {
 	// Retrieve the tx_receipt from message_waits_eth
 	var txReceiptJSON []byte
 	err := db.QueryRow(ctx, `

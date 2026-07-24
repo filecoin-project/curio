@@ -55,7 +55,7 @@ type MK20 struct {
 	miners             *config.Dynamic[[]address.Address]
 	DB                 *harmonydb.DB
 	api                MK20API
-	ethClient          ethchain.EthClient
+	ethClient          *lazy.Lazy[ethchain.EthClient]
 	si                 paths.SectorIndex
 	cfg                *config.CurioConfig
 	sm                 *config.Dynamic[map[address.Address]abi.SectorSize]
@@ -70,7 +70,7 @@ func NewMK20Handler(
 	db *harmonydb.DB,
 	si paths.SectorIndex,
 	mapi MK20API,
-	ethClient ethchain.EthClient,
+	ethClient *lazy.Lazy[ethchain.EthClient],
 	cfg *config.CurioConfig,
 	as *multictladdr.MultiAddressSelector,
 	sc *ffi.SealCalls,
@@ -499,7 +499,14 @@ func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 		}
 	}
 
-	code, err := deal.Products.DDOV1.VerifyMarketDeal(ctx, m.DB, m.ethClient, deal)
+	ec, err := m.ethClient.Val()
+	if err != nil {
+		return &ProviderDealRejectionInfo{
+			HTTPCode: ErrServerInternalError,
+			Reason:   "Ethereum client unavailable",
+		}, nil
+	}
+	code, err := deal.Products.DDOV1.VerifyMarketDeal(ctx, m.DB, ec, deal)
 	if err != nil {
 		log.Errorw("error verifying market deal", "deal", deal.Identifier.String(), "error", err)
 		ret := &ProviderDealRejectionInfo{
@@ -736,7 +743,14 @@ func (m *MK20) sanitizePDPDeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 
 		// Soft gate: refuse if the data set's on-chain removal queue is already at our
 		// conservative ceiling. This keeps us well clear of the on-chain MAX_ENQUEUED_REMOVALS.
-		pdpVerifier, err := contract.NewPDPVerifier(contract.ContractAddresses().PDPVerifier, m.ethClient)
+		ec, err := m.ethClient.Val()
+		if err != nil {
+			return &ProviderDealRejectionInfo{
+				HTTPCode: ErrServerInternalError,
+				Reason:   "",
+			}, nil
+		}
+		pdpVerifier, err := contract.NewPDPVerifier(contract.ContractAddresses().PDPVerifier, ec)
 		if err != nil {
 			return &ProviderDealRejectionInfo{
 				HTTPCode: ErrServerInternalError,

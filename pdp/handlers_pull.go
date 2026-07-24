@@ -13,8 +13,8 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 
+	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/pdp/contract/FWSS"
 )
@@ -56,13 +56,13 @@ type AddPiecesValidator interface {
 
 // EthCallValidator validates via eth_call to PDPVerifier contract
 type EthCallValidator struct {
-	ethClient  ethchain.EthClient
+	ethClient  api.EthClientInterface
 	db         *harmonydb.DB
 	senderAddr common.Address // cached, lazily loaded
 }
 
 // NewEthCallValidator creates a validator that uses eth_call
-func NewEthCallValidator(ethClient ethchain.EthClient, db *harmonydb.DB) *EthCallValidator {
+func NewEthCallValidator(ethClient api.EthClientInterface, db *harmonydb.DB) *EthCallValidator {
 	return &EthCallValidator{ethClient: ethClient, db: db}
 }
 

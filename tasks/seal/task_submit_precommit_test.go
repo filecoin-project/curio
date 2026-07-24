@@ -473,19 +473,19 @@ func TestPrecommitFeeCfgIntegration(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			feeCfg := &config.CurioFees{
-				CollateralFromMinerBalance: tt.collateralFromMinerBalance,
-				DisableCollateralFallback:  tt.disableCollateralFallback,
+				CollateralFromMinerBalance: config.NewDynamic(tt.collateralFromMinerBalance),
+				DisableCollateralFallback:  config.NewDynamic(tt.disableCollateralFallback),
 				MaxPreCommitBatchGasFee: config.BatchFeeConfig{
-					Base:      types.MustParseFIL("0"),
-					PerSector: types.MustParseFIL("8"),
+					Base:      config.NewDynamic(types.MustParseFIL("0")),
+					PerSector: config.NewDynamic(types.MustParseFIL("8")),
 				},
 			}
 
 			// Simulate the Do method's needFunds calculation
 			needFunds := big.Add(tt.collateral, tt.aggFee)
 
-			if feeCfg.CollateralFromMinerBalance {
-				if feeCfg.DisableCollateralFallback {
+			if feeCfg.CollateralFromMinerBalance.Get() {
+				if feeCfg.DisableCollateralFallback.Get() {
 					needFunds = big.Zero()
 				}
 				needFunds = big.Sub(needFunds, tt.minerBalance)

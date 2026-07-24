@@ -8,6 +8,7 @@ import (
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
+	erpc "github.com/ethereum/go-ethereum/rpc"
 
 	"github.com/filecoin-project/curio/api"
 )
@@ -19,7 +20,7 @@ type EthClient interface {
 	BlockByHash(ctx context.Context, hash common.Hash) (*types.Block, error)
 	BlockByNumber(ctx context.Context, number *big.Int) (*types.Block, error)
 	BlockNumber(ctx context.Context) (uint64, error)
-	//BlockReceipts(ctx context.Context, blockNrOrHash erpc.BlockNumberOrHash) ([]*types.Receipt, error)
+	BlockReceipts(ctx context.Context, blockNrOrHash erpc.BlockNumberOrHash) ([]*types.Receipt, error)
 	CallContract(ctx context.Context, msg ethereum.CallMsg, blockNumber *big.Int) ([]byte, error)
 	CallContractAtHash(ctx context.Context, msg ethereum.CallMsg, blockHash common.Hash) ([]byte, error)
 	ChainID(ctx context.Context) (*big.Int, error)
@@ -100,6 +101,11 @@ func (c *ChainErrorWrap) BlockByNumber(ctx context.Context, number *big.Int) (*t
 
 func (c *ChainErrorWrap) BlockNumber(ctx context.Context) (uint64, error) {
 	res, err := c.EthClient.BlockNumber(ctx)
+	return res, maybeChainError(err)
+}
+
+func (c *ChainErrorWrap) BlockReceipts(ctx context.Context, blockNrOrHash erpc.BlockNumberOrHash) ([]*types.Receipt, error) {
+	res, err := c.EthClient.BlockReceipts(ctx, blockNrOrHash)
 	return res, maybeChainError(err)
 }
 

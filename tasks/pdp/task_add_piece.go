@@ -11,11 +11,11 @@ import (
 	"github.com/ipfs/go-cid"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
-	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/tasks/message"
@@ -31,10 +31,10 @@ type PDPServiceNodeApi interface {
 type PDPTaskAddPiece struct {
 	db        *harmonydb.DB
 	sender    *message.SenderETH
-	ethClient ethchain.EthClient
+	ethClient api.EthClientInterface
 }
 
-func NewPDPTaskAddPiece(db *harmonydb.DB, sender *message.SenderETH, ethClient ethchain.EthClient) *PDPTaskAddPiece {
+func NewPDPTaskAddPiece(db *harmonydb.DB, sender *message.SenderETH, ethClient api.EthClientInterface) *PDPTaskAddPiece {
 	return &PDPTaskAddPiece{
 		db:        db,
 		sender:    sender,

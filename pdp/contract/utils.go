@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	etypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -20,11 +21,10 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
-	"github.com/filecoin-project/go-state-types/big"
 	"github.com/filecoin-project/go-state-types/builtin"
 
+	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/curio/lib/ethchain"
 
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/chain/types/ethtypes"
@@ -183,7 +183,7 @@ func init() {
 // over the same underlying storage, so an old view address still returns valid
 // data. At worst, staleness delays visibility of newly added view functions,
 // which would also require a Curio code update to consume.
-func ResolveViewAddress(ctx context.Context, serviceAddr common.Address, ethClient ethchain.EthClient) (common.Address, error) {
+func ResolveViewAddress(ctx context.Context, serviceAddr common.Address, ethClient bind.ContractBackend) (common.Address, error) {
 	key := strings.ToLower(serviceAddr.Hex())
 	if cached, err := viewAddressCache.Get(key); err == nil {
 		return cached.(common.Address), nil
@@ -210,7 +210,8 @@ func ResolveViewAddress(ctx context.Context, serviceAddr common.Address, ethClie
 // GetProvingScheduleFromListener checks if a listener has a view contract and returns
 // an IPDPProvingSchedule instance bound to the appropriate address.
 // It uses the view contract address if available, otherwise uses the listener address directly.
-func GetProvingScheduleFromListener(ctx context.Context, listenerAddr common.Address, ethClient ethchain.EthClient) (*IPDPProvingSchedule, error) {
+func GetProvingScheduleFromListener(ctx context.Context, listenerAddr common.Address, ethClient bind.ContractBackend) (*IPDPProvingSchedule, error) {
+	// Try to get the view contract address from the listener
 	provingScheduleAddr := listenerAddr
 	if viewAddr, err := ResolveViewAddress(ctx, listenerAddr, ethClient); err == nil {
 		provingScheduleAddr = viewAddr
@@ -224,7 +225,7 @@ func GetProvingScheduleFromListener(ctx context.Context, listenerAddr common.Add
 	return provingSchedule, nil
 }
 
-func GetDataSetMetadataAtKey(ctx context.Context, listenerAddr common.Address, ethClient ethchain.EthClient, dataSetId *mbig.Int, key string) (bool, string, error) {
+func GetDataSetMetadataAtKey(ctx context.Context, listenerAddr common.Address, ethClient bind.ContractBackend, dataSetId *mbig.Int, key string) (bool, string, error) {
 	metadataAddr := listenerAddr
 	if viewAddr, err := ResolveViewAddress(ctx, listenerAddr, ethClient); err == nil {
 		metadataAddr = viewAddr
@@ -244,7 +245,7 @@ func GetDataSetMetadataAtKey(ctx context.Context, listenerAddr common.Address, e
 	return out.Exists, out.Value, nil
 }
 
-func FSRegister(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, name, description string, pdpOffering PDPOfferingData, capabilities map[string]string) error {
+func FSRegister(ctx context.Context, db *harmonydb.DB, ethClient api.EthClientInterface, name, description string, pdpOffering PDPOfferingData, capabilities map[string]string) error {
 	if len(name) > 128 {
 		return xerrors.Errorf("name is too long, max 128 characters allowed")
 	}
@@ -355,7 +356,7 @@ func getSender(ctx context.Context, db *harmonydb.DB) (common.Address, address.A
 	return sender, fSender, privateKey, nil
 }
 
-func createSignedTransaction(ctx context.Context, ethClient ethchain.EthClient, privateKey *ecdsa.PrivateKey, from, to common.Address, amount *mbig.Int, data []byte) (*etypes.Transaction, error) {
+func createSignedTransaction(ctx context.Context, ethClient api.EthClientInterface, privateKey *ecdsa.PrivateKey, from, to common.Address, amount *mbig.Int, data []byte) (*etypes.Transaction, error) {
 	msg := ethereum.CallMsg{
 		From:  from,
 		To:    &to,
@@ -389,7 +390,7 @@ func createSignedTransaction(ctx context.Context, ethClient ethchain.EthClient, 
 	}
 
 	// Calculate GasFeeCap (maxFeePerGas)
-	gasFeeCap := big.NewInt(0).Add(baseFee, gasTipCap)
+	gasFeeCap := mbig.NewInt(0).Add(baseFee, gasTipCap)
 
 	chainID, err := ethClient.NetworkID(ctx)
 	if err != nil {
@@ -423,7 +424,7 @@ func createSignedTransaction(ctx context.Context, ethClient ethchain.EthClient, 
 	return signedTx, nil
 }
 
-func FSUpdateProvider(ctx context.Context, name, description string, db *harmonydb.DB, ethClient ethchain.EthClient) (string, error) {
+func FSUpdateProvider(ctx context.Context, name, description string, db *harmonydb.DB, ethClient api.EthClientInterface) (string, error) {
 	if len(name) > 128 {
 		return "", xerrors.Errorf("name is too long, max 128 characters allowed")
 	}
@@ -469,14 +470,12 @@ func FSUpdateProvider(ctx context.Context, name, description string, db *harmony
 	return signedTx.Hash().String(), nil
 }
 
-func FSUpdatePDPService(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, pdpOffering PDPOfferingData, capabilities map[string]string) (string, error) {
-	// Convert PDPOffering to capability keys/values
+func FSUpdatePDPService(ctx context.Context, db *harmonydb.DB, ethClient api.EthClientInterface, pdpOffering PDPOfferingData, capabilities map[string]string) (string, error) {
 	keys, values, err := OfferingToCapabilities(pdpOffering, capabilities)
 	if err != nil {
 		return "", xerrors.Errorf("failed to convert offering to capabilities: %w", err)
 	}
 
-	// Validate capabilities
 	for _, k := range keys {
 		if len(k) > 32 {
 			return "", xerrors.Errorf("capabilities key %s is too long, max 32 characters allowed", k)
@@ -506,7 +505,6 @@ func FSUpdatePDPService(ctx context.Context, db *harmonydb.DB, ethClient ethchai
 		return "", xerrors.Errorf("failed to get service registry ABI: %w", err)
 	}
 
-	// Call updateProduct instead of updatePDPServiceWithCapabilities
 	calldata, err := srAbi.Pack("updateProduct", uint8(0), keys, values)
 	if err != nil {
 		return "", xerrors.Errorf("failed to serialize parameters for updateProduct: %w", err)
@@ -525,7 +523,7 @@ func FSUpdatePDPService(ctx context.Context, db *harmonydb.DB, ethClient ethchai
 	return signedTx.Hash().String(), nil
 }
 
-func FSDeregisterProvider(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient) (string, error) {
+func FSDeregisterProvider(ctx context.Context, db *harmonydb.DB, ethClient api.EthClientInterface) (string, error) {
 	sender, _, privateKey, err := getSender(ctx, db)
 	if err != nil {
 		return "", xerrors.Errorf("failed to get sender: %w", err)

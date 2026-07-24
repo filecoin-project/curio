@@ -10,11 +10,11 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
-	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/tasks/message"
@@ -24,11 +24,11 @@ import (
 type PDPTaskDeleteDataSet struct {
 	db        *harmonydb.DB
 	sender    *message.SenderETH
-	ethClient ethchain.EthClient
+	ethClient api.EthClientInterface
 	filClient PDPServiceNodeApi
 }
 
-func NewPDPTaskDeleteDataSet(db *harmonydb.DB, sender *message.SenderETH, ethClient ethchain.EthClient, filClient PDPServiceNodeApi) *PDPTaskDeleteDataSet {
+func NewPDPTaskDeleteDataSet(db *harmonydb.DB, sender *message.SenderETH, ethClient api.EthClientInterface, filClient PDPServiceNodeApi) *PDPTaskDeleteDataSet {
 	return &PDPTaskDeleteDataSet{
 		db:        db,
 		sender:    sender,

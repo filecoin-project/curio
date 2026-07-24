@@ -9,7 +9,6 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/curio/lib/ethchain"
 )
 
 func EnsureServiceTermination(tx *harmonydb.Tx, dataSetID int64) error {
@@ -27,7 +26,7 @@ const clientTerminationNotSupportedVersion = "v1.2.1"
 
 // SupportsClientTermination reports whether FWSS supports
 // terminateService(uint256,bytes) for client-authorized termination.
-func SupportsClientTermination(opts *bind.CallOpts, serviceAddr common.Address, ethClient ethchain.EthClient) (bool, error) {
+func SupportsClientTermination(opts *bind.CallOpts, serviceAddr common.Address, ethClient bind.ContractCaller) (bool, error) {
 	fwss, err := NewFilecoinWarmStorageServiceCaller(serviceAddr, ethClient)
 	if err != nil {
 		return false, xerrors.Errorf("failed to bind FWSS contract: %w", err)

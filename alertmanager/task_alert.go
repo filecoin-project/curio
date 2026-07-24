@@ -54,7 +54,7 @@ type AlertTask struct {
 	api     AlertAPI
 	cfg     config.CurioAlertingConfig
 	db      *harmonydb.DB
-	plugins []plugin.Plugin
+	plugins *config.Dynamic[[]plugin.Plugin]
 
 	pingMu       sync.Mutex
 	pingProblems bool
@@ -261,7 +261,7 @@ func (a *AlertTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 			_, dbErr := a.db.Exec(ctx, `
 				INSERT INTO alert_history (alert_name, message, machine_name, sent_to_plugins, sent_at)
 				VALUES ($1, $2, $3, $4, $5)
-			`, k, alertMsg, nil, !muted && len(a.plugins) > 0, now)
+			`, k, alertMsg, nil, !muted && len(a.plugins.Get()) > 0, now)
 			if dbErr != nil {
 				log.Errorf("Failed to record alert to history: %s", dbErr)
 			}
@@ -282,7 +282,7 @@ func (a *AlertTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	}
 
 	// Send to plugins if there are any alerts and plugins configured
-	if len(details) > 0 && len(a.plugins) > 0 {
+	if len(details) > 0 && len(a.plugins.Get()) > 0 {
 		payloadData := &plugin.AlertPayload{
 			Summary:  "Curio Alert",
 			Severity: "critical", // This can be critical, error, warning or info.
@@ -292,7 +292,7 @@ func (a *AlertTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		}
 
 		var errs []error
-		for _, ap := range a.plugins {
+		for _, ap := range a.plugins.Get() {
 			err = ap.SendAlert(payloadData)
 			if err != nil {
 				log.Errorf("Error sending alert: %s", err)
@@ -307,7 +307,7 @@ func (a *AlertTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		if len(errs) != 0 {
 			return false, fmt.Errorf("errors sending alerts: %v", errs)
 		}
-	} else if len(a.plugins) == 0 && len(details) > 0 {
+	} else if len(a.plugins.Get()) == 0 && len(details) > 0 {
 		log.Warnf("No alert plugins enabled, alerts recorded to DB but not sent externally")
 	}
 
@@ -316,7 +316,7 @@ func (a *AlertTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 }
 
 func (a *AlertTask) collectQueuedAlerts(ctx context.Context, mutes []alertMute, details map[string]any) (*queuedAlertRefs, error) {
-	hasPlugins := len(a.plugins) > 0
+	hasPlugins := len(a.plugins.Get()) > 0
 	refs := &queuedAlertRefs{}
 
 	var events []pendingAlertEvent

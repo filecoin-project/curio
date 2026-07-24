@@ -679,7 +679,7 @@ func CreateMinerConfig(ctx context.Context, full CreateMinerConfigChainAPI, db *
 	}
 
 	{
-		curioConfig.Apis.ChainApiInfo = append(curioConfig.Apis.ChainApiInfo, info)
+		curioConfig.Apis.ChainApiInfo.Set(append(curioConfig.Apis.ChainApiInfo.Get(), info))
 	}
 
 	curioConfig.Addresses.Set(lo.Filter(curioConfig.Addresses.Get(), func(a config.CurioAddresses, _ int) bool {
