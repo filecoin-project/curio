@@ -1,0 +1,127 @@
+// G2 XYZZ + affine mixed add (sppark `xyzz_t<fp2_t>::add(affine_t)` a=0). `d[144]`: xyzz 0..95, affine x,y at 96..143.
+
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) buffer Data {
+    uint d[144];
+} buf;
+
+void load2(uint w, out @@FP_T@@ c0, out @@FP_T@@ c1) {
+    for (uint i = 0u; i < 12u; i++) {
+        c0.val[i] = buf.d[w + i];
+        c1.val[i] = buf.d[w + 12u + i];
+    }
+}
+
+void store2(uint w, @@FP_T@@ c0, @@FP_T@@ c1) {
+    for (uint i = 0u; i < 12u; i++) {
+        buf.d[w + i] = c0.val[i];
+        buf.d[w + 12u + i] = c1.val[i];
+    }
+}
+
+void main() {
+    if (gl_GlobalInvocationID.x != 0u) {
+        return;
+    }
+    @@FP_T@@ pX0;
+    @@FP_T@@ pX1;
+    @@FP_T@@ pY0;
+    @@FP_T@@ pY1;
+    @@FP_T@@ pZZZ0;
+    @@FP_T@@ pZZZ1;
+    @@FP_T@@ pZZ0;
+    @@FP_T@@ pZZ1;
+    load2(0u, pX0, pX1);
+    load2(24u, pY0, pY1);
+    load2(48u, pZZZ0, pZZZ1);
+    load2(72u, pZZ0, pZZ1);
+    @@FP_T@@ p2x0;
+    @@FP_T@@ p2x1;
+    @@FP_T@@ p2y0;
+    @@FP_T@@ p2y1;
+    load2(96u, p2x0, p2x1);
+    load2(120u, p2y0, p2y1);
+
+    bool acc_inf = fp2_is_zero(pZZZ0, pZZZ1) && fp2_is_zero(pZZ0, pZZ1);
+    if (acc_inf) {
+        pX0 = p2x0;
+        pX1 = p2x1;
+        pY0 = p2y0;
+        pY1 = p2y1;
+        @@FP_T@@ one = fp_one();
+        pZZZ0 = one;
+        pZZZ1 = fp_zero();
+        pZZ0 = one;
+        pZZ1 = fp_zero();
+        store2(0u, pX0, pX1);
+        store2(24u, pY0, pY1);
+        store2(48u, pZZZ0, pZZZ1);
+        store2(72u, pZZ0, pZZ1);
+        return;
+    }
+
+    @@FP_T@@ R0;
+    @@FP_T@@ R1;
+    fp2_mul_m(p2y0, p2y1, pZZZ0, pZZZ1, R0, R1);
+    fp2_sub_c(R0, R1, pY0, pY1, R0, R1);
+    @@FP_T@@ P0;
+    @@FP_T@@ P1;
+    fp2_mul_m(p2x0, p2x1, pZZ0, pZZ1, P0, P1);
+    fp2_sub_c(P0, P1, pX0, pX1, P0, P1);
+
+    if (!fp2_is_zero(P0, P1)) {
+        @@FP_T@@ PP0;
+        @@FP_T@@ PP1;
+        fp2_sqr_m(P0, P1, PP0, PP1);
+        @@FP_T@@ PPP0;
+        @@FP_T@@ PPP1;
+        fp2_mul_m(P0, P1, PP0, PP1, PPP0, PPP1);
+        fp2_mul_m(pZZ0, pZZ1, PP0, PP1, pZZ0, pZZ1);
+        fp2_mul_m(pZZZ0, pZZZ1, PPP0, PPP1, pZZZ0, pZZZ1);
+        @@FP_T@@ Q0;
+        @@FP_T@@ Q1;
+        fp2_mul_m(PP0, PP1, pX0, pX1, Q0, Q1);
+        fp2_sqr_m(R0, R1, pX0, pX1);
+        fp2_sub_c(pX0, pX1, PPP0, PPP1, pX0, pX1);
+        fp2_sub_c(pX0, pX1, Q0, Q1, pX0, pX1);
+        fp2_sub_c(pX0, pX1, Q0, Q1, pX0, pX1);
+        fp2_sub_c(Q0, Q1, pX0, pX1, Q0, Q1);
+        fp2_mul_m(Q0, Q1, R0, R1, Q0, Q1);
+        fp2_mul_m(pY0, pY1, PPP0, PPP1, pY0, pY1);
+        fp2_sub_c(Q0, Q1, pY0, pY1, pY0, pY1);
+    } else if (fp2_is_zero(R0, R1)) {
+        @@FP_T@@ U0;
+        @@FP_T@@ U1;
+        fp2_dbl_c(p2y0, p2y1, U0, U1);
+        fp2_sqr_m(U0, U1, pZZ0, pZZ1);
+        fp2_mul_m(pZZ0, pZZ1, U0, U1, pZZZ0, pZZZ1);
+        @@FP_T@@ S0;
+        @@FP_T@@ S1;
+        fp2_mul_m(p2x0, p2x1, pZZ0, pZZ1, S0, S1);
+        @@FP_T@@ M0;
+        @@FP_T@@ M1;
+        fp2_sqr_m(p2x0, p2x1, M0, M1);
+        @@FP_T@@ t20;
+        @@FP_T@@ t21;
+        fp2_add_c(M0, M1, M0, M1, t20, t21);
+        fp2_add_c(M0, M1, t20, t21, M0, M1);
+        fp2_sqr_m(M0, M1, pX0, pX1);
+        fp2_sub_c(pX0, pX1, S0, S1, pX0, pX1);
+        fp2_sub_c(pX0, pX1, S0, S1, pX0, pX1);
+        fp2_mul_m(pZZZ0, pZZZ1, p2y0, p2y1, pY0, pY1);
+        fp2_sub_c(S0, S1, pX0, pX1, S0, S1);
+        fp2_mul_m(S0, S1, M0, M1, S0, S1);
+        fp2_sub_c(S0, S1, pY0, pY1, pY0, pY1);
+    } else {
+        pZZZ0 = fp_zero();
+        pZZZ1 = fp_zero();
+        pZZ0 = fp_zero();
+        pZZ1 = fp_zero();
+    }
+
+    store2(0u, pX0, pX1);
+    store2(24u, pY0, pY1);
+    store2(48u, pZZZ0, pZZZ1);
+    store2(72u, pZZ0, pZZ1);
+}

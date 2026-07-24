@@ -68,3 +68,5 @@ cuda-supraseal = [
     "storage-proofs-update/cuda",
     "bellperson/cuda-supraseal",
 ]
+# Vulkan compute backend (mutually exclusive with cuda-supraseal at compile time).
+vulkan-cuzk = ["bellperson/vulkan-cuzk"]

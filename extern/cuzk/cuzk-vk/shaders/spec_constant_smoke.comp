@@ -1,0 +1,15 @@
+// Minimal compute shader for §8.3 C.3: one `uint` specialization constant (`constant_id = 0`).
+// Prebuilt to `spec_constant_smoke_prebuilt.spv` via `glslangValidator -V` (naga GLSL-in does not accept `constant_id` yet).
+#version 450
+
+layout(local_size_x = 1) in;
+
+layout(constant_id = 0) const uint K = 1u;
+
+layout(set = 0, binding = 0) buffer Data {
+    uint v[];
+};
+
+void main() {
+    v[0] = K;
+}

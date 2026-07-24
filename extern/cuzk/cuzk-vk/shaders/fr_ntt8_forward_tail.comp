@@ -1,0 +1,343 @@
+// Appended after `glsl_32_bit_field_params::<Scalar>()` + twiddle `const uint` block from build.rs.
+// Forward radix-2 Fr NTT for n=8 (Montgomery limbs). SSBO `uint d[64]` — element `e` at `d[e*8+limb]`.
+//
+// Naga + MoltenVK note: the previous version used a `uint tmp[64]` scratch in
+// `bitrev8_perm()` and a separate `butterfly(eu, ev, w)` helper that round-tripped through
+// the SSBO. On Apple-M2 this miscompiled to "kernel zeroes the buffer", so the whole NTT
+// returned all zeros. This rewrite holds the eight elements in eight named `Fr` locals
+// (`a0..a7`) loaded in bit-reversed order, then runs the 12 butterflies inline. No large
+// local arrays, no buffer-resident permutation, no `inout @@FR_T@@` parameters in the hot
+// path — only the proven `fp_mul12_tail.comp`-shaped helpers (small stack arrays, struct
+// returns).
+// @@FR_T@@, @@FR_P@@, @@FR_INV@@, @@FR_ONE@@
+
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) buffer Data {
+    uint d[64];
+} buf;
+
+void mul_u32_pair(uint a, uint b, out uint hi, out uint lo) {
+    const uint mask = 0xffffu;
+    uint a0 = a & mask;
+    uint a1 = a >> 16u;
+    uint b0 = b & mask;
+    uint b1 = b >> 16u;
+    uint p0 = a0 * b0;
+    uint p1 = a1 * b0;
+    uint p2 = a0 * b1;
+    uint p3 = a1 * b1;
+    uint carry = (p0 >> 16u) + (p1 & mask) + (p2 & mask);
+    lo = (p0 & mask) | ((carry & mask) << 16u);
+    hi = (p1 >> 16u) + (p2 >> 16u) + p3 + (carry >> 16u);
+}
+
+struct U64 {
+    uint lo;
+    uint hi;
+};
+
+U64 u64_add_u32(U64 a, uint b) {
+    uint nlo = a.lo + b;
+    uint c0 = (nlo < a.lo) ? 1u : 0u;
+    uint nhi = a.hi + c0;
+    uint c1 = (nhi < a.hi) ? 1u : 0u;
+    return U64(nlo, nhi + c1);
+}
+
+uint mac_with_carry_32(uint a, uint b, uint c, inout uint d) {
+    uint mh;
+    uint ml;
+    mul_u32_pair(a, b, mh, ml);
+    U64 pr = U64(ml, mh);
+    pr = u64_add_u32(pr, c);
+    pr = u64_add_u32(pr, d);
+    d = pr.hi;
+    return pr.lo;
+}
+
+bool fr_gte_val(@@FR_T@@ a, @@FR_T@@ b) {
+    for (uint k = 0u; k < 8u; k++) {
+        uint i = 7u - k;
+        if (a.val[i] > b.val[i]) {
+            return true;
+        }
+        if (a.val[i] < b.val[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+@@FR_T@@ fr_load_p() {
+    @@FR_T@@ p;
+    for (uint i = 0u; i < 8u; i++) {
+        p.val[i] = @@FR_P@@[i];
+    }
+    return p;
+}
+
+@@FR_T@@ fr_load_one() {
+    @@FR_T@@ o;
+    for (uint i = 0u; i < 8u; i++) {
+        o.val[i] = @@FR_ONE@@[i];
+    }
+    return o;
+}
+
+@@FR_T@@ fr_add_raw(@@FR_T@@ a, @@FR_T@@ b) {
+    uint carry = 0u;
+    for (uint i = 0u; i < 8u; i++) {
+        uint old = a.val[i];
+        a.val[i] = old + b.val[i] + carry;
+        carry = (carry != 0u) ? ((old >= a.val[i]) ? 1u : 0u) : ((old > a.val[i]) ? 1u : 0u);
+    }
+    return a;
+}
+
+@@FR_T@@ fr_sub_raw(@@FR_T@@ a, @@FR_T@@ b) {
+    uint borrow = 0u;
+    for (uint i = 0u; i < 8u; i++) {
+        uint old = a.val[i];
+        a.val[i] = old - b.val[i] - borrow;
+        borrow = (borrow != 0u) ? ((old <= a.val[i]) ? 1u : 0u) : ((old < a.val[i]) ? 1u : 0u);
+    }
+    return a;
+}
+
+@@FR_T@@ fr_add_mod(@@FR_T@@ a, @@FR_T@@ b) {
+    @@FR_T@@ r = fr_add_raw(a, b);
+    @@FR_T@@ p = fr_load_p();
+    if (fr_gte_val(r, p)) {
+        r = fr_sub_raw(r, p);
+    }
+    return r;
+}
+
+@@FR_T@@ fr_sub_mod(@@FR_T@@ a, @@FR_T@@ b) {
+    @@FR_T@@ aa = a;
+    @@FR_T@@ res = fr_sub_raw(aa, b);
+    if (!fr_gte_val(a, b)) {
+        @@FR_T@@ p = fr_load_p();
+        res = fr_add_raw(res, p);
+    }
+    @@FR_T@@ p2 = fr_load_p();
+    if (fr_gte_val(res, p2)) {
+        res = fr_sub_raw(res, p2);
+    }
+    return res;
+}
+
+uint add_with_carry_32(uint a, inout uint b) {
+    uint lo = a + b;
+    b = (lo < a) ? 1u : 0u;
+    return lo;
+}
+
+@@FR_T@@ fr_mul_mont_cios(@@FR_T@@ a, @@FR_T@@ b) {
+    uint t[10];
+    for (uint k = 0u; k < 10u; k++) {
+        t[k] = 0u;
+    }
+
+    for (uint i = 0u; i < 8u; i++) {
+        uint carry = 0u;
+        for (uint j = 0u; j < 8u; j++) {
+            t[j] = mac_with_carry_32(a.val[j], b.val[i], t[j], carry);
+        }
+        t[8] = add_with_carry_32(t[8], carry);
+        t[9] = carry;
+
+        carry = 0u;
+        uint m = @@FR_INV@@ * t[0];
+        t[0] = mac_with_carry_32(m, @@FR_P@@[0], t[0], carry);
+        for (uint j = 1u; j < 8u; j++) {
+            t[j - 1u] = mac_with_carry_32(m, @@FR_P@@[j], t[j], carry);
+        }
+        t[7] = add_with_carry_32(t[8], carry);
+        t[8] = t[9] + carry;
+    }
+
+    @@FR_T@@ result;
+    for (uint i = 0u; i < 8u; i++) {
+        result.val[i] = t[i];
+    }
+    @@FR_T@@ p = fr_load_p();
+    if (fr_gte_val(result, p)) {
+        result = fr_sub_raw(result, p);
+    }
+    return result;
+}
+
+void load_fr(uint e, out @@FR_T@@ x) {
+    for (uint i = 0u; i < 8u; i++) {
+        x.val[i] = buf.d[e * 8u + i];
+    }
+}
+
+void store_fr(uint e, @@FR_T@@ x) {
+    for (uint i = 0u; i < 8u; i++) {
+        buf.d[e * 8u + i] = x.val[i];
+    }
+}
+
+@@FR_T@@ fr_ntt8_load_w4() {
+    @@FR_T@@ w;
+    for (uint i = 0u; i < 8u; i++) {
+        w.val[i] = NTT8_W4[i];
+    }
+    return w;
+}
+
+@@FR_T@@ fr_ntt8_load_w8() {
+    @@FR_T@@ w;
+    for (uint i = 0u; i < 8u; i++) {
+        w.val[i] = NTT8_W8[i];
+    }
+    return w;
+}
+
+@@FR_T@@ fr_ntt8_load_w82() {
+    @@FR_T@@ w;
+    for (uint i = 0u; i < 8u; i++) {
+        w.val[i] = NTT8_W82[i];
+    }
+    return w;
+}
+
+@@FR_T@@ fr_ntt8_load_w83() {
+    @@FR_T@@ w;
+    for (uint i = 0u; i < 8u; i++) {
+        w.val[i] = NTT8_W83[i];
+    }
+    return w;
+}
+
+void main() {
+    if (gl_GlobalInvocationID.x != 0u) {
+        return;
+    }
+
+    // Load eight elements directly in bit-reversed order. n=8 br = [0,4,2,6,1,5,3,7].
+    @@FR_T@@ a0;
+    @@FR_T@@ a1;
+    @@FR_T@@ a2;
+    @@FR_T@@ a3;
+    @@FR_T@@ a4;
+    @@FR_T@@ a5;
+    @@FR_T@@ a6;
+    @@FR_T@@ a7;
+    load_fr(0u, a0);
+    load_fr(4u, a1);
+    load_fr(2u, a2);
+    load_fr(6u, a3);
+    load_fr(1u, a4);
+    load_fr(5u, a5);
+    load_fr(3u, a6);
+    load_fr(7u, a7);
+
+    @@FR_T@@ one = fr_load_one();
+    @@FR_T@@ w4 = fr_ntt8_load_w4();
+    @@FR_T@@ w8 = fr_ntt8_load_w8();
+    @@FR_T@@ w82 = fr_ntt8_load_w82();
+    @@FR_T@@ w83 = fr_ntt8_load_w83();
+
+    // Stage 0 (m=2, w=ONE for both halves). butterfly(u, v, w) → (u+v*w, u-v*w).
+    {
+        @@FR_T@@ tv = fr_mul_mont_cios(a1, one);
+        @@FR_T@@ up = fr_add_mod(a0, tv);
+        @@FR_T@@ um = fr_sub_mod(a0, tv);
+        a0 = up;
+        a1 = um;
+    }
+    {
+        @@FR_T@@ tv = fr_mul_mont_cios(a3, one);
+        @@FR_T@@ up = fr_add_mod(a2, tv);
+        @@FR_T@@ um = fr_sub_mod(a2, tv);
+        a2 = up;
+        a3 = um;
+    }
+    {
+        @@FR_T@@ tv = fr_mul_mont_cios(a5, one);
+        @@FR_T@@ up = fr_add_mod(a4, tv);
+        @@FR_T@@ um = fr_sub_mod(a4, tv);
+        a4 = up;
+        a5 = um;
+    }
+    {
+        @@FR_T@@ tv = fr_mul_mont_cios(a7, one);
+        @@FR_T@@ up = fr_add_mod(a6, tv);
+        @@FR_T@@ um = fr_sub_mod(a6, tv);
+        a6 = up;
+        a7 = um;
+    }
+
+    // Stage 1 (m=4): butterflies (0,2,1), (1,3,w4), (4,6,1), (5,7,w4).
+    {
+        @@FR_T@@ tv = fr_mul_mont_cios(a2, one);
+        @@FR_T@@ up = fr_add_mod(a0, tv);
+        @@FR_T@@ um = fr_sub_mod(a0, tv);
+        a0 = up;
+        a2 = um;
+    }
+    {
+        @@FR_T@@ tv = fr_mul_mont_cios(a3, w4);
+        @@FR_T@@ up = fr_add_mod(a1, tv);
+        @@FR_T@@ um = fr_sub_mod(a1, tv);
+        a1 = up;
+        a3 = um;
+    }
+    {
+        @@FR_T@@ tv = fr_mul_mont_cios(a6, one);
+        @@FR_T@@ up = fr_add_mod(a4, tv);
+        @@FR_T@@ um = fr_sub_mod(a4, tv);
+        a4 = up;
+        a6 = um;
+    }
+    {
+        @@FR_T@@ tv = fr_mul_mont_cios(a7, w4);
+        @@FR_T@@ up = fr_add_mod(a5, tv);
+        @@FR_T@@ um = fr_sub_mod(a5, tv);
+        a5 = up;
+        a7 = um;
+    }
+
+    // Stage 2 (m=8): butterflies (0,4,1), (1,5,w8), (2,6,w82), (3,7,w83).
+    {
+        @@FR_T@@ tv = fr_mul_mont_cios(a4, one);
+        @@FR_T@@ up = fr_add_mod(a0, tv);
+        @@FR_T@@ um = fr_sub_mod(a0, tv);
+        a0 = up;
+        a4 = um;
+    }
+    {
+        @@FR_T@@ tv = fr_mul_mont_cios(a5, w8);
+        @@FR_T@@ up = fr_add_mod(a1, tv);
+        @@FR_T@@ um = fr_sub_mod(a1, tv);
+        a1 = up;
+        a5 = um;
+    }
+    {
+        @@FR_T@@ tv = fr_mul_mont_cios(a6, w82);
+        @@FR_T@@ up = fr_add_mod(a2, tv);
+        @@FR_T@@ um = fr_sub_mod(a2, tv);
+        a2 = up;
+        a6 = um;
+    }
+    {
+        @@FR_T@@ tv = fr_mul_mont_cios(a7, w83);
+        @@FR_T@@ up = fr_add_mod(a3, tv);
+        @@FR_T@@ um = fr_sub_mod(a3, tv);
+        a3 = up;
+        a7 = um;
+    }
+
+    store_fr(0u, a0);
+    store_fr(1u, a1);
+    store_fr(2u, a2);
+    store_fr(3u, a3);
+    store_fr(4u, a4);
+    store_fr(5u, a5);
+    store_fr(6u, a6);
+    store_fr(7u, a7);
+}

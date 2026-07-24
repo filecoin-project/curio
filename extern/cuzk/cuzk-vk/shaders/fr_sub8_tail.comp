@@ -1,0 +1,81 @@
+// Appended after `glsl_32_bit_field_params::<Scalar>()` (build.rs).
+// `(a - b) mod P` for canonical limbs; matches `ec-gpu-gen` `FIELD_sub` portable path.
+// SSBO: `out[8]`, `a[8]`, `b[8]` — same layout as other `fr_*8_tail.comp`.
+// @@FR_T@@, @@FR_P@@
+
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) buffer Data {
+    uint d[24];
+} buf;
+
+bool fr_gte_val(@@FR_T@@ a, @@FR_T@@ b) {
+    for (uint k = 0u; k < 8u; k++) {
+        uint i = 7u - k;
+        if (a.val[i] > b.val[i]) {
+            return true;
+        }
+        if (a.val[i] < b.val[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+@@FR_T@@ fr_load_p() {
+    @@FR_T@@ p;
+    for (uint i = 0u; i < 8u; i++) {
+        p.val[i] = @@FR_P@@[i];
+    }
+    return p;
+}
+
+@@FR_T@@ fr_add_raw(@@FR_T@@ a, @@FR_T@@ b) {
+    uint carry = 0u;
+    for (uint i = 0u; i < 8u; i++) {
+        uint old = a.val[i];
+        a.val[i] = old + b.val[i] + carry;
+        carry = (carry != 0u) ? ((old >= a.val[i]) ? 1u : 0u) : ((old > a.val[i]) ? 1u : 0u);
+    }
+    return a;
+}
+
+@@FR_T@@ fr_sub_raw(@@FR_T@@ a, @@FR_T@@ b) {
+    uint borrow = 0u;
+    for (uint i = 0u; i < 8u; i++) {
+        uint old = a.val[i];
+        a.val[i] = old - b.val[i] - borrow;
+        borrow = (borrow != 0u) ? ((old <= a.val[i]) ? 1u : 0u) : ((old < a.val[i]) ? 1u : 0u);
+    }
+    return a;
+}
+
+@@FR_T@@ fr_sub_mod(@@FR_T@@ a, @@FR_T@@ b) {
+    @@FR_T@@ aa = a;
+    @@FR_T@@ res = fr_sub_raw(aa, b);
+    if (!fr_gte_val(a, b)) {
+        @@FR_T@@ p = fr_load_p();
+        res = fr_add_raw(res, p);
+    }
+    @@FR_T@@ p2 = fr_load_p();
+    if (fr_gte_val(res, p2)) {
+        res = fr_sub_raw(res, p2);
+    }
+    return res;
+}
+
+void main() {
+    if (gl_GlobalInvocationID.x != 0u) {
+        return;
+    }
+    @@FR_T@@ a;
+    @@FR_T@@ b;
+    for (uint i = 0u; i < 8u; i++) {
+        a.val[i] = buf.d[i + 8u];
+        b.val[i] = buf.d[i + 16u];
+    }
+    @@FR_T@@ r = fr_sub_mod(a, b);
+    for (uint i = 0u; i < 8u; i++) {
+        buf.d[i] = r.val[i];
+    }
+}
