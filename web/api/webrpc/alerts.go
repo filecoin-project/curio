@@ -135,7 +135,7 @@ func (a *WebRPC) AlertSendTest(ctx context.Context) error {
 		if err := p.SendAlert(&plugin.AlertPayload{
 			Summary:  "Curio Test Alert",
 			Severity: "info",
-			Source:   "Curio Web UI",
+			Source:   alertmanager.AlertSource(a.Deps.Cfg.Alerting.ClusterName),
 			Details:  map[string]any{"TestAlert": testMessage},
 			Time:     time.Now(),
 		}); err != nil {

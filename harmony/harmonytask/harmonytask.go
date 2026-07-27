@@ -164,9 +164,10 @@ type TaskID int
 func New(
 	db *harmonydb.DB,
 	impls []TaskInterface,
-	hostnameAndPort string) (*TaskEngine, error) {
+	hostnameAndPort string,
+	inspector resources.ResourceInspector) (*TaskEngine, error) {
 
-	reg, err := resources.Register(db, hostnameAndPort)
+	reg, err := resources.Register(db, hostnameAndPort, inspector)
 	if err != nil {
 		return nil, fmt.Errorf("cannot get resources: %w", err)
 	}

@@ -631,7 +631,7 @@ func (a *WebRPC) MK20PDPPipelineRemove(ctx context.Context, id string) error {
 		}
 
 		err = tx.Select(&pipelines, `SELECT piece_ref, sector, commp_task_id, agg_task_id, indexing_task_id
-			FROM market_mk20_pipeline WHERE id = $1`, id)
+			FROM pdp_pipeline WHERE id = $1`, id)
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return false, fmt.Errorf("no deal pipeline found with id %s", id)

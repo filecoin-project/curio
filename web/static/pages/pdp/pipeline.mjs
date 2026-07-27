@@ -111,10 +111,10 @@ class MK20PDPPipelines extends LitElement {
             entries.push(renderLine('Aggregate', AggFailed, 'aggregate'));
         }
         if (AddPieceFailed > 0) {
-            entries.push(renderLine('AddPiece', AggFailed, 'add_piece'));
+            entries.push(renderLine('AddPiece', AddPieceFailed, 'add_piece'));
         }
         if (SaveCacheFailed > 0) {
-            entries.push(renderLine('SaveCache', AggFailed, 'save_cache'));
+            entries.push(renderLine('SaveCache', SaveCacheFailed, 'save_cache'));
         }
         if (IndexFailed > 0) {
             entries.push(renderLine('Index', IndexFailed, 'index'));

@@ -16,7 +16,6 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
-	"github.com/filecoin-project/curio/lib/cachedreader"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/tasks/tasknames"
@@ -35,11 +34,11 @@ const MaxRawSizeForSkip = MinSizeForCache * 127 / 128
 
 type TaskPDPSaveCache struct {
 	db  *harmonydb.DB
-	cpr *cachedreader.CachedPieceReader
-	idx *indexstore.IndexStore
+	cpr PieceReader
+	idx ProofCacheStore
 }
 
-func NewTaskPDPSaveCache(db *harmonydb.DB, cpr *cachedreader.CachedPieceReader, idx *indexstore.IndexStore) *TaskPDPSaveCache {
+func NewTaskPDPSaveCache(db *harmonydb.DB, cpr PieceReader, idx ProofCacheStore) *TaskPDPSaveCache {
 	return &TaskPDPSaveCache{
 		db:  db,
 		cpr: cpr,
@@ -206,11 +205,9 @@ func (t *TaskPDPSaveCache) Adder(taskFunc harmonytask.AddTaskFunc) {
 }
 
 func (t *TaskPDPSaveCache) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFunc) error {
-	var stop bool
-	for !stop {
+	for {
+		stop := true
 		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-			stop = true // assume we're done until we find a task to schedule
-
 			var pendings []struct {
 				ID int64 `db:"id"`
 			}
@@ -240,9 +237,10 @@ func (t *TaskPDPSaveCache) schedule(ctx context.Context, taskFunc harmonytask.Ad
 			stop = false // we found a task to schedule, keep going
 			return true, nil
 		})
+		if stop {
+			return nil
+		}
 	}
-
-	return nil
 }
 
 func (t *TaskPDPSaveCache) scheduleMigrationCleanup(_ context.Context, taskFunc harmonytask.AddTaskFunc) error {
