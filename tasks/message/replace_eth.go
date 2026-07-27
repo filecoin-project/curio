@@ -21,28 +21,30 @@ import (
 )
 
 const (
-	TransactionReplaceGasBumpPercent     int64 = 120
-	TransactionReplaceMaxPerSenderPerRun int   = 10
+	EthMessageReplaceGasBumpPercent     int64 = 120
+	EthMessageReplaceMaxPerSenderPerRun int   = 10
 )
+
+var EthMessageReplaceMaxFee = abi.NewTokenAmount(50_000_000_000_000_000) // 0.05 FIL
 
 type EthReplacerConfig struct {
 	Client ethchain.EthClient
 }
 
-type transactionReplacer struct {
+type ethMessageReplacer struct {
 	db               *harmonydb.DB
 	client           ethchain.EthClient
 	stuckForDuration time.Duration
 }
 
-type transactionReplaceSenderQueue struct {
+type ethMessageReplaceSenderQueue struct {
 	FromAddress  string
 	From         common.Address
 	AccountNonce uint64
-	Transactions []transactionReplaceCandidate
+	Messages     []ethMessageReplaceCandidate
 }
 
-type transactionReplaceCandidate struct {
+type ethMessageReplaceCandidate struct {
 	ReplacementID int64  `db:"replacement_id"`
 	ClaimID       string `db:"claim_id"`
 
@@ -59,12 +61,12 @@ type transactionReplaceCandidate struct {
 	DeleteSignedClaim bool
 }
 
-type signedTransactionReplacement struct {
-	Candidate transactionReplaceCandidate
+type signedEthMessageReplacement struct {
+	Candidate ethMessageReplaceCandidate
 	SignedTx  *gethtypes.Transaction
 }
 
-func (t *transactionReplacer) runTransactionReplacement(ctx context.Context, height abi.ChainEpoch, tipSetTimeStamp time.Time) error {
+func (t *ethMessageReplacer) runEthMessageReplacement(ctx context.Context, height abi.ChainEpoch, tipSetTimeStamp time.Time) error {
 	// This runs on the replacer goroutine, not on the chain scheduler callback path.
 	//
 	// Replacement run outline:
@@ -75,20 +77,20 @@ func (t *transactionReplacer) runTransactionReplacement(ctx context.Context, hei
 	// 5. Delete claims that should not be retried.
 
 	stuckCutoff := tipSetTimeStamp.Add(-t.stuckForDuration)
-	queues, err := t.loadTransactionCandidates(ctx, stuckCutoff, height)
+	queues, err := t.loadEthMessageCandidates(ctx, stuckCutoff, height)
 	if err != nil {
 		return err
 	}
 
-	replacements, claimsToDelete, err := t.signedTransactionReplacements(ctx, height, queues)
+	replacements, claimsToDelete, err := t.signedEthMessageReplacements(ctx, height, queues)
 	if err != nil {
 		return err
 	}
-	sendErr := t.sendAndRecordReplacementTransactions(ctx, replacements)
-	deleteErr := t.deleteTransactionReplacementClaims(ctx, claimsToDelete)
+	sendErr := t.sendAndRecordReplacementEthMessages(ctx, replacements)
+	deleteErr := t.deleteEthMessageReplacementClaims(ctx, claimsToDelete)
 	if sendErr != nil {
 		if deleteErr != nil {
-			return fmt.Errorf("sending transaction replacements: %w; deleting transaction replacement claims: %v", sendErr, deleteErr)
+			return fmt.Errorf("sending eth message replacements: %w; deleting eth message replacement claims: %v", sendErr, deleteErr)
 		}
 		return sendErr
 	}
@@ -101,11 +103,11 @@ func (t *transactionReplacer) runTransactionReplacement(ctx context.Context, hei
 		count += len(senderReplacements)
 	}
 
-	log.Debugw("transaction replacement candidates loaded", "senders", len(queues), "replacements", count, "deletedClaims", len(claimsToDelete), "height", height, "stuckCutoff", stuckCutoff)
+	log.Debugw("eth message replacement candidates loaded", "senders", len(queues), "replacements", count, "deletedClaims", len(claimsToDelete), "height", height, "stuckCutoff", stuckCutoff)
 	return nil
 }
 
-func (t *transactionReplacer) loadTransactionCandidates(ctx context.Context, stuckCutoff time.Time, height abi.ChainEpoch) ([]transactionReplaceSenderQueue, error) {
+func (t *ethMessageReplacer) loadEthMessageCandidates(ctx context.Context, stuckCutoff time.Time, height abi.ChainEpoch) ([]ethMessageReplaceSenderQueue, error) {
 	var ethSenders []struct {
 		FromAddress string `db:"from_address"`
 	}
@@ -116,7 +118,7 @@ func (t *transactionReplacer) loadTransactionCandidates(ctx context.Context, stu
 	}
 
 	fromAddresses := make([]string, 0, len(ethSenders))
-	senderQueues := make(map[string]*transactionReplaceSenderQueue, len(ethSenders))
+	senderQueues := make(map[string]*ethMessageReplaceSenderQueue, len(ethSenders))
 
 	addSender := func(fromAddress string, from common.Address) {
 		if _, ok := senderQueues[fromAddress]; ok {
@@ -124,7 +126,7 @@ func (t *transactionReplacer) loadTransactionCandidates(ctx context.Context, stu
 		}
 
 		fromAddresses = append(fromAddresses, fromAddress)
-		senderQueues[fromAddress] = &transactionReplaceSenderQueue{
+		senderQueues[fromAddress] = &ethMessageReplaceSenderQueue{
 			FromAddress: fromAddress,
 			From:        from,
 		}
@@ -132,7 +134,7 @@ func (t *transactionReplacer) loadTransactionCandidates(ctx context.Context, stu
 
 	for _, sender := range ethSenders {
 		if !common.IsHexAddress(sender.FromAddress) {
-			log.Warnw("skipping transaction replacement sender; invalid eth address", "from", sender.FromAddress)
+			log.Warnw("skipping eth message replacement sender; invalid eth address", "from", sender.FromAddress)
 			continue
 		}
 
@@ -148,7 +150,7 @@ func (t *transactionReplacer) loadTransactionCandidates(ctx context.Context, stu
 		nonce, err := t.client.NonceAt(ethCtx, queue.From, big.NewInt(int64(height)))
 		cancel()
 		if err != nil {
-			log.Warnw("skipping transaction replacement sender; account nonce lookup failed", "from", fromAddress, "error", err)
+			log.Warnw("skipping eth message replacement sender; account nonce lookup failed", "from", fromAddress, "error", err)
 			continue
 		}
 
@@ -157,36 +159,48 @@ func (t *transactionReplacer) loadTransactionCandidates(ctx context.Context, stu
 		queue.AccountNonce = nonce
 	}
 
-	deleted, err := t.db.Exec(ctx, `
-		WITH sender_nonces AS (
-			SELECT *
-			FROM unnest($1::text[], $2::bigint[]) AS sn(from_address, account_nonce)
-		)
-		DELETE FROM message_send_eth_replacements mer
-		USING sender_nonces sn
-		WHERE mer.from_address = sn.from_address
-			AND mer.nonce < sn.account_nonce
-			AND (
-				mer.send_success IS NOT NULL OR
-				mer.claim_until < CURRENT_TIMESTAMP
-			)`,
-		activeFromAddresses, accountNonces)
-	if err != nil {
-		return nil, fmt.Errorf("deleting stale transaction replacement rows: %w", err)
+	// Run stale cleanup per sender and split completed rows from expired claims
+	// so each delete can use its matching partial cleanup index.
+	deleted := 0
+	for i, fromAddress := range activeFromAddresses {
+		accountNonce := accountNonces[i]
+
+		n, err := t.db.Exec(ctx, `
+			DELETE FROM message_send_eth_replacements
+			WHERE from_address = $1
+				AND nonce < $2
+				AND send_success IS NOT NULL`,
+			fromAddress, accountNonce)
+		if err != nil {
+			return nil, fmt.Errorf("deleting completed stale eth message replacement rows for %s: %w", fromAddress, err)
+		}
+		deleted += n
+
+		n, err = t.db.Exec(ctx, `
+			DELETE FROM message_send_eth_replacements
+			WHERE from_address = $1
+				AND nonce < $2
+				AND send_success IS NULL
+				AND claim_until < CURRENT_TIMESTAMP`,
+			fromAddress, accountNonce)
+		if err != nil {
+			return nil, fmt.Errorf("deleting expired stale eth message replacement claims for %s: %w", fromAddress, err)
+		}
+		deleted += n
 	}
 	if deleted > 0 {
-		log.Debugw("deleted stale transaction replacement rows", "rows", deleted)
+		log.Debugw("deleted stale eth message replacement rows", "rows", deleted)
 	}
 
-	var rows []transactionReplaceCandidate
+	var rows []ethMessageReplaceCandidate
 	claimID := uuid.NewString()
 	// Load old successful Eth sends for active senders whose nonce has not
 	// landed yet, resolve the current successful replacement chain tip for each
 	// send, and claim the tip for this run. Expired unsent claims are reclaimed;
 	// active claims and already-successful replacement rows are skipped. Returned
 	// rows are only the claims owned by this run, including any previously signed
-	// replacement transaction that should be retried instead of re-signed.
-	err = t.db.Select(ctx, &rows, `
+	// replacement Eth message that should be retried instead of re-signed.
+	err := t.db.Select(ctx, &rows, `
 		WITH sender_nonces AS (
 			SELECT *
 			FROM unnest($1::text[], $2::bigint[]) AS sn(from_address, account_nonce)
@@ -296,24 +310,24 @@ func (t *transactionReplacer) loadTransactionCandidates(ctx context.Context, stu
 			AND claimed.nonce = eligible.nonce
 			AND claimed.replaces_signed_hash = eligible.latest_signed_hash
 		ORDER BY eligible.from_address, eligible.nonce
-	`, activeFromAddresses, accountNonces, stuckCutoff, TransactionReplaceMaxPerSenderPerRun, claimID)
+	`, activeFromAddresses, accountNonces, stuckCutoff, EthMessageReplaceMaxPerSenderPerRun, claimID)
 	if err != nil {
-		return nil, fmt.Errorf("selecting transaction replacement candidates: %w", err)
+		return nil, fmt.Errorf("selecting eth message replacement candidates: %w", err)
 	}
 
-	queues := make([]transactionReplaceSenderQueue, 0, len(senderQueues))
+	queues := make([]ethMessageReplaceSenderQueue, 0, len(senderQueues))
 
 	for _, row := range rows {
 		queue, ok := senderQueues[row.FromAddress]
 		if !ok {
-			return nil, fmt.Errorf("claimed transaction replacement for unknown sender %s", row.FromAddress)
+			return nil, fmt.Errorf("claimed eth message replacement for unknown sender %s", row.FromAddress)
 		}
-		queue.Transactions = append(queue.Transactions, row)
+		queue.Messages = append(queue.Messages, row)
 	}
 
 	for _, fromAddress := range activeFromAddresses {
 		queue := senderQueues[fromAddress]
-		if queue != nil && len(queue.Transactions) > 0 {
+		if queue != nil && len(queue.Messages) > 0 {
 			queues = append(queues, *queue)
 		}
 	}
@@ -321,23 +335,23 @@ func (t *transactionReplacer) loadTransactionCandidates(ctx context.Context, stu
 	return queues, nil
 }
 
-func (t *transactionReplacer) signedTransactionReplacements(ctx context.Context, height abi.ChainEpoch, queue []transactionReplaceSenderQueue) (map[common.Address][]signedTransactionReplacement, []transactionReplaceCandidate, error) {
-	replacements := make(map[common.Address][]signedTransactionReplacement)
+func (t *ethMessageReplacer) signedEthMessageReplacements(ctx context.Context, height abi.ChainEpoch, queue []ethMessageReplaceSenderQueue) (map[common.Address][]signedEthMessageReplacement, []ethMessageReplaceCandidate, error) {
+	replacements := make(map[common.Address][]signedEthMessageReplacement)
 
-	var claimsToDelete []transactionReplaceCandidate
+	var claimsToDelete []ethMessageReplaceCandidate
 
 	for _, q := range queue {
-		signedPerSender := make([]signedTransactionReplacement, 0, min(len(q.Transactions), TransactionReplaceMaxPerSenderPerRun))
-		for _, candidate := range q.Transactions {
-			if len(signedPerSender) >= TransactionReplaceMaxPerSenderPerRun {
+		signedPerSender := make([]signedEthMessageReplacement, 0, min(len(q.Messages), EthMessageReplaceMaxPerSenderPerRun))
+		for _, candidate := range q.Messages {
+			if len(signedPerSender) >= EthMessageReplaceMaxPerSenderPerRun {
 				claimsToDelete = append(claimsToDelete, candidate)
 				continue
 			}
 
 			if candidate.RetrySigned {
-				signedReplacement, err := signedTransactionRetry(candidate)
+				signedReplacement, err := signedEthMessageRetry(candidate)
 				if err != nil {
-					log.Warnw("skipping transaction replacement candidate; loading signed claim failed", "from", candidate.FromAddress, "nonce", candidate.Nonce, "hash", candidate.ClaimedSignedHash, "error", err)
+					log.Warnw("skipping eth message replacement candidate; loading signed claim failed", "from", candidate.FromAddress, "nonce", candidate.Nonce, "hash", candidate.ClaimedSignedHash, "error", err)
 					candidate.DeleteSignedClaim = true
 					claimsToDelete = append(claimsToDelete, candidate)
 					continue
@@ -347,9 +361,9 @@ func (t *transactionReplacer) signedTransactionReplacements(ctx context.Context,
 				continue
 			}
 
-			replacement, feeStuck, err := t.prepareFeeReplacementTransaction(ctx, q.From, height, candidate)
+			replacement, feeStuck, err := t.prepareFeeReplacementEthMessage(ctx, q.From, height, candidate)
 			if err != nil {
-				log.Warnw("skipping transaction replacement candidate; preparing replacement failed", "from", candidate.FromAddress, "nonce", candidate.Nonce, "hash", candidate.LatestSignedHash, "error", err)
+				log.Warnw("skipping eth message replacement candidate; preparing replacement failed", "from", candidate.FromAddress, "nonce", candidate.Nonce, "hash", candidate.LatestSignedHash, "error", err)
 				claimsToDelete = append(claimsToDelete, candidate)
 				continue
 			}
@@ -360,12 +374,12 @@ func (t *transactionReplacer) signedTransactionReplacements(ctx context.Context,
 
 			signedTx, err := t.signTransaction(ctx, q.From, replacement)
 			if err != nil {
-				log.Warnw("skipping transaction replacement candidate; signing replacement failed", "from", candidate.FromAddress, "nonce", candidate.Nonce, "hash", candidate.LatestSignedHash, "error", err)
+				log.Warnw("skipping eth message replacement candidate; signing replacement failed", "from", candidate.FromAddress, "nonce", candidate.Nonce, "hash", candidate.LatestSignedHash, "error", err)
 				claimsToDelete = append(claimsToDelete, candidate)
 				continue
 			}
 
-			signedPerSender = append(signedPerSender, signedTransactionReplacement{
+			signedPerSender = append(signedPerSender, signedEthMessageReplacement{
 				Candidate: candidate,
 				SignedTx:  signedTx,
 			})
@@ -377,53 +391,53 @@ func (t *transactionReplacer) signedTransactionReplacements(ctx context.Context,
 	return replacements, claimsToDelete, nil
 }
 
-func signedTransactionRetry(candidate transactionReplaceCandidate) (signedTransactionReplacement, error) {
+func signedEthMessageRetry(candidate ethMessageReplaceCandidate) (signedEthMessageReplacement, error) {
 	tx := new(gethtypes.Transaction)
 	if err := tx.UnmarshalBinary(candidate.ClaimedSignedTx); err != nil {
-		return signedTransactionReplacement{}, fmt.Errorf("unmarshaling claimed signed transaction %s: %w", candidate.ClaimedSignedHash, err)
+		return signedEthMessageReplacement{}, fmt.Errorf("unmarshaling claimed signed eth message %s: %w", candidate.ClaimedSignedHash, err)
 	}
 	if !strings.EqualFold(tx.Hash().Hex(), candidate.ClaimedSignedHash) {
-		return signedTransactionReplacement{}, fmt.Errorf("claimed signed transaction decoded to hash %s, expected %s", tx.Hash().Hex(), candidate.ClaimedSignedHash)
+		return signedEthMessageReplacement{}, fmt.Errorf("claimed signed eth message decoded to hash %s, expected %s", tx.Hash().Hex(), candidate.ClaimedSignedHash)
 	}
 	if tx.Nonce() != candidate.Nonce {
-		return signedTransactionReplacement{}, fmt.Errorf("claimed replacement nonce %d does not match candidate nonce %d", tx.Nonce(), candidate.Nonce)
+		return signedEthMessageReplacement{}, fmt.Errorf("claimed replacement nonce %d does not match candidate nonce %d", tx.Nonce(), candidate.Nonce)
 	}
 
 	from, err := transactionSender(tx)
 	if err != nil {
-		return signedTransactionReplacement{}, fmt.Errorf("recovering claimed transaction sender %s: %w", candidate.ClaimedSignedHash, err)
+		return signedEthMessageReplacement{}, fmt.Errorf("recovering claimed eth message sender %s: %w", candidate.ClaimedSignedHash, err)
 	}
 	if !strings.EqualFold(from.Hex(), candidate.FromAddress) {
-		return signedTransactionReplacement{}, fmt.Errorf("claimed replacement sender %s does not match candidate sender %s", from.Hex(), candidate.FromAddress)
+		return signedEthMessageReplacement{}, fmt.Errorf("claimed replacement sender %s does not match candidate sender %s", from.Hex(), candidate.FromAddress)
 	}
 
-	return signedTransactionReplacement{
+	return signedEthMessageReplacement{
 		Candidate: candidate,
 		SignedTx:  tx,
 	}, nil
 }
 
-func (t *transactionReplacer) prepareFeeReplacementTransaction(ctx context.Context, from common.Address, height abi.ChainEpoch, candidate transactionReplaceCandidate) (*gethtypes.Transaction, bool, error) {
+func (t *ethMessageReplacer) prepareFeeReplacementEthMessage(ctx context.Context, from common.Address, height abi.ChainEpoch, candidate ethMessageReplaceCandidate) (*gethtypes.Transaction, bool, error) {
 	latest := new(gethtypes.Transaction)
 	if err := latest.UnmarshalBinary(candidate.LatestSignedTx); err != nil {
-		return nil, false, fmt.Errorf("unmarshaling latest signed transaction %s: %w", candidate.LatestSignedHash, err)
+		return nil, false, fmt.Errorf("unmarshaling latest signed eth message %s: %w", candidate.LatestSignedHash, err)
 	}
 	if !strings.EqualFold(latest.Hash().Hex(), candidate.LatestSignedHash) {
-		return nil, false, fmt.Errorf("latest signed transaction decoded to hash %s, expected %s", latest.Hash().Hex(), candidate.LatestSignedHash)
+		return nil, false, fmt.Errorf("latest signed eth message decoded to hash %s, expected %s", latest.Hash().Hex(), candidate.LatestSignedHash)
 	}
 	if latest.Nonce() != candidate.Nonce {
-		return nil, false, fmt.Errorf("latest signed transaction nonce %d does not match candidate nonce %d", latest.Nonce(), candidate.Nonce)
+		return nil, false, fmt.Errorf("latest signed eth message nonce %d does not match candidate nonce %d", latest.Nonce(), candidate.Nonce)
 	}
 	if latest.Type() != gethtypes.DynamicFeeTxType {
-		return nil, false, fmt.Errorf("unsupported latest transaction type %d", latest.Type())
+		return nil, false, fmt.Errorf("unsupported latest eth message transaction type %d", latest.Type())
 	}
 
 	txFrom, err := gethtypes.Sender(gethtypes.LatestSignerForChainID(latest.ChainId()), latest)
 	if err != nil {
-		return nil, false, fmt.Errorf("recovering latest transaction sender %s: %w", candidate.LatestSignedHash, err)
+		return nil, false, fmt.Errorf("recovering latest eth message sender %s: %w", candidate.LatestSignedHash, err)
 	}
 	if txFrom != from {
-		return nil, false, fmt.Errorf("latest signed transaction sender %s does not match candidate sender %s", txFrom.Hex(), from.Hex())
+		return nil, false, fmt.Errorf("latest signed eth message sender %s does not match candidate sender %s", txFrom.Hex(), from.Hex())
 	}
 
 	ethCtx, cancel := context.WithTimeout(ctx, defaultEthCallTimeout)
@@ -449,16 +463,17 @@ func (t *transactionReplacer) prepareFeeReplacementTransaction(ctx context.Conte
 		return nil, false, nil
 	}
 
-	rbfTipCap := bumpInt(latest.GasTipCap(), TransactionReplaceGasBumpPercent)
-	rbfFeeCap := bumpInt(latest.GasFeeCap(), TransactionReplaceGasBumpPercent)
+	rbfTipCap := bumpInt(latest.GasTipCap(), EthMessageReplaceGasBumpPercent)
+	rbfFeeCap := bumpInt(latest.GasFeeCap(), EthMessageReplaceGasBumpPercent)
 	gasTipCap = maxInt(gasTipCap, rbfTipCap)
 	gasFeeCap = maxInt(gasFeeCap, rbfFeeCap)
 	if gasFeeCap.Cmp(gasTipCap) < 0 {
 		gasFeeCap = new(big.Int).Set(gasTipCap)
 	}
 	if latest.Gas() == 0 {
-		return nil, false, fmt.Errorf("latest signed transaction gas limit is zero for %s nonce %d", from.Hex(), candidate.Nonce)
+		return nil, false, fmt.Errorf("latest signed eth message gas limit is zero for %s nonce %d", from.Hex(), candidate.Nonce)
 	}
+	gasFeeCap, gasTipCap = capEthMessageGasFee(gasFeeCap, gasTipCap, latest.Gas())
 
 	return gethtypes.NewTx(&gethtypes.DynamicFeeTx{
 		ChainID:    new(big.Int).Set(latest.ChainId()),
@@ -473,20 +488,20 @@ func (t *transactionReplacer) prepareFeeReplacementTransaction(ctx context.Conte
 	}), true, nil
 }
 
-// sendAndRecordReplacementTransactions stores each signed replacement before sending it,
+// sendAndRecordReplacementEthMessages stores each signed replacement before sending it,
 // then records the Eth send result. Saving the signed bytes first lets a later run
 // retry the same replacement if this task exits before send_success is recorded.
-func (t *transactionReplacer) sendAndRecordReplacementTransactions(ctx context.Context, replacements map[common.Address][]signedTransactionReplacement) error {
+func (t *ethMessageReplacer) sendAndRecordReplacementEthMessages(ctx context.Context, replacements map[common.Address][]signedEthMessageReplacement) error {
 	for _, senderReplacements := range replacements {
 		for _, replacement := range senderReplacements {
 			tx := replacement.SignedTx
 			if tx == nil {
-				return fmt.Errorf("signed replacement transaction is nil for %s nonce %d", replacement.Candidate.FromAddress, replacement.Candidate.Nonce)
+				return fmt.Errorf("signed replacement eth message is nil for %s nonce %d", replacement.Candidate.FromAddress, replacement.Candidate.Nonce)
 			}
 
 			signedTx, err := tx.MarshalBinary()
 			if err != nil {
-				return fmt.Errorf("serializing replacement transaction for %s nonce %d: %w", replacement.Candidate.FromAddress, replacement.Candidate.Nonce, err)
+				return fmt.Errorf("serializing replacement eth message for %s nonce %d: %w", replacement.Candidate.FromAddress, replacement.Candidate.Nonce, err)
 			}
 
 			n, err := t.db.Exec(ctx, `
@@ -503,32 +518,32 @@ func (t *transactionReplacer) sendAndRecordReplacementTransactions(ctx context.C
 				replacement.Candidate.ClaimID,
 			)
 			if err != nil {
-				return fmt.Errorf("recording signed transaction replacement for %s nonce %d: %w", replacement.Candidate.FromAddress, replacement.Candidate.Nonce, err)
+				return fmt.Errorf("recording signed eth message replacement for %s nonce %d: %w", replacement.Candidate.FromAddress, replacement.Candidate.Nonce, err)
 			}
 			if n == 0 {
-				log.Warnw("transaction replacement claim lost before send", "from", replacement.Candidate.FromAddress, "nonce", replacement.Candidate.Nonce, "replacement_id", replacement.Candidate.ReplacementID)
+				log.Warnw("eth message replacement claim lost before send", "from", replacement.Candidate.FromAddress, "nonce", replacement.Candidate.Nonce, "replacement_id", replacement.Candidate.ReplacementID)
 				continue
 			}
 			if n != 1 {
-				return fmt.Errorf("recording signed transaction replacement for %s nonce %d: expected 1 row, got %d", replacement.Candidate.FromAddress, replacement.Candidate.Nonce, n)
+				return fmt.Errorf("recording signed eth message replacement for %s nonce %d: expected 1 row, got %d", replacement.Candidate.FromAddress, replacement.Candidate.Nonce, n)
 			}
 
 			ethCtx, cancel := context.WithTimeout(ctx, defaultEthCallTimeout)
 			sendErr := t.client.SendTransaction(ethCtx, tx)
 			cancel()
 			if isEthTransactionAlreadyKnownError(sendErr) {
-				log.Infow("transaction replacement already known", "from", replacement.Candidate.FromAddress, "nonce", replacement.Candidate.Nonce, "hash", tx.Hash().Hex())
+				log.Infow("eth message replacement already known", "from", replacement.Candidate.FromAddress, "nonce", replacement.Candidate.Nonce, "hash", tx.Hash().Hex())
 				sendErr = nil
 			}
 			if errors.Is(sendErr, context.Canceled) || errors.Is(sendErr, context.DeadlineExceeded) {
-				log.Warnw("transaction replacement send timed out; leaving signed claim for retry", "from", replacement.Candidate.FromAddress, "nonce", replacement.Candidate.Nonce, "hash", tx.Hash().Hex(), "error", sendErr)
+				log.Warnw("eth message replacement send timed out; leaving signed claim for retry", "from", replacement.Candidate.FromAddress, "nonce", replacement.Candidate.Nonce, "hash", tx.Hash().Hex(), "error", sendErr)
 				continue
 			}
 			sendSuccess := sendErr == nil
 			sendError := ""
 			if sendErr != nil {
 				sendError = sendErr.Error()
-				log.Warnw("transaction replacement send failed", "from", replacement.Candidate.FromAddress, "nonce", replacement.Candidate.Nonce, "hash", tx.Hash().Hex(), "error", sendErr)
+				log.Warnw("eth message replacement send failed", "from", replacement.Candidate.FromAddress, "nonce", replacement.Candidate.Nonce, "hash", tx.Hash().Hex(), "error", sendErr)
 			}
 
 			n, err = t.db.Exec(ctx, `
@@ -545,13 +560,13 @@ func (t *transactionReplacer) sendAndRecordReplacementTransactions(ctx context.C
 				replacement.Candidate.ClaimID,
 			)
 			if err != nil {
-				return fmt.Errorf("recording transaction replacement for %s nonce %d: %w", replacement.Candidate.FromAddress, replacement.Candidate.Nonce, err)
+				return fmt.Errorf("recording eth message replacement for %s nonce %d: %w", replacement.Candidate.FromAddress, replacement.Candidate.Nonce, err)
 			}
 			if n != 1 {
 				if sendSuccess {
-					return fmt.Errorf("recording successful transaction replacement for %s nonce %d: expected 1 row, got %d", replacement.Candidate.FromAddress, replacement.Candidate.Nonce, n)
+					return fmt.Errorf("recording successful eth message replacement for %s nonce %d: expected 1 row, got %d", replacement.Candidate.FromAddress, replacement.Candidate.Nonce, n)
 				}
-				log.Warnw("transaction replacement failure record lost", "from", replacement.Candidate.FromAddress, "nonce", replacement.Candidate.Nonce, "replacement_id", replacement.Candidate.ReplacementID, "rows", n)
+				log.Warnw("eth message replacement failure record lost", "from", replacement.Candidate.FromAddress, "nonce", replacement.Candidate.Nonce, "replacement_id", replacement.Candidate.ReplacementID, "rows", n)
 			}
 		}
 	}
@@ -559,7 +574,7 @@ func (t *transactionReplacer) sendAndRecordReplacementTransactions(ctx context.C
 	return nil
 }
 
-func (t *transactionReplacer) deleteTransactionReplacementClaims(ctx context.Context, candidates []transactionReplaceCandidate) error {
+func (t *ethMessageReplacer) deleteEthMessageReplacementClaims(ctx context.Context, candidates []ethMessageReplaceCandidate) error {
 	if len(candidates) == 0 {
 		return nil
 	}
@@ -588,13 +603,13 @@ func (t *transactionReplacer) deleteTransactionReplacementClaims(ctx context.Con
 			)`,
 		ids, claimIDs, deleteSignedClaims)
 	if err != nil {
-		return fmt.Errorf("deleting transaction replacement claims: %w", err)
+		return fmt.Errorf("deleting eth message replacement claims: %w", err)
 	}
 
 	return nil
 }
 
-func (t *transactionReplacer) signTransaction(ctx context.Context, from common.Address, tx *gethtypes.Transaction) (*gethtypes.Transaction, error) {
+func (t *ethMessageReplacer) signTransaction(ctx context.Context, from common.Address, tx *gethtypes.Transaction) (*gethtypes.Transaction, error) {
 	var privateKeyData []byte
 	err := t.db.QueryRow(ctx, `SELECT private_key FROM eth_keys WHERE address = $1`, from.Hex()).Scan(&privateKeyData)
 	if err != nil {
@@ -634,6 +649,27 @@ func maxInt(a, b *big.Int) *big.Int {
 		return new(big.Int).Set(a)
 	}
 	return new(big.Int).Set(b)
+}
+
+// capEthMessageGasFee caps total replacement exposure to EthMessageReplaceMaxFee
+// by reducing gasFeeCap when gasFeeCap * gasLimit is too high. gasTipCap is also
+// capped at gasFeeCap because dynamic-fee transactions require tip <= fee cap.
+func capEthMessageGasFee(gasFeeCap, gasTipCap *big.Int, gasLimit uint64) (*big.Int, *big.Int) {
+	gasLimitInt := new(big.Int).SetUint64(gasLimit)
+	totalFee := new(big.Int).Mul(gasFeeCap, gasLimitInt)
+	if totalFee.Cmp(EthMessageReplaceMaxFee.Int) > 0 {
+		gasFeeCap = new(big.Int).Div(EthMessageReplaceMaxFee.Int, gasLimitInt)
+	} else {
+		gasFeeCap = new(big.Int).Set(gasFeeCap)
+	}
+
+	if gasTipCap.Cmp(gasFeeCap) > 0 {
+		gasTipCap = new(big.Int).Set(gasFeeCap)
+	} else {
+		gasTipCap = new(big.Int).Set(gasTipCap)
+	}
+
+	return gasFeeCap, gasTipCap
 }
 
 func isEthTransactionAlreadyKnownError(err error) bool {

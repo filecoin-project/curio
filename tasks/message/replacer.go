@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	ReplaceStuckEpochs abi.ChainEpoch = 3
+	ReplaceStuckEpochs abi.ChainEpoch = 10
 )
 
 type ReplacerConfig struct {
@@ -27,8 +27,8 @@ type ReplacerConfig struct {
 }
 
 type Replacer struct {
-	mr *messageReplacer
-	tr *transactionReplacer
+	mr  *messageReplacer
+	emr *ethMessageReplacer
 
 	triggerCh     chan struct{}
 	triggerMu     sync.Mutex
@@ -58,7 +58,7 @@ func NewMessageReplacer(ctx context.Context, cfg ReplacerConfig) error {
 	}
 
 	if cfg.Eth != nil {
-		t.tr = &transactionReplacer{
+		t.emr = &ethMessageReplacer{
 			db:               cfg.DB,
 			client:           cfg.Eth.Client,
 			stuckForDuration: stuckForDuration,
@@ -125,10 +125,10 @@ func (t *Replacer) runReplacement(ctx context.Context, trigger replaceTrigger) {
 		}
 	}
 
-	if t.tr != nil {
-		err := t.tr.runTransactionReplacement(ctx, trigger.Height, trigger.Timestamp)
+	if t.emr != nil {
+		err := t.emr.runEthMessageReplacement(ctx, trigger.Height, trigger.Timestamp)
 		if err != nil {
-			log.Errorw("message replacement failed", "error", err)
+			log.Errorw("eth message replacement failed", "error", err)
 		}
 	}
 

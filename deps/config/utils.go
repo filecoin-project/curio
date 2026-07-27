@@ -134,15 +134,13 @@ type minerLookUpApi interface {
 func GetAddressesFromConfig(ctx context.Context, db *harmonydb.DB, api minerLookUpApi) ([]address.Address, []address.Address, error) {
 	// MachineDetails represents the structure of data received from the SQL query.
 	type machineDetail struct {
-		ID          int
-		HostAndPort string
-		Layers      string
+		Layers string
 	}
 	var machineDetails []machineDetail
 
 	// Get all layers in use
 	err := db.Select(ctx, &machineDetails, `
-				SELECT m.id, m.host_and_port, d.layers
+				SELECT d.layers
 				FROM harmony_machines m
 				LEFT JOIN harmony_machine_details d ON m.id = d.machine_id;`)
 	if err != nil {

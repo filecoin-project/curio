@@ -28,7 +28,7 @@ const (
 	MessageReplaceMaxPerSenderPerRun int   = 10
 )
 
-var MessageReplaceMaxFee = abi.TokenAmount(types.MustParseFIL("1 FIL"))
+var MessageReplaceMaxFee = abi.TokenAmount(types.MustParseFIL("0.05 FIL"))
 
 // These mirror the small Lotus messagepool helpers/errors needed for replacement.
 // Keeping them local avoids importing lotus/chain/messagepool, which pulls in
@@ -205,23 +205,34 @@ func (t *messageReplacer) loadMessageCandidates(ctx context.Context, tsk *types.
 		queue.ActorNonce = act.Nonce
 	}
 
-	// Delete stale rows
-	deleted, err := t.db.Exec(ctx, `
-		WITH sender_nonces AS (
-			SELECT *
-			FROM unnest($1::text[], $2::bigint[]) AS sn(from_key, actor_nonce)
-		)
-		DELETE FROM message_send_replacements msr
-		USING sender_nonces sn
-		WHERE msr.from_key = sn.from_key
-			AND msr.nonce < sn.actor_nonce
-			AND (
-				msr.send_success IS NOT NULL OR
-				msr.claim_until < CURRENT_TIMESTAMP
-			)`,
-		activeFromKeys, actorNonces)
-	if err != nil {
-		return nil, fmt.Errorf("deleting stale message replacement rows: %w", err)
+	// Run stale cleanup per sender and split completed rows from expired claims
+	// so each delete can use its matching partial cleanup index.
+	deleted := 0
+	for i, fromKey := range activeFromKeys {
+		actorNonce := actorNonces[i]
+
+		n, err := t.db.Exec(ctx, `
+			DELETE FROM message_send_replacements
+			WHERE from_key = $1
+				AND nonce < $2
+				AND send_success IS NOT NULL`,
+			fromKey, actorNonce)
+		if err != nil {
+			return nil, fmt.Errorf("deleting completed stale message replacement rows for %s: %w", fromKey, err)
+		}
+		deleted += n
+
+		n, err = t.db.Exec(ctx, `
+			DELETE FROM message_send_replacements
+			WHERE from_key = $1
+				AND nonce < $2
+				AND send_success IS NULL
+				AND claim_until < CURRENT_TIMESTAMP`,
+			fromKey, actorNonce)
+		if err != nil {
+			return nil, fmt.Errorf("deleting expired stale message replacement claims for %s: %w", fromKey, err)
+		}
+		deleted += n
 	}
 	if deleted > 0 {
 		log.Debugw("deleted stale message replacement rows", "rows", deleted)
