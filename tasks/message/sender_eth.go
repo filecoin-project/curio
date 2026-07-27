@@ -206,8 +206,7 @@ func (s *SendTaskETH) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 				"hash", signedTx.Hash().Hex(),
 				"send_error", sendErr,
 				"lookup_error", lookupErr)
-			sendResult = ethSendDefinitiveError
-			sendErr = multierr.Combine(
+			return false, multierr.Combine(
 				xerrors.Errorf("eth transaction send state unknown for %s after settle delay: %w", signedTx.Hash().Hex(), sendErr),
 				xerrors.Errorf("looking up eth transaction %s after unknown send: %w", signedTx.Hash().Hex(), lookupErr),
 			)
@@ -220,37 +219,14 @@ func (s *SendTaskETH) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 				"error", sendErr)
 			sendResult = ethSendAccepted
 		} else {
-			pendingNonce, nonceErr := s.checkPendingNonce(fromAddress)
-			if nonceErr != nil {
-				log.Warnw("eth transaction send state unknown; failed to check pending nonce after settle delay",
-					"task_id", taskID,
-					"from", dbTx.FromAddress,
-					"nonce", signedTx.Nonce(),
-					"hash", signedTx.Hash().Hex(),
-					"send_error", sendErr,
-					"nonce_error", nonceErr)
-				sendResult = ethSendDefinitiveError
-				sendErr = multierr.Combine(
-					xerrors.Errorf("eth transaction send state unknown for %s after settle delay: %w", signedTx.Hash().Hex(), sendErr),
-					xerrors.Errorf("checking pending nonce for %s after unknown send: %w", dbTx.FromAddress, nonceErr),
-				)
-			} else {
-				log.Warnw("eth transaction not found after unknown send error",
-					"task_id", taskID,
-					"from", dbTx.FromAddress,
-					"nonce", signedTx.Nonce(),
-					"pending_nonce", pendingNonce,
-					"hash", signedTx.Hash().Hex(),
-					"error", sendErr)
-				sendResult = ethSendDefinitiveError
-				if pendingNonce > signedTx.Nonce() {
-					sendErr = xerrors.Errorf("eth transaction send state unknown for %s: tx not found after %s and sender nonce advanced from %d to %d: %w",
-						signedTx.Hash().Hex(), ethUnknownSendSettleDelay, signedTx.Nonce(), pendingNonce, sendErr)
-				} else {
-					sendErr = xerrors.Errorf("eth transaction send state unknown for %s: tx not found after %s and sender nonce is %d: %w",
-						signedTx.Hash().Hex(), ethUnknownSendSettleDelay, pendingNonce, sendErr)
-				}
-			}
+			log.Warnw("eth transaction not found after unknown send error",
+				"task_id", taskID,
+				"from", dbTx.FromAddress,
+				"nonce", signedTx.Nonce(),
+				"hash", signedTx.Hash().Hex(),
+				"error", sendErr)
+			return false, xerrors.Errorf("eth transaction send state unknown for %s: tx not found after %s: %w",
+				signedTx.Hash().Hex(), ethUnknownSendSettleDelay, sendErr)
 		}
 	}
 
@@ -290,13 +266,6 @@ func (s *SendTaskETH) checkInTransactionPool(hash common.Hash) (bool, error) {
 	}
 
 	return false, nil
-}
-
-func (s *SendTaskETH) checkPendingNonce(from common.Address) (uint64, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), defaultEthCallTimeout)
-	defer cancel()
-
-	return s.client.PendingNonceAt(ctx, from)
 }
 
 func (s *SendTaskETH) signTransaction(ctx context.Context, fromAddress common.Address, tx *types.Transaction) (*types.Transaction, error) {
@@ -548,7 +517,7 @@ const ethUnknownSendSettleDelay = 2 * time.Second
 // classifyEthSendError classifies only source-backed outcomes.
 //
 // Sources:
-//   - Lotus node/impl/eth/send.go, ethSendRawTransaction: raw tx parse, tx hash,
+//   - Lotus node/impl/eth/send.go, ethSendRawTransaction: raw tx parse, tx hash,f
 //     and Filecoin message conversion all happen before MpoolPush/MpoolPushUntrusted.
 //   - Lotus chain/messagepool/messagepool.go, MessagePool.Push/addTs/addLocked:
 //     validation happens before addLocked, while duplicate-same-message is reported
