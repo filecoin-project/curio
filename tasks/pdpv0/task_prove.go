@@ -943,19 +943,10 @@ var (
 )
 
 func (p *ProveTask) disableProving(ctx context.Context, dataSetId int64) error {
-	// cleanup all proving related columns
-	// set init_ready to false so that next new piece enables proving
-	//
-	// This creates a bit of an edge case when piece deletions, additions and proving happen in the same time window:
-	// - data set gets used, pieces are added and proven
-	// - all pieces are deleted from it
-	// - nextProvingPeriod gets called on an empty dataset
-	// - a new piece gets added, it sets `init_ready = TRUE`, but it is true already
-	// - prove task fires, detects that proving set is empty, challenge epoch is 0 (as the proving set is empty),
-	// 		proving gets disabled
-	// Now the dataset won't get proven until one more piece gets added to set `init_ready = TRUE`.
-	// Better pattern here would be to react to events emitted in our messages from the transactions we send to PDPVerifier.
-	// As ordering can get even more tricky if you consider that transactions are sent async.
+	// Clear stale proving fields when PDPVerifier reports that the dataset has
+	// no challenge or leaves to prove. init_ready is false while the dataset is
+	// empty; with the schedule fields cleared, a later piece-add confirmation can
+	// make the dataset init-ready again.
 	_, err := p.db.Exec(ctx, `
 		UPDATE pdp_data_sets
 		SET challenge_request_msg_hash = NULL, prove_at_epoch = NULL, init_ready = FALSE,

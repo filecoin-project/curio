@@ -206,7 +206,7 @@ func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() 
 	txHash, sendErr := n.sender.Send(ctx, fromAddress, txEth, reason)
 	if sendErr != nil {
 		comm, err := n.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
-			handleErr := handleNextProvingPeriodSendError(ctx, tx, n.ethClient, n.al, alertNameNextPP, dataSetId, currentHeight, sendErr)
+			handleErr := handleNextProvingPeriodSendError(ctx, tx, provingSchedule, n.al, alertNameNextPP, dataSetId, currentHeight, sendErr)
 			if handleErr != nil {
 				return false, xerrors.Errorf("failed to handle proving send error: %w", handleErr)
 			}
@@ -446,15 +446,14 @@ func disableProvingForEmptyDataset(tx *harmonydb.Tx, dataSetId int64) error {
 	return nil
 }
 
-var getPDPVerifierNextChallengeEpoch = func(ctx context.Context, ethClient ethchain.EthClient, dataSetId int64) (*big.Int, error) {
-	pdpVerifier, err := contract.NewPDPVerifier(contract.ContractAddresses().PDPVerifier, ethClient)
-	if err != nil {
-		return nil, xerrors.Errorf("failed to instantiate PDPVerifier: %w", err)
+var getProvingScheduleNextChallengeWindowStart = func(ctx context.Context, provingSchedule *contract.IPDPProvingSchedule, dataSetId int64) (*big.Int, error) {
+	if provingSchedule == nil {
+		return nil, xerrors.Errorf("proving schedule is nil for data set %d", dataSetId)
 	}
 
-	challengeEpoch, err := pdpVerifier.GetNextChallengeEpoch(contract.EthCallOpts(ctx), big.NewInt(dataSetId))
+	challengeEpoch, err := provingSchedule.NextPDPChallengeWindowStart(contract.EthCallOpts(ctx), big.NewInt(dataSetId))
 	if err != nil {
-		return nil, xerrors.Errorf("failed to get next challenge epoch: %w", err)
+		return nil, xerrors.Errorf("failed to get next challenge window start: %w", err)
 	}
 	return challengeEpoch, nil
 }
@@ -462,12 +461,12 @@ var getPDPVerifierNextChallengeEpoch = func(ctx context.Context, ethClient ethch
 // skipCurrentOnChainProvingPeriod reconciles a dataset when initPP/nextPP learns
 // that the contract has already scheduled the next challenge period.
 //
-// How: read PDPVerifier's authoritative next challenge epoch, clear the local
-// challenge_request_msg_hash so the prove watcher cannot submit for this period,
-// and store that on-chain epoch in prove_at_epoch. The nextPP watcher already
-// schedules the following period after prove_at_epoch+challenge_window, so this
-// leaves Curio in the normal path for the next period without inventing local
-// message_waits_eth state.
+// How: read the listener-derived proving schedule's authoritative next challenge
+// epoch, clear the local challenge_request_msg_hash so the prove watcher cannot
+// submit for this period, and store that on-chain epoch in prove_at_epoch. The
+// nextPP watcher already schedules the following period after
+// prove_at_epoch+challenge_window, so this leaves Curio in the normal path for
+// the next period without inventing local message_waits_eth state.
 //
 // Why dropping this period is better: Curio proves only after its own
 // challenge_request_msg_hash has a successful message_waits_eth row. If that
@@ -475,8 +474,8 @@ var getPDPVerifierNextChallengeEpoch = func(ctx context.Context, ethClient ethch
 // prove against state it did not confirm. Retrying initPP/nextPP can also loop
 // on an already-applied period transition. Skipping one already-scheduled period
 // avoids both cases and lets the existing scheduler recover at the next window.
-func skipCurrentOnChainProvingPeriod(ctx context.Context, tx *harmonydb.Tx, ethClient ethchain.EthClient, dataSetId int64, currentHeight int64) error {
-	challengeEpoch, err := getPDPVerifierNextChallengeEpoch(ctx, ethClient, dataSetId)
+func skipCurrentOnChainProvingPeriod(ctx context.Context, tx *harmonydb.Tx, provingSchedule *contract.IPDPProvingSchedule, dataSetId int64, currentHeight int64) error {
+	challengeEpoch, err := getProvingScheduleNextChallengeWindowStart(ctx, provingSchedule, dataSetId)
 	if err != nil {
 		return err
 	}
@@ -546,7 +545,7 @@ func (n *NextProvingPeriodTask) handleNextProvingPeriodPreflightError(ctx contex
 	}
 }
 
-func handleNextProvingPeriodSendError(ctx context.Context, tx *harmonydb.Tx, ethClient ethchain.EthClient, al curioalerting.AlertingInterface, alertSubsystem string, dataSetId int64, currentHeight int64, sendErr error) error {
+func handleNextProvingPeriodSendError(ctx context.Context, tx *harmonydb.Tx, provingSchedule *contract.IPDPProvingSchedule, al curioalerting.AlertingInterface, alertSubsystem string, dataSetId int64, currentHeight int64, sendErr error) error {
 	switch {
 	case IsInsufficientChallengeDelayError(sendErr):
 		// The challenge epoch was too close to the current block. Retry the
@@ -572,7 +571,7 @@ func handleNextProvingPeriodSendError(ctx context.Context, tx *harmonydb.Tx, eth
 		// the nextPP watcher can pick up after this proving window closes.
 		log.Warnw("Proving period scheduling hit an already-applied period transition",
 			"dataSetId", dataSetId, "subsystem", alertSubsystem, "height", currentHeight, "error", sendErr)
-		if err := skipCurrentOnChainProvingPeriod(ctx, tx, ethClient, dataSetId, currentHeight); err != nil {
+		if err := skipCurrentOnChainProvingPeriod(ctx, tx, provingSchedule, dataSetId, currentHeight); err != nil {
 			return xerrors.Errorf("failed to skip current on-chain proving period: %w", err)
 		}
 		return nil

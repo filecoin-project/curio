@@ -12,7 +12,7 @@ import (
 
 	"github.com/filecoin-project/curio/alertmanager/curioalerting"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/curio/lib/ethchain"
+	"github.com/filecoin-project/curio/pdp/contract"
 )
 
 var failureHandlingTestSeq int64
@@ -139,14 +139,14 @@ func TestIntegration_HandleNextProvingPeriodSendError_SkipCurrentPeriodReconcile
 	dataSetID := insertFailureHandlingDataSet(t, ctx, db, initialState)
 	alerts := &recordingAlerting{}
 	var calls int
-	oldGetNextChallengeEpoch := getPDPVerifierNextChallengeEpoch
-	getPDPVerifierNextChallengeEpoch = func(_ context.Context, _ ethchain.EthClient, gotDataSetID int64) (*big.Int, error) {
+	oldGetNextChallengeEpoch := getProvingScheduleNextChallengeWindowStart
+	getProvingScheduleNextChallengeWindowStart = func(_ context.Context, _ *contract.IPDPProvingSchedule, gotDataSetID int64) (*big.Int, error) {
 		calls++
 		require.Equal(t, dataSetID, gotDataSetID)
 		return big.NewInt(5200), nil
 	}
 	t.Cleanup(func() {
-		getPDPVerifierNextChallengeEpoch = oldGetNextChallengeEpoch
+		getProvingScheduleNextChallengeWindowStart = oldGetNextChallengeEpoch
 	})
 	sendErr := selectorRevert(contractErrorSelector(ErrFWSSNextProvingPeriodAlreadyCalled))
 	currentHeight := int64(4400)

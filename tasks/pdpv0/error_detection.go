@@ -56,105 +56,91 @@ func init() {
 		panic("failed to parse PDPVerifier ABI: " + err.Error())
 	}
 
-	dataSetNotFound, ok := parsedPDPVerifier.Errors["DataSetNotFound"]
+	var ok bool
+	ErrPDPVerifierDataSetNotFound, ok = parsedPDPVerifier.Errors["DataSetNotFound"]
 	if !ok {
 		panic("PDPVerifier ABI missing DataSetNotFound error")
 	}
-	ErrPDPVerifierDataSetNotFound = dataSetNotFound
 
-	dataSetNotLive, ok := parsedPDPVerifier.Errors["DataSetNotLive"]
+	ErrPDPVerifierDataSetNotLive, ok = parsedPDPVerifier.Errors["DataSetNotLive"]
 	if !ok {
 		panic("PDPVerifier ABI missing DataSetNotLive error")
 	}
-	ErrPDPVerifierDataSetNotLive = dataSetNotLive
 
-	insufficientChallengeDelay, ok := parsedPDPVerifier.Errors["InsufficientChallengeDelay"]
+	ErrPDPVerifierInsufficientChallengeDelay, ok = parsedPDPVerifier.Errors["InsufficientChallengeDelay"]
 	if !ok {
 		panic("PDPVerifier ABI missing InsufficientChallengeDelay error")
 	}
-	ErrPDPVerifierInsufficientChallengeDelay = insufficientChallengeDelay
 
-	excessiveChallengeDelay, ok := parsedPDPVerifier.Errors["ExcessiveChallengeDelay"]
+	ErrPDPVerifierExcessiveChallengeDelay, ok = parsedPDPVerifier.Errors["ExcessiveChallengeDelay"]
 	if !ok {
 		panic("PDPVerifier ABI missing ExcessiveChallengeDelay error")
 	}
-	ErrPDPVerifierExcessiveChallengeDelay = excessiveChallengeDelay
 
 	parsedFWSS, err := FWSS.FilecoinWarmStorageServiceMetaData.GetAbi()
 	if err != nil {
 		panic("failed to parse FWSS ABI: " + err.Error())
 	}
 
-	beyondEndEpoch, ok := parsedFWSS.Errors["DataSetPaymentBeyondEndEpoch"]
+	ErrFWSSDataSetPaymentBeyondEndEpoch, ok = parsedFWSS.Errors["DataSetPaymentBeyondEndEpoch"]
 	if !ok {
 		panic("FWSS ABI missing DataSetPaymentBeyondEndEpoch error")
 	}
-	ErrFWSSDataSetPaymentBeyondEndEpoch = beyondEndEpoch
 
-	alreadyTerminated, ok := parsedFWSS.Errors["DataSetPaymentAlreadyTerminated"]
+	ErrFWSSDataSetPaymentAlreadyTerminated, ok = parsedFWSS.Errors["DataSetPaymentAlreadyTerminated"]
 	if !ok {
 		panic("FWSS ABI missing DataSetPaymentAlreadyTerminated error")
 	}
-	ErrFWSSDataSetPaymentAlreadyTerminated = alreadyTerminated
 
-	onlyPDPVerifierAllowed, ok := parsedFWSS.Errors["OnlyPDPVerifierAllowed"]
+	ErrFWSSOnlyPDPVerifierAllowed, ok = parsedFWSS.Errors["OnlyPDPVerifierAllowed"]
 	if !ok {
 		panic("FWSS ABI missing OnlyPDPVerifierAllowed error")
 	}
-	ErrFWSSOnlyPDPVerifierAllowed = onlyPDPVerifierAllowed
 
-	proofAlreadySubmitted, ok := parsedFWSS.Errors["ProofAlreadySubmitted"]
+	ErrFWSSProofAlreadySubmitted, ok = parsedFWSS.Errors["ProofAlreadySubmitted"]
 	if !ok {
 		panic("FWSS ABI missing ProofAlreadySubmitted error")
 	}
-	ErrFWSSProofAlreadySubmitted = proofAlreadySubmitted
 
-	invalidChallengeCount, ok := parsedFWSS.Errors["InvalidChallengeCount"]
+	ErrFWSSInvalidChallengeCount, ok = parsedFWSS.Errors["InvalidChallengeCount"]
 	if !ok {
 		panic("FWSS ABI missing InvalidChallengeCount error")
 	}
-	ErrFWSSInvalidChallengeCount = invalidChallengeCount
 
-	provingNotStarted, ok := parsedFWSS.Errors["ProvingNotStarted"]
+	ErrFWSSProvingNotStarted, ok = parsedFWSS.Errors["ProvingNotStarted"]
 	if !ok {
 		panic("FWSS ABI missing ProvingNotStarted error")
 	}
-	ErrFWSSProvingNotStarted = provingNotStarted
 
-	challengeWindowTooEarly, ok := parsedFWSS.Errors["ChallengeWindowTooEarly"]
+	ErrFWSSChallengeWindowTooEarly, ok = parsedFWSS.Errors["ChallengeWindowTooEarly"]
 	if !ok {
 		panic("FWSS ABI missing ChallengeWindowTooEarly error")
 	}
-	ErrFWSSChallengeWindowTooEarly = challengeWindowTooEarly
 
-	provingPeriodPassed, ok := parsedFWSS.Errors["ProvingPeriodPassed"]
+	ErrFWSSProvingPeriodPassed, ok = parsedFWSS.Errors["ProvingPeriodPassed"]
 	if !ok {
 		panic("FWSS ABI missing ProvingPeriodPassed error")
 	}
-	ErrFWSSProvingPeriodPassed = provingPeriodPassed
 
-	invalidChallengeEpoch, ok := parsedFWSS.Errors["InvalidChallengeEpoch"]
+	ErrFWSSInvalidChallengeEpoch, ok = parsedFWSS.Errors["InvalidChallengeEpoch"]
 	if !ok {
 		panic("FWSS ABI missing InvalidChallengeEpoch error")
 	}
-	ErrFWSSInvalidChallengeEpoch = invalidChallengeEpoch
 
-	nextProvingPeriodAlreadyCalled, ok := parsedFWSS.Errors["NextProvingPeriodAlreadyCalled"]
+	ErrFWSSNextProvingPeriodAlreadyCalled, ok = parsedFWSS.Errors["NextProvingPeriodAlreadyCalled"]
 	if !ok {
 		panic("FWSS ABI missing NextProvingPeriodAlreadyCalled error")
 	}
-	ErrFWSSNextProvingPeriodAlreadyCalled = nextProvingPeriodAlreadyCalled
 
 	parsedFWSSStateView, err := FWSS.FilecoinWarmStorageServiceStateViewMetaData.GetAbi()
 	if err != nil {
 		panic("failed to parse FWSS state view ABI: " + err.Error())
 	}
 
-	provingPeriodNotInitialized, ok := parsedFWSSStateView.Errors["ProvingPeriodNotInitialized"]
+	ErrFWSSProvingPeriodNotInitialized, ok = parsedFWSSStateView.Errors["ProvingPeriodNotInitialized"]
 	if !ok {
 		panic("FWSS state view ABI missing ProvingPeriodNotInitialized error")
 	}
-	ErrFWSSProvingPeriodNotInitialized = provingPeriodNotInitialized
 }
 
 func contractErrorSelector(errDef abi.Error) string {
