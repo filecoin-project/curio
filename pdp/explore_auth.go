@@ -12,6 +12,8 @@ const exploreDataSetsPathPrefix = "/explore/data-sets/"
 // Membership is public on-chain and piece bytes are served at /piece/{cid};
 // this accepts either a valid service JWT or a Referer from the explorer UI
 // so the list endpoint is clearly not meant as a public catalog API.
+// Callers should record OffenseExploreListUnauth on deny so scrapers hit the
+// shared PDP IP offense throttle.
 func (p *PDPService) allowExploreList(r *http.Request) bool {
 	if _, err := p.AuthService(r); err == nil {
 		return true

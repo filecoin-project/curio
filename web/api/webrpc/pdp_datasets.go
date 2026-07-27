@@ -540,7 +540,7 @@ func (a *WebRPC) dataSetInteractions(ctx context.Context, id int64) ([]PDPDataSe
 		TxHash     string         `db:"tx_hash"`
 		SendReason sql.NullString `db:"send_reason"`
 		SendTime   time.Time      `db:"send_time"`
-		Success    sql.NullBool   `db:"send_success"`
+		Success    sql.NullBool   `db:"tx_success"`
 	}
 
 	// Cap piece-add hashes — joining every historical add against message_sends_eth
@@ -549,6 +549,8 @@ func (a *WebRPC) dataSetInteractions(ctx context.Context, id int64) ([]PDPDataSe
 	// Restrict to send_success=TRUE so the planner can use the existing partial
 	// idx_message_sends_eth_signed_hash_norm (reorg-check index). Dataset-linked
 	// hashes are from broadcast sends, so this matches what we want to show.
+	// Interaction Success is on-chain outcome (message_waits_eth.tx_success), not
+	// broadcast success (message_sends_eth.send_success).
 	var txs []txRow
 	err := a.Deps.DB.Select(ctx, &txs, `
 		WITH hashes AS (
@@ -580,12 +582,14 @@ func (a *WebRPC) dataSetInteractions(ctx context.Context, id int64) ([]PDPDataSe
 		SELECT mse.signed_hash AS tx_hash,
 		       mse.send_reason,
 		       mse.send_time,
-		       mse.send_success
+		       mwe.tx_success
 		FROM hashes h
 		JOIN message_sends_eth mse
 		  ON mse.send_success = TRUE
 		 AND mse.signed_hash IS NOT NULL
 		 AND LOWER(TRIM(BOTH FROM mse.signed_hash)) = h.h
+		LEFT JOIN message_waits_eth mwe
+		  ON mwe.signed_tx_hash = h.h
 		ORDER BY mse.send_time DESC
 		LIMIT 10`, id)
 	if err != nil {

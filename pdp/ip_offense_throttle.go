@@ -15,6 +15,10 @@ import (
 // terminated data set.
 const OffenseBadDataSetAdd = "bad_dataset_add"
 
+// OffenseExploreListUnauth is recorded when the explore pieces list is
+// requested without a valid service JWT or explorer Referer.
+const OffenseExploreListUnauth = "explore_list_unauth"
+
 // IPOffensePolicy configures per-offense IP throttling.
 type IPOffensePolicy struct {
 	Hits   int
@@ -107,6 +111,12 @@ func defaultIPOffensePolicies() map[string]IPOffensePolicy {
 			Window: time.Minute,
 			Block:  5 * time.Minute,
 			Reason: "too many requests for unavailable data sets",
+		},
+		OffenseExploreListUnauth: {
+			Hits:   5,
+			Window: time.Minute,
+			Block:  5 * time.Minute,
+			Reason: "too many unauthorized explore list requests",
 		},
 	}
 }

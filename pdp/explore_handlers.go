@@ -76,10 +76,14 @@ func (p *PDPService) handleExploreDataSetPage(w http.ResponseWriter, r *http.Req
 
 // handleExploreDataSetPieces lists pieces for the dataset explorer UI.
 // Soft-gated: valid service JWT or Referer from /explore/data-sets/.
+// Denied requests count toward IP offense throttling.
 func (p *PDPService) handleExploreDataSetPieces(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	if !p.allowExploreList(r) {
+		if p.recordIPOffense(w, r, OffenseExploreListUnauth) {
+			return
+		}
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
