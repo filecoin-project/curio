@@ -217,25 +217,30 @@ func (a *WebRPC) PDPDataSetList(ctx context.Context, limit, offset int, filter, 
 	sortBy = normalizeDataSetSortBy(sortBy)
 
 	filter = strings.TrimSpace(filter)
-	net, _ := a.NetSummary(ctx)
-	head := net.Epoch
+	head := a.chainHeadEpoch(ctx)
 
 	if looksLikeEthAddress(filter) {
 		addr := common.HexToAddress(filter)
-		total, terr := a.clientDataSetTotal(ctx, addr)
+		// Map payer → dataset IDs on-chain, then keep only datasets this SP has in DB.
+		onChainTotal, terr := a.clientDataSetTotal(ctx, addr)
 		if terr != nil {
 			return out, terr
 		}
-		out.Total = total
-		if total == 0 {
+		if onChainTotal == 0 {
 			return out, nil
 		}
-		// Fetch all client dataset IDs so DB sort/pagination can apply across the full set.
-		ids, err := a.clientDataSetIDs(ctx, addr, 0, total)
+		ids, err := a.clientDataSetIDs(ctx, addr, 0, onChainTotal)
 		if err != nil {
 			return out, err
 		}
 		if len(ids) == 0 {
+			return out, nil
+		}
+		err = a.Deps.DB.QueryRow(ctx, `SELECT COUNT(*) FROM pdp_data_sets WHERE id = ANY($1)`, ids).Scan(&out.Total)
+		if err != nil {
+			return out, xerrors.Errorf("count datasets by wallet: %w", err)
+		}
+		if out.Total == 0 {
 			return out, nil
 		}
 		rows, err := a.selectDataSetStatsByIDsPage(ctx, ids, limit, offset, sortBy, ascending)
@@ -406,10 +411,7 @@ func (a *WebRPC) PDPDataSetDetail(ctx context.Context, id int64) (*PDPDataSetDet
 		detail.LifespanSeconds = &secs
 	}
 
-	net, netErr := a.NetSummary(ctx)
-	if netErr == nil {
-		detail.HeadEpoch = net.Epoch
-	}
+	detail.HeadEpoch = a.chainHeadEpoch(ctx)
 	detail.ProvingStatus = provingStatusLabel(row.ProveAtEpoch, row.ChallengeWindow, row.ConsecutiveProveFailures, row.UnrecoverableFailureEpoch, detail.HeadEpoch)
 
 	if base, err := urlhelper.GetExternalURL(&a.Deps.Cfg.HTTP); err == nil && base != nil && strings.TrimSpace(base.Host) != "" {
@@ -429,9 +431,7 @@ func (a *WebRPC) PDPDataSetPayments(ctx context.Context, id int64) (*PDPDataSetP
 		LockupPeriod:     "—",
 		PaymentRate:      "—",
 	}
-	if net, err := a.NetSummary(ctx); err == nil {
-		out.HeadEpoch = net.Epoch
-	}
+	out.HeadEpoch = a.chainHeadEpoch(ctx)
 
 	// Bound chain RPCs so a stuck eth client cannot hang the UI forever.
 	chainCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
@@ -649,6 +649,7 @@ func (a *WebRPC) dataSetInteractions(ctx context.Context, id int64) ([]PDPDataSe
 		// Completed proves: recover dataset from err text ("dataset <id>") over a
 		// name+time window that can use harmony_task_history work_end/name indexes.
 		// Filter in Go — ILIKE '%dataset N%' can't use those indexes well either.
+		// Successful completed proves have empty err so they cannot be recovered here.
 		var recent []proveRow
 		err = a.Deps.DB.Select(ctx, &recent, `
 			SELECT h.task_id,
@@ -695,6 +696,16 @@ func (a *WebRPC) dataSetInteractions(ctx context.Context, id int64) ([]PDPDataSe
 		out = out[:10]
 	}
 	return out, nil
+}
+
+// chainHeadEpoch returns the Filecoin head height for proving-status labels.
+// Prefer this over NetSummary, which aggregates peers/bandwidth across all nodes.
+func (a *WebRPC) chainHeadEpoch(ctx context.Context) int64 {
+	head, err := a.Deps.Chain.ChainHead(ctx)
+	if err != nil || head == nil {
+		return 0
+	}
+	return int64(head.Height())
 }
 
 func (a *WebRPC) fwssView(ctx context.Context) (*FWSS.FilecoinWarmStorageServiceStateView, error) {

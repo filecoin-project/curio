@@ -12,7 +12,10 @@ import (
 func TestHandleExploreDataSetPiecesAuthGate(t *testing.T) {
 	t.Parallel()
 
-	p := &PDPService{Auth: &stubAuth{err: http.ErrNoCookie}}
+	p := &PDPService{
+		Auth:              &stubAuth{err: http.ErrNoCookie},
+		ipOffenseThrottle: NewIPOffenseThrottle(defaultIPOffensePolicies()),
+	}
 	r := chi.NewRouter()
 	mountExploreRoutes(r, p)
 

@@ -259,6 +259,9 @@ func respondIPThrottled(w http.ResponseWriter, retryAfter time.Duration, reason 
 }
 
 func (p *PDPService) recordIPOffense(w http.ResponseWriter, r *http.Request, offense string) bool {
+	if p.ipOffenseThrottle == nil {
+		return false
+	}
 	blocked, retryAfter, reason := p.ipOffenseThrottle.Record(r, offense)
 	if !blocked {
 		return false

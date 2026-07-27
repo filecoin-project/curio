@@ -39,11 +39,12 @@ func (a *WebRPC) PDPProvingStatus(ctx context.Context) (PDPProvingStatus, error)
 	head := net.Epoch
 
 	var rows []struct {
-		ProveAtEpoch    sql.NullInt64 `db:"prove_at_epoch"`
-		ChallengeWindow sql.NullInt64 `db:"challenge_window"`
+		ProveAtEpoch       sql.NullInt64 `db:"prove_at_epoch"`
+		ChallengeWindow    sql.NullInt64 `db:"challenge_window"`
+		NextProveAttemptAt sql.NullInt64 `db:"next_prove_attempt_at"`
 	}
 	err = a.Deps.DB.Select(ctx, &rows, `
-		SELECT prove_at_epoch, challenge_window
+		SELECT prove_at_epoch, challenge_window, next_prove_attempt_at
 		FROM pdp_data_sets
 		WHERE unrecoverable_proving_failure_epoch IS NULL
 		  AND prove_at_epoch IS NOT NULL`)
@@ -69,6 +70,19 @@ func (a *WebRPC) PDPProvingStatus(ctx context.Context) (PDPProvingStatus, error)
 			window = row.ChallengeWindow.Int64
 		}
 		deadline := start + window
+
+		// Schedulers skip datasets until next_prove_attempt_at; stale prove_at_epoch
+		// during backoff must not look like an open/overdue window.
+		if row.NextProveAttemptAt.Valid && row.NextProveAttemptAt.Int64 > head {
+			backoffAt := row.NextProveAttemptAt.Int64
+			if soonestFutureStart == nil || backoffAt < *soonestFutureStart {
+				v := backoffAt
+				soonestFutureStart = &v
+				d := backoffAt + window
+				soonestFutureDeadline = &d
+			}
+			continue
+		}
 
 		switch {
 		case head >= start && head <= deadline:
@@ -145,8 +159,10 @@ type PDPProvingFailure struct {
 
 func (a *WebRPC) PDPProvingTimeline24h(ctx context.Context) ([]PDPProvingTimelineEvent, error) {
 	var events []PDPProvingTimelineEvent
-	// pdp_prove_tasks only exists while the task is in-flight (CASCADE on completion).
-	// For completed tasks, recover data_set from the error text when present.
+	// Identify prove outcomes from harmony_task_history alone:
+	// success = result true with empty err; failures carry dataset id in err text.
+	// Do not join pdp_prove_tasks for completed work — that row CASCADE-deletes with
+	// harmony_task, so the join only helps for still in-flight proves.
 	err := a.Deps.DB.Select(ctx, &events, `
 		SELECT h.task_id, COALESCE(pt.data_set, 0) AS data_set,
 		       (h.result AND (h.err IS NULL OR h.err = '')) AS result,
@@ -201,6 +217,7 @@ func (a *WebRPC) PDPProvingFailures(ctx context.Context) ([]PDPProvingFailure, e
 		       unrecoverable_proving_failure_epoch, prove_at_epoch, challenge_window
 		FROM pdp_data_sets
 		WHERE consecutive_prove_failures > 0
+		   OR next_prove_attempt_at IS NOT NULL
 		   OR unrecoverable_proving_failure_epoch IS NOT NULL
 		ORDER BY consecutive_prove_failures DESC, id ASC
 		LIMIT 200`)
@@ -209,7 +226,8 @@ func (a *WebRPC) PDPProvingFailures(ctx context.Context) ([]PDPProvingFailure, e
 	}
 
 	// Recent prove history with errors. Dataset ID is recovered from err text
-	// (Do() wraps failures as "... dataset <id>: ...") — no need to retain pdp_prove_tasks.
+	// (Do() wraps failures as "... dataset <id>: ...") — pdp_prove_tasks is gone
+	// after completion.
 	type histRow struct {
 		TaskID    int64     `db:"task_id"`
 		DataSetID int64     `db:"data_set"`
@@ -275,6 +293,8 @@ func (a *WebRPC) PDPProvingFailures(ctx context.Context) ([]PDPProvingFailure, e
 			f.Reason = "unrecoverable proving failure"
 		} else if ds.ConsecutiveProveFailures > 0 {
 			f.Reason = "consecutive prove failures"
+		} else if ds.NextProveAttemptAt.Valid {
+			f.Reason = "prove retry backoff"
 		}
 
 		if last, ok := lastByDataSet[ds.ID]; ok {
@@ -297,7 +317,29 @@ func (a *WebRPC) PDPProvingFailures(ctx context.Context) ([]PDPProvingFailure, e
 		out = append(out, f)
 	}
 
-	// True harmony failures that could not be tied to an unhealthy dataset row.
+	// Recent prove history failures for datasets that are no longer marked unhealthy
+	// (consecutive reset / never counted). One failed attempt is enough to surface.
+	for dsID, last := range lastByDataSet {
+		if _, ok := seen[dsID]; ok {
+			continue
+		}
+		tid := last.TaskID
+		we := last.WorkEnd
+		f := PDPProvingFailure{
+			DataSetID: dsID,
+			TaskID:    &tid,
+			Err:       last.Err,
+			WorkEnd:   &we,
+			Reason:    "prove task failed",
+		}
+		if f.Err == "" {
+			f.Err = "prove task failed"
+		}
+		seen[dsID] = struct{}{}
+		out = append(out, f)
+	}
+
+	// True harmony failures that could not be tied to a dataset id.
 	for _, ft := range orphanFailed {
 		f := PDPProvingFailure{
 			TaskID:  &ft.TaskID,
@@ -368,6 +410,8 @@ func synthesizeProvingFailureErr(f PDPProvingFailure) string {
 		return fmt.Sprintf("%d consecutive prove failure(s); backoff until epoch %d", f.ConsecutiveProveFailures, *f.NextProveAttemptAt)
 	case f.ConsecutiveProveFailures > 0:
 		return fmt.Sprintf("%d consecutive prove failure(s)", f.ConsecutiveProveFailures)
+	case f.NextProveAttemptAt != nil:
+		return fmt.Sprintf("prove retry backoff until epoch %d", *f.NextProveAttemptAt)
 	default:
 		return "dataset needs proving attention"
 	}

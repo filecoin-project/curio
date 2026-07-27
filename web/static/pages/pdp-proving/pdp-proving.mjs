@@ -138,7 +138,9 @@ customElements.define('pdp-proving', class PdpProving extends LitElement {
               label: (item) => {
                 const raw = item.raw || {}
                 const kind = item.dataset.label
-                const ds = raw.dataSetId ? `dataset ${raw.dataSetId}` : 'dataset ?'
+                const ds = raw.dataSetId
+                  ? `dataset ${raw.dataSetId}`
+                  : (kind === 'Success' ? 'prove ok' : 'dataset ?')
                 const task = raw.taskId ? `task ${raw.taskId}` : ''
                 const err = raw.err ? ` — ${raw.err}` : ''
                 return `${kind}: ${ds} ${task}${err}`
