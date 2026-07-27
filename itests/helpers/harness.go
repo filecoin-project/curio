@@ -25,13 +25,13 @@ import (
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/ffiselect"
+	"github.com/filecoin-project/curio/lib/shutdown"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/tasks/seal"
 
 	lapi "github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/api/v1api"
-	"github.com/filecoin-project/lotus/node"
 )
 
 type CurioLogLevel struct {
@@ -72,15 +72,8 @@ func StartCurioHarness(
 	cctx, err := CreateCliContext(dir, opts.Layers)
 	require.NoError(t, err)
 
+	runCtx, cancel := context.WithCancel(context.Background())
 	shutdownChan := make(chan struct{})
-	{
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithCancel(ctx)
-		go func() {
-			<-shutdownChan
-			cancel()
-		}()
-	}
 
 	dependencies := &deps.Deps{
 		DB:         db,
@@ -89,22 +82,28 @@ func StartCurioHarness(
 	}
 
 	require.NoError(t, os.Setenv("CURIO_REPO_PATH", dir))
-	require.NoError(t, dependencies.PopulateRemainingDeps(ctx, cctx, false))
+	require.NoError(t, dependencies.PopulateRemainingDeps(runCtx, cctx, false))
 
-	taskEngine, err := tasks.StartTasks(ctx, dependencies, shutdownChan)
+	taskEngine, err := tasks.StartTasks(runCtx, dependencies, shutdownChan)
 	require.NoError(t, err)
 
 	go func() {
-		err := rpc.ListenAndServe(ctx, dependencies, shutdownChan)
+		err := rpc.ListenAndServe(runCtx, dependencies, shutdownChan)
 		if err != nil {
 			t.Errorf("failed to start the Curio RPC server: %v", err)
 		}
 	}()
 
-	finishCh := node.MonitorShutdown(shutdownChan)
+	finishCh := shutdown.MonitorShutdown(shutdownChan, shutdown.ShutdownHandler{
+		Component: "curio",
+		StopFunc: func(context.Context) error {
+			cancel()
+			return nil
+		},
+	})
 
 	var machines []string
-	require.NoError(t, db.Select(ctx, &machines, `select host_and_port from harmony_machines`))
+	require.NoError(t, db.Select(runCtx, &machines, `select host_and_port from harmony_machines`))
 	require.Len(t, machines, 1)
 	WaitForTCP(t, machines[0], 30*time.Second)
 
@@ -138,8 +137,8 @@ func StartCurioHarness(
 		AllowTo:    []string{},
 	}
 
-	require.NoError(t, capi.StorageInit(ctx, dir, scfg))
-	require.NoError(t, capi.StorageAddLocal(ctx, dir))
+	require.NoError(t, capi.StorageInit(runCtx, dir, scfg))
+	require.NoError(t, capi.StorageAddLocal(runCtx, dir))
 
 	for _, ll := range opts.LogLevels {
 		_ = logging.SetLogLevel(ll.Subsystem, ll.Level)

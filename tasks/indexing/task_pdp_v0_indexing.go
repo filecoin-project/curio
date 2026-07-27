@@ -212,33 +212,30 @@ func (P *PDPIndexingV0Task) schedule(_ context.Context, taskFunc harmonytask.Add
 		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
 			stop = true // assume we're done until we find a task to schedule
 
-			var pendings []struct {
-				ID int64 `db:"id"`
-			}
-
-			err := tx.Select(&pendings, `SELECT id FROM pdp_piecerefs 
-            										WHERE indexing_task_id IS NULL
-            										AND needs_indexing = TRUE
-													ORDER BY created_at ASC LIMIT 1;`)
-			if err != nil {
-				return false, xerrors.Errorf("getting PDP pending indexing tasks: %w", err)
-			}
-
-			if len(pendings) == 0 {
-				log.Debug("No pending PDP indexing tasks found")
-				return false, nil
-			}
-
-			pending := pendings[0]
-			n, err := tx.Exec(`UPDATE pdp_piecerefs SET indexing_task_id = $1
-                             WHERE indexing_task_id IS NULL AND id = $2`, id, pending.ID)
+			n, err := tx.Exec(`WITH pending AS (
+					SELECT id
+					FROM pdp_piecerefs
+					WHERE indexing_task_id IS NULL
+					  AND needs_indexing = TRUE
+					ORDER BY created_at ASC
+					LIMIT 1
+				)
+				UPDATE pdp_piecerefs p
+				SET indexing_task_id = $1
+				FROM pending
+				WHERE p.id = pending.id
+				  AND p.indexing_task_id IS NULL
+				  AND p.needs_indexing = TRUE`, id)
 			if err != nil {
 				return false, xerrors.Errorf("updating PDP indexing task id: %w", err)
 			}
 			if n == 0 {
-				return false, nil // Another task already claimed this piece
+				log.Debug("No pending PDP indexing tasks found")
+				return false, nil
 			}
-			log.Debugf("PDP indexing task scheduled for pending indexing task %d", pending.ID)
+			if n != 1 {
+				return false, xerrors.Errorf("updated %d rows assigning PDP indexing task", n)
+			}
 
 			stop = false
 			return true, nil

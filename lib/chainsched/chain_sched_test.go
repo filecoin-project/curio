@@ -101,6 +101,26 @@ func TestAddHandlerConcurrency(t *testing.T) {
 	require.Len(t, sched.callbacks, 10)
 }
 
+func TestHasSubscribers(t *testing.T) {
+	sched := New(&mockNodeAPI{
+		notifCh: make(chan []*api.HeadChange),
+	})
+	require.False(t, sched.HasSubscribers())
+
+	require.NoError(t, sched.AddHandler(func(ctx context.Context, revert, apply *types.TipSet) error {
+		return nil
+	}))
+	require.True(t, sched.HasSubscribers())
+
+	sched = New(&mockNodeAPI{
+		notifCh: make(chan []*api.HeadChange),
+	})
+	require.NoError(t, sched.AddWatcher(func(ctx context.Context, revert, apply *types.TipSet) error {
+		return nil
+	}))
+	require.True(t, sched.HasSubscribers())
+}
+
 func TestAddHandlerAfterStart(t *testing.T) {
 	mockAPI := &mockNodeAPI{
 		notifCh: make(chan []*api.HeadChange),

@@ -3159,6 +3159,12 @@
       "translation": "목표 상태: true (봉인 해제 보장), false (봉인 해제 사본 없음 보장)",
       "message": "Target state: true (ensure unsealed), false (ensure no unsealed copy)",
       "placeholder": null
+    },
+    {
+      "id": "Open the database in read-only mode (skip schema upgrades and harmony_machines writes)",
+      "translation": "데이터베이스를 읽기 전용 모드로 엽니다 (스키마 업그레이드 및 harmony_machines 쓰기 건너뛰기)",
+      "message": "Open the database in read-only mode (skip schema upgrades and harmony_machines writes)",
+      "placeholder": null
     }
   ]
 }

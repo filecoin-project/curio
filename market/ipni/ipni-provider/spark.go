@@ -1,3 +1,5 @@
+//go:build !skiff
+
 package ipni_provider
 
 import (
@@ -248,4 +250,10 @@ func (p *Provider) getSparkParams(miner abi.ActorID, newPeer string, key crypto.
 	}
 
 	return actors.SerializeParams(new(abi.CborBytes(data)))
+}
+
+func (p *Provider) maybeUpdateSparkContract(ctx context.Context) {
+	if err := p.updateSparkContract(ctx); err != nil {
+		log.Errorw("failed to update ipni provider peer mapping", "err", err)
+	}
 }

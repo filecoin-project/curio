@@ -32,6 +32,13 @@ func (d *deadConn) SendMessage([]byte) error        { return fmt.Errorf("dead") 
 func (d *deadConn) ReceiveMessage() ([]byte, error) { return nil, fmt.Errorf("dead") }
 func (d *deadConn) Close() error                    { return nil }
 
+// testInspector supplies fixed capacity without probing GPUs/FFI.
+type testInspector struct{}
+
+func (testInspector) GetResources() (resources.Resources, error) {
+	return resources.Resources{Cpu: 32, Gpu: 0, Ram: 64 << 30}, nil
+}
+
 type testTask struct {
 	name          string
 	cost          resources.Resources
@@ -155,7 +162,7 @@ func cleanupTasks(tasks ...*testTask) func() {
 
 func makeEngine(t *testing.T, db *harmonydb.DB, impls []harmonytask.TaskInterface, host string) *harmonytask.TaskEngine {
 	t.Helper()
-	e, err := harmonytask.New(db, impls, host, &deadPeerConnector{})
+	e, err := harmonytask.New(db, impls, host, &deadPeerConnector{}, testInspector{})
 	require.NoError(t, err)
 	t.Cleanup(func() { e.GracefullyTerminate() })
 	return e
@@ -174,7 +181,7 @@ func makeEngineWithResources(t *testing.T, db *harmonydb.DB, impls []harmonytask
 
 func makeEngineWithPeering(t *testing.T, db *harmonydb.DB, impls []harmonytask.TaskInterface, host string, connector harmonytask.PeerConnectorInterface) *harmonytask.TaskEngine {
 	t.Helper()
-	e, err := harmonytask.New(db, impls, host, connector)
+	e, err := harmonytask.New(db, impls, host, connector, testInspector{})
 	require.NoError(t, err)
 	t.Cleanup(func() { e.GracefullyTerminate() })
 	return e
@@ -1154,7 +1161,7 @@ func TestContextCancellationOnGracefulShutdown(t *testing.T) {
 	}
 	t.Cleanup(cleanupTasks(blocker))
 
-	e, err := harmonytask.New(db, []harmonytask.TaskInterface{blocker}, "shutdown:1000", &deadPeerConnector{})
+	e, err := harmonytask.New(db, []harmonytask.TaskInterface{blocker}, "shutdown:1000", &deadPeerConnector{}, testInspector{})
 	require.NoError(t, err)
 	// Do NOT call GracefullyTerminate via Cleanup - we call it explicitly.
 	e.TestONLY_SetPollDuration(200 * time.Millisecond)

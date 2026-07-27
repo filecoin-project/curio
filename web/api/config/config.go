@@ -1,7 +1,6 @@
 package config
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -9,7 +8,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/BurntSushi/toml"
 	"github.com/gorilla/mux"
 	"github.com/invopop/jsonschema"
 	logging "github.com/ipfs/go-log/v2"
@@ -22,6 +20,10 @@ import (
 )
 
 var log = logging.Logger("config-ui")
+
+// durationPattern validates Go time.ParseDuration strings (e.g. "1h30m", "1m1s", "30s").
+// Each clause is optional, but at least one number+unit pair is required.
+const durationPattern = `^(\d+(\.\d+)?(h|m|s|ms|us|µs|ns))+$`
 
 type cfg struct {
 	*deps.Deps
@@ -72,14 +74,15 @@ func getSch(w http.ResponseWriter, r *http.Request) {
 			}
 			if i == reflect.TypeFor[time.Duration]() { // Override the Pattern for duration
 				return &jsonschema.Schema{
-					Type:    "string",
-					Pattern: "0h0m0s",
+					Type:        "string",
+					Pattern:     durationPattern,
+					Description: `Go duration string (e.g. "1h30m", "1m1s", "30s"); components may be omitted when zero`,
 				}
 			}
 			return nil
 		},
 	}
-	sch := ref.Reflect(config.UnwrapDynamics(config.CurioConfig{}))
+	sch := ref.Reflect(uiSchemaRoot())
 
 	// Helper to add comments to a schema's properties
 	addComments := func(targetSchema *jsonschema.Schema, docEntries []config.DocField) {
@@ -113,10 +116,7 @@ func getSch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Add comments to inline schemas in root Properties (like Ingest -> CurioIngestConfig)
-	// Map root property names to their corresponding Doc key
-	inlineSchemaMap := map[string]string{
-		"Ingest": "CurioIngestConfig",
-	}
+	inlineSchemaMap := uiInlineSchemaDocMap()
 	for propName, docKey := range inlineSchemaMap {
 		if prop, ok := sch.Properties.Get(propName); ok {
 			if doc, ok := config.Doc[docKey]; ok {
@@ -169,19 +169,15 @@ func (c *cfg) getLayers(w http.ResponseWriter, r *http.Request) {
 }
 
 func (c *cfg) getLayer(w http.ResponseWriter, r *http.Request) {
-	var layer string
-	apihelper.OrHTTPFail(w, c.DB.QueryRow(context.Background(), `SELECT config FROM harmony_config WHERE title = $1`, mux.Vars(r)["layer"]).Scan(&layer))
+	var layerToml string
+	apihelper.OrHTTPFail(w, c.DB.QueryRow(context.Background(), `SELECT config FROM harmony_config WHERE title = $1`, mux.Vars(r)["layer"]).Scan(&layerToml))
 
-	// Read the TOML into a struct
-	configStruct := map[string]any{} // NOT CurioConfig b/c we want to preserve unsets
-	_, err := toml.Decode(layer, &configStruct)
+	configStruct, err := uiLayerJSON(layerToml)
 	apihelper.OrHTTPFail(w, err)
 
-	// Encode the struct as JSON
 	jsonData, err := json.Marshal(configStruct)
 	apihelper.OrHTTPFail(w, err)
 
-	// Write the JSON response
 	w.Header().Set("Content-Type", "application/json")
 	_, err = w.Write(jsonData)
 	apihelper.OrHTTPFail(w, err)
@@ -194,24 +190,11 @@ func (c *cfg) setLayer(w http.ResponseWriter, r *http.Request) {
 	dec.UseNumber() // JSON lib by default treats number is float64()
 	apihelper.OrHTTPFail(w, dec.Decode(&configStruct))
 
-	//Encode the struct as TOML
-	var tomlData bytes.Buffer
-	err := toml.NewEncoder(&tomlData).Encode(configStruct)
+	var existingToml string
+	_ = c.DB.QueryRow(context.Background(), `SELECT config FROM harmony_config WHERE title = $1`, layer).Scan(&existingToml)
+
+	configStr, err := uiPrepareLayerSave(layer, configStruct, existingToml)
 	apihelper.OrHTTPFail(w, err)
-
-	configStr := tomlData.String()
-
-	curioCfg := config.DefaultCurioConfig()
-	_, err = deps.LoadConfigWithUpgrades(tomlData.String(), curioCfg)
-	apihelper.OrHTTPFail(w, err)
-
-	cb, err := config.ConfigUpdate(curioCfg, config.DefaultCurioConfig(), config.Commented(true), config.DefaultKeepUncommented(), config.NoEnv())
-	apihelper.OrHTTPFail(w, err)
-
-	// Generate a full commented string if this is base layer
-	if layer == "base" {
-		configStr = string(cb)
-	}
 
 	// Save config history: snapshot the old config before overwriting
 	var oldConfig string
@@ -299,19 +282,12 @@ func (c *cfg) topo(w http.ResponseWriter, r *http.Request) {
 }
 
 func (c *cfg) def(w http.ResponseWriter, r *http.Request) {
-	cb, err := config.ConfigUpdate(config.DefaultCurioConfig(), nil, config.Commented(false), config.DefaultKeepUncommented(), config.NoEnv())
+	configStruct, err := uiDefaultJSON()
 	apihelper.OrHTTPFail(w, err)
 
-	// Read the TOML into a struct
-	configStruct := map[string]any{} // NOT CurioConfig b/c we want to preserve unsets
-	_, err = toml.Decode(string(cb), &configStruct)
-	apihelper.OrHTTPFail(w, err)
-
-	// Encode the struct as JSON
 	jsonData, err := json.Marshal(configStruct)
 	apihelper.OrHTTPFail(w, err)
 
-	// Write the JSON response
 	w.Header().Set("Content-Type", "application/json")
 	_, err = w.Write(jsonData)
 	apihelper.OrHTTPFail(w, err)

@@ -19,15 +19,40 @@ import (
 
 type dataSetTerminationStatusResponse struct {
 	TerminationTxHash       string `json:"terminationTxHash"`
-	TxStatus                string `json:"txStatus"`
-	TxSuccess               *bool  `json:"txSuccess"`
-	FWSSTerminated          bool   `json:"fwssTerminated"`
+	FWSSTerminated          *bool  `json:"fwssTerminated"`
 	ServiceTerminationEpoch *int64 `json:"serviceTerminationEpoch"`
 }
 
 type dataSetTerminationConflictResponse struct {
-	Error                   string `json:"error"`
-	ServiceTerminationEpoch int64  `json:"serviceTerminationEpoch"`
+	Code                    terminateCode `json:"code"`
+	Message                 string        `json:"message"`
+	ServiceTerminationEpoch *int64        `json:"serviceTerminationEpoch"`
+}
+
+type terminateCode int
+
+const (
+	TerminateCode0 terminateCode = iota
+	TerminateCode1 terminateCode = iota
+)
+
+func (t terminateCode) Message() string {
+	switch t {
+	case TerminateCode0:
+		return "already terminated"
+	case TerminateCode1:
+		return "termination queued"
+	default:
+		return "unknown termination code"
+	}
+}
+
+func (t terminateCode) EncodeResponse(w io.Writer, epoch *int64) {
+	_ = json.NewEncoder(w).Encode(dataSetTerminationConflictResponse{
+		Code:                    t,
+		Message:                 t.Message(),
+		ServiceTerminationEpoch: epoch,
+	})
 }
 
 func (p *PDPService) handleTerminateDataSet(w http.ResponseWriter, r *http.Request) {
@@ -95,27 +120,27 @@ func (p *PDPService) handleTerminateDataSet(w http.ResponseWriter, r *http.Reque
 	if terminated {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusConflict)
-		_ = json.NewEncoder(w).Encode(dataSetTerminationConflictResponse{
-			Error:                   "data_set_already_terminated",
-			ServiceTerminationEpoch: terminationEpoch,
-		})
+		TerminateCode0.EncodeResponse(w, &terminationEpoch)
 		return
 	}
 
-	var terminationQueued bool
-	err = p.db.QueryRow(ctx, `
-		SELECT EXISTS (
-			SELECT 1
-			FROM pdp_delete_data_set
-			WHERE id = $1
-		)
-	`, dataSetID).Scan(&terminationQueued)
-	if err != nil {
-		httpServerError(w, http.StatusInternalServerError, "Failed to check termination request state", err)
+	var terminatedEpoch sql.NullInt64
+	err = p.db.QueryRow(ctx, `SELECT service_termination_epoch FROM pdp_delete_data_set WHERE id = $1`, dataSetID).Scan(&terminatedEpoch)
+	if err == nil {
+		if terminatedEpoch.Valid {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusConflict)
+			TerminateCode0.EncodeResponse(w, &terminatedEpoch.Int64)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		TerminateCode1.EncodeResponse(w, nil)
 		return
 	}
-	if terminationQueued {
-		http.Error(w, "Data set termination is already pending or complete", http.StatusConflict)
+
+	if !errors.Is(err, pgx.ErrNoRows) {
+		httpServerError(w, http.StatusInternalServerError, "Failed to check termination request state", err)
 		return
 	}
 
@@ -146,7 +171,9 @@ func (p *PDPService) handleTerminateDataSet(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if n != 1 {
-		http.Error(w, "Data set termination is already pending or complete", http.StatusConflict)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		TerminateCode1.EncodeResponse(w, nil)
 		return
 	}
 
@@ -176,18 +203,15 @@ func (p *PDPService) handleGetDataSetTerminationStatus(w http.ResponseWriter, r 
 	var row struct {
 		TerminateTxHash         sql.NullString `db:"terminate_tx_hash"`
 		ServiceTerminationEpoch sql.NullInt64  `db:"service_termination_epoch"`
-		TxStatus                sql.NullString `db:"tx_status"`
-		TxSuccess               sql.NullBool   `db:"tx_success"`
 	}
 	err = p.db.QueryRow(ctx, `
-		SELECT pdds.terminate_tx_hash, pdds.service_termination_epoch, mwe.tx_status, mwe.tx_success
+		SELECT pdds.terminate_tx_hash, pdds.service_termination_epoch
 		FROM pdp_delete_data_set pdds
 		INNER JOIN pdp_data_sets pds ON pds.id = pdds.id
-		LEFT JOIN message_waits_eth mwe ON mwe.signed_tx_hash = pdds.terminate_tx_hash
 		WHERE pdds.id = $1
 		  AND pds.service = $2
 		  AND pdds.client_requested_termination = TRUE
-	`, dataSetID, serviceLabel).Scan(&row.TerminateTxHash, &row.ServiceTerminationEpoch, &row.TxStatus, &row.TxSuccess)
+	`, dataSetID, serviceLabel).Scan(&row.TerminateTxHash, &row.ServiceTerminationEpoch)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			http.Error(w, "Termination not found", http.StatusNotFound)
@@ -197,22 +221,25 @@ func (p *PDPService) handleGetDataSetTerminationStatus(w http.ResponseWriter, r 
 		return
 	}
 
-	response := dataSetTerminationStatusResponse{
-		FWSSTerminated: row.ServiceTerminationEpoch.Valid,
-	}
-	if row.TerminateTxHash.Valid {
+	// If terminated outside - no tx hash, termination epoch value, terminated
+	// If no message sent - no tx hash, null termination epoch
+	// If message send - tx hash, null termination epoch
+	// if message executed success - tx hash, termination epoch value, terminated
+	// if message executed failed - 404
+
+	response := dataSetTerminationStatusResponse{}
+
+	if !row.TerminateTxHash.Valid {
+		if row.ServiceTerminationEpoch.Valid {
+			response.FWSSTerminated = new(true)
+			response.ServiceTerminationEpoch = new(row.ServiceTerminationEpoch.Int64)
+		}
+	} else {
 		response.TerminationTxHash = row.TerminateTxHash.String
-	}
-	if row.TxStatus.Valid {
-		response.TxStatus = row.TxStatus.String
-	}
-	if row.TxSuccess.Valid {
-		success := row.TxSuccess.Bool
-		response.TxSuccess = &success
-	}
-	if row.ServiceTerminationEpoch.Valid {
-		epoch := row.ServiceTerminationEpoch.Int64
-		response.ServiceTerminationEpoch = &epoch
+		if row.ServiceTerminationEpoch.Valid {
+			response.FWSSTerminated = new(true)
+			response.ServiceTerminationEpoch = new(row.ServiceTerminationEpoch.Int64)
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")

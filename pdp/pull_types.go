@@ -4,11 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
 	"net/url"
 	"os"
-	"regexp"
-	"strings"
 	"sync"
 	"time"
 
@@ -23,9 +20,8 @@ import (
 )
 
 // pullAllowInsecure relaxes security validations for development/testing environments.
-// Set CURIO_PULL_ALLOW_INSECURE=1 to:
-//   - Allow HTTP (not just HTTPS) for pull source URLs
-//   - Allow localhost and private IP addresses
+// Set CURIO_PULL_ALLOW_INSECURE=1 to allow HTTP (not just HTTPS) for pull source
+// URLs, and to let the pull task's SSRF policy reach localhost and private IPs.
 //
 // WARNING: Never enable this in production!
 var pullAllowInsecure = os.Getenv("CURIO_PULL_ALLOW_INSECURE") == "1"
@@ -45,18 +41,14 @@ const (
 	PullStatusFailed     PullStatus = "failed"
 )
 
-// piecePathPattern matches URLs ending with /piece/{cid}
-var piecePathPattern = regexp.MustCompile(`/piece/([^/]+)$`)
-
-// ValidatePullSourceURL validates that a source URL is safe and properly formatted
-// for pulling a piece from another SP.
+// ValidatePullSourceURL validates that a source URL is safe for pulling a piece
+// from another SP.
 //
-// Validation rules:
-//   - Must be HTTPS
-//   - Path must end with /piece/{pieceCid}
-//   - The pieceCid in the URL must match the expected pieceCid
-//   - Host must not be localhost, private IP, or link-local address
-func ValidatePullSourceURL(sourceURL string, expectedPieceCid string) error {
+// The only rule is that the URL must be HTTPS. The path shape is unconstrained,
+// since the piece is verified by recomputing its CommP from the downloaded
+// bytes, and the host is checked against the SSRF policy at fetch time, which
+// resolves DNS rather than matching on the URL string.
+func ValidatePullSourceURL(sourceURL string) error {
 	parsed, err := url.Parse(sourceURL)
 	if err != nil {
 		return fmt.Errorf("invalid URL: %w", err)
@@ -65,78 +57,6 @@ func ValidatePullSourceURL(sourceURL string, expectedPieceCid string) error {
 	// Must be HTTPS (or HTTP if explicitly allowed for development)
 	if parsed.Scheme != "https" && (!pullAllowInsecure || parsed.Scheme != "http") {
 		return fmt.Errorf("URL must use HTTPS scheme, got %q", parsed.Scheme)
-	}
-
-	// Validate path matches /piece/{cid} pattern
-	matches := piecePathPattern.FindStringSubmatch(parsed.Path)
-	if matches == nil {
-		return fmt.Errorf("URL path must end with /piece/{pieceCid}, got %q", parsed.Path)
-	}
-
-	// Extract pieceCid from URL and compare with expected
-	urlPieceCid := matches[1]
-	if urlPieceCid != expectedPieceCid {
-		return fmt.Errorf("pieceCid in URL %q does not match expected %q", urlPieceCid, expectedPieceCid)
-	}
-
-	// Validate host is not a private/local address (skip in devnet mode)
-	if !pullAllowInsecure {
-		if err := validatePublicHost(parsed.Host); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-// validatePublicHost ensures the host is not localhost, a private IP, or link-local address
-func validatePublicHost(host string) error {
-	// Strip port if present
-	hostname := host
-	if h, _, err := net.SplitHostPort(host); err == nil {
-		hostname = h
-	}
-
-	// Strip brackets from IPv6 addresses (e.g., [::1] -> ::1)
-	hostname = strings.TrimPrefix(hostname, "[")
-	hostname = strings.TrimSuffix(hostname, "]")
-
-	// Block localhost and common aliases
-	lower := strings.ToLower(hostname)
-	if strings.HasPrefix(lower, "localhost") ||
-		lower == "ip6-localhost" ||
-		lower == "ip6-loopback" {
-		return fmt.Errorf("localhost addresses are not allowed")
-	}
-
-	// Try to parse as IP address and validate
-	ip := net.ParseIP(hostname)
-	if ip != nil {
-		if err := validatePublicIP(ip); err != nil {
-			return err
-		}
-	}
-
-	// For hostnames, we can't fully validate without DNS lookup
-	// The actual connection will fail if it resolves to a private IP
-	// Additional protection could be added at the HTTP client level
-
-	return nil
-}
-
-// validatePublicIP checks that an IP address is not private, loopback, or link-local
-func validatePublicIP(ip net.IP) error {
-	if ip.IsLoopback() {
-		return fmt.Errorf("loopback addresses are not allowed")
-	}
-	if ip.IsPrivate() {
-		return fmt.Errorf("private IP addresses are not allowed")
-	}
-	if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
-		return fmt.Errorf("link-local addresses are not allowed")
-	}
-	if ip.IsUnspecified() {
-		return fmt.Errorf("unspecified addresses (0.0.0.0, ::) are not allowed")
 	}
 
 	return nil
@@ -198,7 +118,7 @@ func (r *PullRequest) Validate() error {
 			return fmt.Errorf("piece[%d]: duplicate pieceCid/sourceUrl", i)
 		}
 		seenPieceSources[key] = struct{}{}
-		if err := ValidatePullSourceURL(piece.SourceURL, piece.PieceCid); err != nil {
+		if err := ValidatePullSourceURL(piece.SourceURL); err != nil {
 			return fmt.Errorf("piece[%d]: %w", i, err)
 		}
 	}

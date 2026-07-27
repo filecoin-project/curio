@@ -17,14 +17,14 @@ class UploadStatus extends LitElement {
     .chunk-entry {
       width: 10px;
       height: 10px;
-      background-color: grey;
+      background-color: var(--color-border-default, #30363d);
       margin: 1px;
     }
     .chunk-complete {
-      background-color: green;
+      background-color: var(--color-success-fg, #3fb950);
     }
-    .chunk-missing
-      background-color: red;
+    .chunk-missing {
+      background-color: var(--color-danger-fg, #f85149);
     }
     `
 
@@ -43,11 +43,7 @@ class UploadStatus extends LitElement {
         if (!this.data) return html`<p>No data.</p>`;
 
         return html`
-            <link
-                    href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css"
-                    rel="stylesheet"
-                    crossorigin="anonymous"
-            />
+            <link rel="stylesheet" href="/ux/vendor/bootstrap.min.css">
             <link rel="stylesheet" href="/ux/main.css" />
             
             <table class="table table-dark table-striped table-sm">

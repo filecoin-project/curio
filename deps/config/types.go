@@ -17,6 +17,7 @@ func DefaultCurioConfig() *CurioConfig {
 			RequireActivationSuccess:       true,
 			RequireNotificationSuccess:     true,
 			PDPPullPieceMaxTasks:           20,
+			PDPUnclaimedUploadKeepHours:    NewDynamic(2),
 			IndexingMaxTasks:               8,
 			RemoteProofMaxUploads:          15,
 			ParkPieceMinFreeStoragePercent: 5,
@@ -412,9 +413,19 @@ type CurioSubsystemsConfig struct {
 	// This feature is BETA and should only be enabled on nodes which are part of a PDP network.
 	EnablePDP bool
 
+	// DataPath is the root directory Curio-PDP scans for writable storage locations.
+	// The node treats this directory and every subdirectory as a candidate store path.
+	// Overridden by the DATA_STORAGE env var and the --data CLI flag. (Default: /data)
+	DataPath string
+
 	// PDPPullPieceMaxTasks is the maximum number of PDPv0 pull-piece download tasks that can run simultaneously.
 	// Set 0 for unlimited. (Default: 20)
 	PDPPullPieceMaxTasks int
+
+	// PDPUnclaimedUploadKeepHours is how many hours to keep unclaimed PDP piece uploads (orphaned pdp_piecerefs
+	// with data_set_refcount = 0) before PieceGC deletes them. Must be >= 1. (Default: 2)
+	// Updates will affect running instances.
+	PDPUnclaimedUploadKeepHours *Dynamic[int]
 
 	// EnableCommP enables the commP task on te node. CommP is calculated before sending PublishDealMessage for a Mk12 deal
 	// Must have EnableDealMarket = True (Default: false)
@@ -672,6 +683,9 @@ type CurioIngestConfig struct {
 }
 
 type CurioAlertingConfig struct {
+	// ClusterName identifies the Curio cluster in external alerts. When empty, the hostname of the node sending the alert is used.
+	ClusterName string
+
 	// MinimumWalletBalance is the minimum balance all active wallets. If the balance is below this value, an
 	// alerts will be triggered for the wallet
 	// Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "5 FIL")
@@ -685,6 +699,9 @@ type CurioAlertingConfig struct {
 
 	// SlackWebhookConfig is a configuration type for Slack webhook integration.
 	SlackWebhook SlackWebhookConfig
+
+	// AppriseConfig is the configuration for the Apprise (https://github.com/caronc/apprise-api) integration.
+	Apprise AppriseConfig
 }
 
 type CurioSealConfig struct {
@@ -747,8 +764,23 @@ type SlackWebhookConfig struct {
 	WebHookURL string
 }
 
+type AppriseConfig struct {
+	// URL is the notify endpoint of a running Apprise API server (https://github.com/caronc/apprise-api).
+	// Either its stateless endpoint (e.g. "http://127.0.0.1:8000/notify", use with NotifyURLs) or a
+	// stateful, pre-configured endpoint (e.g. "http://127.0.0.1:8000/notify/curio", leave NotifyURLs empty).
+	// Leave empty to disable the Apprise integration.
+	URL string
+
+	// NotifyURLs is a list of Apprise notification URLs (e.g. "tgram://bottoken/ChatID", "discord://webhook_id/webhook_token").
+	// Required when URL is a stateless /notify endpoint; leave empty for a stateful /notify/<config-key> endpoint.
+	NotifyURLs []string
+
+	// Tag restricts delivery to Apprise URLs carrying this tag. Only applies to stateful configs. OPTIONAL.
+	Tag string
+}
+
 type ApisConfig struct {
-	// ChainApiInfo is the API endpoint for the Lotus daemon.
+	// ChainApiInfo is the API endpoint for an external Lotus-compatible daemon.
 	ChainApiInfo []string
 
 	// API auth secret for the Curio nodes to use. This value should only be set on the bade layer.

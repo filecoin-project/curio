@@ -16,7 +16,6 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
-	"github.com/filecoin-project/curio/lib/cachedreader"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/tasks/tasknames"
@@ -35,11 +34,11 @@ const MaxRawSizeForSkip = MinSizeForCache * 127 / 128
 
 type TaskPDPSaveCache struct {
 	db  *harmonydb.DB
-	cpr *cachedreader.CachedPieceReader
-	idx *indexstore.IndexStore
+	cpr PieceReader
+	idx ProofCacheStore
 }
 
-func NewTaskPDPSaveCache(db *harmonydb.DB, cpr *cachedreader.CachedPieceReader, idx *indexstore.IndexStore) *TaskPDPSaveCache {
+func NewTaskPDPSaveCache(db *harmonydb.DB, cpr PieceReader, idx ProofCacheStore) *TaskPDPSaveCache {
 	return &TaskPDPSaveCache{
 		db:  db,
 		cpr: cpr,
@@ -205,11 +204,9 @@ func (t *TaskPDPSaveCache) Adder(taskFunc harmonytask.AddTaskFunc) {
 }
 
 func (t *TaskPDPSaveCache) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFunc) error {
-	var stop bool
-	for !stop {
+	for {
+		stop := true
 		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-			stop = true // assume we're done until we find a task to schedule
-
 			var pendings []struct {
 				ID int64 `db:"id"`
 			}
@@ -239,9 +236,10 @@ func (t *TaskPDPSaveCache) schedule(ctx context.Context, taskFunc harmonytask.Ad
 			stop = false // we found a task to schedule, keep going
 			return true, nil
 		})
+		if stop {
+			return nil
+		}
 	}
-
-	return nil
 }
 
 func (t *TaskPDPSaveCache) scheduleMigrationCleanup(_ context.Context, taskFunc harmonytask.AddTaskFunc) error {
@@ -250,12 +248,14 @@ func (t *TaskPDPSaveCache) scheduleMigrationCleanup(_ context.Context, taskFunc 
 	// trivially will not populate the cache because they are too small
 	_, err := t.db.Exec(context.Background(), `
             UPDATE pdp_piecerefs pr SET needs_save_cache = FALSE, caching_task_completed = NOW()
-            FROM parked_piece_refs pprf
-            JOIN parked_pieces pp ON pp.id = pprf.piece_id
-            WHERE pprf.ref_id = pr.piece_ref
-            AND pr.needs_save_cache = TRUE
+            WHERE pr.needs_save_cache = TRUE
             AND pr.save_cache_task_id IS NULL
-            AND pp.piece_raw_size <= $1`, MaxRawSizeForSkip)
+            AND EXISTS (
+                SELECT 1 FROM parked_piece_refs pprf
+                JOIN parked_pieces pp ON pp.id = pprf.piece_id
+                WHERE pprf.ref_id = pr.piece_ref
+                AND pp.piece_raw_size <= $1
+            )`, MaxRawSizeForSkip)
 	if err != nil {
 		return xerrors.Errorf("bulk clearing small pieces: %w", err)
 	}

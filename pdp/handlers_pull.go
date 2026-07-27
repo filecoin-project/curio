@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/big"
 	"net/http"
@@ -149,14 +150,16 @@ type PullHandler struct {
 	auth      Auth
 	store     PullStore
 	validator AddPiecesValidator
+	db        *harmonydb.DB
 }
 
 // NewPullHandler creates a new PullHandler
-func NewPullHandler(auth Auth, store PullStore, validator AddPiecesValidator) *PullHandler {
+func NewPullHandler(auth Auth, store PullStore, validator AddPiecesValidator, db *harmonydb.DB) *PullHandler {
 	return &PullHandler{
 		auth:      auth,
 		store:     store,
 		validator: validator,
+		db:        db,
 	}
 }
 
@@ -238,7 +241,7 @@ func NewPullHandler(auth Auth, store PullStore, validator AddPiecesValidator) *P
 //   - Source URL validation: Must be HTTPS, path must match /piece/{pieceCid},
 //     host must not be localhost/private IP/link-local
 //
-//   - Size limits: Piece size (encoded in PieceCIDv2) must not exceed PieceSizeLimit.
+//   - Size limits: Piece size (encoded in PieceCIDv2) must not exceed PieceSizeMaxLimit.
 //     Downloads are capped at the declared size to prevent abuse.
 //
 //   - CommP verification: After download, the CommP (piece commitment) is computed
@@ -343,6 +346,20 @@ func (h *PullHandler) HandlePull(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if dataSetId > 0 && h.db != nil {
+		if err := verifyDataSetForService(ctx, h.db, service, dataSetId); err != nil {
+			switch {
+			case errors.Is(err, ErrDataSetNotFound):
+				httpServerError(w, http.StatusNotFound, "Data set not found", err)
+			case errors.Is(err, ErrDataSetTerminated):
+				http.Error(w, err.Error(), http.StatusConflict)
+			default:
+				httpServerError(w, http.StatusInternalServerError, "Failed to retrieve data set: "+err.Error(), err)
+			}
+			return
+		}
+	}
+
 	var payer common.Address
 	if dataSetId == 0 {
 		payer, err = FWSSPayerFromExtraData(extraDataBytes)
@@ -365,9 +382,14 @@ func (h *PullHandler) HandlePull(w http.ResponseWriter, r *http.Request) {
 
 			return
 		}
-		if info.RawSize > uint64(PieceSizeLimit) {
-			msg := fmt.Sprintf("pieceCid[%d]: size %d exceeds maximum %d", i, info.RawSize, PieceSizeLimit)
-			httpServerError(w, http.StatusBadRequest, msg, err)
+		if info.RawSize < uint64(PieceSizeMinLimit) {
+			msg := fmt.Sprintf("pieceCid[%d]: size %d is below minimum %d", i, info.RawSize, PieceSizeMinLimit)
+			httpServerError(w, http.StatusBadRequest, msg, nil)
+			return
+		}
+		if info.RawSize > uint64(PieceSizeMaxLimit) {
+			msg := fmt.Sprintf("pieceCid[%d]: size %d exceeds maximum %d", i, info.RawSize, PieceSizeMaxLimit)
+			httpServerError(w, http.StatusBadRequest, msg, nil)
 			return
 		}
 		pieceInfos[i] = info

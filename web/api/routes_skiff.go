@@ -1,0 +1,16 @@
+//go:build skiff
+
+package api
+
+import (
+	"github.com/gorilla/mux"
+
+	"github.com/filecoin-project/curio/deps"
+	"github.com/filecoin-project/curio/web/api/config"
+	"github.com/filecoin-project/curio/web/api/webrpc"
+)
+
+func Routes(r *mux.Router, deps *deps.Deps, debug bool) {
+	webrpc.Routes(r.PathPrefix("/webrpc").Subrouter(), deps, debug)
+	config.Routes(r.PathPrefix("/config").Subrouter(), deps)
+}

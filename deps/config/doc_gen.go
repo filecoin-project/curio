@@ -14,13 +14,37 @@ var Doc = map[string][]DocField{
 			Name: "ChainApiInfo",
 			Type: "[]string",
 
-			Comment: `ChainApiInfo is the API endpoint for the Lotus daemon.`,
+			Comment: `ChainApiInfo is the API endpoint for an external Lotus-compatible daemon.`,
 		},
 		{
 			Name: "StorageRPCSecret",
 			Type: "string",
 
 			Comment: `API auth secret for the Curio nodes to use. This value should only be set on the bade layer.`,
+		},
+	},
+	"AppriseConfig": {
+		{
+			Name: "URL",
+			Type: "string",
+
+			Comment: `URL is the notify endpoint of a running Apprise API server (https://github.com/caronc/apprise-api).
+Either its stateless endpoint (e.g. "http://127.0.0.1:8000/notify", use with NotifyURLs) or a
+stateful, pre-configured endpoint (e.g. "http://127.0.0.1:8000/notify/curio", leave NotifyURLs empty).
+Leave empty to disable the Apprise integration.`,
+		},
+		{
+			Name: "NotifyURLs",
+			Type: "[]string",
+
+			Comment: `NotifyURLs is a list of Apprise notification URLs (e.g. "tgram://bottoken/ChatID", "discord://webhook_id/webhook_token").
+Required when URL is a stateless /notify endpoint; leave empty for a stateful /notify/<config-key> endpoint.`,
+		},
+		{
+			Name: "Tag",
+			Type: "string",
+
+			Comment: `Tag restricts delivery to Apprise URLs carrying this tag. Only applies to stateful configs. OPTIONAL.`,
 		},
 	},
 	"BalanceManagerConfig": {
@@ -153,6 +177,12 @@ including collateral and other operational resources.`,
 	},
 	"CurioAlertingConfig": {
 		{
+			Name: "ClusterName",
+			Type: "string",
+
+			Comment: `ClusterName identifies the Curio cluster in external alerts. When empty, the hostname of the node sending the alert is used.`,
+		},
+		{
 			Name: "MinimumWalletBalance",
 			Type: "types.FIL",
 
@@ -177,6 +207,12 @@ Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "a
 			Type: "SlackWebhookConfig",
 
 			Comment: `SlackWebhookConfig is a configuration type for Slack webhook integration.`,
+		},
+		{
+			Name: "Apprise",
+			Type: "AppriseConfig",
+
+			Comment: `AppriseConfig is the configuration for the Apprise (https://github.com/caronc/apprise-api) integration.`,
 		},
 	},
 	"CurioBatchingConfig": {
@@ -857,11 +893,27 @@ PDP deals allow the node to directly store and prove unsealed data with "PDP Ser
 This feature is BETA and should only be enabled on nodes which are part of a PDP network.`,
 		},
 		{
+			Name: "DataPath",
+			Type: "string",
+
+			Comment: `DataPath is the root directory Curio-PDP scans for writable storage locations.
+The node treats this directory and every subdirectory as a candidate store path.
+Overridden by the DATA_STORAGE env var and the --data CLI flag. (Default: /data)`,
+		},
+		{
 			Name: "PDPPullPieceMaxTasks",
 			Type: "int",
 
 			Comment: `PDPPullPieceMaxTasks is the maximum number of PDPv0 pull-piece download tasks that can run simultaneously.
 Set 0 for unlimited. (Default: 20)`,
+		},
+		{
+			Name: "PDPUnclaimedUploadKeepHours",
+			Type: "int",
+
+			Comment: `PDPUnclaimedUploadKeepHours is how many hours to keep unclaimed PDP piece uploads (orphaned pdp_piecerefs
+with data_set_refcount = 0) before PieceGC deletes them. Must be >= 1. (Default: 2)
+Updates will affect running instances.`,
 		},
 		{
 			Name: "EnableCommP",

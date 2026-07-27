@@ -80,6 +80,16 @@ func (s *CurioChainSched) AddWatcher(ch UpdateFunc) error {
 	return nil
 }
 
+// HasSubscribers reports whether any chain update handler or watcher has been registered.
+func (s *CurioChainSched) HasSubscribers() bool {
+	s.wlk.RLock()
+	s.lk.RLock()
+	defer s.lk.RUnlock()
+	defer s.wlk.RUnlock()
+
+	return len(s.callbacks) > 0 || len(s.watchers) > 0
+}
+
 func (s *CurioChainSched) Run(ctx context.Context) {
 	s.lk.Lock()
 	s.started = true

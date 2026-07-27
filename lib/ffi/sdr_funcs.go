@@ -29,6 +29,7 @@ import (
 	proof2 "github.com/filecoin-project/go-state-types/proof"
 
 	"github.com/filecoin-project/curio/lib/paths"
+	"github.com/filecoin-project/curio/lib/piecestore"
 	"github.com/filecoin-project/curio/lib/proofpaths"
 )
 
@@ -44,6 +45,7 @@ type ExternPrecommit2 func(ctx context.Context, sector storiface.SectorRef, cach
 	}
 */
 type SealCalls struct {
+	Pieces  *piecestore.Store
 	Sectors *storageProvider
 
 	/*// externCalls cointain overrides for calling alternative sealing logic
@@ -52,6 +54,7 @@ type SealCalls struct {
 
 func NewSealCalls(st *paths.Remote, ls *paths.Local, si paths.SectorIndex) *SealCalls {
 	return &SealCalls{
+		Pieces: piecestore.New(st, ls, si),
 		Sectors: &storageProvider{
 			storage:             st,
 			localStore:          ls,

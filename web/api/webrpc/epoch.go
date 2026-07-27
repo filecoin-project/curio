@@ -14,7 +14,7 @@ import (
 )
 
 func (a *WebRPC) EpochPretty(ctx context.Context, e abi.ChainEpoch) (string, error) {
-	head, err := a.deps.Chain.ChainHead(ctx)
+	head, err := a.Deps.Chain.ChainHead(ctx)
 	if err != nil {
 		return "", err
 	}

@@ -34,13 +34,13 @@ import (
 	"github.com/filecoin-project/curio/alertmanager/curioalerting"
 	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/deps/config"
-	"github.com/filecoin-project/curio/deps/stats"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/lib/cachedreader"
 	"github.com/filecoin-project/curio/lib/curiochain"
 	"github.com/filecoin-project/curio/lib/ethchain"
 	harmonypeerhttp "github.com/filecoin-project/curio/lib/harmony_peer_http"
+	"github.com/filecoin-project/curio/lib/lazy"
 	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/pieceprovider"
@@ -52,13 +52,9 @@ import (
 	"github.com/filecoin-project/curio/tasks/message"
 
 	lapi "github.com/filecoin-project/lotus/api"
-	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/types"
-	"github.com/filecoin-project/lotus/lib/lazy"
 	"github.com/filecoin-project/lotus/node/modules/dtypes"
 	lrepo "github.com/filecoin-project/lotus/node/repo"
-	"github.com/filecoin-project/lotus/storage/sealer"
-	"github.com/filecoin-project/lotus/storage/sealer/ffiwrapper"
 )
 
 var log = logging.Logger("curio/deps")
@@ -73,6 +69,7 @@ func MakeDB(cctx *cli.Context) (*harmonydb.DB, error) {
 			Database:    cctx.String("db-name"),
 			Port:        cctx.String("db-port"),
 			LoadBalance: cctx.Bool("db-load-balance"),
+			ReadOnly:    cctx.Bool("db-readonly"),
 		}
 		return harmonydb.NewFromConfig(dbConfig)
 	}
@@ -123,7 +120,7 @@ type JwtPayload struct {
 	Allow []auth.Permission
 }
 
-func StorageAuth(apiKey string) (sealer.StorageAuth, error) {
+func StorageAuth(apiKey string) (http.Header, error) {
 	if apiKey == "" {
 		return nil, xerrors.Errorf("no api key provided")
 	}
@@ -146,7 +143,7 @@ func StorageAuth(apiKey string) (sealer.StorageAuth, error) {
 
 	headers := http.Header{}
 	headers.Add("Authorization", "Bearer "+string(token))
-	return sealer.StorageAuth(headers), nil
+	return headers, nil
 }
 
 func GetDeps(ctx context.Context, cctx *cli.Context) (*Deps, error) {
@@ -168,7 +165,7 @@ type Deps struct {
 	Al                *curioalerting.AlertingSystem
 	Si                paths.SectorIndex
 	LocalStore        *paths.Local
-	LocalPaths        *paths.BasicLocalStorage
+	LocalPaths        paths.LocalStorage
 	Prover            storiface.Prover
 	ListenAddr        string
 	Name              string
@@ -257,10 +254,6 @@ func (deps *Deps) PopulateRemainingDeps(ctx context.Context, cctx *cli.Context, 
 	deps.Cfg.Ingest.DisableSSRFProtection.OnChange(applySSRFOverride)
 	deps.Cfg.Ingest.SSRFAllowedHosts.OnChange(applySSRFOverride)
 
-	if deps.Verif == nil {
-		deps.Verif = ffiwrapper.ProofVerifier
-	}
-
 	if deps.As == nil {
 		deps.As, err = multictladdr.AddressSelector(deps.Cfg.Addresses)()
 		if err != nil {
@@ -269,7 +262,7 @@ func (deps *Deps) PopulateRemainingDeps(ctx context.Context, cctx *cli.Context, 
 	}
 
 	if deps.Al == nil {
-		deps.Al = curioalerting.NewAlertingSystem()
+		deps.Al = curioalerting.NewAlertingSystem(deps.DB)
 	}
 
 	if deps.Si == nil {
@@ -278,11 +271,7 @@ func (deps *Deps) PopulateRemainingDeps(ctx context.Context, cctx *cli.Context, 
 
 	if deps.Chain == nil {
 		var fullCloser func()
-		cfgApiInfo := deps.Cfg.Apis.ChainApiInfo
-		if v := os.Getenv("FULLNODE_API_INFO"); v != "" {
-			cfgApiInfo = []string{v}
-		}
-		deps.Chain, fullCloser, err = GetFullNodeAPIV1Curio(cctx, cfgApiInfo)
+		deps.Chain, fullCloser, err = GetFullNodeAPIV1Curio(cctx, deps.Cfg.Apis)
 		if err != nil {
 			return err
 		}
@@ -295,11 +284,7 @@ func (deps *Deps) PopulateRemainingDeps(ctx context.Context, cctx *cli.Context, 
 
 	if deps.EthClient == nil {
 		deps.EthClient = lazy.MakeLazy[ethchain.EthClient](func() (ethchain.EthClient, error) {
-			cfgApiInfo := deps.Cfg.Apis.ChainApiInfo
-			if v := os.Getenv("FULLNODE_API_INFO"); v != "" {
-				cfgApiInfo = []string{v}
-			}
-			return GetEthClient(cctx, cfgApiInfo)
+			return GetEthClient(cctx, deps.Cfg.Apis)
 		})
 	}
 
@@ -387,32 +372,11 @@ Get it with: jq .PrivateKey ~/.lotus-miner/keystore/MF2XI2BNNJ3XILLQOJUXMYLUMU`,
 			log.Errorf("error setting maddrs: %s", err)
 		}
 	})
-	if deps.ProofTypes == nil {
-		deps.ProofTypes = map[abi.RegisteredSealProof]bool{}
-	}
-	if len(deps.ProofTypes) == 0 {
-		for maddr := range deps.Maddrs.Get() {
-			spt, err := sealProofType(maddr, deps.Chain)
-			if err != nil {
-				return err
-			}
-			deps.ProofTypes[spt] = true
-		}
-
-	}
-	if deps.Cfg.Subsystems.EnableProofShare {
-		deps.ProofTypes[abi.RegisteredSealProof_StackedDrg32GiBV1_1] = true
-		// deps.ProofTypes[abi.RegisteredSealProof_StackedDrg64GiBV1_1] = true TODO REVIEW UNCOMMENT
+	if err := initProofTypes(deps); err != nil {
+		return err
 	}
 
-	if deps.Cfg.Subsystems.EnableWalletExporter {
-		spIDs := []address.Address{}
-		for maddr := range deps.Maddrs.Get() {
-			spIDs = append(spIDs, address.Address(maddr))
-		}
-
-		stats.StartWalletExporter(ctx, deps.DB, deps.Chain, spIDs)
-	}
+	startWalletExporterIfEnabled(ctx, deps)
 
 	if deps.Name == "" {
 		deps.Name = cctx.String("name")
@@ -424,14 +388,18 @@ Get it with: jq .PrivateKey ~/.lotus-miner/keystore/MF2XI2BNNJ3XILLQOJUXMYLUMU`,
 	}
 
 	if deps.IndexStore == nil {
-		dbHost := cctx.String("db-host-cql")
-		if dbHost == "" {
-			dbHost = cctx.String("db-host")
-		}
+		if deps.DB.ReadOnly() {
+			deps.IndexStore = indexstore.NewReadonlyIndexStore(deps.Cfg)
+		} else {
+			dbHost := cctx.String("db-host-cql")
+			if dbHost == "" {
+				dbHost = cctx.String("db-host")
+			}
 
-		deps.IndexStore, err = indexstore.NewIndexStore(strings.Split(dbHost, ","), cctx.Int("db-cassandra-port"), deps.Cfg)
-		if err != nil {
-			return xerrors.Errorf("failed to create index store: %w", err)
+			deps.IndexStore, err = indexstore.NewIndexStore(strings.Split(dbHost, ","), cctx.Int("db-cassandra-port"), deps.Cfg)
+			if err != nil {
+				return xerrors.Errorf("failed to create index store: %w", err)
+			}
 		}
 		err = deps.IndexStore.Start(cctx.Context, false)
 		if err != nil {
@@ -452,25 +420,9 @@ Get it with: jq .PrivateKey ~/.lotus-miner/keystore/MF2XI2BNNJ3XILLQOJUXMYLUMU`,
 		deps.ServeChunker = chunker.NewServeChunker(deps.DB, deps.SectorReader, deps.IndexStore, deps.CachedPieceReader)
 	}
 
-	if deps.Prover == nil {
-		deps.Prover = ffiwrapper.ProofProver
-	}
+	setDefaultVerifProver(deps)
 
 	return nil
-}
-
-func sealProofType(maddr dtypes.MinerAddress, fnapi api.Chain) (abi.RegisteredSealProof, error) {
-	mi, err := fnapi.StateMinerInfo(context.TODO(), address.Address(maddr), types.EmptyTSK)
-	if err != nil {
-		return 0, err
-	}
-	networkVersion, err := fnapi.StateNetworkVersion(context.TODO(), types.EmptyTSK)
-	if err != nil {
-		return 0, err
-	}
-
-	// node seal proof type does not decide whether or not we use synthetic porep
-	return miner.PreferredSealProofTypeFromWindowPoStType(networkVersion, mi.WindowPoStProofType, false)
 }
 
 func LoadConfigWithUpgrades(text string, curioConfigWithDefaults *config.CurioConfig) (toml.MetaData, error) {
@@ -478,13 +430,14 @@ func LoadConfigWithUpgrades(text string, curioConfigWithDefaults *config.CurioCo
 }
 
 func GetConfig(ctx context.Context, layers []string, db *harmonydb.DB) (*config.CurioConfig, error) {
-	err := updateBaseLayer(ctx, db)
-	if err != nil {
-		return nil, err
+	if !db.ReadOnly() {
+		if err := updateBaseLayer(ctx, db); err != nil {
+			return nil, err
+		}
 	}
 
 	curioConfig := config.DefaultCurioConfig()
-	err = ApplyLayers(ctx, db, curioConfig, layers)
+	err := ApplyLayers(ctx, db, curioConfig, layers)
 	if err != nil {
 		return nil, err
 	}
@@ -504,6 +457,10 @@ func ApplyLayers(ctx context.Context, db *harmonydb.DB, curioConfig *config.Curi
 }
 
 func updateBaseLayer(ctx context.Context, db *harmonydb.DB) error {
+	if db.ReadOnly() {
+		return nil
+	}
+
 	_, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		// Get existing base from DB
 		text := ""
@@ -650,18 +607,13 @@ func GetAPI(ctx context.Context, cctx *cli.Context) (*harmonydb.DB, *config.Curi
 		return nil, nil, nil, nil, nil, err
 	}
 
-	cfgApiInfo := cfg.Apis.ChainApiInfo
-	if v := os.Getenv("FULLNODE_API_INFO"); v != "" {
-		cfgApiInfo = []string{v}
-	}
-
-	full, fullCloser, err := GetFullNodeAPIV1Curio(cctx, cfgApiInfo)
+	full, fullCloser, err := GetFullNodeAPIV1Curio(cctx, cfg.Apis)
 	if err != nil {
 		return nil, nil, nil, nil, nil, err
 	}
 
 	ethClient := lazy.MakeLazy(func() (ethchain.EthClient, error) {
-		return GetEthClient(cctx, cfgApiInfo)
+		return GetEthClient(cctx, cfg.Apis)
 	})
 
 	return db, cfg, full, fullCloser, ethClient, nil

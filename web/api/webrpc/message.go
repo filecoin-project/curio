@@ -36,7 +36,7 @@ type MessageDetail struct {
 
 func (a *WebRPC) MessageByCid(ctx context.Context, cid string) (*MessageDetail, error) {
 	var messages []MessageDetail
-	err := a.deps.DB.Select(ctx, &messages, `
+	err := a.Deps.DB.Select(ctx, &messages, `
         SELECT ms.from_key, ms.to_addr, ms.send_reason, ms.send_task_id,
                ms.unsigned_data, ms.unsigned_cid, ms.nonce, ms.signed_data,
                ms.signed_json, ms.signed_cid, ms.send_time, ms.send_success, ms.send_error,

@@ -14,8 +14,10 @@ class AlertsManage extends StyledLitElement {
         newExpiresHours: { type: Number },
         
         // Alert history
+        ongoingAlerts: { type: Array },
         alerts: { type: Array },
         alertsTotal: { type: Number },
+        alertsUnacknowledgedTotal: { type: Number },
         alertsPage: { type: Number },
         includeAcknowledged: { type: Boolean },
         
@@ -44,8 +46,10 @@ class AlertsManage extends StyledLitElement {
         this.newExpiresHours = 0;
         
         // Alert history
+        this.ongoingAlerts = [];
         this.alerts = [];
         this.alertsTotal = 0;
+        this.alertsUnacknowledgedTotal = 0;
         this.alertsPage = 0;
         this.includeAcknowledged = false;
         
@@ -75,11 +79,27 @@ class AlertsManage extends StyledLitElement {
             ]);
             this.mutes = mutes || [];
             this.categories = categories || [];
-            await this.loadAlerts();
+            await this.loadAlertData();
             this.loading = false;
         } catch (e) {
             this.error = e.message || 'Failed to load alert data';
             this.loading = false;
+        }
+    }
+
+    async loadAlertData() {
+        await Promise.all([
+            this.loadOngoingAlerts(),
+            this.loadAlerts(),
+        ]);
+    }
+
+    async loadOngoingAlerts() {
+        try {
+            this.ongoingAlerts = await RPCCall('AlertOngoingList') || [];
+        } catch (e) {
+            console.error('Failed to load ongoing alerts:', e);
+            this.ongoingAlerts = [];
         }
     }
 
@@ -93,6 +113,7 @@ class AlertsManage extends StyledLitElement {
             ]);
             this.alerts = result?.Alerts || [];
             this.alertsTotal = result?.Total || 0;
+            this.alertsUnacknowledgedTotal = result?.UnacknowledgedTotal || 0;
         } catch (e) {
             console.error('Failed to load alerts:', e);
         }
@@ -161,7 +182,7 @@ class AlertsManage extends StyledLitElement {
     async sendTestAlert() {
         try {
             await RPCCall('AlertSendTest');
-            await this.loadAlerts(); // Refresh to show the new alert
+            await this.loadAlertData(); // Refresh to show the new alert
             alert('Test alert created! It should now appear in the Alert History tab and sidebar indicator.');
         } catch (e) {
             alert('Failed to send test alert: ' + e.message);
@@ -171,22 +192,34 @@ class AlertsManage extends StyledLitElement {
     async acknowledgeAlert(id) {
         try {
             await RPCCall('AlertAcknowledge', [id, 'web-ui']);
-            await this.loadAlerts();
+            await this.loadAlertData();
         } catch (e) {
             alert('Failed to acknowledge alert: ' + e.message);
         }
     }
 
-    async acknowledgeAll() {
+    async acknowledgeAllOnPage() {
         const unacked = this.alerts.filter(a => !a.Acknowledged);
         if (unacked.length === 0) return;
-        
+
         if (!confirm(`Acknowledge all ${unacked.length} alerts on this page?`)) return;
-        
+
         try {
             const ids = unacked.map(a => a.ID);
             await RPCCall('AlertAcknowledgeMultiple', [ids, 'web-ui']);
-            await this.loadAlerts();
+            await this.loadAlertData();
+        } catch (e) {
+            alert('Failed to acknowledge alerts: ' + e.message);
+        }
+    }
+
+    async acknowledgeAll() {
+        if (!confirm(`Acknowledge all alerts?`)) return;
+
+        try {
+            await RPCCall('AlertAcknowledgeAll', ['web-ui']);
+            this.alertsPage = 0;
+            await this.loadAlertData();
         } catch (e) {
             alert('Failed to acknowledge alerts: ' + e.message);
         }
@@ -217,7 +250,7 @@ class AlertsManage extends StyledLitElement {
             await RPCCall('AlertCommentAdd', [this.commentAlertId, this.newComment.trim(), 'web-ui']);
             this.newComment = '';
             this.comments = await RPCCall('AlertCommentList', [this.commentAlertId]) || [];
-            await this.loadAlerts(); // Refresh comment count
+            await this.loadAlertData(); // Refresh comment count
         } catch (e) {
             alert('Failed to add comment: ' + e.message);
         }
@@ -262,7 +295,7 @@ class AlertsManage extends StyledLitElement {
     render() {
         if (this.loading) {
             return html`
-                <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous">
+                <link rel="stylesheet" href="/ux/vendor/bootstrap.min.css">
                 <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'">
                 <div style="padding: 20px;">Loading...</div>
             `;
@@ -270,14 +303,16 @@ class AlertsManage extends StyledLitElement {
 
         if (this.error) {
             return html`
-                <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous">
+                <link rel="stylesheet" href="/ux/vendor/bootstrap.min.css">
                 <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'">
                 <div style="padding: 20px; color: #B63333;">Error: ${this.error}</div>
             `;
         }
 
+        const activeAlertCount = this.alertsUnacknowledgedTotal + this.ongoingAlerts.length;
+
         return html`
-            <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous">
+            <link rel="stylesheet" href="/ux/vendor/bootstrap.min.css">
             <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'">
             
             <div style="padding: 20px;">
@@ -288,7 +323,7 @@ class AlertsManage extends StyledLitElement {
                     <button class="tab ${this.activeTab === 'history' ? 'active' : ''}" 
                             @click="${() => this.activeTab = 'history'}">
                         Alert History
-                        ${this.alertsTotal > 0 ? html`<span class="tab-badge">${this.alertsTotal}</span>` : ''}
+                        ${activeAlertCount > 0 ? html`<span class="tab-badge">${activeAlertCount}</span>` : ''}
                     </button>
                     <button class="tab ${this.activeTab === 'mutes' ? 'active' : ''}" 
                             @click="${() => this.activeTab = 'mutes'}">
@@ -325,35 +360,84 @@ class AlertsManage extends StyledLitElement {
                         Show acknowledged alerts
                     </label>
                     ${unackedCount > 0 ? html`
-                        <button class="btn btn-small" @click="${this.acknowledgeAll}">
-                            Acknowledge All (${unackedCount})
+                        <button class="btn btn-small" @click="${this.acknowledgeAllOnPage}">
+                            Acknowledge All On Page (${unackedCount})
                         </button>
                     ` : ''}
-                    <button class="btn btn-small" @click="${() => this.loadAlerts()}">Refresh</button>
+                    ${this.alertsUnacknowledgedTotal > 0 ? html`
+                        <button class="btn btn-small" @click="${this.acknowledgeAll}">
+                            Acknowledge All (${this.alertsUnacknowledgedTotal})
+                        </button>
+                    ` : ''}
+                    <button class="btn btn-small" @click="${() => this.loadAlertData()}">Refresh</button>
                 </div>
 
-                ${this.alerts.length === 0 ? html`
-                    <div class="empty-state">
-                        <p>No alerts found.</p>
-                        <p style="color: #666; font-size: 0.9em;">
-                            ${this.includeAcknowledged ? 'No alerts have been recorded yet.' : 'All alerts have been acknowledged.'}
-                        </p>
+                ${this.renderOngoingAlerts()}
+
+                <section class="ongoing-alerts">
+                    <div class="section-header">
+                        <h3>Alerts (${this.alertsTotal})</h3>
+                    </div>
+                    ${this.alerts.length === 0 ? html`
+                        <div class="empty-state">
+                            <p>No alerts found.</p>
+                            <p style="color: #666; font-size: 0.9em;">
+                                ${this.includeAcknowledged ? 'No alerts have been recorded yet.' : 'All alerts have been acknowledged.'}
+                            </p>
+                        </div>
+                    ` : html`
+                        <div class="alert-list">
+                            ${this.alerts.map(alert => this.renderAlert(alert))}
+                        </div>
+
+                        <div class="pagination">
+                            <button class="btn btn-small"
+                                    ?disabled="${this.alertsPage === 0}"
+                                    @click="${() => this.changePage(-1)}">Previous</button>
+                            <span>Page ${this.alertsPage + 1} of ${totalPages || 1}</span>
+                            <button class="btn btn-small"
+                                    ?disabled="${(this.alertsPage + 1) * pageSize >= this.alertsTotal}"
+                                    @click="${() => this.changePage(1)}">Next</button>
+                        </div>
+                    `}
+                </section>
+            </div>
+        `;
+    }
+
+    renderOngoingAlerts() {
+        return html`
+            <section class="ongoing-alerts">
+                <div class="section-header">
+                    <h3>Ongoing Alerts (${this.ongoingAlerts.length})</h3>
+                </div>
+                ${this.ongoingAlerts.length === 0 ? html`
+                    <div class="empty-state compact">
+                        <p>No ongoing alerts.</p>
                     </div>
                 ` : html`
                     <div class="alert-list">
-                        ${this.alerts.map(alert => this.renderAlert(alert))}
-                    </div>
-                    
-                    <div class="pagination">
-                        <button class="btn btn-small" 
-                                ?disabled="${this.alertsPage === 0}"
-                                @click="${() => this.changePage(-1)}">Previous</button>
-                        <span>Page ${this.alertsPage + 1} of ${totalPages || 1}</span>
-                        <button class="btn btn-small" 
-                                ?disabled="${(this.alertsPage + 1) * pageSize >= this.alertsTotal}"
-                                @click="${() => this.changePage(1)}">Next</button>
+                        ${this.ongoingAlerts.map(alert => this.renderOngoingAlert(alert))}
                     </div>
                 `}
+            </section>
+        `;
+    }
+
+    renderOngoingAlert(alert) {
+        return html`
+            <div class="alert-card">
+                <div class="alert-header">
+                    <div class="alert-title">
+                        <span class="alert-name">${alert.AlertName}</span>
+                        <span class="alert-time">${this.formatTimeAgo(alert.LastUpdatedAt)}</span>
+                    </div>
+                </div>
+                <div class="alert-message">${alert.Message}</div>
+                <div class="alert-meta">
+                    Created At: ${this.formatDate(alert.CreatedAt)} |
+                    Last Updated At: ${this.formatDate(alert.LastUpdatedAt)}
+                </div>
             </div>
         `;
     }
@@ -570,6 +654,7 @@ class AlertsManage extends StyledLitElement {
                         <li><strong>ChainSync</strong> - Chain synchronization status</li>
                         <li><strong>MissingSectors</strong> - Missing sector data</li>
                         <li><strong>PendingMessages</strong> - Stuck messages</li>
+                        <li><strong>Others</strong> - Other issues</li>
                     </ul>
                 </div>
             </div>
@@ -588,7 +673,7 @@ AlertsManage.styles = css`
         display: flex;
         gap: 5px;
         margin-bottom: 20px;
-        border-bottom: 1px solid rgba(255,255,255,0.1);
+        border-bottom: 1px solid var(--color-border-default, #30363d);
         padding-bottom: 10px;
     }
     .tab {
@@ -596,22 +681,22 @@ AlertsManage.styles = css`
         padding: 10px 20px;
         cursor: pointer;
         border-radius: 4px 4px 0 0;
-        background: rgba(255,255,255,0.05);
-        color: #aaa;
+        background: var(--color-bg-elevated, #21262d);
+        color: var(--color-text-secondary, #8b949e);
     }
     .tab:hover {
-        background: rgba(255,255,255,0.1);
-        color: #fff;
+        background: var(--color-border-default, #30363d);
+        color: var(--color-text-primary, #e6edf3);
     }
     .tab.active {
-        background: rgba(59, 130, 246, 0.3);
-        color: #fff;
+        background: var(--color-accent-muted, rgba(94, 106, 210, 0.15));
+        color: var(--color-text-primary, #e6edf3);
     }
     .tab-badge {
         margin-left: 8px;
         padding: 2px 8px;
         border-radius: 10px;
-        background: rgba(255,255,255,0.2);
+        background: var(--color-bg-elevated, #21262d);
         font-size: 0.85em;
     }
     .tab-content {
@@ -639,7 +724,24 @@ AlertsManage.styles = css`
     .empty-state {
         text-align: center;
         padding: 40px;
-        color: #aaa;
+        color: var(--color-text-secondary, #8b949e);
+    }
+    .empty-state.compact {
+        padding: 15px;
+        text-align: left;
+    }
+    .ongoing-alerts {
+        margin-bottom: 25px;
+    }
+    .section-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 10px;
+    }
+    .section-header h3 {
+        margin: 0;
+        font-size: 1.1em;
     }
     .alert-list {
         display: flex;
@@ -647,14 +749,18 @@ AlertsManage.styles = css`
         gap: 10px;
     }
     .alert-card {
-        background: rgba(255,255,255,0.05);
-        border-left: 4px solid #B63333;
-        border-radius: 4px;
+        background: var(--color-bg-subtle, #161b22);
+        border: 1px solid var(--color-border-default, #30363d);
+        border-left: 4px solid var(--color-danger-fg, #f85149);
+        border-radius: 6px;
         padding: 15px;
     }
     .alert-card.acknowledged {
-        border-left-color: #4BB543;
-        opacity: 0.7;
+        border-left-color: var(--color-success-fg, #3fb950);
+        opacity: 0.85;
+    }
+    .alert-card.ongoing-alert-card {
+        border-left-color: #FFC107;
     }
     .alert-header {
         display: flex;
@@ -675,7 +781,7 @@ AlertsManage.styles = css`
         font-size: 1.1em;
     }
     .alert-time {
-        color: #aaa;
+        color: var(--color-text-secondary, #8b949e);
         font-size: 0.85em;
     }
     .alert-actions {
@@ -683,16 +789,16 @@ AlertsManage.styles = css`
         gap: 8px;
     }
     .alert-message {
-        background: rgba(0,0,0,0.2);
+        background: var(--color-bg-elevated, #21262d);
         padding: 10px;
-        border-radius: 4px;
+        border-radius: 6px;
         margin-bottom: 10px;
         white-space: pre-wrap;
         word-break: break-word;
     }
     .alert-meta {
         font-size: 0.85em;
-        color: #aaa;
+        color: var(--color-text-secondary, #8b949e);
     }
     .pagination {
         display: flex;
@@ -701,7 +807,7 @@ AlertsManage.styles = css`
         gap: 15px;
         margin-top: 20px;
         padding-top: 20px;
-        border-top: 1px solid rgba(255,255,255,0.1);
+        border-top: 1px solid var(--color-border-default, #30363d);
     }
     
     /* Tags */
@@ -712,20 +818,20 @@ AlertsManage.styles = css`
         font-size: 0.8em;
     }
     .tag-sent {
-        background: rgba(59, 130, 246, 0.3);
-        color: #3B82F6;
+        background: var(--color-info-muted, rgba(88, 166, 255, 0.15));
+        color: var(--color-info-fg, #58a6ff);
     }
     .tag-local {
-        background: rgba(170, 170, 170, 0.3);
-        color: #aaa;
+        background: var(--color-bg-elevated, #21262d);
+        color: var(--color-text-secondary, #8b949e);
     }
     .tag-acked {
-        background: rgba(75, 181, 67, 0.3);
-        color: #4BB543;
+        background: var(--color-success-muted, rgba(63, 185, 80, 0.15));
+        color: var(--color-success-fg, #3fb950);
     }
     .tag-active {
-        background: rgba(75, 181, 67, 0.3);
-        color: #4BB543;
+        background: var(--color-success-muted, rgba(63, 185, 80, 0.15));
+        color: var(--color-success-fg, #3fb950);
     }
     .tag-inactive {
         background: rgba(170, 170, 170, 0.3);

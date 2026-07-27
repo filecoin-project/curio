@@ -36,7 +36,7 @@ type MachineSummary struct {
 
 func (a *WebRPC) ClusterMachines(ctx context.Context) ([]MachineSummary, error) {
 	// Then machine summary
-	rows, err := a.deps.DB.Query(ctx, `
+	rows, err := a.Deps.DB.Query(ctx, `
 						SELECT 
 							hm.id,
 							hm.host_and_port,
@@ -67,25 +67,37 @@ func (a *WebRPC) ClusterMachines(ctx context.Context) ([]MachineSummary, error) 
 		var m MachineSummary
 		var lastContact time.Duration
 		var ram int64
-		var uptime time.Time
 		var restartRequest *time.Time
-		var version sql.NullString
+		var name, tasks, layers, version sql.NullString
+		var uptime sql.NullTime
 
-		if err := rows.Scan(&m.ID, &m.Address, &lastContact, &m.Cpu, &ram, &m.Gpu, &m.Unschedulable, &restartRequest, &m.Name, &m.Tasks, &m.Layers, &uptime, &version); err != nil {
+		if err := rows.Scan(&m.ID, &m.Address, &lastContact, &m.Cpu, &ram, &m.Gpu, &m.Unschedulable, &restartRequest, &name, &tasks, &layers, &uptime, &version); err != nil {
 			return nil, err // Handle error
+		}
+		if name.Valid {
+			m.Name = name.String
+		}
+		if m.Name == "" {
+			m.Name = m.Address
 		}
 		if version.Valid {
 			m.Version = version.String
 		}
 		m.SinceContact = lastContact.Round(time.Second).String()
 		m.RamHumanized = humanize.Bytes(uint64(ram))
-		m.Uptime = humanize.Time(uptime)
-		m.Tasks = strings.TrimSuffix(strings.TrimPrefix(m.Tasks, ","), ",")
-		m.Layers = strings.TrimSuffix(strings.TrimPrefix(m.Layers, ","), ",")
+		if uptime.Valid {
+			m.Uptime = humanize.Time(uptime.Time)
+		}
+		if tasks.Valid {
+			m.Tasks = strings.TrimSuffix(strings.TrimPrefix(tasks.String, ","), ",")
+		}
+		if layers.Valid {
+			m.Layers = strings.TrimSuffix(strings.TrimPrefix(layers.String, ","), ",")
+		}
 
 		if m.Unschedulable {
 			var runningTasks int
-			if err := a.deps.DB.QueryRow(ctx, "SELECT COUNT(*) FROM harmony_task WHERE owner_id=$1", m.ID).Scan(&runningTasks); err != nil {
+			if err := a.Deps.DB.QueryRow(ctx, "SELECT COUNT(*) FROM harmony_task WHERE owner_id=$1", m.ID).Scan(&runningTasks); err != nil {
 				return nil, err
 			}
 			m.RunningTasks = runningTasks
@@ -114,7 +126,7 @@ type TaskHistorySummary struct {
 }
 
 func (a *WebRPC) ClusterTaskHistory(ctx context.Context, limit, offset int) ([]TaskHistorySummary, error) {
-	rows, err := a.deps.DB.Query(ctx, "SELECT name, task_id, posted, work_start, work_end, result, err, completed_by_host_and_port FROM harmony_task_history ORDER BY work_end DESC LIMIT $1 OFFSET $2", limit, offset)
+	rows, err := a.Deps.DB.Query(ctx, "SELECT name, task_id, posted, work_start, work_end, result, err, completed_by_host_and_port FROM harmony_task_history ORDER BY work_end DESC LIMIT $1 OFFSET $2", limit, offset)
 	if err != nil {
 		return nil, err // Handle error
 	}
@@ -233,7 +245,7 @@ type MachineInfo struct {
 }
 
 func (a *WebRPC) ClusterNodeInfo(ctx context.Context, id int64) (*MachineInfo, error) {
-	rows, err := a.deps.DB.Query(ctx, `
+	rows, err := a.Deps.DB.Query(ctx, `
 						SELECT 
 							hm.id,
 							hm.host_and_port,
@@ -266,9 +278,30 @@ func (a *WebRPC) ClusterNodeInfo(ctx context.Context, id int64) (*MachineInfo, e
 	if rows.Next() {
 		var m MachineInfo
 		var lastContact time.Time
+		var name, layers, tasks, miners sql.NullString
+		var startupTime sql.NullTime
 
-		if err := rows.Scan(&m.Info.ID, &m.Info.Host, &lastContact, &m.Info.CPU, &m.Info.Memory, &m.Info.GPU, &m.Info.Unschedulable, &m.Info.RestartRequest, &m.Info.Name, &m.Info.Layers, &m.Info.Tasks, &m.Info.Miners, &m.Info.StartupTime); err != nil {
+		if err := rows.Scan(&m.Info.ID, &m.Info.Host, &lastContact, &m.Info.CPU, &m.Info.Memory, &m.Info.GPU, &m.Info.Unschedulable, &m.Info.RestartRequest, &name, &layers, &tasks, &miners, &startupTime); err != nil {
 			return nil, err
+		}
+		if name.Valid {
+			m.Info.Name = name.String
+		}
+		if m.Info.Name == "" {
+			m.Info.Name = m.Info.Host
+		}
+		if layers.Valid {
+			m.Info.Layers = layers.String
+		}
+		if tasks.Valid {
+			m.Info.Tasks = tasks.String
+		}
+		if miners.Valid {
+			m.Info.Miners = miners.String
+		}
+		if startupTime.Valid {
+			t := startupTime.Time
+			m.Info.StartupTime = &t
 		}
 
 		m.Info.LastContact = time.Since(lastContact).Round(time.Second).String()
@@ -281,7 +314,7 @@ func (a *WebRPC) ClusterNodeInfo(ctx context.Context, id int64) (*MachineInfo, e
 	}
 
 	// query storage info
-	rows2, err := a.deps.DB.Query(ctx, "SELECT storage_id, urls, weight, max_storage, can_seal, can_store, groups, allow_to, allow_types, deny_types, capacity, available, fs_available, reserved, used, allow_miners, deny_miners, last_heartbeat, heartbeat_err FROM storage_path WHERE urls LIKE '%' || $1 || '%'", summaries[0].Info.Host)
+	rows2, err := a.Deps.DB.Query(ctx, "SELECT storage_id, urls, weight, max_storage, can_seal, can_store, groups, allow_to, allow_types, deny_types, capacity, available, fs_available, reserved, used, allow_miners, deny_miners, last_heartbeat, heartbeat_err FROM storage_path WHERE urls LIKE '%' || $1 || '%'", summaries[0].Info.Host)
 	if err != nil {
 		return nil, err
 	}
@@ -325,7 +358,7 @@ func (a *WebRPC) ClusterNodeInfo(ctx context.Context, id int64) (*MachineInfo, e
 	}
 
 	// query storage URL liveness
-	rowsURL, err := a.deps.DB.Query(ctx, `SELECT sp.storage_id, spul.url, spul.last_checked, spul.last_live, spul.last_dead, spul.last_dead_reason 
+	rowsURL, err := a.Deps.DB.Query(ctx, `SELECT sp.storage_id, spul.url, spul.last_checked, spul.last_live, spul.last_dead, spul.last_dead_reason 
 		FROM storage_path sp 
 		INNER JOIN sector_path_url_liveness spul ON sp.storage_id = spul.storage_id 
 		WHERE sp.urls LIKE '%' || $1 || '%'`, summaries[0].Info.Host)
@@ -350,7 +383,7 @@ func (a *WebRPC) ClusterNodeInfo(ctx context.Context, id int64) (*MachineInfo, e
 	}
 
 	// tasks
-	rows3, err := a.deps.DB.Query(ctx, "SELECT id, name, posted_time, update_time, initiated_by, added_by, previous_task, retries FROM harmony_task WHERE owner_id=$1", summaries[0].Info.ID)
+	rows3, err := a.Deps.DB.Query(ctx, "SELECT id, name, posted_time, update_time, initiated_by, added_by, previous_task, retries FROM harmony_task WHERE owner_id=$1", summaries[0].Info.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -382,7 +415,7 @@ func (a *WebRPC) ClusterNodeInfo(ctx context.Context, id int64) (*MachineInfo, e
 
 		{
 			// try to find in the porep pipeline
-			rows4, err := a.deps.DB.Query(ctx, `SELECT sp_id, sector_number FROM sectors_sdr_pipeline 
+			rows4, err := a.Deps.DB.Query(ctx, `SELECT sp_id, sector_number FROM sectors_sdr_pipeline 
             	WHERE task_id_sdr=$1
 				OR task_id_tree_d=$1
 				OR task_id_tree_c=$1
@@ -419,7 +452,7 @@ func (a *WebRPC) ClusterNodeInfo(ctx context.Context, id int64) (*MachineInfo, e
 		summaries[0].Info.RunningTasks++
 	}
 
-	rows5, err := a.deps.DB.Query(ctx, `SELECT id, name, task_id, posted, work_start, work_end, result, err FROM harmony_task_history WHERE completed_by_host_and_port = $1 ORDER BY work_end DESC LIMIT 15`, summaries[0].Info.Host)
+	rows5, err := a.Deps.DB.Query(ctx, `SELECT id, name, task_id, posted, work_start, work_end, result, err FROM harmony_task_history WHERE completed_by_host_and_port = $1 ORDER BY work_end DESC LIMIT 15`, summaries[0].Info.Host)
 	if err != nil {
 		return nil, err
 	}
@@ -464,7 +497,7 @@ func (a *WebRPC) ClusterNodeInfo(ctx context.Context, id int64) (*MachineInfo, e
 }
 
 func (a *WebRPC) Cordon(ctx context.Context, id int64) error {
-	_, err := a.deps.DB.Exec(ctx, `UPDATE harmony_machines SET unschedulable = $1 WHERE id = $2`, true, id)
+	_, err := a.Deps.DB.Exec(ctx, `UPDATE harmony_machines SET unschedulable = $1 WHERE id = $2`, true, id)
 	if err != nil {
 		return xerrors.Errorf("cordon failed: %w", err)
 	}
@@ -472,7 +505,7 @@ func (a *WebRPC) Cordon(ctx context.Context, id int64) error {
 }
 
 func (a *WebRPC) Uncordon(ctx context.Context, id int64) error {
-	_, err := a.deps.DB.Exec(ctx, `UPDATE harmony_machines SET unschedulable = $1 WHERE id = $2`, false, id)
+	_, err := a.Deps.DB.Exec(ctx, `UPDATE harmony_machines SET unschedulable = $1 WHERE id = $2`, false, id)
 	if err != nil {
 		return xerrors.Errorf("uncordon failed: %w", err)
 	}
@@ -480,7 +513,7 @@ func (a *WebRPC) Uncordon(ctx context.Context, id int64) error {
 }
 
 func (a *WebRPC) Restart(ctx context.Context, id int64) error {
-	_, err := a.deps.DB.Exec(ctx, `UPDATE harmony_machines SET restart_request = NOW() WHERE id = $1`, id)
+	_, err := a.Deps.DB.Exec(ctx, `UPDATE harmony_machines SET restart_request = NOW() WHERE id = $1`, id)
 	if err != nil {
 		return xerrors.Errorf("restart failed: %w", err)
 	}
@@ -488,7 +521,7 @@ func (a *WebRPC) Restart(ctx context.Context, id int64) error {
 }
 
 func (a *WebRPC) AbortRestart(ctx context.Context, id int64) error {
-	_, err := a.deps.DB.Exec(ctx, `UPDATE harmony_machines SET restart_request = NULL WHERE id = $1`, id)
+	_, err := a.Deps.DB.Exec(ctx, `UPDATE harmony_machines SET restart_request = NULL WHERE id = $1`, id)
 	if err != nil {
 		return xerrors.Errorf("abort restart failed: %w", err)
 	}
@@ -497,7 +530,7 @@ func (a *WebRPC) AbortRestart(ctx context.Context, id int64) error {
 
 func (a *WebRPC) ClusterNodeMetrics(ctx context.Context, id int64) (string, error) {
 	var hostPort string
-	err := a.deps.DB.QueryRow(ctx, `SELECT host_and_port FROM harmony_machines WHERE id = $1`, id).Scan(&hostPort)
+	err := a.Deps.DB.QueryRow(ctx, `SELECT host_and_port FROM harmony_machines WHERE id = $1`, id).Scan(&hostPort)
 	if err != nil {
 		return "", xerrors.Errorf("failed to get host_and_port for machine %d: %w", id, err)
 	}

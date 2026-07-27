@@ -16,6 +16,13 @@ import (
 // detected and handled within this timeout as a last resort to bound the damage.
 const EthCallTimeout = 10 * time.Second
 
+// ConservativeEnqueuedRemovalsLimit is a curio-side soft ceiling on the number of
+// scheduled piece removals we allow to be queued on-chain per data set. It sits well
+// below the on-chain MAX_ENQUEUED_REMOVALS (2000) to keep comfortable headroom: once a
+// data set's live removal queue reaches this many entries, we stop enqueuing new
+// removals for it until the next proving period flushes the queue.
+const ConservativeEnqueuedRemovalsLimit = 200
+
 // EthCallOpts returns bind.CallOpts with a timeout-bounded context derived from
 // ctx.
 // All contract calls in PDP code MUST use this instead of nil CallOpts or a raw

@@ -8,6 +8,10 @@ test: test-deps
 	$(TEST_ENV_VARS) go test -v -tags="cgo,fvm,nosupraseal" -timeout 30m ./itests/...
 .PHONY: test
 
+test-synapse:
+	./scripts/ci/synapse-tests.sh
+.PHONY: test-synapse
+
 coverage: cov
 .PHONY: coverage
 

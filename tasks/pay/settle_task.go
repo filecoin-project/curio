@@ -9,12 +9,14 @@ import (
 	logging "github.com/ipfs/go-log/v2"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/curio/alertmanager/curioalerting"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/lib/filecoinpayment"
 	"github.com/filecoin-project/curio/pdp/contract"
+	"github.com/filecoin-project/curio/pdp/contract/FWSS"
 	"github.com/filecoin-project/curio/tasks/message"
 	"github.com/filecoin-project/curio/tasks/tasknames"
 )
@@ -25,13 +27,15 @@ type SettleTask struct {
 	db        *harmonydb.DB
 	ethClient ethchain.EthClient
 	sender    *message.SenderETH
+	al        curioalerting.AlertingInterface
 }
 
-func NewSettleTask(db *harmonydb.DB, ethClient ethchain.EthClient, sender *message.SenderETH) *SettleTask {
+func NewSettleTask(db *harmonydb.DB, ethClient ethchain.EthClient, sender *message.SenderETH, al curioalerting.AlertingInterface) *SettleTask {
 	return &SettleTask{
 		db:        db,
 		ethClient: ethClient,
 		sender:    sender,
+		al:        al,
 	}
 }
 
@@ -77,8 +81,14 @@ func (s *SettleTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwn
 	payee := provider.Info.Payee
 
 	serviceAddr := contract.ContractAddresses().AllowedPublicRecordKeepers.FWSService
+	resolver, err := FWSS.SettleTargetResolver(ctx, s.ethClient)
+	if err != nil {
+		return false, fmt.Errorf("failed to create FWSS settle target resolver: %w", err)
+	}
 
-	err = filecoinpayment.SettleLockupPeriod(ctx, s.db, s.ethClient, s.sender, opAddr, []common.Address{payee}, []common.Address{serviceAddr})
+	err = filecoinpayment.SettleLockupPeriod(ctx, s.db, s.ethClient, s.sender, opAddr, []common.Address{payee}, map[common.Address]filecoinpayment.SettleTargetResolver{
+		serviceAddr: resolver,
+	}, s.al, alertType, alertName)
 	if err != nil {
 		return false, fmt.Errorf("failed to settle lockup period: %w", err)
 	}
