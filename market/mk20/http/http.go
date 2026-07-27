@@ -74,7 +74,6 @@ func registerRateLimitedRoute(mux chi.Router, authMiddleware func(http.Handler) 
 	mux.With(dealRateLimitMiddleware(requestLimit), authMiddleware, recoverMiddleware).Method(method, pattern, handler)
 }
 
-
 func AuthMiddleware(db *harmonydb.DB, cfg *config.CurioConfig) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

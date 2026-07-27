@@ -331,12 +331,12 @@ func populateProxyMethods[T, U any](outstr U, ins *config.Dynamic[[]T], nextHeal
 			}
 		}
 	}
-rpLockFunc :=func(){
-	apiProvidersMx.Lock()
-	defer apiProvidersMx.Unlock()
-	refreshProviders()
-}
-rpLockFunc()
+	rpLockFunc := func() {
+		apiProvidersMx.Lock()
+		defer apiProvidersMx.Unlock()
+		refreshProviders()
+	}
+	rpLockFunc()
 	ins.OnChange(func() {
 		rpLockFunc()
 	})
