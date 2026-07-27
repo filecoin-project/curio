@@ -199,35 +199,59 @@ func (s *SendTaskETH) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 
 		known, lookupErr := s.checkInTransactionPool(signedTx.Hash())
 		if lookupErr != nil {
-			log.Warnw("eth transaction send state unknown; failed to look up transaction before retry",
+			log.Warnw("eth transaction send state unknown; failed to look up transaction after settle delay",
 				"task_id", taskID,
 				"from", dbTx.FromAddress,
 				"nonce", signedTx.Nonce(),
 				"hash", signedTx.Hash().Hex(),
 				"send_error", sendErr,
 				"lookup_error", lookupErr)
-			return false, multierr.Combine(
-				xerrors.Errorf("eth transaction send state unknown for %s: %w", signedTx.Hash().Hex(), sendErr),
-				xerrors.Errorf("looking up eth transaction %s: %w", signedTx.Hash().Hex(), lookupErr),
+			sendResult = ethSendDefinitiveError
+			sendErr = multierr.Combine(
+				xerrors.Errorf("eth transaction send state unknown for %s after settle delay: %w", signedTx.Hash().Hex(), sendErr),
+				xerrors.Errorf("looking up eth transaction %s after unknown send: %w", signedTx.Hash().Hex(), lookupErr),
 			)
-		}
-		if !known {
-			log.Warnw("eth transaction send state unknown; leaving signed transaction for retry",
+		} else if known {
+			log.Infow("eth transaction found after unknown send error",
 				"task_id", taskID,
 				"from", dbTx.FromAddress,
 				"nonce", signedTx.Nonce(),
 				"hash", signedTx.Hash().Hex(),
 				"error", sendErr)
-			return false, xerrors.Errorf("eth transaction send state unknown for %s: %w", signedTx.Hash().Hex(), sendErr)
+			sendResult = ethSendAccepted
+		} else {
+			pendingNonce, nonceErr := s.checkPendingNonce(fromAddress)
+			if nonceErr != nil {
+				log.Warnw("eth transaction send state unknown; failed to check pending nonce after settle delay",
+					"task_id", taskID,
+					"from", dbTx.FromAddress,
+					"nonce", signedTx.Nonce(),
+					"hash", signedTx.Hash().Hex(),
+					"send_error", sendErr,
+					"nonce_error", nonceErr)
+				sendResult = ethSendDefinitiveError
+				sendErr = multierr.Combine(
+					xerrors.Errorf("eth transaction send state unknown for %s after settle delay: %w", signedTx.Hash().Hex(), sendErr),
+					xerrors.Errorf("checking pending nonce for %s after unknown send: %w", dbTx.FromAddress, nonceErr),
+				)
+			} else {
+				log.Warnw("eth transaction not found after unknown send error",
+					"task_id", taskID,
+					"from", dbTx.FromAddress,
+					"nonce", signedTx.Nonce(),
+					"pending_nonce", pendingNonce,
+					"hash", signedTx.Hash().Hex(),
+					"error", sendErr)
+				sendResult = ethSendDefinitiveError
+				if pendingNonce > signedTx.Nonce() {
+					sendErr = xerrors.Errorf("eth transaction send state unknown for %s: tx not found after %s and sender nonce advanced from %d to %d: %w",
+						signedTx.Hash().Hex(), ethUnknownSendSettleDelay, signedTx.Nonce(), pendingNonce, sendErr)
+				} else {
+					sendErr = xerrors.Errorf("eth transaction send state unknown for %s: tx not found after %s and sender nonce is %d: %w",
+						signedTx.Hash().Hex(), ethUnknownSendSettleDelay, pendingNonce, sendErr)
+				}
+			}
 		}
-
-		log.Infow("eth transaction found after ambiguous send error",
-			"task_id", taskID,
-			"from", dbTx.FromAddress,
-			"nonce", signedTx.Nonce(),
-			"hash", signedTx.Hash().Hex(),
-			"error", sendErr)
-		sendResult = ethSendAccepted
 	}
 
 	sendSuccess := sendResult == ethSendAccepted
@@ -255,7 +279,7 @@ func (s *SendTaskETH) checkInTransactionPool(hash common.Hash) (bool, error) {
 
 	tx, pending, err := s.client.TransactionByHash(ctx, hash)
 	if err != nil {
-		if errors.Is(err, ethereum.NotFound) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		if errors.Is(err, ethereum.NotFound) {
 			return false, nil
 		}
 		return false, err
@@ -266,6 +290,13 @@ func (s *SendTaskETH) checkInTransactionPool(hash common.Hash) (bool, error) {
 	}
 
 	return false, nil
+}
+
+func (s *SendTaskETH) checkPendingNonce(from common.Address) (uint64, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), defaultEthCallTimeout)
+	defer cancel()
+
+	return s.client.PendingNonceAt(ctx, from)
 }
 
 func (s *SendTaskETH) signTransaction(ctx context.Context, fromAddress common.Address, tx *types.Transaction) (*types.Transaction, error) {
@@ -318,7 +349,6 @@ func (s *SendTaskETH) TypeDetails() harmonytask.TaskTypeDetails {
 		},
 		MaxFailures: 1000,
 		Follows:     nil,
-		RetryWait:   taskhelp.RetryWaitLinear(time.Second, 2*time.Second),
 	}
 }
 
