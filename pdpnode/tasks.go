@@ -126,6 +126,11 @@ func buildPDPTasks(ctx context.Context, d *Deps, chainSched *chainsched.CurioCha
 
 // RegisterTasks wires PDP harmony tasks and returns the task engine.
 func RegisterTasks(ctx context.Context, d *Deps) (*TaskResult, error) {
+	if d.DB.ReadOnly() {
+		log.Info("readonly database mode: skipping background tasks")
+		return &TaskResult{}, nil
+	}
+
 	chainSched := chainsched.New(d.Chain)
 
 	bundle, err := buildPDPTasks(ctx, d, chainSched, true)
@@ -163,6 +168,11 @@ func RegisterTasks(ctx context.Context, d *Deps) (*TaskResult, error) {
 
 // AppendTasks adds PDP tasks to a curio task list.
 func AppendTasks(ctx context.Context, d *Deps, chainSched *chainsched.CurioChainSched, active *[]harmonytask.TaskInterface) (*servicedeps.Deps, error) {
+	if d.DB.ReadOnly() {
+		log.Info("readonly database mode: skipping background tasks")
+		return &servicedeps.Deps{}, nil
+	}
+
 	bundle, err := buildPDPTasks(ctx, d, chainSched, false)
 	if err != nil {
 		return nil, err

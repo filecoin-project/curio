@@ -3129,6 +3129,12 @@
       "translation": "目标状态：true（确保已解封）、false（确保无解封副本）",
       "message": "Target state: true (ensure unsealed), false (ensure no unsealed copy)",
       "placeholder": null
+    },
+    {
+      "id": "Open the database in read-only mode (skip schema upgrades and harmony_machines writes)",
+      "translation": "以只读模式打开数据库（跳过架构升级和 harmony_machines 写入）",
+      "message": "Open the database in read-only mode (skip schema upgrades and harmony_machines writes)",
+      "placeholder": null
     }
   ]
 }

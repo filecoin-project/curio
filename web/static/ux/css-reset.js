@@ -8,7 +8,7 @@ export default css `
     * {
         margin: 0;
         padding: 0;
-        font-family: 'JetBrains Mono', monospace;
+        font-family: var(--font-sans, 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif);
     }
 
     ul, ol {
@@ -18,11 +18,13 @@ export default css `
 
     a {
         text-decoration: none;
+        color: var(--color-accent-fg, #4493f8);
     }
 
     button {
       all: unset;
       display: inline-block;
+      cursor: pointer;
     }
   
     button:focus {

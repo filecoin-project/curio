@@ -247,6 +247,8 @@ github.com/curiostorage/go-openrpc-reflect v0.0.0-20260302234910-57f4605f0e7b h1
 github.com/curiostorage/go-openrpc-reflect v0.0.0-20260302234910-57f4605f0e7b/go.mod h1:0d2D5Wu50Qf4i3NWH7OHVSblAHeup7jVsJ6cV8OdzrU=
 github.com/curiostorage/harmonyquery v1.0.2 h1:Jfk2vQaFfyB/4CC0mAufkKQ1bZXGryMNIrnNLXgFupQ=
 github.com/curiostorage/harmonyquery v1.0.2/go.mod h1:ih3N/QVNhPcps+cIWBk/s+hYRz5QEJ+9Lkc841K7xXY=
+github.com/curiostorage/harmonyquery v1.0.3-0.20260709213328-4e4a5b3b1f4d h1:Ph3Jm1OgS6ejjj/M17+AREBVavlxX5/Pm6MV9YTYsJs=
+github.com/curiostorage/harmonyquery v1.0.3-0.20260709213328-4e4a5b3b1f4d/go.mod h1:ih3N/QVNhPcps+cIWBk/s+hYRz5QEJ+9Lkc841K7xXY=
 github.com/curiostorage/shouldtest v0.0.0-20260522222211-a06c87260eb5 h1:XH67X9yFkhpa1nxv4N6pXY3vhxwG+wlCVIKtW2D6gYI=
 github.com/curiostorage/shouldtest v0.0.0-20260522222211-a06c87260eb5/go.mod h1:1f5OZeHKJFWVEI2fLbKhVi+u1bju1jZyFvbyyAICtaM=
 github.com/daaku/go.zipexe v1.0.2 h1:Zg55YLYTr7M9wjKn8SY/WcpuuEi+kR2u4E8RhvpyXmk=

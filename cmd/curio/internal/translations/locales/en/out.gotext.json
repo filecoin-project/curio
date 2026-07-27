@@ -1791,6 +1791,13 @@
             "fuzzy": true
         },
         {
+            "id": "Open the database in read-only mode (skip schema upgrades and harmony_machines writes)",
+            "message": "Open the database in read-only mode (skip schema upgrades and harmony_machines writes)",
+            "translation": "Open the database in read-only mode (skip schema upgrades and harmony_machines writes)",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
             "id": "Optional setup steps (you can skip these and configure later):",
             "message": "Optional setup steps (you can skip these and configure later):",
             "translation": "Optional setup steps (you can skip these and configure later):",

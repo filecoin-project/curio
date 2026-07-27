@@ -5,6 +5,7 @@ customElements.define('pdp-wallet', class PDPWalletElement extends LitElement {
     static properties = {
         keys: { type: Array },
         keyStatus: { type: Object },
+        keyStatusLoading: { type: Boolean },
         showImportForm: { type: Boolean },
         showCreatedKeyModal: { type: Boolean },
         createdKey: { type: Object },
@@ -15,7 +16,8 @@ customElements.define('pdp-wallet', class PDPWalletElement extends LitElement {
     constructor() {
         super();
         this.keys = [];
-        this.keyStatus = { configured: false };
+        this.keyStatus = undefined;
+        this.keyStatusLoading = true;
         this.showImportForm = false;
         this.showCreatedKeyModal = false;
         this.createdKey = null;
@@ -34,11 +36,14 @@ customElements.define('pdp-wallet', class PDPWalletElement extends LitElement {
     }
 
     async loadKeyStatus() {
+        this.keyStatusLoading = true;
         try {
             this.keyStatus = await RPCCall('PDPKeyStatus', []);
         } catch (error) {
             console.error('Failed to load PDP key status:', error);
-            this.keyStatus = { configured: false };
+            this.keyStatus = null;
+        } finally {
+            this.keyStatusLoading = false;
         }
     }
 
@@ -52,6 +57,7 @@ customElements.define('pdp-wallet', class PDPWalletElement extends LitElement {
     }
 
     walletConfigured() {
+        if (this.keyStatusLoading) return false;
         return this.keyStatus?.configured || this.keys.length > 0;
     }
 
@@ -102,6 +108,8 @@ customElements.define('pdp-wallet', class PDPWalletElement extends LitElement {
 
             if (this.keyStatus?.funded) {
                 alert(`Wallet imported for address ${address}. Balance: ${this.keyStatus.balance}.`);
+            } else if (!this.keyStatus?.balanceKnown) {
+                alert(`Wallet imported for address ${address}. Balance could not be fetched from the chain yet.`);
             } else {
                 alert(`Wallet imported for address ${address}, but it has no funds yet. Send FIL/tFIL to this address before registering with FWSS.`);
             }
@@ -130,13 +138,28 @@ customElements.define('pdp-wallet', class PDPWalletElement extends LitElement {
     }
 
     renderFundingAlert() {
+        if (this.keyStatusLoading) {
+            return html`
+                <div class="alert alert-secondary">
+                    Loading wallet status…
+                </div>
+            `;
+        }
         if (!this.keyStatus?.configured) {
             return '';
         }
         if (this.keyStatus.funded) {
             return html`
                 <div class="alert alert-success">
-                    Wallet funded — balance ${this.keyStatus.balance}.
+                    Wallet funded — balance ${this.keyStatus.balance}${this.keyStatus.usdfcBalance ? `, ${this.keyStatus.usdfcBalance}` : ''}.
+                </div>
+            `;
+        }
+        if (!this.keyStatus.balanceKnown) {
+            return html`
+                <div class="alert alert-warning">
+                    Wallet is configured, but FIL/USDFC balances could not be fetched from the chain right now.
+                    Address: <code>${this.keyStatus.address}</code>
                 </div>
             `;
         }
@@ -150,12 +173,10 @@ customElements.define('pdp-wallet', class PDPWalletElement extends LitElement {
     }
 
     render() {
-        const walletMissing = !this.walletConfigured();
+        const walletMissing = !this.keyStatusLoading && !this.walletConfigured();
 
         return html`
-            <link
-                href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
-                rel="stylesheet">
+            <link rel="stylesheet" href="/ux/vendor/bootstrap.min.css">
             <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'">
 
             <h2>PDP Wallet</h2>
@@ -209,9 +230,9 @@ customElements.define('pdp-wallet', class PDPWalletElement extends LitElement {
             ${this.showImportForm && walletMissing ? html`
                 <form @submit="${this.importKey}" style="margin-top: 20px;">
                     <div class="mb-3">
-                        <label for="private-key" class="form-label">Private Key (Hex)</label>
+                        <label for="private-key" class="form-label">Private Key (Hex or lotus export)</label>
                         <textarea class="form-control" id="private-key" rows="3" required></textarea>
-                        <div class="form-text">Paste the secp256k1 private key for an existing 0x address.</div>
+                        <div class="form-text">Paste a hex secp256k1 key, or the output of <code>lotus wallet export &lt;f4-address&gt;</code>.</div>
                     </div>
                     <button type="submit" class="btn btn-success" ?disabled=${this.importing}>
                         ${this.importing ? 'Importing…' : 'Import'}
@@ -241,6 +262,11 @@ customElements.define('pdp-wallet', class PDPWalletElement extends LitElement {
                                 ${this.keyStatus?.funded ? html`
                                     <div class="alert alert-success mt-3 mb-0">
                                         Wallet balance: ${this.keyStatus.balance}.
+                                    </div>
+                                ` : !this.keyStatus?.balanceKnown ? html`
+                                    <div class="alert alert-warning mt-3 mb-0">
+                                        Balance could not be fetched from the chain yet. Address:
+                                        <code>${this.createdKey.address}</code>
                                     </div>
                                 ` : html`
                                     <div class="alert alert-warning mt-3 mb-0">

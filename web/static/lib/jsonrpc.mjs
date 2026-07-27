@@ -8,7 +8,6 @@ class JsonRpcClient {
                 await client.connect();
                 return client;
             })().catch((err) => {
-                // Reset cached instance so future calls can retry cleanly
                 JsonRpcClient.instance = null;
                 throw err;
             });
@@ -25,7 +24,6 @@ class JsonRpcClient {
         this.requestId = 0;
         this.pendingRequests = new Map();
 
-        // Reconnection state
         this.connectPromise = null;
         this.reconnectTimer = null;
         this.shouldReconnect = true;
@@ -58,7 +56,6 @@ class JsonRpcClient {
                     console.log("Connection closed, attempting to reconnect...");
                     this.rejectAllPending(new Error('WebSocket disconnected'));
                     if (!hasOpened) {
-                        // Initial connection attempt failed: propagate error and stop reconnecting here
                         this.shouldReconnect = false;
                         this.clearReconnectTimer();
                         if (this.connectPromise) {
@@ -158,8 +155,12 @@ class JsonRpcClient {
 }
 
 async function init() {
-    const client = await JsonRpcClient.getInstance();
-    console.log("webrpc backend:", await client.call('Version', []))
+    try {
+        const client = await JsonRpcClient.getInstance();
+        console.log("webrpc backend:", await client.call('Version', []));
+    } catch (_) {
+        // backend may be unavailable during static-only dev
+    }
 }
 
 init();
@@ -167,4 +168,40 @@ init();
 export default async function(method, params = []) {
     const i = await JsonRpcClient.getInstance();
     return await i.call(method, params);
+}
+
+// HTTP JSON-RPC (not WebSocket). Use when the server needs request headers
+// such as Referer — browsers do not send Referer on WebSocket upgrades.
+// Pass AbortSignal via opts.signal to cancel; the server cancels the DB query.
+export async function RPCCallHTTP(method, params = [], opts = {}) {
+    const res = await fetch('/api/webrpc/v0', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            jsonrpc: '2.0',
+            method: 'CurioWeb.' + method,
+            params,
+            id: 1,
+        }),
+        signal: opts.signal,
+    });
+
+    let body;
+    try {
+        body = await res.json();
+    } catch (e) {
+        if (opts.signal?.aborted || e?.name === 'AbortError') {
+            throw e;
+        }
+        throw new Error(`RPC HTTP ${res.status}: invalid JSON response`);
+    }
+
+    if (body?.error) {
+        const err = body.error;
+        throw new Error(err.message || err.Message || String(err));
+    }
+    if (!res.ok) {
+        throw new Error(`RPC HTTP ${res.status}`);
+    }
+    return body.result;
 }

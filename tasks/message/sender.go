@@ -370,6 +370,12 @@ func (s *Sender) Send(ctx context.Context, msg *types.Message, mss *api.MessageS
 
 	// push the task
 	taskAdder := s.sendTask.sendTF.Val(ctx)
+	if taskAdder == nil {
+		if err := ctx.Err(); err != nil {
+			return cid.Undef, err
+		}
+		return cid.Undef, xerrors.Errorf("message send task adder is not available")
+	}
 
 	unsBytes := new(bytes.Buffer)
 	err = msg.MarshalCBOR(unsBytes)

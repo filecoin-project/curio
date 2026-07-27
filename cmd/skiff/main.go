@@ -62,6 +62,12 @@ func main() {
 				EnvVars: []string{"CURIO_DB_LOAD_BALANCE", "CURIO_HARMONYDB_LOAD_BALANCE"},
 				Value:   true,
 			},
+			&cli.BoolFlag{
+				Name:    "db-readonly",
+				Usage:   "open the database in read-only mode (skip schema upgrades and harmony_machines writes)",
+				EnvVars: []string{"CURIO_DB_READONLY"},
+				Value:   false,
+			},
 			&cli.StringFlag{
 				Name:    curiodeps.FlagRepoPath,
 				EnvVars: []string{"CURIO_REPO_PATH"},
