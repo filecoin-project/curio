@@ -1,5 +1,6 @@
 import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@2/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs';
+import { loadingBlock, loadingStyles } from '/lib/loading.mjs';
 
 class TaskStatusElement extends LitElement {
     static properties= {
@@ -7,6 +8,8 @@ class TaskStatusElement extends LitElement {
         status: { type: Object },
         loading: { type: Boolean }
     }
+
+    static styles = [loadingStyles, css``];
 
     constructor() {
         super();
@@ -55,7 +58,7 @@ class TaskStatusElement extends LitElement {
 
     render() {
         if (this.loading) {
-            return html`<div>Loading...</div>`;
+            return loadingBlock('Loading…');
         }
 
         if (!this.status) {

@@ -8,6 +8,7 @@ import { StyledLitElement } from '/ux/StyledLitElement.mjs';
  *
  * @property {String} anchor - The side from which the drawer appears. Valid values: `left`, `right`, `top`, `bottom`. Default is `right`.
  * @property {Boolean} isOpen - Indicates whether the drawer is open. Default is `true`.
+ * @property {Boolean} push - When true, the open drawer participates in layout and pushes sibling content. Default is `false` (overlay).
  * @property {String} label - The label for the drawer's open button.
  * @property {Function} onClose - Callback function invoked when the drawer is closed.
  *
@@ -26,6 +27,7 @@ class Drawer extends StyledLitElement {
   static properties = {
     anchor: { type: String, reflect: true },
     isOpen: { type: Boolean, reflect: true },
+    push: { type: Boolean, reflect: true },
     label: { type: String },
     onClose: { type: Function, attribute: false },
   };
@@ -34,6 +36,7 @@ class Drawer extends StyledLitElement {
     super();
     this.anchor = 'right';
     this.isOpen = true;
+    this.push = false;
     this.label = 'Drawer';
     this.onClose = null;
     this.dialog = null;
@@ -108,6 +111,24 @@ Drawer.styles = [
     :host([isOpen]) .open-btn {
       visibility: hidden;
     }
+
+    /* Push mode: host owns width so siblings reflow when open/closed */
+    :host([push]) {
+      display: block;
+      flex-shrink: 0;
+      width: 0;
+      align-self: stretch;
+      overflow: visible;
+      transition: width 180ms ease;
+    }
+
+    :host([push][isOpen]) {
+      width: min(40rem, 45vw);
+    }
+
+    :host([push][isOpen][anchor="left"]) {
+      width: min(20rem, 35vw);
+    }
     
     .open-btn {
       position: fixed;
@@ -117,6 +138,7 @@ Drawer.styles = [
       border-radius: 8px 8px 0 0;
       padding: 0.5rem 0.75rem;
       font-size: 0.9rem;
+      z-index: 11;
       
       &[anchor="right"] {
         top: 0;
@@ -238,6 +260,39 @@ Drawer.styles = [
           }
         }
       }
+    }
+
+    /* Push mode: panel sits in-flow (sticky) instead of overlaying */
+    :host([push]) dialog {
+      position: sticky;
+      top: 0;
+      inset: auto;
+      margin: 0;
+      width: 100%;
+      min-width: 0;
+      max-width: none;
+      height: 100vh;
+      min-height: 0;
+      max-height: 100vh;
+      box-sizing: border-box;
+      box-shadow: none;
+      border-left: 1px solid var(--color-border-default);
+      border-right: none;
+      border-top: none;
+      border-bottom: none;
+    }
+
+    :host([push][anchor="left"]) dialog {
+      border-left: none;
+      border-right: 1px solid var(--color-border-default);
+    }
+
+    :host([push][anchor="top"]) dialog,
+    :host([push][anchor="bottom"]) dialog {
+      position: relative;
+      height: auto;
+      max-height: 50vh;
+      border: 1px solid var(--color-border-default);
     }
   `
 ]

@@ -287,8 +287,12 @@ func (deps *Deps) PopulateRemainingDeps(ctx context.Context, cctx *cli.Context, 
 		deps.Bstore = curiochain.NewChainBlockstore(deps.Chain)
 	}
 
-	deps.LocalPaths = &paths.BasicLocalStorage{
-		PathToJSON: path.Join(cctx.String(FlagRepoPath), "storage.json"),
+	if deps.DB.ReadOnly() {
+		deps.LocalPaths = paths.NewReadonlyLocalStorage()
+	} else {
+		deps.LocalPaths = &paths.BasicLocalStorage{
+			PathToJSON: path.Join(cctx.String(FlagRepoPath), "storage.json"),
+		}
 	}
 
 	if deps.ListenAddr == "" {
@@ -313,6 +317,7 @@ func (deps *Deps) PopulateRemainingDeps(ctx context.Context, cctx *cli.Context, 
 	}
 
 	if cctx.IsSet("gui-listen") {
+		deps.Cfg.Subsystems.EnableWebGui = true
 		deps.Cfg.Subsystems.GuiAddress = cctx.String("gui-listen")
 	}
 	if deps.LocalStore == nil {
