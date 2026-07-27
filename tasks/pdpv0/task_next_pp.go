@@ -226,7 +226,8 @@ func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() 
             UPDATE pdp_data_sets
             SET challenge_request_msg_hash = $1,
                 prev_challenge_request_epoch = $2,
-				prove_at_epoch = $3
+				prove_at_epoch = $3,
+				pp_reconcile_needed = TRUE
             WHERE id = $4
         `, txHash.Hex(), ts.Height(), next_prove_at.Uint64(), dataSetId)
 		if err != nil {
@@ -309,7 +310,8 @@ func resetDatasetToInitPP(ctx context.Context, db *harmonydb.DB, dataSetId int64
              SET challenge_request_msg_hash = NULL,
                      prove_at_epoch = NULL,
                      init_ready = TRUE,
-                     prev_challenge_request_epoch = NULL
+                     prev_challenge_request_epoch = NULL,
+                     pp_reconcile_needed = FALSE
              WHERE id = $1
      `, dataSetId)
 	if err != nil {
@@ -328,7 +330,8 @@ func disableProvingForEmptyDataset(tx *harmonydb.Tx, dataSetId int64) error {
 		SET challenge_request_msg_hash = NULL,
 			prove_at_epoch = NULL,
 			init_ready = FALSE,
-			prev_challenge_request_epoch = NULL
+			prev_challenge_request_epoch = NULL,
+			pp_reconcile_needed = FALSE
 		WHERE id = $1
 	`, dataSetId)
 	if err != nil {
@@ -386,10 +389,11 @@ func skipCurrentOnChainProvingPeriod(ctx context.Context, tx *harmonydb.Tx, prov
 	// the reconciliation height as a marker while prove_at_epoch drives scheduling.
 	affected, err := tx.Exec(`
 			UPDATE pdp_data_sets
-			SET challenge_request_msg_hash = NULL,
-				prev_challenge_request_epoch = $2,
-				prove_at_epoch = $3
-			WHERE id = $1
+				SET challenge_request_msg_hash = NULL,
+					prev_challenge_request_epoch = $2,
+					prove_at_epoch = $3,
+					pp_reconcile_needed = FALSE
+				WHERE id = $1
 			  AND unrecoverable_proving_failure_epoch IS NULL
 	`, dataSetId, currentHeight, challengeEpoch.Int64())
 	if err != nil {

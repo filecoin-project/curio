@@ -17,31 +17,74 @@ import (
 )
 
 const alertNameProvingPeriod = "ProvingPeriod"
+const provingPeriodReconcileBatchLimit = 128
 
 // NewProvingPeriodWatcher reconciles confirmed proving-period side effects
 // before the prove watcher runs. nextProvingPeriod is what finally applies
 // scheduled piece removals and can also clear PDPVerifier's next challenge when
 // the dataset becomes empty, so both local states must be fixed before prove
 // task scheduling looks at the dataset.
+//
+// Empty-period reconciliation runs first because there is no proof to submit for
+// a zero on-chain challenge epoch. Clearing the stale schedule before delete
+// reconciliation prevents the prove watcher from disabling proving after a new
+// add already made the dataset ready again.
 func NewProvingPeriodWatcher(w *Watcher) {
 	if err := w.AddWatcher(func(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, al curioalerting.AlertingInterface, revert, apply *chainTypes.TipSet) {
-		if err := processEmptyProvingPeriods(ctx, db, ethClient); err != nil {
+		if err := clearFailedProvingPeriodReconciliations(ctx, db, provingPeriodReconcileBatchLimit); err != nil {
+			log.Warnf("Failed to clear failed PDP proving period reconciliation flags: %s", err)
+			_ = al.EmitEvent(ctx, curioalerting.AlertEvent{
+				System:    alertType,
+				Subsystem: alertNameProvingPeriod,
+				Message:   fmt.Sprintf("failed to clear failed PDP proving period reconciliation flags: %s", err),
+			})
+			return
+		}
+
+		readyPeriods, err := selectProvingPeriodsNeedingReconcile(ctx, db, provingPeriodReconcileBatchLimit)
+		if err != nil {
+			log.Warnf("Failed to select ready PDP proving periods: %s", err)
+			_ = al.EmitEvent(ctx, curioalerting.AlertEvent{
+				System:    alertType,
+				Subsystem: alertNameProvingPeriod,
+				Message:   fmt.Sprintf("failed to select ready PDP proving periods: %s", err),
+			})
+			return
+		}
+		if len(readyPeriods) == 0 {
+			return
+		}
+		readyDataSets := provingPeriodDataSetIDs(readyPeriods)
+
+		if err := processEmptyProvingPeriods(ctx, db, ethClient, readyPeriods); err != nil {
 			log.Warnf("Failed to process empty PDP proving periods: %s", err)
 			_ = al.EmitEvent(ctx, curioalerting.AlertEvent{
 				System:    alertType,
 				Subsystem: alertNameProvingPeriod,
 				Message:   fmt.Sprintf("failed to process empty PDP proving periods: %s", err),
 			})
+			return
 		}
 
-		if err := processPendingPieceDeletes(ctx, db, ethClient); err != nil {
+		if err := processPendingPieceDeletes(ctx, db, ethClient, readyDataSets); err != nil {
 			log.Warnf("Failed to process pending PDP piece deletes: %s", err)
 			_ = al.EmitEvent(ctx, curioalerting.AlertEvent{
 				System:    alertType,
 				Subsystem: alertNameProvingPeriod,
 				Message:   fmt.Sprintf("failed to process pending PDP piece deletes: %s", err),
 			})
+			return
 		}
+
+		if err := clearProvingPeriodReconcileNeeded(ctx, db, readyPeriods); err != nil {
+			log.Warnf("Failed to clear PDP proving period reconciliation flags: %s", err)
+			_ = al.EmitEvent(ctx, curioalerting.AlertEvent{
+				System:    alertType,
+				Subsystem: alertNameProvingPeriod,
+				Message:   fmt.Sprintf("failed to clear PDP proving period reconciliation flags: %s", err),
+			})
+		}
+
 	}, WatcherOrderCleanupPieces); err != nil {
 		panic(err)
 	}
@@ -52,33 +95,68 @@ type confirmedProvingPeriod struct {
 	TxHash    string `db:"challenge_request_msg_hash"`
 }
 
+func selectProvingPeriodsNeedingReconcile(ctx context.Context, db *harmonydb.DB, limit int) ([]confirmedProvingPeriod, error) {
+	var periods []confirmedProvingPeriod
+	err := db.Select(ctx, &periods, `
+		SELECT pds.id,
+		       COALESCE(pds.challenge_request_msg_hash, '') AS challenge_request_msg_hash
+		FROM pdp_data_sets pds
+		LEFT JOIN message_waits_eth mwe ON mwe.signed_tx_hash = pds.challenge_request_msg_hash
+		WHERE pds.pp_reconcile_needed = TRUE
+		  AND pds.unrecoverable_proving_failure_epoch IS NULL
+		  AND (
+		      pds.challenge_request_msg_hash IS NULL
+		      OR (mwe.tx_status = 'confirmed' AND mwe.tx_success = TRUE)
+		  )
+		ORDER BY pds.id
+		LIMIT $1
+	`, limit)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to select proving periods needing reconciliation: %w", err)
+	}
+
+	return periods, nil
+}
+
+func provingPeriodDataSetIDs(periods []confirmedProvingPeriod) []int64 {
+	dataSets := make([]int64, 0, len(periods))
+	for _, period := range periods {
+		dataSets = append(dataSets, period.DataSetID)
+	}
+	return dataSets
+}
+
+func clearFailedProvingPeriodReconciliations(ctx context.Context, db *harmonydb.DB, limit int) error {
+	_, err := db.Exec(ctx, `
+		WITH failed AS (
+			SELECT pds.id,
+			       pds.challenge_request_msg_hash
+			FROM pdp_data_sets pds
+			INNER JOIN message_waits_eth mwe ON mwe.signed_tx_hash = pds.challenge_request_msg_hash
+			WHERE pds.pp_reconcile_needed = TRUE
+			  AND pds.challenge_request_msg_hash IS NOT NULL
+			  AND (mwe.tx_status = 'failed' OR mwe.tx_success = FALSE)
+			ORDER BY pds.id
+			LIMIT $1
+		)
+		UPDATE pdp_data_sets pds
+		SET pp_reconcile_needed = FALSE
+		FROM failed
+		WHERE pds.id = failed.id
+		  AND pds.challenge_request_msg_hash = failed.challenge_request_msg_hash
+	`, limit)
+	if err != nil {
+		return xerrors.Errorf("failed to clear failed proving period reconciliations: %w", err)
+	}
+	return nil
+}
+
 // processEmptyProvingPeriods reconciles datasets whose confirmed initPP/nextPP
 // message left no next challenge on-chain. This happens when nextProvingPeriod
 // removes the final piece: PDPVerifier clears the challenge, but Curio may have
 // already stored the now-stale prove_at_epoch.
-//
-// Dropping that local period before piece-delete reconciliation is intentional.
-// There is no proof to submit for a zero on-chain challenge epoch. Clearing the
-// stale schedule first prevents the prove watcher from disabling proving after a
-// new add already made the dataset ready again. The current on-chain leaf count
-// then decides whether InitProvingPeriodTask should pick the dataset back up.
-func processEmptyProvingPeriods(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient) error {
-	var confirmed []confirmedProvingPeriod
-	err := db.Select(ctx, &confirmed, `
-		SELECT pds.id,
-		       pds.challenge_request_msg_hash
-		FROM pdp_data_sets pds
-		INNER JOIN message_waits_eth mwe ON mwe.signed_tx_hash = pds.challenge_request_msg_hash
-		WHERE pds.challenge_request_msg_hash IS NOT NULL
-		  AND mwe.tx_status = 'confirmed'
-		  AND mwe.tx_success = TRUE
-		  AND pds.unrecoverable_proving_failure_epoch IS NULL
-		ORDER BY pds.id
-	`)
-	if err != nil {
-		return xerrors.Errorf("failed to select confirmed proving periods: %w", err)
-	}
-	if len(confirmed) == 0 {
+func processEmptyProvingPeriods(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, periods []confirmedProvingPeriod) error {
+	if len(periods) == 0 {
 		return nil
 	}
 
@@ -87,7 +165,11 @@ func processEmptyProvingPeriods(ctx context.Context, db *harmonydb.DB, ethClient
 		return xerrors.Errorf("failed to instantiate PDPVerifier contract: %w", err)
 	}
 
-	for _, period := range confirmed {
+	for _, period := range periods {
+		if period.TxHash == "" {
+			continue
+		}
+
 		dataSetID := big.NewInt(period.DataSetID)
 
 		nextChallengeEpoch, err := verifier.GetNextChallengeEpoch(contract.EthCallOpts(ctx), dataSetID)
@@ -132,6 +214,21 @@ func processEmptyProvingPeriods(ctx context.Context, db *harmonydb.DB, ethClient
 	return nil
 }
 
+func clearProvingPeriodReconcileNeeded(ctx context.Context, db *harmonydb.DB, periods []confirmedProvingPeriod) error {
+	for _, period := range periods {
+		_, err := db.Exec(ctx, `
+			UPDATE pdp_data_sets
+			SET pp_reconcile_needed = FALSE
+			WHERE id = $1
+			  AND (challenge_request_msg_hash = $2 OR challenge_request_msg_hash IS NULL)
+		`, period.DataSetID, period.TxHash)
+		if err != nil {
+			return xerrors.Errorf("failed to clear proving period reconciliation flag for data set %d: %w", period.DataSetID, err)
+		}
+	}
+	return nil
+}
+
 type pendingPieceDelete struct {
 	DataSetID int64          `db:"data_set"`
 	PieceID   int64          `db:"piece_id"`
@@ -140,12 +237,12 @@ type pendingPieceDelete struct {
 	TxSuccess sql.NullBool   `db:"tx_success"`
 }
 
-// processPendingPieceDeletes reconciles local piece-removal rows after the
-// schedulePieceDeletions transaction is confirmed. That transaction only queues
-// removals on-chain; the piece is actually removed later by nextProvingPeriod,
-// so this function must not mark a local row removed while PDPVerifier still
-// reports the piece in GetScheduledRemovals.
-func processPendingPieceDeletes(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient) error {
+// processPendingPieceDeletes reconciles local piece-removal rows after
+// nextProvingPeriod has applied scheduled removals on-chain. A confirmed
+// schedulePieceDeletions transaction only records delete intent; the piece
+// should not be marked removed locally while PDPVerifier still reports it as
+// scheduled or live.
+func processPendingPieceDeletes(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, dataSets []int64) error {
 	var pendingDeletes []pendingPieceDelete
 	err := db.Select(ctx, &pendingDeletes, `
 		SELECT psp.data_set,
@@ -155,10 +252,11 @@ func processPendingPieceDeletes(ctx context.Context, db *harmonydb.DB, ethClient
 		       mwe.tx_success
 		FROM pdp_data_set_pieces psp
 		LEFT JOIN message_waits_eth mwe ON mwe.signed_tx_hash = psp.rm_message_hash
-		WHERE psp.rm_message_hash IS NOT NULL
+		WHERE psp.data_set = ANY($1::bigint[])
+		  AND psp.rm_message_hash IS NOT NULL
 		  AND psp.removed = FALSE
 		ORDER BY psp.data_set, psp.piece_id
-	`)
+	`, dataSets)
 	if err != nil {
 		return xerrors.Errorf("failed to select pending piece deletes: %w", err)
 	}

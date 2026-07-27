@@ -18,7 +18,8 @@ func MarkDatasetProvingUnrecoverable(tx *harmonydb.Tx, dataSetId int64, currentH
 		SET unrecoverable_proving_failure_epoch = $2,
 			init_ready = FALSE,
 			prove_at_epoch = NULL,
-			challenge_request_msg_hash = NULL
+			challenge_request_msg_hash = NULL,
+			pp_reconcile_needed = FALSE
 		WHERE id = $1 AND unrecoverable_proving_failure_epoch IS NULL
 	`, dataSetId, currentHeight)
 	return err
