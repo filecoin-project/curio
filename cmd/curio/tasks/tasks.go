@@ -95,6 +95,11 @@ func WindowPostScheduler(ctx context.Context, fc config.CurioFees, pc config.Cur
 }
 
 func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan struct{}) (*harmonytask.TaskEngine, error) {
+	if dependencies.DB.ReadOnly() {
+		log.Info("readonly database mode: skipping background tasks")
+		return nil, nil
+	}
+
 	cfg := dependencies.Cfg
 	db := dependencies.DB
 	full := dependencies.Chain
@@ -349,13 +354,30 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		_ = watcher
 	}
 
+	replacerCfg := message.ReplacerConfig{
+		DB:         db,
+		ChainSched: chainSched,
+		Filecoin: &message.FilecoinReplacerConfig{
+			API:    full,
+			Signer: full,
+		},
+	}
+
 	if senderEth != nil {
-		watcherEth, err := message.NewMessageWatcherEth(db, ht, chainSched, must.One(dependencies.EthClient.Val()))
+		ethClient := must.One(dependencies.EthClient.Val())
+		watcherEth, err := message.NewMessageWatcherEth(db, ht, chainSched, ethClient)
 		if err != nil {
 			return nil, err
 		}
 		_ = watcherEth
+		replacerCfg.Eth = &message.EthReplacerConfig{
+			Client: ethClient,
+		}
+	}
 
+	err = message.NewMessageReplacer(ctx, replacerCfg)
+	if err != nil {
+		return nil, xerrors.Errorf("message replacer: %w", err)
 	}
 
 	if chainSched.HasSubscribers() {

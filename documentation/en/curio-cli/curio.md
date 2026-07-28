@@ -14,7 +14,7 @@ COMMANDS:
    run           Start a Curio process
    config        Manage node config by layers. The layer 'base' will always be applied at Curio start-up.
    test          Utility functions for testing
-   web           Start Curio web interface
+   web, gui      Start Curio web interface
    guided-setup  Run the guided setup for migrating from lotus-miner to Curio or Creating a new Curio miner
    seal          Manage the sealing pipeline
    unseal        Manage unsealed data
@@ -35,6 +35,7 @@ GLOBAL OPTIONS:
    --db-port value            Port for connecting to the Postgres database in Yugabyte cluster (default: "5433") [$CURIO_DB_PORT, $CURIO_HARMONYDB_PORT]
    --db-cassandra-port value  Port for connecting to the Cassandra database in Yugabyte cluster (default: 9042) [$CURIO_DB_CASSANDRA_PORT, $CURIO_INDEXDB_PORT]
    --db-load-balance          Enable load balancing for connecting to the Postgres database in Yugabyte cluster (default: true) [$CURIO_DB_LOAD_BALANCE, $CURIO_HARMONYDB_LOAD_BALANCE]
+   --db-readonly              Open the database in read-only mode (skip schema upgrades and harmony_machines writes) (default: false) [$CURIO_DB_READONLY]
    --repo-path value          (default: "~/.curio") [$CURIO_REPO_PATH]
    --vv                       enables very verbose mode, useful for debugging the CLI (default: false)
    --help, -h                 show help
@@ -1042,6 +1043,7 @@ USAGE:
 DESCRIPTION:
    Start an instance of Curio web interface. 
      This creates the 'web' layer if it does not exist, then calls run with that layer.
+     In --db-readonly / CURIO_DB_READONLY mode, no config layer is written; the GUI is enabled in-memory.
 
 OPTIONS:
    --gui-listen value                 Address to listen for the GUI on (default: "0.0.0.0:4701")

@@ -38,5 +38,5 @@ func MountRPC(r *mux.Router, handler any, debug bool) {
 	}
 	rpcSrv := jsonrpc.NewServer(opt...)
 	rpcSrv.Register("CurioWeb", handler)
-	r.Handle("/v0", rpcSrv)
+	r.Handle("/v0", injectHTTPRequest(rpcSrv))
 }

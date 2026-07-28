@@ -78,6 +78,7 @@ func buildPDPTasks(ctx context.Context, d *Deps, chainSched *chainsched.CurioCha
 	pay.NewSettleWatcher(w)
 	pdpv0.NewDataSetDeleteWatcher(w)
 	pdpv0.NewCleanupPiecesWatcher(w)
+	pdpv0.NewProvingPeriodWatcher(w)
 	pdpv0.NewTerminateServiceWatcher(w)
 
 	tasks = append(tasks,
@@ -126,6 +127,11 @@ func buildPDPTasks(ctx context.Context, d *Deps, chainSched *chainsched.CurioCha
 
 // RegisterTasks wires PDP harmony tasks and returns the task engine.
 func RegisterTasks(ctx context.Context, d *Deps) (*TaskResult, error) {
+	if d.DB.ReadOnly() {
+		log.Info("readonly database mode: skipping background tasks")
+		return &TaskResult{}, nil
+	}
+
 	chainSched := chainsched.New(d.Chain)
 
 	bundle, err := buildPDPTasks(ctx, d, chainSched, true)
@@ -140,13 +146,26 @@ func RegisterTasks(ctx context.Context, d *Deps) (*TaskResult, error) {
 
 	d.MachineID = int64(ht.ResourcesAvailable().MachineID)
 
+	ethClient := must.One(d.EthClient.Val())
+
 	// NewMessageWatcherEth registers itself with ht for side effects; no
 	// external handle is needed after construction.
-	watcherEth, err := message.NewMessageWatcherEth(d.DB, ht, chainSched, must.One(d.EthClient.Val()))
+	watcherEth, err := message.NewMessageWatcherEth(d.DB, ht, chainSched, ethClient)
 	if err != nil {
 		return nil, xerrors.Errorf("eth message watcher: %w", err)
 	}
 	_ = watcherEth
+
+	err = message.NewMessageReplacer(ctx, message.ReplacerConfig{
+		DB:         d.DB,
+		ChainSched: chainSched,
+		Eth: &message.EthReplacerConfig{
+			Client: ethClient,
+		},
+	})
+	if err != nil {
+		return nil, xerrors.Errorf("message replacer: %w", err)
+	}
 
 	go chainSched.Run(ctx)
 
@@ -163,6 +182,11 @@ func RegisterTasks(ctx context.Context, d *Deps) (*TaskResult, error) {
 
 // AppendTasks adds PDP tasks to a curio task list.
 func AppendTasks(ctx context.Context, d *Deps, chainSched *chainsched.CurioChainSched, active *[]harmonytask.TaskInterface) (*servicedeps.Deps, error) {
+	if d.DB.ReadOnly() {
+		log.Info("readonly database mode: skipping background tasks")
+		return &servicedeps.Deps{}, nil
+	}
+
 	bundle, err := buildPDPTasks(ctx, d, chainSched, false)
 	if err != nil {
 		return nil, err
