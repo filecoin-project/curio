@@ -20,7 +20,6 @@ function statusTone(status) {
   switch (status) {
     case 'unrecoverable':
     case 'overdue':
-    case 'failing':
       return 'bad'
     case 'in-window':
       return 'warn'

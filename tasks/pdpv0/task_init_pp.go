@@ -63,14 +63,13 @@ func NewInitProvingPeriodTask(db *harmonydb.DB, ethClient ethchain.EthClient, fi
 			DataSetId int64 `db:"id"`
 		}
 
-		currentHeight := apply.Height()
 		err := db.Select(ctx, &toCallInit, `
                 SELECT id
                 FROM pdp_data_sets
                 WHERE challenge_request_task_id IS NULL
                   AND init_ready AND prove_at_epoch IS NULL
                   AND unrecoverable_proving_failure_epoch IS NULL
-	            `, currentHeight)
+	            `)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			_ = al.EmitEvent(ctx, curioalerting.AlertEvent{
 				System:    alertType,

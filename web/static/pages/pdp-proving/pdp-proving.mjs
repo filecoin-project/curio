@@ -31,9 +31,6 @@ function formatFailureWhen(f) {
   if (f?.unrecoverableFailureEpoch != null) {
     return `epoch ${f.unrecoverableFailureEpoch}`
   }
-  if (f?.nextProveAttemptAt != null) {
-    return `backoff until epoch ${f.nextProveAttemptAt}`
-  }
   return '—'
 }
 
@@ -431,7 +428,6 @@ customElements.define('pdp-proving', class PdpProving extends LitElement {
             <th>Reason</th>
             <th>Dataset</th>
             <th>Task</th>
-            <th>Failures</th>
             <th>When</th>
             <th>Error</th>
           </tr>
@@ -452,7 +448,6 @@ customElements.define('pdp-proving', class PdpProving extends LitElement {
                   ? html`<a href="/pages/task/id/?id=${f.taskId}">${f.taskId}</a>`
                   : '—'}
               </td>
-              <td class="mono">${f.consecutiveProveFailures ?? 0}</td>
               <td class="mono">${formatFailureWhen(f)}</td>
               <td class="err">${f.err || '—'}</td>
             </tr>

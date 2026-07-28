@@ -41,7 +41,6 @@ function statusTone(status) {
   switch (status) {
     case 'unrecoverable':
     case 'overdue':
-    case 'failing':
       return 'bad'
     case 'in-window':
       return 'warn'
@@ -55,7 +54,6 @@ function statusTone(status) {
 function statusTitle(status) {
   switch (status) {
     case 'unrecoverable': return 'Unrecoverable failure'
-    case 'failing': return 'Proving failures'
     case 'overdue': return 'Proving overdue'
     case 'in-window': return 'In proving window'
     case 'scheduled': return 'Scheduled'
@@ -68,10 +66,6 @@ function statusSummary(d, proven) {
   switch (d.provingStatus) {
     case 'unrecoverable':
       return 'Proving has stopped. This dataset will not schedule further prove attempts until recovered.'
-    case 'failing':
-      return d.nextProveAttemptAt != null
-        ? `Waiting to retry after ${d.consecutiveProveFailures} consecutive failure(s).`
-        : `${d.consecutiveProveFailures} consecutive prove failure(s).`
     case 'overdue':
       return 'The prove window closed without a successful proof.'
     case 'in-window':
@@ -348,14 +342,6 @@ customElements.define('pdp-dataset-detail', class PdpDatasetDetail extends LitEl
             ${d.unrecoverableFailureEpoch != null ? html`
               <dt>Failed at</dt>
               <dd class="err">${formatEpoch(d.unrecoverableFailureEpoch, head)}</dd>
-            ` : ''}
-            ${(d.consecutiveProveFailures ?? 0) > 0 ? html`
-              <dt>Consecutive failures</dt>
-              <dd class="mono ${d.provingStatus === 'unrecoverable' || d.provingStatus === 'failing' ? 'err' : ''}">${d.consecutiveProveFailures}</dd>
-            ` : ''}
-            ${d.nextProveAttemptAt != null && d.provingStatus !== 'unrecoverable' ? html`
-              <dt>Retry after</dt>
-              <dd>${formatEpoch(d.nextProveAttemptAt, head)}</dd>
             ` : ''}
             ${d.provingStatus !== 'unrecoverable' ? html`
               <dt>Next window opens</dt>

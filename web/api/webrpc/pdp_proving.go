@@ -39,12 +39,11 @@ func (a *WebRPC) PDPProvingStatus(ctx context.Context) (PDPProvingStatus, error)
 	head := net.Epoch
 
 	var rows []struct {
-		ProveAtEpoch       sql.NullInt64 `db:"prove_at_epoch"`
-		ChallengeWindow    sql.NullInt64 `db:"challenge_window"`
-		NextProveAttemptAt sql.NullInt64 `db:"next_prove_attempt_at"`
+		ProveAtEpoch    sql.NullInt64 `db:"prove_at_epoch"`
+		ChallengeWindow sql.NullInt64 `db:"challenge_window"`
 	}
 	err = a.Deps.DB.Select(ctx, &rows, `
-		SELECT prove_at_epoch, challenge_window, next_prove_attempt_at
+		SELECT prove_at_epoch, challenge_window
 		FROM pdp_data_sets
 		WHERE unrecoverable_proving_failure_epoch IS NULL
 		  AND prove_at_epoch IS NOT NULL`)
@@ -70,19 +69,6 @@ func (a *WebRPC) PDPProvingStatus(ctx context.Context) (PDPProvingStatus, error)
 			window = row.ChallengeWindow.Int64
 		}
 		deadline := start + window
-
-		// Schedulers skip datasets until next_prove_attempt_at; stale prove_at_epoch
-		// during backoff must not look like an open/overdue window.
-		if row.NextProveAttemptAt.Valid && row.NextProveAttemptAt.Int64 > head {
-			backoffAt := row.NextProveAttemptAt.Int64
-			if soonestFutureStart == nil || backoffAt < *soonestFutureStart {
-				v := backoffAt
-				soonestFutureStart = &v
-				d := backoffAt + window
-				soonestFutureDeadline = &d
-			}
-			continue
-		}
 
 		switch {
 		case head >= start && head <= deadline:
@@ -149,8 +135,6 @@ type PDPProvingFailure struct {
 	TaskID                    *int64     `json:"taskId,omitempty"`
 	Err                       string     `json:"err"`
 	WorkEnd                   *time.Time `json:"workEnd,omitempty"`
-	ConsecutiveProveFailures  int        `json:"consecutiveProveFailures"`
-	NextProveAttemptAt        *int64     `json:"nextProveAttemptAt,omitempty"`
 	UnrecoverableFailureEpoch *int64     `json:"unrecoverableFailureEpoch,omitempty"`
 	ProveAtEpoch              *int64     `json:"proveAtEpoch,omitempty"`
 	ChallengeWindow           *int64     `json:"challengeWindow,omitempty"`
@@ -205,21 +189,16 @@ func (a *WebRPC) PDPProvingFailures(ctx context.Context) ([]PDPProvingFailure, e
 
 	type dsRow struct {
 		ID                        int64         `db:"id"`
-		ConsecutiveProveFailures  int           `db:"consecutive_prove_failures"`
-		NextProveAttemptAt        sql.NullInt64 `db:"next_prove_attempt_at"`
 		UnrecoverableFailureEpoch sql.NullInt64 `db:"unrecoverable_proving_failure_epoch"`
 		ProveAtEpoch              sql.NullInt64 `db:"prove_at_epoch"`
 		ChallengeWindow           sql.NullInt64 `db:"challenge_window"`
 	}
 	var unhealthy []dsRow
 	err := a.Deps.DB.Select(ctx, &unhealthy, `
-		SELECT id, consecutive_prove_failures, next_prove_attempt_at,
-		       unrecoverable_proving_failure_epoch, prove_at_epoch, challenge_window
+		SELECT id, unrecoverable_proving_failure_epoch, prove_at_epoch, challenge_window
 		FROM pdp_data_sets
-		WHERE consecutive_prove_failures > 0
-		   OR next_prove_attempt_at IS NOT NULL
-		   OR unrecoverable_proving_failure_epoch IS NOT NULL
-		ORDER BY consecutive_prove_failures DESC, id ASC
+		WHERE unrecoverable_proving_failure_epoch IS NOT NULL
+		ORDER BY id ASC
 		LIMIT 200`)
 	if err != nil {
 		return nil, xerrors.Errorf("unhealthy datasets: %w", err)
@@ -282,19 +261,10 @@ func (a *WebRPC) PDPProvingFailures(ctx context.Context) ([]PDPProvingFailure, e
 	for _, ds := range unhealthy {
 		f := PDPProvingFailure{
 			DataSetID:                 ds.ID,
-			ConsecutiveProveFailures:  ds.ConsecutiveProveFailures,
-			NextProveAttemptAt:        nullInt64Ptr(ds.NextProveAttemptAt),
 			UnrecoverableFailureEpoch: nullInt64Ptr(ds.UnrecoverableFailureEpoch),
 			ProveAtEpoch:              nullInt64Ptr(ds.ProveAtEpoch),
 			ChallengeWindow:           nullInt64Ptr(ds.ChallengeWindow),
-			Reason:                    "dataset needs attention",
-		}
-		if ds.UnrecoverableFailureEpoch.Valid {
-			f.Reason = "unrecoverable proving failure"
-		} else if ds.ConsecutiveProveFailures > 0 {
-			f.Reason = "consecutive prove failures"
-		} else if ds.NextProveAttemptAt.Valid {
-			f.Reason = "prove retry backoff"
+			Reason:                    "unrecoverable proving failure",
 		}
 
 		if last, ok := lastByDataSet[ds.ID]; ok {
@@ -363,7 +333,7 @@ func (a *WebRPC) PDPProvingFailures(ctx context.Context) ([]PDPProvingFailure, e
 		case wj != nil:
 			return false
 		default:
-			return out[i].ConsecutiveProveFailures > out[j].ConsecutiveProveFailures
+			return out[i].DataSetID < out[j].DataSetID
 		}
 	})
 
@@ -403,18 +373,10 @@ func cleanHistoryErr(err string) string {
 }
 
 func synthesizeProvingFailureErr(f PDPProvingFailure) string {
-	switch {
-	case f.UnrecoverableFailureEpoch != nil:
+	if f.UnrecoverableFailureEpoch != nil {
 		return fmt.Sprintf("unrecoverable proving failure at epoch %d", *f.UnrecoverableFailureEpoch)
-	case f.ConsecutiveProveFailures > 0 && f.NextProveAttemptAt != nil:
-		return fmt.Sprintf("%d consecutive prove failure(s); backoff until epoch %d", f.ConsecutiveProveFailures, *f.NextProveAttemptAt)
-	case f.ConsecutiveProveFailures > 0:
-		return fmt.Sprintf("%d consecutive prove failure(s)", f.ConsecutiveProveFailures)
-	case f.NextProveAttemptAt != nil:
-		return fmt.Sprintf("prove retry backoff until epoch %d", *f.NextProveAttemptAt)
-	default:
-		return "dataset needs proving attention"
 	}
+	return "dataset needs proving attention"
 }
 
 func nullInt64Ptr(n sql.NullInt64) *int64 {
