@@ -91,24 +91,58 @@ func NewProvingPeriodWatcher(w *Watcher) {
 }
 
 type confirmedProvingPeriod struct {
-	DataSetID int64  `db:"id"`
-	TxHash    string `db:"challenge_request_msg_hash"`
+	DataSetID int64          `db:"id"`
+	TxHash    sql.NullString `db:"challenge_request_msg_hash"`
 }
 
 func selectProvingPeriodsNeedingReconcile(ctx context.Context, db *harmonydb.DB, limit int) ([]confirmedProvingPeriod, error) {
 	var periods []confirmedProvingPeriod
+
+	// Pick datasets whose nextPP side effects can be reconciled now. The NULL
+	// hash branch is for partial progress: empty-period reconciliation already
+	// cleared the local proving schedule, but delete reconciliation or final flag
+	// clearing did not finish. The non-NULL branch requires a confirmed,
+	// successful message_waits_eth row before reconciliation runs.
+	//
+	// Keep the confirmed-message branch as LATERAL with OFFSET 0. Benchmarks on
+	// Postgres and Yugabyte showed the obvious EXISTS/join forms scan/hash
+	// message_waits_eth at million-row scale, while this shape stays bounded by
+	// the pp_reconcile_needed index and message_waits_eth primary-key lookups.
 	err := db.Select(ctx, &periods, `
-		SELECT pds.id,
-		       COALESCE(pds.challenge_request_msg_hash, '') AS challenge_request_msg_hash
-		FROM pdp_data_sets pds
-		LEFT JOIN message_waits_eth mwe ON mwe.signed_tx_hash = pds.challenge_request_msg_hash
-		WHERE pds.pp_reconcile_needed = TRUE
-		  AND pds.unrecoverable_proving_failure_epoch IS NULL
-		  AND (
-		      pds.challenge_request_msg_hash IS NULL
-		      OR (mwe.tx_status = 'confirmed' AND mwe.tx_success = TRUE)
-		  )
-		ORDER BY pds.id
+		SELECT ready.id,
+		       ready.challenge_request_msg_hash
+		FROM (
+		    (
+		        SELECT pds.id,
+		               pds.challenge_request_msg_hash
+		        FROM pdp_data_sets pds
+		        WHERE pds.pp_reconcile_needed = TRUE
+		          AND pds.unrecoverable_proving_failure_epoch IS NULL
+		          AND pds.challenge_request_msg_hash IS NULL
+		        ORDER BY pds.id
+		        LIMIT $1
+		    )
+		    UNION ALL
+		    (
+		        SELECT pds.id,
+		               pds.challenge_request_msg_hash
+		        FROM pdp_data_sets pds
+		        INNER JOIN LATERAL (
+		            SELECT 1
+		            FROM message_waits_eth mwe
+		            WHERE mwe.signed_tx_hash = pds.challenge_request_msg_hash
+		              AND mwe.tx_status = 'confirmed'
+		              AND mwe.tx_success = TRUE
+		            OFFSET 0
+		        ) mwe ON TRUE
+		        WHERE pds.pp_reconcile_needed = TRUE
+		          AND pds.unrecoverable_proving_failure_epoch IS NULL
+		          AND pds.challenge_request_msg_hash IS NOT NULL
+		        ORDER BY pds.id
+		        LIMIT $1
+		    )
+		) ready
+		ORDER BY ready.id
 		LIMIT $1
 	`, limit)
 	if err != nil {
@@ -166,7 +200,7 @@ func processEmptyProvingPeriods(ctx context.Context, db *harmonydb.DB, ethClient
 	}
 
 	for _, period := range periods {
-		if period.TxHash == "" {
+		if !period.TxHash.Valid {
 			continue
 		}
 
@@ -195,7 +229,7 @@ func processEmptyProvingPeriods(ctx context.Context, db *harmonydb.DB, ethClient
 			WHERE id = $1
 			  AND challenge_request_msg_hash = $2
 			  AND unrecoverable_proving_failure_epoch IS NULL
-		`, period.DataSetID, period.TxHash, initReady)
+		`, period.DataSetID, period.TxHash.String, initReady)
 		if err != nil {
 			return xerrors.Errorf("failed to reset empty proving period for data set %d: %w", period.DataSetID, err)
 		}
@@ -205,7 +239,7 @@ func processEmptyProvingPeriods(ctx context.Context, db *harmonydb.DB, ethClient
 		if affected == 1 {
 			log.Infow("reset empty proving period",
 				"dataSetId", period.DataSetID,
-				"txHash", period.TxHash,
+				"txHash", period.TxHash.String,
 				"leafCount", leafCount.String(),
 				"initReady", initReady)
 		}
@@ -221,7 +255,7 @@ func clearProvingPeriodReconcileNeeded(ctx context.Context, db *harmonydb.DB, pe
 			SET pp_reconcile_needed = FALSE
 			WHERE id = $1
 			  AND (challenge_request_msg_hash = $2 OR challenge_request_msg_hash IS NULL)
-		`, period.DataSetID, period.TxHash)
+		`, period.DataSetID, period.TxHash.String)
 		if err != nil {
 			return xerrors.Errorf("failed to clear proving period reconciliation flag for data set %d: %w", period.DataSetID, err)
 		}

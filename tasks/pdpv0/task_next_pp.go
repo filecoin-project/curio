@@ -306,14 +306,13 @@ var _ = harmonytask.Reg(&NextProvingPeriodTask{})
 func resetDatasetToInitPP(ctx context.Context, db *harmonydb.DB, dataSetId int64) error {
 	log.Infow("resetting dataset to init proving period state", "dataSetId", dataSetId)
 	_, err := db.Exec(ctx, `
-             UPDATE pdp_data_sets
-             SET challenge_request_msg_hash = NULL,
-                     prove_at_epoch = NULL,
-                     init_ready = TRUE,
-                     prev_challenge_request_epoch = NULL,
-                     pp_reconcile_needed = FALSE
-             WHERE id = $1
-     `, dataSetId)
+		UPDATE pdp_data_sets
+		SET challenge_request_msg_hash = NULL,
+			prove_at_epoch = NULL,
+			init_ready = TRUE,
+			prev_challenge_request_epoch = NULL
+		WHERE id = $1
+	`, dataSetId)
 	if err != nil {
 		return xerrors.Errorf("failed to reset dataset to init state: %w", err)
 	}
@@ -330,8 +329,7 @@ func disableProvingForEmptyDataset(tx *harmonydb.Tx, dataSetId int64) error {
 		SET challenge_request_msg_hash = NULL,
 			prove_at_epoch = NULL,
 			init_ready = FALSE,
-			prev_challenge_request_epoch = NULL,
-			pp_reconcile_needed = FALSE
+			prev_challenge_request_epoch = NULL
 		WHERE id = $1
 	`, dataSetId)
 	if err != nil {
@@ -388,13 +386,12 @@ func skipCurrentOnChainProvingPeriod(ctx context.Context, tx *harmonydb.Tx, prov
 	// because the local challenge_request_msg_hash is intentionally dropped; use
 	// the reconciliation height as a marker while prove_at_epoch drives scheduling.
 	affected, err := tx.Exec(`
-			UPDATE pdp_data_sets
-				SET challenge_request_msg_hash = NULL,
-					prev_challenge_request_epoch = $2,
-					prove_at_epoch = $3,
-					pp_reconcile_needed = FALSE
-				WHERE id = $1
-			  AND unrecoverable_proving_failure_epoch IS NULL
+		UPDATE pdp_data_sets
+		SET challenge_request_msg_hash = NULL,
+			prev_challenge_request_epoch = $2,
+			prove_at_epoch = $3
+		WHERE id = $1
+		  AND unrecoverable_proving_failure_epoch IS NULL
 	`, dataSetId, currentHeight, challengeEpoch.Int64())
 	if err != nil {
 		return xerrors.Errorf("failed to skip current proving period: %w", err)
