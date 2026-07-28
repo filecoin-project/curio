@@ -35,8 +35,7 @@ type OutstandingReceipt struct {
 type receiptOutcome int
 
 const (
-	receiptLanded receiptOutcome = iota
-	receiptStuck
+	receiptStuck receiptOutcome = iota
 	receiptLost
 )
 
@@ -73,99 +72,6 @@ func provingPeriodsPerDay(maxProvingPeriod uint64) uint64 {
 // contract MaxProvingPeriod.
 func StaleReceiptAge(maxProvingPeriod uint64) time.Duration {
 	return (24 * time.Hour) / time.Duration(provingPeriodsPerDay(maxProvingPeriod))
-}
-
-// ConsiderOutstandingReceipts (prove phase 1): read-only vs chain. Materialize any
-// Create/Add waits whose effects are already on chain so local state matches what we
-// must prove against. Does not send transactions — chain state for this proof is fixed.
-// Returns waits still outstanding for post-prove resolve (rebroadcast / mark lost).
-func ConsiderOutstandingReceipts(ctx context.Context, db *harmonydb.DB, eth ethchain.EthClient, dataSetId int64) ([]OutstandingReceipt, error) {
-	waits, err := selectOutstandingReceiptsForDataSet(ctx, db, dataSetId)
-	if err != nil || len(waits) == 0 {
-		return waits, err
-	}
-
-	verifier, err := contract.NewPDPVerifier(contract.ContractAddresses().PDPVerifier, eth)
-	if err != nil {
-		return nil, xerrors.Errorf("PDPVerifier: %w", err)
-	}
-
-	remaining := make([]OutstandingReceipt, 0, len(waits))
-	for _, w := range waits {
-		outcome, pieceIDs, _, evalErr := evaluateReceipt(ctx, db, eth, verifier, w)
-		if evalErr != nil {
-			log.Warnw("failed to evaluate receipt before prove", "txHash", w.TxHash, "error", evalErr)
-			remaining = append(remaining, w)
-			continue
-		}
-		if outcome != receiptLanded {
-			remaining = append(remaining, w)
-			continue
-		}
-		if applyErr := materializeLandedReceipt(ctx, db, w, pieceIDs); applyErr != nil {
-			log.Warnw("failed to materialize landed receipt before prove", "txHash", w.TxHash, "error", applyErr)
-			remaining = append(remaining, w)
-		}
-	}
-	return remaining, nil
-}
-
-// ResolveRemainingReceipts (prove phase 2): after the proof, try to fix outstanding
-// waits by sending messages — materialize if landed, rebroadcast if stuck, mark failed
-// if lost past the proof-window age gate.
-func ResolveRemainingReceipts(ctx context.Context, db *harmonydb.DB, eth ethchain.EthClient, waits []OutstandingReceipt, proveAtEpoch *int64, height int64) error {
-	if len(waits) == 0 {
-		return nil
-	}
-
-	verifier, err := contract.NewPDPVerifier(contract.ContractAddresses().PDPVerifier, eth)
-	if err != nil {
-		return xerrors.Errorf("PDPVerifier: %w", err)
-	}
-
-	var firstErr error
-	for _, w := range waits {
-		outcome, pieceIDs, signedTx, evalErr := evaluateReceipt(ctx, db, eth, verifier, w)
-		if evalErr != nil {
-			log.Warnw("failed to evaluate receipt after prove", "txHash", w.TxHash, "error", evalErr)
-			if firstErr == nil {
-				firstErr = evalErr
-			}
-			continue
-		}
-
-		switch outcome {
-		case receiptLanded:
-			if err := materializeLandedReceipt(ctx, db, w, pieceIDs); err != nil {
-				log.Warnw("failed to materialize landed receipt after prove", "txHash", w.TxHash, "error", err)
-				if firstErr == nil {
-					firstErr = err
-				}
-			}
-
-		case receiptStuck:
-			if err := rebroadcastStuckReceipt(ctx, eth, w, signedTx); err != nil {
-				log.Warnw("failed to rebroadcast stuck receipt tx", "txHash", w.TxHash, "error", err)
-				if firstErr == nil {
-					firstErr = err
-				}
-			}
-
-		case receiptLost:
-			if proveAtEpoch == nil || height < *proveAtEpoch+StaleReceiptWaitEpochs {
-				log.Infow("receipt effects still missing; deferring lost mark",
-					"txHash", w.TxHash, "height", height, "proveAtEpoch", proveAtEpoch)
-				continue
-			}
-			if err := markReceiptLost(ctx, db, w); err != nil {
-				log.Warnw("failed to mark lost receipt as failed", "txHash", w.TxHash, "error", err)
-				if firstErr == nil {
-					firstErr = err
-				}
-			}
-		}
-	}
-	return firstErr
 }
 
 // SyncStaleCreateAddReceipts reconciles pending CreateDataSet / AddPiece waits older
@@ -367,26 +273,6 @@ func matchLivePieceAdds(ctx context.Context, db *harmonydb.DB, verifier *contrac
 	return matchPieceAddsOnChain(ctx, db, verifier, dataSetId, txHash)
 }
 
-// evaluateReceipt walks chain state for one wait:
-// dataset live? → match piece CIDs on chain → landed; else check nonce → stuck or lost.
-func evaluateReceipt(ctx context.Context, db *harmonydb.DB, eth ethchain.EthClient, verifier *contract.PDPVerifier, wait OutstandingReceipt) (receiptOutcome, map[uint64]int64, *types.Transaction, error) {
-	if !wait.DataSet.Valid {
-		return 0, nil, nil, xerrors.Errorf("outstanding receipt %s has no data set id", wait.TxHash)
-	}
-	dataSetId := wait.DataSet.Int64
-
-	pieceIDs, allFound, matchErr := matchLivePieceAdds(ctx, db, verifier, dataSetId, wait.TxHash)
-	if matchErr != nil {
-		return 0, nil, nil, matchErr
-	}
-	if allFound {
-		return receiptLanded, pieceIDs, nil, nil
-	}
-
-	outcome, signedTx, classErr := classifyMissingReceipt(ctx, db, eth, wait)
-	return outcome, nil, signedTx, classErr
-}
-
 func rebroadcastStuckReceipt(ctx context.Context, eth ethchain.EthClient, wait OutstandingReceipt, signedTx *types.Transaction) error {
 	if signedTx == nil {
 		return xerrors.Errorf("no signed tx available to rebroadcast for %s", wait.TxHash)
@@ -423,50 +309,6 @@ func markReceiptLost(ctx context.Context, db *harmonydb.DB, wait OutstandingRece
 		log.Warnw("marked lost Create/Add receipt as failed", "txHash", wait.TxHash)
 	}
 	return nil
-}
-
-func selectOutstandingReceiptsForDataSet(ctx context.Context, db *harmonydb.DB, dataSetId int64) ([]OutstandingReceipt, error) {
-	var rows []struct {
-		TxHash    string         `db:"tx_hash"`
-		DataSet   sql.NullInt64  `db:"data_set"`
-		HasCreate bool           `db:"has_create"`
-		Service   sql.NullString `db:"service"`
-	}
-	err := db.Select(ctx, &rows, `
-		SELECT DISTINCT
-			LOWER(TRIM(BOTH FROM a.add_message_hash)) AS tx_hash,
-			a.data_set,
-			EXISTS (
-				SELECT 1 FROM pdp_data_set_creates c
-				WHERE LOWER(TRIM(BOTH FROM c.create_message_hash)) = LOWER(TRIM(BOTH FROM a.add_message_hash))
-				  AND c.data_set_created = FALSE AND c.ok IS NULL
-			) AS has_create,
-			(
-				SELECT c.service FROM pdp_data_set_creates c
-				WHERE LOWER(TRIM(BOTH FROM c.create_message_hash)) = LOWER(TRIM(BOTH FROM a.add_message_hash))
-				LIMIT 1
-			) AS service
-		FROM pdp_data_set_piece_adds a
-		INNER JOIN message_waits_eth mwe
-			ON mwe.signed_tx_hash = LOWER(TRIM(BOTH FROM a.add_message_hash))
-		WHERE a.data_set = $1
-		  AND a.pieces_added = FALSE
-		  AND a.add_message_ok IS NULL
-		  AND mwe.tx_status = 'pending'
-		ORDER BY tx_hash
-	`, dataSetId)
-	if err != nil {
-		return nil, xerrors.Errorf("selecting outstanding receipts for data set %d: %w", dataSetId, err)
-	}
-	out := make([]OutstandingReceipt, 0, len(rows))
-	for _, r := range rows {
-		w := OutstandingReceipt{TxHash: r.TxHash, HasAddPiece: true, HasCreate: r.HasCreate, DataSet: r.DataSet}
-		if r.Service.Valid {
-			w.Service = r.Service.String
-		}
-		out = append(out, w)
-	}
-	return out, nil
 }
 
 func selectStaleOutstandingReceipts(ctx context.Context, db *harmonydb.DB, olderThan time.Time) ([]OutstandingReceipt, error) {

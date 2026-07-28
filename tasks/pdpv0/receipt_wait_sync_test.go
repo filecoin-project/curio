@@ -7,22 +7,6 @@ import (
 	"github.com/filecoin-project/lotus/build"
 )
 
-func TestStaleReceiptWaitEpochsGate(t *testing.T) {
-	proveAt := int64(1000)
-	canMarkLost := func(proveAtEpoch *int64, height int64) bool {
-		return proveAtEpoch != nil && height >= *proveAtEpoch+StaleReceiptWaitEpochs
-	}
-	if canMarkLost(nil, 2000) {
-		t.Fatal("nil proveAtEpoch should not mark lost")
-	}
-	if canMarkLost(&proveAt, proveAt+StaleReceiptWaitEpochs-1) {
-		t.Fatal("should not mark lost before age gate")
-	}
-	if !canMarkLost(&proveAt, proveAt+StaleReceiptWaitEpochs) {
-		t.Fatal("should mark lost at age gate")
-	}
-}
-
 func TestStaleReceiptAge(t *testing.T) {
 	// MaxProvingPeriod of 1/5 day => 5 periods/day => stale age = 1/5 day.
 	fifthDayEpochs := uint64((24 * time.Hour / time.Second) / time.Duration(build.BlockDelaySecs) / 5)

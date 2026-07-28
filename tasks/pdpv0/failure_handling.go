@@ -10,10 +10,6 @@ import (
 	"github.com/filecoin-project/curio/pdp/contract/FWSS"
 )
 
-// StaleReceiptWaitEpochs is how far into the proof window we wait before
-// marking a still-missing Create/Add receipt wait as lost (failed).
-const StaleReceiptWaitEpochs = 5
-
 // MarkDatasetProvingUnrecoverable marks a dataset as having an unrecoverable proving failure.
 // This is called when an unrecoverable error (like DataSetPaymentBeyondEndEpoch) is detected.
 func MarkDatasetProvingUnrecoverable(tx *harmonydb.Tx, dataSetId int64, currentHeight int64) error {
