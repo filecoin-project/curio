@@ -103,8 +103,13 @@ func TestSkiffCreateAddRetrieveLifecycle(t *testing.T) {
 		senderAddr.Hex(), make([]byte, 32))
 	require.NoError(t, err)
 
-	recordKeeper := contract.ContractAddresses().AllowedPublicRecordKeepers.FWSService
-	require.NotEqual(t, (common.Address{}), recordKeeper)
+	// CI runs with --tags=debug (BuildDebug), which otherwise requires
+	// CURIO_DEVNET_* env vars. Install process-wide test addresses instead.
+	recordKeeper := common.HexToAddress("0x2222222222222222222222222222222222222222")
+	contract.SetAddresses(contract.Addresses{
+		PDPVerifier: common.HexToAddress("0x3333333333333333333333333333333333333333"),
+		FWSService:  recordKeeper,
+	})
 
 	var txSeq atomic.Uint64
 	mockSender := ethTxSenderFunc(func(_ context.Context, _ common.Address, _ *ethtypes.Transaction, _ string) (common.Hash, error) {
