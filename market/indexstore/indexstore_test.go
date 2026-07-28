@@ -155,18 +155,18 @@ func TestNewIndexStore(t *testing.T) {
 	err = idxStore.session.Query("SELECT * FROM piece_by_aggregate").Exec()
 	require.NoError(t, err)
 
-	aggrRec := []Record{
-		{
-			Cid:    pcid1,
-			Offset: 0,
-			Size:   100,
-		},
-		{
-			Cid:    pcid2,
-			Offset: 100,
-			Size:   101,
-		},
+	aggrRec := make(chan Record, 2)
+	aggrRec <- Record{
+		Cid:    pcid1,
+		Offset: 0,
+		Size:   100,
 	}
+	aggrRec <- Record{
+		Cid:    pcid2,
+		Offset: 100,
+		Size:   101,
+	}
+	close(aggrRec)
 
 	err = idxStore.InsertAggregateIndex(ctx, pcid2, aggrRec)
 	require.NoError(t, err)
