@@ -203,25 +203,26 @@ func IndexAggregate(pieceCid cid.Cid,
 	size abi.PaddedPieceSize,
 	subPieces []mk20.DataSource,
 	recs chan<- indexstore.Record,
+	aggRecs chan<- indexstore.Record,
 	addFail <-chan struct{},
-) (int64, map[cid.Cid][]indexstore.Record, bool, error) {
+) (int64, bool, error) {
 
 	valid, err := parseDataSegments(reader, size)
 	if err != nil {
-		return 0, nil, false, err
+		return 0, false, err
 	}
 
 	log.Infow("Indexing aggregate", "piece_size", size, "num_chunks", len(valid), "num_sub_pieces", len(subPieces))
 
 	if len(subPieces) > 1 {
 		if len(valid) != len(subPieces) {
-			return 0, nil, false, xerrors.Errorf("expected %d data segment index entries, got %d", len(subPieces), len(valid))
+			return 0, false, xerrors.Errorf("expected %d data segment index entries, got %d", len(subPieces), len(valid))
 		}
 	} else {
-		return 0, nil, false, xerrors.Errorf("expected at least 2 sub pieces, got 0")
+		return 0, false, xerrors.Errorf("expected at least 2 sub pieces, got 0")
 	}
 
-	return indexSegments(pieceCid, reader, valid, func(j int, entry datasegment.SegmentDesc, sectionReader *io.SectionReader, bufferSize int) (cid.Cid, int64, bool, error) {
+	return indexSegments(reader, valid, aggRecs, addFail, func(j int, entry datasegment.SegmentDesc, sectionReader *io.SectionReader, bufferSize int) (cid.Cid, int64, bool, error) {
 		sp := subPieces[j]
 		if sp.Format.Car == nil {
 			return sp.PieceCID, 0, false, nil
@@ -248,16 +249,17 @@ func IndexPDPv0(pieceCid cid.Cid,
 	reader IndexReader,
 	size abi.PaddedPieceSize,
 	recs chan<- indexstore.Record,
+	aggRecs chan<- indexstore.Record,
 	addFail <-chan struct{},
-) (int64, map[cid.Cid][]indexstore.Record, bool, error) {
+) (int64, bool, error) {
 	valid, err := parseDataSegments(reader, size)
 	if err != nil && !errors.Is(err, errNoDataSegmentIndex) {
-		return 0, nil, false, err
+		return 0, false, err
 	}
 	if err == nil {
 		log.Infow("Indexing PDPv0 aggregate", "piece_cid", pieceCid, "piece_size", size, "num_chunks", len(valid))
 
-		return indexSegments(pieceCid, reader, valid, func(j int, entry datasegment.SegmentDesc, sectionReader *io.SectionReader, bufferSize int) (cid.Cid, int64, bool, error) {
+		return indexSegments(reader, valid, aggRecs, addFail, func(j int, entry datasegment.SegmentDesc, sectionReader *io.SectionReader, bufferSize int) (cid.Cid, int64, bool, error) {
 			rawSize, b, inter, err := indexCAR(sectionReader, bufferSize, recs, addFail, entry.UnpaddedOffest())
 			if err != nil {
 				return cid.Undef, b, false, xerrors.Errorf("indexing PDPv0 aggregate segment %d: %w", j, err)
@@ -279,15 +281,15 @@ func IndexPDPv0(pieceCid cid.Cid,
 	log.Debugw("PDPv0 aggregate indexing failed, falling back to CAR indexing", "piece_cid", pieceCid, "piece_size", size, "error", err)
 
 	if _, seekErr := reader.Seek(0, io.SeekStart); seekErr != nil {
-		return 0, nil, false, xerrors.Errorf("seeking to piece start after PDPv0 aggregate indexing failed: %w", seekErr)
+		return 0, false, xerrors.Errorf("seeking to piece start after PDPv0 aggregate indexing failed: %w", seekErr)
 	}
 
 	_, carBlocks, carInterrupted, carErr := IndexCAR(reader, 4<<20, recs, addFail)
 	if carErr != nil {
-		return carBlocks, nil, carInterrupted, xerrors.Errorf("PDPv0 aggregate indexing failed (%v); fallback CAR indexing failed: %w", err, carErr)
+		return carBlocks, carInterrupted, xerrors.Errorf("PDPv0 aggregate indexing failed (%v); fallback CAR indexing failed: %w", err, carErr)
 	}
 
-	return carBlocks, nil, carInterrupted, nil
+	return carBlocks, carInterrupted, nil
 }
 
 var errNoDataSegmentIndex = errors.New("no data segment index")
@@ -332,12 +334,16 @@ func parseDataSegments(reader IndexReader, size abi.PaddedPieceSize) ([]datasegm
 // child mappings. The caller-provided segmentIndexer supplies the child CID and
 // handles any segment payload indexing needed for the specific aggregate type.
 func indexSegments(
-	pieceCid cid.Cid,
 	reader IndexReader,
 	valid []datasegment.SegmentDesc,
-	indexSegment segmentIndexer) (int64, map[cid.Cid][]indexstore.Record, bool, error) {
+	aggRecs chan<- indexstore.Record,
+	addFail <-chan struct{},
+	indexSegment segmentIndexer) (int64, bool, error) {
 	var totalBlocks int64
-	aggidx := make(map[cid.Cid][]indexstore.Record)
+	if aggRecs == nil {
+		return 0, false, xerrors.Errorf("aggregate index records channel is nil")
+	}
+
 	for j, entry := range valid {
 		bufferSize := 4 << 20
 		if entry.Size < uint64(bufferSize) {
@@ -349,19 +355,23 @@ func indexSegments(
 
 		subPieceCID, b, inter, err := indexSegment(j, entry, sectionReader, bufferSize)
 		if err != nil {
-			return totalBlocks, aggidx, false, err
+			return totalBlocks, false, err
 		}
 		if inter {
-			return totalBlocks, aggidx, true, nil
+			return totalBlocks, true, nil
 		}
 		totalBlocks += b
 
-		aggidx[pieceCid] = append(aggidx[pieceCid], indexstore.Record{
+		select {
+		case aggRecs <- indexstore.Record{
 			Cid:    subPieceCID,
 			Offset: strt,
 			Size:   leng,
-		})
+		}:
+		case <-addFail:
+			return totalBlocks, true, nil
+		}
 	}
 
-	return totalBlocks, aggidx, false, nil
+	return totalBlocks, false, nil
 }

@@ -290,10 +290,13 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 		return i.indexStore.AddIndex(ctx, pc2, recs)
 	})
 
-	var aggidx map[cid.Cid][]indexstore.Record
+	aggRecs := make(chan indexstore.Record, chanSize)
 
 	if task.Mk20 && len(subPieces) > 0 {
-		blocks, aggidx, interrupted, err = IndexAggregate(pc2, reader, task.Size, subPieces, recs, addFail)
+		eg.Go(func() error {
+			return i.indexStore.InsertAggregateIndex(ctx, pc2, aggRecs)
+		})
+		blocks, interrupted, err = IndexAggregate(pc2, reader, task.Size, subPieces, recs, aggRecs, addFail)
 	} else {
 		_, blocks, interrupted, err = IndexCAR(reader, 4<<20, recs, addFail)
 	}
@@ -301,6 +304,7 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 	if err != nil {
 		// Indexing itself failed, stop early
 		close(recs) // still safe to close, AddIndex will exit on channel close
+		close(aggRecs)
 		// wait for AddIndex goroutine to finish cleanly
 		_ = eg.Wait()
 		return false, xerrors.Errorf("indexing failed: %w", err)
@@ -308,24 +312,15 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 
 	// Close the channel
 	close(recs)
+	close(aggRecs)
 
 	// Wait till AddIndex is finished
 	err = eg.Wait()
 	if err != nil {
-		return false, xerrors.Errorf("adding index to DB (interrupted %t): %w", interrupted, err)
+		return false, xerrors.Errorf("adding indexes to DB (interrupted %t): %w", interrupted, err)
 	}
 
 	log.Infof("Indexing deal %s took %0.3f seconds", task.UUID, time.Since(startTime).Seconds())
-
-	// Save aggregate index if present
-	for k, v := range aggidx {
-		if len(v) > 0 {
-			err = i.indexStore.InsertAggregateIndex(ctx, k, v)
-			if err != nil {
-				return false, xerrors.Errorf("inserting aggregate index: %w", err)
-			}
-		}
-	}
 
 	err = i.recordCompletion(ctx, task, taskID, true)
 	if err != nil {

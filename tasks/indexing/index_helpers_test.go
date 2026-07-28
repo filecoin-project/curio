@@ -60,16 +60,18 @@ func TestIndexAggregateUsesSuppliedSubPieceCIDs(t *testing.T) {
 	}
 
 	recs := make(chan indexstore.Record, 128)
-	blocks, aggidx, interrupted, err := IndexAggregate(aggregate.pieceCIDV2, bytes.NewReader(aggregate.raw), aggregate.pieceSize, subPieces, recs, make(chan struct{}))
+	aggRecs := make(chan indexstore.Record, 128)
+	blocks, interrupted, err := IndexAggregate(aggregate.pieceCIDV2, bytes.NewReader(aggregate.raw), aggregate.pieceSize, subPieces, recs, aggRecs, make(chan struct{}))
 	close(recs)
+	close(aggRecs)
 	gotRecords := collectRecords(recs)
+	children := collectRecords(aggRecs)
 
 	require.NoError(t, err)
 	require.False(t, interrupted)
 	require.NotZero(t, blocks)
 	require.Len(t, gotRecords, int(blocks))
 
-	children := aggidx[aggregate.pieceCIDV2]
 	require.Len(t, children, 2)
 	require.True(t, subA.pieceCIDV2.Equals(children[0].Cid))
 	require.True(t, subB.pieceCIDV2.Equals(children[1].Cid))
@@ -81,16 +83,18 @@ func TestIndexPDPv0AggregateUsesSegmentCARRawSizesForChildPieceCIDV2(t *testing.
 	aggregate := makeAggregatePiece(t, subA, subB)
 
 	recs := make(chan indexstore.Record, 128)
-	blocks, aggidx, interrupted, err := IndexPDPv0(aggregate.pieceCIDV2, bytes.NewReader(aggregate.raw), aggregate.pieceSize, recs, make(chan struct{}))
+	aggRecs := make(chan indexstore.Record, 128)
+	blocks, interrupted, err := IndexPDPv0(aggregate.pieceCIDV2, bytes.NewReader(aggregate.raw), aggregate.pieceSize, recs, aggRecs, make(chan struct{}))
 	close(recs)
+	close(aggRecs)
 	gotRecords := collectRecords(recs)
+	children := collectRecords(aggRecs)
 
 	require.NoError(t, err)
 	require.False(t, interrupted)
 	require.NotZero(t, blocks)
 	require.Len(t, gotRecords, int(blocks))
 
-	children := aggidx[aggregate.pieceCIDV2]
 	require.Len(t, children, 2)
 
 	assertPDPv0ChildCID(t, subA, children[0])
@@ -103,16 +107,19 @@ func TestIndexPDPv0AggregateFailsWhenSegmentIsNotCAR(t *testing.T) {
 	aggregate := makeAggregatePiece(t, noCAR, carPiece)
 
 	recs := make(chan indexstore.Record, 128)
-	blocks, aggidx, interrupted, err := IndexPDPv0(aggregate.pieceCIDV2, bytes.NewReader(aggregate.raw), aggregate.pieceSize, recs, make(chan struct{}))
+	aggRecs := make(chan indexstore.Record, 128)
+	blocks, interrupted, err := IndexPDPv0(aggregate.pieceCIDV2, bytes.NewReader(aggregate.raw), aggregate.pieceSize, recs, aggRecs, make(chan struct{}))
 	close(recs)
+	close(aggRecs)
 	gotRecords := collectRecords(recs)
+	gotAggRecords := collectRecords(aggRecs)
 
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "indexing PDPv0 aggregate segment 0")
 	require.NotContains(t, err.Error(), "fallback CAR indexing failed")
 	require.False(t, interrupted)
 	require.Zero(t, blocks)
-	require.Empty(t, aggidx[aggregate.pieceCIDV2])
+	require.Empty(t, gotAggRecords)
 	require.Empty(t, gotRecords)
 }
 
@@ -120,15 +127,18 @@ func TestIndexPDPv0PlainNonCARFailsAfterFallback(t *testing.T) {
 	piece := makePiece(t, bytes.Repeat([]byte("this whole piece is not a CAR"), 6))
 
 	recs := make(chan indexstore.Record, 128)
-	blocks, aggidx, interrupted, err := IndexPDPv0(piece.pieceCIDV2, bytes.NewReader(piece.raw), piece.pieceSize, recs, make(chan struct{}))
+	aggRecs := make(chan indexstore.Record, 128)
+	blocks, interrupted, err := IndexPDPv0(piece.pieceCIDV2, bytes.NewReader(piece.raw), piece.pieceSize, recs, aggRecs, make(chan struct{}))
 	close(recs)
+	close(aggRecs)
 	gotRecords := collectRecords(recs)
+	gotAggRecords := collectRecords(aggRecs)
 
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "fallback CAR indexing failed")
 	require.False(t, interrupted)
 	require.Zero(t, blocks)
-	require.Nil(t, aggidx)
+	require.Empty(t, gotAggRecords)
 	require.Empty(t, gotRecords)
 }
 
@@ -137,13 +147,16 @@ func TestIndexPDPv0FallsBackOnlyForMissingDataSegmentIndex(t *testing.T) {
 		piece := makeCARPiece(t, 512)
 
 		recs := make(chan indexstore.Record, 128)
-		blocks, aggidx, interrupted, err := IndexPDPv0(piece.pieceCIDV2, bytes.NewReader(piece.raw), piece.pieceSize, recs, make(chan struct{}))
+		aggRecs := make(chan indexstore.Record, 128)
+		blocks, interrupted, err := IndexPDPv0(piece.pieceCIDV2, bytes.NewReader(piece.raw), piece.pieceSize, recs, aggRecs, make(chan struct{}))
 		close(recs)
+		close(aggRecs)
 		gotRecords := collectRecords(recs)
+		gotAggRecords := collectRecords(aggRecs)
 
 		require.NoError(t, err)
 		require.False(t, interrupted)
-		require.Nil(t, aggidx)
+		require.Empty(t, gotAggRecords)
 		require.NotZero(t, blocks)
 		require.Len(t, gotRecords, int(blocks))
 	})
@@ -158,14 +171,17 @@ func TestIndexPDPv0FallsBackOnlyForMissingDataSegmentIndex(t *testing.T) {
 		}
 
 		recs := make(chan indexstore.Record, 128)
-		blocks, aggidx, interrupted, err := IndexPDPv0(piece.pieceCIDV2, reader, piece.pieceSize, recs, make(chan struct{}))
+		aggRecs := make(chan indexstore.Record, 128)
+		blocks, interrupted, err := IndexPDPv0(piece.pieceCIDV2, reader, piece.pieceSize, recs, aggRecs, make(chan struct{}))
 		close(recs)
+		close(aggRecs)
 		gotRecords := collectRecords(recs)
+		gotAggRecords := collectRecords(aggRecs)
 
 		require.ErrorIs(t, err, seekErr)
 		require.False(t, interrupted)
 		require.Zero(t, blocks)
-		require.Nil(t, aggidx)
+		require.Empty(t, gotAggRecords)
 		require.Empty(t, gotRecords)
 	})
 
@@ -179,14 +195,17 @@ func TestIndexPDPv0FallsBackOnlyForMissingDataSegmentIndex(t *testing.T) {
 		}
 
 		recs := make(chan indexstore.Record, 128)
-		blocks, aggidx, interrupted, err := IndexPDPv0(piece.pieceCIDV2, reader, piece.pieceSize, recs, make(chan struct{}))
+		aggRecs := make(chan indexstore.Record, 128)
+		blocks, interrupted, err := IndexPDPv0(piece.pieceCIDV2, reader, piece.pieceSize, recs, aggRecs, make(chan struct{}))
 		close(recs)
+		close(aggRecs)
 		gotRecords := collectRecords(recs)
+		gotAggRecords := collectRecords(aggRecs)
 
 		require.ErrorIs(t, err, readErr)
 		require.False(t, interrupted)
 		require.Zero(t, blocks)
-		require.Nil(t, aggidx)
+		require.Empty(t, gotAggRecords)
 		require.Empty(t, gotRecords)
 		require.Zero(t, reader.seekStartCount)
 	})

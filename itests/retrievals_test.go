@@ -1039,22 +1039,28 @@ func seedStandaloneSectorDeal(
 
 func addAggregateIndexWithoutUniquenessCheck(ctx context.Context, idx *indexstore.IndexStore, aggregate helpers.PieceFixture, subPieces []mk20.DataSource) error {
 	recs := make(chan indexstore.Record, 64)
+	aggRecs := make(chan indexstore.Record, 64)
 	addFail := make(chan struct{})
 
 	var eg errgroup.Group
 	eg.Go(func() error {
 		return idx.AddIndex(ctx, aggregate.PieceCIDV2, recs)
 	})
+	eg.Go(func() error {
+		return idx.InsertAggregateIndex(ctx, aggregate.PieceCIDV2, aggRecs)
+	})
 
-	blocks, aggidx, interrupted, idxErr := indexing.IndexAggregate(
+	blocks, interrupted, idxErr := indexing.IndexAggregate(
 		aggregate.PieceCIDV2,
 		bytes.NewReader(aggregate.CarBytes),
 		aggregate.PieceSize,
 		subPieces,
 		recs,
+		aggRecs,
 		addFail,
 	)
 	close(recs)
+	close(aggRecs)
 
 	addErr := eg.Wait()
 	if idxErr != nil {
@@ -1068,12 +1074,6 @@ func addAggregateIndexWithoutUniquenessCheck(ctx context.Context, idx *indexstor
 	}
 	if blocks <= 0 {
 		return fmt.Errorf("aggregate piece %s produced no indexed blocks", aggregate.PieceCIDV2)
-	}
-
-	for k, v := range aggidx {
-		if err := idx.InsertAggregateIndex(ctx, k, v); err != nil {
-			return fmt.Errorf("inserting aggregate index for %s: %w", k, err)
-		}
 	}
 
 	return nil

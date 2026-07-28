@@ -49,22 +49,28 @@ func AddIndexFromCAR(ctx context.Context, idx *indexstore.IndexStore, pieceCID c
 // store.
 func AddAggregateIndexFromPiece(t *testing.T, ctx context.Context, idx *indexstore.IndexStore, aggregate PieceFixture, subPieces []mk20.DataSource) error {
 	recs := make(chan indexstore.Record, 64)
+	aggRecs := make(chan indexstore.Record, 64)
 	addFail := make(chan struct{})
 
 	var eg errgroup.Group
 	eg.Go(func() error {
 		return idx.AddIndex(ctx, aggregate.PieceCIDV2, recs)
 	})
+	eg.Go(func() error {
+		return idx.InsertAggregateIndex(ctx, aggregate.PieceCIDV2, aggRecs)
+	})
 
-	blocks, aggidx, interrupted, idxErr := indexing.IndexAggregate(
+	blocks, interrupted, idxErr := indexing.IndexAggregate(
 		aggregate.PieceCIDV2,
 		bytes.NewReader(aggregate.CarBytes),
 		aggregate.PieceSize,
 		subPieces,
 		recs,
+		aggRecs,
 		addFail,
 	)
 	close(recs)
+	close(aggRecs)
 
 	addErr := eg.Wait()
 	if idxErr != nil {
@@ -80,16 +86,11 @@ func AddAggregateIndexFromPiece(t *testing.T, ctx context.Context, idx *indexsto
 		return fmt.Errorf("aggregate piece %s produced no indexed blocks", aggregate.PieceCIDV2)
 	}
 
-	for k, v := range aggidx {
-		if err := idx.InsertAggregateIndex(ctx, k, v); err != nil {
-			return fmt.Errorf("inserting aggregate index for %s: %w", k, err)
-		}
-		for i := range v {
-			pieces, err := idx.FindPieceInAggregate(ctx, v[i].Cid)
-			require.NoError(t, err)
-			require.Len(t, pieces, 1)
-			require.True(t, aggregate.PieceCIDV2.Equals(pieces[0].Cid))
-		}
+	for _, subPiece := range subPieces {
+		pieces, err := idx.FindPieceInAggregate(ctx, subPiece.PieceCID)
+		require.NoError(t, err)
+		require.Len(t, pieces, 1)
+		require.True(t, aggregate.PieceCIDV2.Equals(pieces[0].Cid))
 	}
 
 	return nil
@@ -98,21 +99,27 @@ func AddAggregateIndexFromPiece(t *testing.T, ctx context.Context, idx *indexsto
 // AddPDPv0IndexFromPiece indexes a PDPv0 parked piece for retrieval tests.
 func AddPDPv0IndexFromPiece(t *testing.T, ctx context.Context, idx *indexstore.IndexStore, piece PieceFixture) error {
 	recs := make(chan indexstore.Record, 64)
+	aggRecs := make(chan indexstore.Record, 64)
 	addFail := make(chan struct{})
 
 	var eg errgroup.Group
 	eg.Go(func() error {
 		return idx.AddIndex(ctx, piece.PieceCIDV2, recs)
 	})
+	eg.Go(func() error {
+		return idx.InsertAggregateIndex(ctx, piece.PieceCIDV2, aggRecs)
+	})
 
-	blocks, aggidx, interrupted, idxErr := indexing.IndexPDPv0(
+	blocks, interrupted, idxErr := indexing.IndexPDPv0(
 		piece.PieceCIDV2,
 		bytes.NewReader(piece.CarBytes),
 		piece.PieceSize,
 		recs,
+		aggRecs,
 		addFail,
 	)
 	close(recs)
+	close(aggRecs)
 
 	addErr := eg.Wait()
 
@@ -127,18 +134,6 @@ func AddPDPv0IndexFromPiece(t *testing.T, ctx context.Context, idx *indexstore.I
 	}
 	if blocks <= 0 {
 		return fmt.Errorf("PDPv0 piece %s produced no indexed blocks", piece.PieceCIDV2)
-	}
-
-	for k, v := range aggidx {
-		if err := idx.InsertAggregateIndex(ctx, k, v); err != nil {
-			return fmt.Errorf("inserting PDPv0 aggregate index for %s: %w", k, err)
-		}
-		for i := range v {
-			pieces, err := idx.FindPieceInAggregate(ctx, v[i].Cid)
-			require.NoError(t, err)
-			require.Len(t, pieces, 1)
-			require.True(t, piece.PieceCIDV2.Equals(pieces[0].Cid))
-		}
 	}
 
 	return nil
