@@ -195,9 +195,11 @@ func (s *SendTaskETH) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 	sendErr := s.client.SendTransaction(ethCtx, signedTx)
 	sendResult := classifyEthSendError(sendErr)
 	if sendResult == ethSendUnknown {
+		time.Sleep(ethUnknownSendSettleDelay)
+
 		known, lookupErr := s.checkInTransactionPool(signedTx.Hash())
 		if lookupErr != nil {
-			log.Warnw("eth transaction send state unknown; failed to look up transaction before retry",
+			log.Warnw("eth transaction send state unknown; failed to look up transaction after settle delay",
 				"task_id", taskID,
 				"from", dbTx.FromAddress,
 				"nonce", signedTx.Nonce(),
@@ -205,27 +207,27 @@ func (s *SendTaskETH) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 				"send_error", sendErr,
 				"lookup_error", lookupErr)
 			return false, multierr.Combine(
-				xerrors.Errorf("eth transaction send state unknown for %s: %w", signedTx.Hash().Hex(), sendErr),
-				xerrors.Errorf("looking up eth transaction %s: %w", signedTx.Hash().Hex(), lookupErr),
+				xerrors.Errorf("eth transaction send state unknown for %s after settle delay: %w", signedTx.Hash().Hex(), sendErr),
+				xerrors.Errorf("looking up eth transaction %s after unknown send: %w", signedTx.Hash().Hex(), lookupErr),
 			)
-		}
-		if !known {
-			log.Warnw("eth transaction send state unknown; leaving signed transaction for retry",
+		} else if known {
+			log.Infow("eth transaction found after unknown send error",
 				"task_id", taskID,
 				"from", dbTx.FromAddress,
 				"nonce", signedTx.Nonce(),
 				"hash", signedTx.Hash().Hex(),
 				"error", sendErr)
-			return false, xerrors.Errorf("eth transaction send state unknown for %s: %w", signedTx.Hash().Hex(), sendErr)
+			sendResult = ethSendAccepted
+		} else {
+			log.Warnw("eth transaction not found after unknown send error",
+				"task_id", taskID,
+				"from", dbTx.FromAddress,
+				"nonce", signedTx.Nonce(),
+				"hash", signedTx.Hash().Hex(),
+				"error", sendErr)
+			return false, xerrors.Errorf("eth transaction send state unknown for %s: tx not found after %s: %w",
+				signedTx.Hash().Hex(), ethUnknownSendSettleDelay, sendErr)
 		}
-
-		log.Infow("eth transaction found after ambiguous send error",
-			"task_id", taskID,
-			"from", dbTx.FromAddress,
-			"nonce", signedTx.Nonce(),
-			"hash", signedTx.Hash().Hex(),
-			"error", sendErr)
-		sendResult = ethSendAccepted
 	}
 
 	sendSuccess := sendResult == ethSendAccepted
@@ -253,7 +255,7 @@ func (s *SendTaskETH) checkInTransactionPool(hash common.Hash) (bool, error) {
 
 	tx, pending, err := s.client.TransactionByHash(ctx, hash)
 	if err != nil {
-		if errors.Is(err, ethereum.NotFound) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		if errors.Is(err, ethereum.NotFound) {
 			return false, nil
 		}
 		return false, err
@@ -316,7 +318,6 @@ func (s *SendTaskETH) TypeDetails() harmonytask.TaskTypeDetails {
 		},
 		MaxFailures: 1000,
 		Follows:     nil,
-		RetryWait:   taskhelp.RetryWaitLinear(time.Second, 2*time.Second),
 	}
 }
 
@@ -431,6 +432,12 @@ func (s *SenderETH) send(ctx context.Context, fromAddress common.Address, tx *ty
 
 	// Push the task
 	taskAdder := s.sendTask.sendTF.Val(ctx)
+	if taskAdder == nil {
+		if err := ctx.Err(); err != nil {
+			return common.Hash{}, err
+		}
+		return common.Hash{}, xerrors.Errorf("eth message send task adder is not available")
+	}
 
 	var sendTaskID *harmonytask.TaskID
 	taskAdder(func(id harmonytask.TaskID, txdb *harmonydb.Tx) (shouldCommit bool, seriousError error) {
@@ -511,10 +518,12 @@ const (
 	ethSendUnknown
 )
 
+const ethUnknownSendSettleDelay = 2 * time.Second
+
 // classifyEthSendError classifies only source-backed outcomes.
 //
 // Sources:
-//   - Lotus node/impl/eth/send.go, ethSendRawTransaction: raw tx parse, tx hash,
+//   - Lotus node/impl/eth/send.go, ethSendRawTransaction: raw tx parse, tx hash,f
 //     and Filecoin message conversion all happen before MpoolPush/MpoolPushUntrusted.
 //   - Lotus chain/messagepool/messagepool.go, MessagePool.Push/addTs/addLocked:
 //     validation happens before addLocked, while duplicate-same-message is reported
@@ -557,6 +566,7 @@ var errMessageWithNonceExists = "message with nonce already exists"
 
 var ethSendAmbiguousErrors = []string{
 	errMessageWithNonceExists,
+	"i/o timeout",
 }
 
 var ethSendDefinitiveErrors = []string{

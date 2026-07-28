@@ -534,11 +534,7 @@ func TestPieceReader_ReadAt(t *testing.T) {
 
 // TestPieceReader_ReadAtCaching tests the LRU cache behavior in ReadAt
 func TestPieceReader_ReadAtCaching(t *testing.T) {
-	// We need to use data larger than MinRandomReadSize to test caching behavior
-	// MinRandomReadSize is 1MB, so we'll test with smaller reads that trigger caching
-
-	t.Run("small reads are cached", func(t *testing.T) {
-		// Create data larger than MinRandomReadSize for meaningful testing
+	t.Run("streaming reads are cached via read-ahead", func(t *testing.T) {
 		dataSize := MinRandomReadSize + 1024
 		data := make([]byte, dataSize)
 		for i := range data {
@@ -549,48 +545,45 @@ func TestPieceReader_ReadAtCaching(t *testing.T) {
 			_ = pr.Close()
 		}()
 
-		// First small read (smaller than MinRandomReadSize)
-		buf := make([]byte, 100)
+		reqSize := ExactReadAtMax + 1
+		buf := make([]byte, reqSize)
 		n, err := pr.ReadAt(buf, 0)
 		require.NoError(t, err)
-		assert.Equal(t, 100, n)
+		assert.Equal(t, len(buf), n)
 
-		// Check that we made calls (initial + ReadAt call)
 		calls := tracker.getCalls()
-		assert.GreaterOrEqual(t, len(calls), 1)
+		require.GreaterOrEqual(t, len(calls), 2) // init + ReadAt
+		assert.Equal(t, uint64(ReadBuf), calls[len(calls)-1].Size)
 
-		// Second read at same offset should hit cache (if data was cached)
+		// Remainder after the caller buffer should be served from remReads.
+		before := len(tracker.getCalls())
 		buf2 := make([]byte, 50)
-		_, err = pr.ReadAt(buf2, 0)
+		_, err = pr.ReadAt(buf2, int64(reqSize))
 		require.NoError(t, err)
-
-		// Verify the first part matches
-		assert.Equal(t, buf[:50], buf2)
+		assert.Equal(t, before, len(tracker.getCalls()))
+		assert.Equal(t, data[reqSize:reqSize+50], buf2)
 	})
 
-	t.Run("cache stores read-ahead data", func(t *testing.T) {
-		// Create deterministic test data
+	t.Run("mime sniff peeks fetch exactly ExactReadAtMax", func(t *testing.T) {
 		dataSize := MinRandomReadSize * 2
 		data := make([]byte, dataSize)
 		for i := range data {
 			data[i] = byte(i % 256)
 		}
-		pr, _ := createTestPieceReader(t, data)
+		pr, tracker := createTestPieceReader(t, data)
 		defer func() {
 			_ = pr.Close()
 		}()
 
-		// Small read at offset 0
-		buf1 := make([]byte, 100)
-		_, err := pr.ReadAt(buf1, 0)
+		initialCalls := len(tracker.getCalls())
+		buf := make([]byte, ExactReadAtMax)
+		n, err := pr.ReadAt(buf, 0)
 		require.NoError(t, err)
+		assert.Equal(t, int(ExactReadAtMax), n)
 
-		// Verify data correctness
-		expected := make([]byte, 100)
-		for i := range expected {
-			expected[i] = byte(i % 256)
-		}
-		assert.Equal(t, expected, buf1)
+		calls := tracker.getCalls()
+		require.Greater(t, len(calls), initialCalls)
+		assert.Equal(t, uint64(ExactReadAtMax), calls[len(calls)-1].Size)
 	})
 }
 
@@ -1104,27 +1097,52 @@ func TestPieceReader_GetReaderErrors(t *testing.T) {
 
 // TestPieceReader_SmallVsLargeReads tests the behavior difference between small and large reads in ReadAt
 func TestPieceReader_SmallVsLargeReads(t *testing.T) {
-	t.Run("small read triggers caching behavior", func(t *testing.T) {
+	t.Run("mid-size read under ReadBuf triggers read-ahead", func(t *testing.T) {
 		dataSize := int(MinRandomReadSize * 2)
 		data := make([]byte, dataSize)
 		for i := range data {
 			data[i] = byte(i % 256)
 		}
-		pr, _ := createTestPieceReader(t, data)
+		pr, tracker := createTestPieceReader(t, data)
 		defer func() {
 			_ = pr.Close()
 		}()
 
-		// Small read (less than MinRandomReadSize)
-		smallBuf := make([]byte, MinRandomReadSize/2)
+		reqSize := int(ExactReadAtMax + 1)
+		smallBuf := make([]byte, reqSize)
 		n, err := pr.ReadAt(smallBuf, 0)
 		require.NoError(t, err)
-		assert.Equal(t, int(MinRandomReadSize/2), n)
+		assert.Equal(t, reqSize, n)
 
-		// Verify data
+		calls := tracker.getCalls()
+		require.NotEmpty(t, calls)
+		assert.Equal(t, uint64(ReadBuf), calls[len(calls)-1].Size)
+
 		for i := range smallBuf {
 			assert.Equal(t, byte(i%256), smallBuf[i], "mismatch at position %d", i)
 		}
+	})
+
+	t.Run("read larger than ReadBuf fetches exactly the request", func(t *testing.T) {
+		dataSize := int(MinRandomReadSize * 2)
+		data := make([]byte, dataSize)
+		for i := range data {
+			data[i] = byte(i % 256)
+		}
+		pr, tracker := createTestPieceReader(t, data)
+		defer func() {
+			_ = pr.Close()
+		}()
+
+		reqSize := int64(ReadBuf) + 1024
+		buf := make([]byte, reqSize)
+		n, err := pr.ReadAt(buf, 0)
+		require.NoError(t, err)
+		assert.Equal(t, int(reqSize), n)
+
+		calls := tracker.getCalls()
+		require.NotEmpty(t, calls)
+		assert.Equal(t, uint64(reqSize), calls[len(calls)-1].Size)
 	})
 
 	t.Run("large read goes directly to user buffer", func(t *testing.T) {
@@ -1133,52 +1151,70 @@ func TestPieceReader_SmallVsLargeReads(t *testing.T) {
 		for i := range data {
 			data[i] = byte(i % 256)
 		}
-		pr, _ := createTestPieceReader(t, data)
+		pr, tracker := createTestPieceReader(t, data)
 		defer func() {
 			_ = pr.Close()
 		}()
 
-		// Large read (greater than MinRandomReadSize)
 		largeBuf := make([]byte, MinRandomReadSize*2)
 		n, err := pr.ReadAt(largeBuf, 0)
 		require.NoError(t, err)
 		assert.Equal(t, int(MinRandomReadSize*2), n)
 
-		// Verify data
+		calls := tracker.getCalls()
+		require.NotEmpty(t, calls)
+		assert.Equal(t, uint64(MinRandomReadSize*2), calls[len(calls)-1].Size)
+
 		for i := range largeBuf {
 			assert.Equal(t, byte(i%256), largeBuf[i], "mismatch at position %d", i)
 		}
 	})
 }
 
-// TestPieceReader_HeaderCaching tests that offset 0 data is specially cached
+// TestPieceReader_HeaderCaching tests that read-ahead remainders are cached
 func TestPieceReader_HeaderCaching(t *testing.T) {
-	t.Run("header data kept in cache", func(t *testing.T) {
+	t.Run("read-ahead remainder served from remReads", func(t *testing.T) {
 		dataSize := int(MinRandomReadSize * 2)
 		data := make([]byte, dataSize)
 		for i := range data {
 			data[i] = byte(i % 256)
 		}
-		pr, _ := createTestPieceReader(t, data)
+		pr, tracker := createTestPieceReader(t, data)
 		defer func() {
 			_ = pr.Close()
 		}()
 
-		// Read header (offset 0)
-		headerBuf := make([]byte, 100)
+		reqSize := int(ExactReadAtMax + 1)
+		headerBuf := make([]byte, reqSize)
 		n, err := pr.ReadAt(headerBuf, 0)
 		require.NoError(t, err)
-		assert.Equal(t, 100, n)
+		assert.Equal(t, reqSize, n)
 
-		// Read header again - should use cache
-		headerBuf2 := make([]byte, 50)
-		n, err = pr.ReadAt(headerBuf2, 0)
+		before := len(tracker.getCalls())
+		next := make([]byte, 50)
+		n, err = pr.ReadAt(next, int64(reqSize))
 		require.NoError(t, err)
 		assert.Equal(t, 50, n)
-
-		// Data should match
-		assert.Equal(t, headerBuf[:50], headerBuf2)
+		assert.Equal(t, before, len(tracker.getCalls()))
+		assert.Equal(t, data[reqSize:reqSize+50], next)
 	})
+}
+
+func TestStorageReadSize(t *testing.T) {
+	assert.Equal(t, int64(512), storageReadSize(512))
+	assert.Equal(t, int64(100), storageReadSize(100))
+	assert.Equal(t, int64(ReadBuf), storageReadSize(ExactReadAtMax+1))
+	assert.Equal(t, int64(ReadBuf)+1, storageReadSize(int64(ReadBuf)+1))
+	assert.Equal(t, MinRandomReadSize, storageReadSize(MinRandomReadSize))
+	assert.Equal(t, MinRandomReadSize*2, storageReadSize(MinRandomReadSize*2))
+
+	// Read-ahead sizes (the only path that allocates internally) stay ≤ 1MiB.
+	for _, req := range []int64{ExactReadAtMax + 1, int64(ReadBuf) - 1, int64(ReadBuf)} {
+		got := storageReadSize(req)
+		if got != req { // amplified
+			assert.LessOrEqual(t, got, MinRandomReadSize)
+		}
+	}
 }
 
 // TestPieceReader_ReadInto tests the readInto internal function

@@ -29,7 +29,6 @@ import (
 	ipni_provider "github.com/filecoin-project/curio/market/ipni/ipni-provider"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/tasks/indexing"
-	"github.com/filecoin-project/curio/tasks/message"
 
 	types2 "github.com/filecoin-project/lotus/chain/types"
 )
@@ -47,6 +46,10 @@ func httpServerError(w http.ResponseWriter, statusCode int, msg string, err erro
 // PDPRoutePath is the base path for PDP routes
 const PDPRoutePath = "/pdp"
 
+// PingOKBody is the exact success body for GET /pdp/ping.
+// Reachability probes match this to confirm they hit Curio PDP, not a proxy.
+const PingOKBody = "curio-pdp"
+
 const (
 	// MaxCreateDataSetExtraDataSize defines the limit for extraData size in CreateDataSet calls (4KB).
 	MaxCreateDataSetExtraDataSize = 4096
@@ -61,13 +64,19 @@ const (
 	MaxDeletePiecesBatchSize = contract.ConservativeEnqueuedRemovalsLimit
 )
 
+// ETHTxSender enqueues (and eventually sends) an Ethereum transaction.
+// *message.SenderETH implements this; tests may substitute an instant mock.
+type ETHTxSender interface {
+	Send(ctx context.Context, fromAddress common.Address, tx *types.Transaction, reason string) (common.Hash, error)
+}
+
 // PDPService represents the service for managing data sets and pieces
 type PDPService struct {
 	Auth
 	db      *harmonydb.DB
 	storage paths.StashStore
 
-	sender    *message.SenderETH
+	sender    ETHTxSender
 	ethClient ethchain.EthClient
 	filClient PDPServiceNodeApi
 
@@ -91,7 +100,7 @@ func NewPDPService(
 	stor paths.StashStore,
 	ec ethchain.EthClient,
 	fc PDPServiceNodeApi,
-	sn *message.SenderETH,
+	sn ETHTxSender,
 	alertTask *alertmanager.AlertTask,
 	ipp *ipni_provider.Provider) *PDPService {
 	auth := &NullAuth{}
@@ -138,6 +147,8 @@ func kvUploadUUID(r *http.Request) []any {
 
 // Routes registers the HTTP routes with the provided router.
 func Routes(r chi.Router, p *PDPService) {
+	mountExploreRoutes(r, p)
+
 	r.Route(PDPRoutePath, func(r chi.Router) {
 		r.Use(p.ipOffenseThrottle.Middleware)
 
@@ -226,7 +237,9 @@ func (p *PDPService) handlePing(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(PingOKBody))
 }
 
 // handleGetPieceStatus returns the indexing and IPNI status for a piece

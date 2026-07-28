@@ -455,7 +455,7 @@ type ethReplaceHarness struct {
 	ctx      context.Context
 	db       *harmonydb.DB
 	client   *replaceEthClient
-	replacer *transactionReplacer
+	replacer *ethMessageReplacer
 	now      time.Time
 }
 
@@ -477,7 +477,7 @@ func newEthReplaceHarness(t *testing.T) *ethReplaceHarness {
 		ctx:    ctx,
 		db:     db,
 		client: client,
-		replacer: &transactionReplacer{
+		replacer: &ethMessageReplacer{
 			db:               db,
 			client:           client,
 			stuckForDuration: replaceTestStuckDuration(),
@@ -489,7 +489,7 @@ func newEthReplaceHarness(t *testing.T) *ethReplaceHarness {
 func (h *ethReplaceHarness) run(t *testing.T) {
 	t.Helper()
 
-	require.NoError(t, h.replacer.runTransactionReplacement(h.ctx, 100, h.now))
+	require.NoError(t, h.replacer.runEthMessageReplacement(h.ctx, 100, h.now))
 }
 
 func (h *ethReplaceHarness) oldSendTime() time.Time {
@@ -509,7 +509,7 @@ func (h *ethReplaceHarness) insertKey(t *testing.T, from common.Address, private
 	require.NoError(t, err)
 }
 
-func (h *ethReplaceHarness) insertTransactionSend(t *testing.T, from common.Address, to common.Address, tx *gethtypes.Transaction, txData []byte, sendTime time.Time) {
+func (h *ethReplaceHarness) insertEthMessageSend(t *testing.T, from common.Address, to common.Address, tx *gethtypes.Transaction, txData []byte, sendTime time.Time) {
 	t.Helper()
 
 	_, err := h.db.Exec(h.ctx, `
@@ -569,7 +569,7 @@ func (h *ethReplaceHarness) insertSuccessfulReplacement(t *testing.T, from commo
 	require.NoError(t, err)
 }
 
-func TestTransactionReplacerReplacesFeeStuckTransaction(t *testing.T) {
+func TestEthMessageReplacerReplacesFeeStuckEthMessage(t *testing.T) {
 	h := newEthReplaceHarness(t)
 	privateKey, err := gethcrypto.GenerateKey()
 	require.NoError(t, err)
@@ -580,7 +580,7 @@ func TestTransactionReplacerReplacesFeeStuckTransaction(t *testing.T) {
 	h.insertKey(t, from, gethcrypto.FromECDSA(privateKey))
 
 	original, originalData := signedDynamicTx(t, privateKey, to, nonce, 100, 10)
-	h.insertTransactionSend(t, from, to, original, originalData, h.oldSendTime())
+	h.insertEthMessageSend(t, from, to, original, originalData, h.oldSendTime())
 
 	h.run(t)
 
@@ -605,7 +605,7 @@ func TestTransactionReplacerReplacesFeeStuckTransaction(t *testing.T) {
 	require.True(t, sendSuccess)
 }
 
-func TestTransactionReplacerAmbiguousSendSucceedsAfterExactLookup(t *testing.T) {
+func TestEthMessageReplacerAmbiguousSendSucceedsAfterExactLookup(t *testing.T) {
 	h := newEthReplaceHarness(t)
 	h.client.sendErr = errors.New(errMessageWithNonceExists)
 	h.client.lookupSentTx = true
@@ -619,7 +619,7 @@ func TestTransactionReplacerAmbiguousSendSucceedsAfterExactLookup(t *testing.T) 
 	h.insertKey(t, from, gethcrypto.FromECDSA(privateKey))
 
 	original, originalData := signedDynamicTx(t, privateKey, to, nonce, 100, 10)
-	h.insertTransactionSend(t, from, to, original, originalData, h.oldSendTime())
+	h.insertEthMessageSend(t, from, to, original, originalData, h.oldSendTime())
 
 	h.run(t)
 
@@ -636,7 +636,7 @@ func TestTransactionReplacerAmbiguousSendSucceedsAfterExactLookup(t *testing.T) 
 	require.Empty(t, sendError)
 }
 
-func TestTransactionReplacerDoesNotTrustAmbiguousSendWithoutExactLookup(t *testing.T) {
+func TestEthMessageReplacerDoesNotTrustAmbiguousSendWithoutExactLookup(t *testing.T) {
 	h := newEthReplaceHarness(t)
 	h.client.sendErr = errors.New(errMessageWithNonceExists)
 
@@ -649,7 +649,7 @@ func TestTransactionReplacerDoesNotTrustAmbiguousSendWithoutExactLookup(t *testi
 	h.insertKey(t, from, gethcrypto.FromECDSA(privateKey))
 
 	original, originalData := signedDynamicTx(t, privateKey, to, nonce, 100, 10)
-	h.insertTransactionSend(t, from, to, original, originalData, h.oldSendTime())
+	h.insertEthMessageSend(t, from, to, original, originalData, h.oldSendTime())
 
 	h.run(t)
 
@@ -671,7 +671,7 @@ func TestTransactionReplacerDoesNotTrustAmbiguousSendWithoutExactLookup(t *testi
 	require.False(t, sendError.Valid)
 }
 
-func TestTransactionReplacerRetriesSignedClaim(t *testing.T) {
+func TestEthMessageReplacerRetriesSignedClaim(t *testing.T) {
 	h := newEthReplaceHarness(t)
 	privateKey, err := gethcrypto.GenerateKey()
 	require.NoError(t, err)
@@ -683,7 +683,7 @@ func TestTransactionReplacerRetriesSignedClaim(t *testing.T) {
 
 	original, originalData := signedDynamicTx(t, privateKey, to, nonce, 100, 10)
 	retry, retryData := signedDynamicTx(t, privateKey, to, nonce, 300, 30)
-	h.insertTransactionSend(t, from, to, original, originalData, h.oldSendTime())
+	h.insertEthMessageSend(t, from, to, original, originalData, h.oldSendTime())
 	h.insertExpiredSignedClaim(t, from, nonce, original.Hash().Hex(), original.Hash().Hex(), retry.Hash().Hex(), retryData)
 
 	h.run(t)
@@ -702,7 +702,7 @@ func TestTransactionReplacerRetriesSignedClaim(t *testing.T) {
 	require.True(t, sendSuccess)
 }
 
-func TestTransactionReplacerIgnoresYoungTransaction(t *testing.T) {
+func TestEthMessageReplacerIgnoresYoungEthMessage(t *testing.T) {
 	h := newEthReplaceHarness(t)
 	privateKey, err := gethcrypto.GenerateKey()
 	require.NoError(t, err)
@@ -713,7 +713,7 @@ func TestTransactionReplacerIgnoresYoungTransaction(t *testing.T) {
 	h.insertKey(t, from, gethcrypto.FromECDSA(privateKey))
 
 	original, originalData := signedDynamicTx(t, privateKey, to, nonce, 100, 10)
-	h.insertTransactionSend(t, from, to, original, originalData, h.youngSendTime())
+	h.insertEthMessageSend(t, from, to, original, originalData, h.youngSendTime())
 
 	h.run(t)
 
@@ -721,7 +721,7 @@ func TestTransactionReplacerIgnoresYoungTransaction(t *testing.T) {
 	require.Equal(t, 0, ethReplacementRowCount(t, h.db, h.ctx))
 }
 
-func TestTransactionReplacerDeletesNotFeeStuckClaim(t *testing.T) {
+func TestEthMessageReplacerDeletesNotFeeStuckClaim(t *testing.T) {
 	h := newEthReplaceHarness(t)
 	privateKey, err := gethcrypto.GenerateKey()
 	require.NoError(t, err)
@@ -732,7 +732,7 @@ func TestTransactionReplacerDeletesNotFeeStuckClaim(t *testing.T) {
 	h.insertKey(t, from, gethcrypto.FromECDSA(privateKey))
 
 	original, originalData := signedDynamicTx(t, privateKey, to, nonce, 300, 30)
-	h.insertTransactionSend(t, from, to, original, originalData, h.oldSendTime())
+	h.insertEthMessageSend(t, from, to, original, originalData, h.oldSendTime())
 
 	h.run(t)
 
@@ -740,7 +740,7 @@ func TestTransactionReplacerDeletesNotFeeStuckClaim(t *testing.T) {
 	require.Equal(t, 0, ethReplacementRowCount(t, h.db, h.ctx))
 }
 
-func TestTransactionReplacerDeletesInvalidSignedClaim(t *testing.T) {
+func TestEthMessageReplacerDeletesInvalidSignedClaim(t *testing.T) {
 	h := newEthReplaceHarness(t)
 	privateKey, err := gethcrypto.GenerateKey()
 	require.NoError(t, err)
@@ -751,7 +751,7 @@ func TestTransactionReplacerDeletesInvalidSignedClaim(t *testing.T) {
 	h.insertKey(t, from, gethcrypto.FromECDSA(privateKey))
 
 	original, originalData := signedDynamicTx(t, privateKey, to, nonce, 100, 10)
-	h.insertTransactionSend(t, from, to, original, originalData, h.oldSendTime())
+	h.insertEthMessageSend(t, from, to, original, originalData, h.oldSendTime())
 	h.insertExpiredSignedClaim(t, from, nonce, original.Hash().Hex(), original.Hash().Hex(), original.Hash().Hex(), []byte("not-rlp"))
 
 	h.run(t)
@@ -760,7 +760,7 @@ func TestTransactionReplacerDeletesInvalidSignedClaim(t *testing.T) {
 	require.Equal(t, 0, ethReplacementRowCount(t, h.db, h.ctx))
 }
 
-func TestTransactionReplacerDeletesStaleRowsWhenAccountNonceAdvanced(t *testing.T) {
+func TestEthMessageReplacerDeletesStaleRowsWhenAccountNonceAdvanced(t *testing.T) {
 	h := newEthReplaceHarness(t)
 	privateKey, err := gethcrypto.GenerateKey()
 	require.NoError(t, err)
@@ -772,7 +772,7 @@ func TestTransactionReplacerDeletesStaleRowsWhenAccountNonceAdvanced(t *testing.
 
 	original, originalData := signedDynamicTx(t, privateKey, to, nonce, 100, 10)
 	prior, priorData := signedDynamicTx(t, privateKey, to, nonce, 300, 30)
-	h.insertTransactionSend(t, from, to, original, originalData, h.oldSendTime())
+	h.insertEthMessageSend(t, from, to, original, originalData, h.oldSendTime())
 	h.insertSuccessfulReplacement(t, from, nonce, original.Hash().Hex(), original.Hash().Hex(), prior.Hash().Hex(), priorData, h.oldSendTime())
 
 	h.run(t)
@@ -780,7 +780,7 @@ func TestTransactionReplacerDeletesStaleRowsWhenAccountNonceAdvanced(t *testing.
 	require.Equal(t, 0, ethReplacementRowCount(t, h.db, h.ctx))
 }
 
-func TestTransactionReplacerLeavesSignedClaimOnSendTimeout(t *testing.T) {
+func TestEthMessageReplacerLeavesSignedClaimOnSendTimeout(t *testing.T) {
 	h := newEthReplaceHarness(t)
 	h.client.sendErr = context.DeadlineExceeded
 
@@ -793,7 +793,7 @@ func TestTransactionReplacerLeavesSignedClaimOnSendTimeout(t *testing.T) {
 	h.insertKey(t, from, gethcrypto.FromECDSA(privateKey))
 
 	original, originalData := signedDynamicTx(t, privateKey, to, nonce, 100, 10)
-	h.insertTransactionSend(t, from, to, original, originalData, h.oldSendTime())
+	h.insertEthMessageSend(t, from, to, original, originalData, h.oldSendTime())
 
 	h.run(t)
 

@@ -84,17 +84,19 @@ window.customElements.define('network-summary', class NetworkSummary extends Lit
         }
         th, td {
             padding: 8px 10px;
-            border: 1px solid rgba(255,255,255,0.08);
-            background: rgba(255,255,255,0.03);
+            border: 1px solid var(--color-border-muted, #21262d);
+            background: var(--color-bg-subtle, #161b22);
             font-size: 13px;
             vertical-align: middle;
             white-space: nowrap;
             font-variant-numeric: tabular-nums;
         }
         th {
-            font-size: 12px;
-            opacity: 0.8;
-            font-weight: 600;
+            font-size: 11px;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: var(--color-text-secondary, #8b949e);
             text-align: left;
         }
         .node {
@@ -113,17 +115,17 @@ window.customElements.define('network-summary', class NetworkSummary extends Lit
             margin-top: 8px;
             margin-bottom: 10px;
             font-size: 12px;
-            opacity: 0.8;
+            color: var(--color-text-secondary, #8b949e);
             padding-left: 2px;
         }
         .reach {
             font-weight: 600;
         }
-        .reach-public { color: #2ecc71; }
-        .reach-private { color: #f39c12; }
-        .reach-unknown { color: #e74c3c; }
+        .reach-public { color: var(--color-success-fg, #3fb950); }
+        .reach-private { color: var(--color-warning-fg, #d29922); }
+        .reach-unknown { color: var(--color-danger-fg, #f85149); }
         .empty {
-            opacity: 0.8;
+            color: var(--color-text-secondary, #8b949e);
             font-size: 13px;
             padding: 8px 0;
         }
@@ -142,9 +144,8 @@ window.customElements.define('network-summary', class NetworkSummary extends Lit
         const rows = this.rows();
 
         return html`
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-1BmE4kWBq78iYhFldvKuhfTAU6auU8tT94WrHftjDbrCEXSU1oBoqyl2QvZ6jIW3" crossorigin="anonymous">
   <link rel="stylesheet" href="/ux/main.css">
-  <link href="https://fonts.cdnfonts.com/css/metropolis-2" rel="stylesheet" crossorigin="anonymous">
+  <link rel="stylesheet" href="/ux/dark-table.css">
 
   ${rows.length === 0 ? html`<div class="empty">No network data available yet.</div>` : html`
   <div class="table-wrap">

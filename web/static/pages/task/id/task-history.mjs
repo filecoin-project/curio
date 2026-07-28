@@ -32,7 +32,7 @@ class HarmonyTaskHistoryTable extends LitElement {
         }
 
         return html`
-            <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+            <link rel="stylesheet" href="/ux/vendor/bootstrap.min.css">
             <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'">
             <table class="table table-dark">
                 <thead>

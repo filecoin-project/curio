@@ -66,8 +66,6 @@ CREATE TABLE pdp_data_sets (
     prove_at_epoch BIGINT,
     init_ready BOOLEAN NOT NULL DEFAULT FALSE,
     unrecoverable_proving_failure_epoch BIGINT,
-    next_prove_attempt_at BIGINT,
-    consecutive_prove_failures INT NOT NULL DEFAULT 0,
     ...
 );
 ```
@@ -95,11 +93,11 @@ From the PDPVerifier's perspective when PDP datasets are initialized they are no
 
 Curio waits for the `init_ready` flag to be set for a data set table entry.  This is triggered via the `DataSetWatch` chain scheduler callback when the first piece is added to the dataset.  Then the task executes essentially the same logic as that described above in the _Next Proving Period Task_ section.  The only significant difference is the init task's reference to the `initChallengeWindowStart` parameter in service contract's `getPDPConfig()` return type (as per `PDPVerifier`'s `IPDPProvingSchedule` interface).
 
-## Retries and unrecoverable errors 
+## Retries and unrecoverable errors
 
-Curio has some robustness against failures of `provePossession` and `nextProvingPeriod` calls.  The strategy is to retry with exponential backoff any failures in these "proving clock methods" until a certain threshold of failure is reached.  This threshold is reached after `MaxConsecutiveFailures = 5` retries.  The pdp_data_set table counts successive backoff attempts with the consecutive_prove_failures variable.  When this value is too high and a failure of one of the proving tasks occurs the data set is marked as unrecoverably failed and scheduled for deletion.  
+Curio classifies contract reverts from `provePossession` and `nextProvingPeriod` before deciding how to proceed. Known terminal proving errors mark `unrecoverable_proving_failure_epoch` and schedule FWSS termination. Non-terminal contract reverts are handled by their specific category or surfaced through alerting while Harmony task retry controls subsequent attempts.
 
-To ensure that this retry behavior is achieved scheduling of the three tasks under discussion involves checking the associated retry state for data set table entries.  In particular all three tasks ensure that the `unrecoverable_proving_failure_epoch` is unset and the `next_prove_attempt_at` is either NULL or in the past in addition to the other scheduling conditions already discussed.
+Scheduling of the three proving-clock tasks only checks that `unrecoverable_proving_failure_epoch` is unset in addition to the normal scheduling conditions already described.
 
 
 # Dataset Termination
@@ -230,7 +228,7 @@ Piece removal is intentionally split into three distinct phases: enqueue the del
    - If the piece id is no longer in the scheduled-removals queue, Curio calls `PDPVerifier.pieceLive(setId, pieceId)`. If the piece is already non-live on-chain, Curio also sets `removed = TRUE`. If it is still live, Curio treats the local delete tracking as stale, clears `rm_message_hash`, and logs a warning. This is the path that protects against the issue discussed in [#924](https://github.com/filecoin-project/curio/issues/924) / [PR #947 comment](https://github.com/filecoin-project/curio/pull/947#issuecomment-3922533942), where fast task execution and short reorgs can otherwise create repeated log spam.
 5. `removed = TRUE` is only a local tombstone. It does not by itself delete the matching `pdp_data_set_pieces` rows, and it does not decrement `pdp_piecerefs.data_set_refcount` because that refcount is maintained by `INSERT` / `DELETE` / `pdp_pieceref`-changing `UPDATE` triggers on `pdp_data_set_pieces`.
 6. There is code in `tasks/pdpv0/watch_piece_delete.go` to do the next step: `_processPendingCleanup()` re-checks `pieceLive()` and deletes `pdp_data_set_pieces` rows whose pieces are no longer live on-chain. Those physical `DELETE`s are what would fire the refcount trigger and make the piece eligible for ref-based cleanup. However, that cleanup is currently disabled in the watcher registration because the team is still investigating observations that removed pieces can correlate with proving failures and excessive ETH RPC load.
-7. The still-enabled part of **PieceDeleteWatcher** only operates on orphaned `pdp_piecerefs` rows where `data_set_refcount = 0` and the ref is at least 24 hours old (`pdp_piecerefs.created_at <= now - 24h`). For each orphan it deletes the `pdp_piecerefs` row and its `parked_piece_refs` row. When the orphaned ref was also the last PDP reference for that `piece_cid`, and the prior advertisement state shows that a removal still needs to be announced, Curio publishes an IPNI removal advertisement and removes the local index entry for the piece.
+7. **PDPv0_PieceGC** operates on orphaned `pdp_piecerefs` rows where `data_set_refcount = 0` and the ref is at least `Subsystems.PDPUnclaimedUploadKeepHours` hours old (default 2; live-reloadable, minimum 1). For each orphan it deletes the `pdp_piecerefs` row and its `parked_piece_refs` row. When the orphaned ref was also the last PDP reference for that `piece_cid`, and the prior advertisement state shows that a removal still needs to be announced, Curio publishes an IPNI removal advertisement and removes the local index entry for the piece.
 8. In practice this means that ordinary per-piece removal currently stops at `removed = TRUE` from the local dataset-row perspective. The later orphan cleanup path still runs for rows that become unreferenced through some other mechanism, most notably whole-dataset deletion, where deleting the `pdp_data_sets` row cascades through `pdp_data_set_pieces`, drops the piece refcounts, and then allows the orphan cleanup logic to remove `pdp_piecerefs`, `parked_piece_refs`, IPNI state, and indexes.
 
 TODO: Confirm the intended steady-state once `_processPendingCleanup()` is re-enabled or replaced. The current implementation deliberately leaves removed rows in `pdp_data_set_pieces` while this behavior is being debugged.

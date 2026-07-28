@@ -48,6 +48,7 @@ func TestSendTaskETHAmbiguousSendSucceedsAfterExactLookup(t *testing.T) {
 	require.True(t, done)
 	require.Equal(t, 1, client.sendCalls)
 	require.Equal(t, 1, client.txCalls)
+	require.Equal(t, 1, client.pendingNonceCalls)
 	require.Len(t, client.sentTxs, 1)
 
 	var signedHash string
@@ -90,6 +91,7 @@ func TestSendTaskETHDoesNotTrustAmbiguousSendWithoutExactLookup(t *testing.T) {
 	require.False(t, done)
 	require.Equal(t, 1, client.sendCalls)
 	require.Equal(t, 1, client.txCalls)
+	require.Equal(t, 1, client.pendingNonceCalls)
 	require.Len(t, client.sentTxs, 1)
 
 	var signedHash sql.NullString

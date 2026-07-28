@@ -128,14 +128,20 @@ func (P *PDPIndexingV0Task) Do(taskID harmonytask.TaskID, stillOwned func() bool
 	addFail := make(chan struct{})
 	var interrupted bool
 
+	aggRecs := make(chan indexstore.Record, chanSize)
 	eg.Go(func() error {
 		defer close(addFail)
-		return P.indexStore.AddIndex(ctx, pcid, recs)
+		return P.indexStore.AddIndex(ctx, pcid2, recs)
 	})
-	blocks, interrupted, err = IndexCAR(reader, 4<<20, recs, addFail)
+	eg.Go(func() error {
+		return P.indexStore.InsertAggregateIndex(ctx, pcid2, aggRecs)
+	})
+
+	blocks, interrupted, err = IndexPDPv0(pcid2, reader, task.PieceSize, recs, aggRecs, addFail)
 	if err != nil {
 		// Indexing itself failed, stop early
 		close(recs) // still safe to close, AddIndex will exit on channel close
+		close(aggRecs)
 		// wait for AddIndex goroutine to finish cleanly
 		_ = eg.Wait()
 		return false, xerrors.Errorf("indexing failed: %w", err)
@@ -143,11 +149,12 @@ func (P *PDPIndexingV0Task) Do(taskID harmonytask.TaskID, stillOwned func() bool
 
 	// Close the channel
 	close(recs)
+	close(aggRecs)
 
 	// Wait till AddIndex is finished
 	err = eg.Wait()
 	if err != nil {
-		return false, xerrors.Errorf("adding index to DB (interrupted %t): %w", interrupted, err)
+		return false, xerrors.Errorf("adding indexes to DB (interrupted %t): %w", interrupted, err)
 	}
 
 	log.Infof("Indexing piece %d took %0.3f seconds", task.ID, time.Since(startTime).Seconds())

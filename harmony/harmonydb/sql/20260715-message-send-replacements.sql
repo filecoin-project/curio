@@ -29,6 +29,10 @@ CREATE INDEX IF NOT EXISTS message_send_replacements_latest_success_idx
     WHERE send_success = TRUE
       AND signed_cid IS NOT NULL;
 
+CREATE INDEX IF NOT EXISTS message_send_replacements_next_success_idx
+    ON message_send_replacements (from_key, nonce, replaces_signed_cid)
+    WHERE send_success = TRUE;
+
 CREATE UNIQUE INDEX IF NOT EXISTS message_send_replacements_claim_idx
     ON message_send_replacements (from_key, nonce, replaces_signed_cid)
     WHERE send_success IS NOT FALSE;
@@ -36,6 +40,21 @@ CREATE UNIQUE INDEX IF NOT EXISTS message_send_replacements_claim_idx
 CREATE INDEX IF NOT EXISTS message_send_replacements_signed_cid_idx
     ON message_send_replacements (signed_cid)
     WHERE signed_cid IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS message_send_replacements_cleanup_done_idx
+    ON message_send_replacements (from_key, nonce)
+    WHERE send_success IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS message_send_replacements_cleanup_claim_idx
+    ON message_send_replacements (from_key, nonce, claim_until)
+    WHERE send_success IS NULL;
+
+CREATE INDEX IF NOT EXISTS message_sends_replacement_candidates_idx
+    ON message_sends (from_key, nonce)
+    WHERE send_success = TRUE
+      AND signed_cid IS NOT NULL
+      AND signed_data IS NOT NULL
+      AND send_time IS NOT NULL;
 
 
 CREATE TABLE IF NOT EXISTS message_send_eth_replacements (
@@ -69,6 +88,10 @@ CREATE INDEX IF NOT EXISTS message_send_eth_replacements_latest_success_idx
     WHERE send_success = TRUE
       AND signed_hash IS NOT NULL;
 
+CREATE INDEX IF NOT EXISTS message_send_eth_replacements_next_success_idx
+    ON message_send_eth_replacements (from_address, nonce, replaces_signed_hash)
+    WHERE send_success = TRUE;
+
 CREATE UNIQUE INDEX IF NOT EXISTS message_send_eth_replacements_claim_idx
     ON message_send_eth_replacements (from_address, nonce, replaces_signed_hash)
     WHERE send_success IS NOT FALSE;
@@ -76,3 +99,20 @@ CREATE UNIQUE INDEX IF NOT EXISTS message_send_eth_replacements_claim_idx
 CREATE INDEX IF NOT EXISTS message_send_eth_replacements_signed_hash_idx
     ON message_send_eth_replacements (signed_hash)
     WHERE signed_hash IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS message_send_eth_replacements_cleanup_done_idx
+    ON message_send_eth_replacements (from_address, nonce)
+    WHERE send_success IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS message_send_eth_replacements_cleanup_claim_idx
+    ON message_send_eth_replacements (from_address, nonce, claim_until)
+    WHERE send_success IS NULL;
+
+CREATE INDEX IF NOT EXISTS message_send_eth_replacements_original_success_idx
+    ON message_send_eth_replacements (original_signed_hash, signed_hash)
+    WHERE send_success = TRUE
+      AND signed_hash IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS message_send_eth_replacements_original_next_idx
+    ON message_send_eth_replacements (original_signed_hash, replaces_signed_hash)
+    WHERE send_success = TRUE;

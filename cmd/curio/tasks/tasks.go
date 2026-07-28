@@ -95,6 +95,11 @@ func WindowPostScheduler(ctx context.Context, fc config.CurioFees, pc config.Cur
 }
 
 func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan struct{}) (*harmonytask.TaskEngine, error) {
+	if dependencies.DB.ReadOnly() {
+		log.Info("readonly database mode: skipping background tasks")
+		return nil, nil
+	}
+
 	cfg := dependencies.Cfg
 	db := dependencies.DB
 	full := dependencies.Chain
