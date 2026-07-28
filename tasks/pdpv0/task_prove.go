@@ -950,7 +950,8 @@ func (p *ProveTask) disableProving(ctx context.Context, dataSetId int64) error {
 	_, err := p.db.Exec(ctx, `
 		UPDATE pdp_data_sets
 		SET challenge_request_msg_hash = NULL, prove_at_epoch = NULL, init_ready = FALSE,
-			prev_challenge_request_epoch = NULL
+			prev_challenge_request_epoch = NULL,
+			pp_reconcile_needed = FALSE
 		WHERE id = $1
 		`, dataSetId)
 	if err != nil {

@@ -2,14 +2,12 @@ package pdpv0
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"math/big"
 	"time"
 
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/samber/lo"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
@@ -228,7 +226,8 @@ func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() 
             UPDATE pdp_data_sets
             SET challenge_request_msg_hash = $1,
                 prev_challenge_request_epoch = $2,
-				prove_at_epoch = $3
+				prove_at_epoch = $3,
+				pp_reconcile_needed = TRUE
             WHERE id = $4
         `, txHash.Hex(), ts.Height(), next_prove_at.Uint64(), dataSetId)
 		if err != nil {
@@ -253,117 +252,10 @@ func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() 
 		return false, xerrors.Errorf("failed to perform database transaction: %w", err)
 	}
 
-	// For all `schedulePieceDeletions` messages relevant to this dataset, mark these pieces as removed
-	err = n.processPendingPieceDeletes(ctx, dataSetId)
-	if err != nil {
-		log.Warnf("Failed to process pending piece delete: %s", err)
-	}
-
 	// Task completed successfully
 	log.Infow("Next challenge window scheduled", "epoch", next_prove_at, "dataSetId", dataSetId)
 
 	return true, nil
-}
-
-func (n *NextProvingPeriodTask) processPendingPieceDeletes(ctx context.Context, dataSetId int64) error {
-
-	var pendingDeletes []struct {
-		PieceID   int64        `db:"piece_id"`
-		TxHash    string       `db:"rm_message_hash"`
-		TxSuccess sql.NullBool `db:"tx_success"`
-	}
-
-	err := n.db.Select(ctx, &pendingDeletes, `SELECT
-    												psp.piece_id,
-    												psp.rm_message_hash,
-													mwe.tx_success
-												FROM pdp_data_set_pieces psp
-												LEFT JOIN message_waits_eth mwe ON mwe.signed_tx_hash = psp.rm_message_hash
-												WHERE psp.rm_message_hash IS NOT NULL
-												  AND psp.data_set = $1
-												  AND psp.removed = FALSE
-												  AND mwe.tx_status = 'confirmed'`, dataSetId)
-	if err != nil {
-		return xerrors.Errorf("failed to select pending piece deletes: %w", err)
-	}
-
-	if len(pendingDeletes) == 0 {
-		return nil
-	}
-
-	pdpAddress := contract.ContractAddresses().PDPVerifier
-
-	verifier, err := contract.NewPDPVerifier(pdpAddress, n.ethClient)
-	if err != nil {
-		return xerrors.Errorf("failed to instantiate PDPVerifier contract: %w", err)
-	}
-
-	removals, err := verifier.GetScheduledRemovals(contract.EthCallOpts(ctx), big.NewInt(dataSetId))
-	if err != nil {
-		return xerrors.Errorf("failed to get scheduled removals: %w", err)
-	}
-
-	for _, piece := range pendingDeletes {
-		if !piece.TxSuccess.Valid {
-			log.Errorf("invalid message_waits_eth state for piece (%d:%d) tx %s neither successful or unsuccessful", dataSetId, piece.PieceID, piece.TxHash)
-			_, err := n.db.Exec(ctx, `UPDATE pdp_data_set_pieces SET rm_message_hash = NULL WHERE data_set = $1 AND piece_id = $2 AND rm_message_hash = $3`, dataSetId, piece.PieceID, piece.TxHash)
-			if err != nil {
-				return xerrors.Errorf("failed to clear stuck rm_message_hash %s: %w", piece.TxHash, err)
-			}
-			continue
-		}
-
-		if !piece.TxSuccess.Bool {
-			log.Errorf("failed to process pending piece delete as transaction %s failed", piece.TxHash)
-			_, err := n.db.Exec(ctx, `UPDATE pdp_data_set_pieces SET rm_message_hash = NULL WHERE data_set = $1 AND piece_id = $2 AND rm_message_hash = $3`, dataSetId, piece.PieceID, piece.TxHash)
-			if err != nil {
-				return xerrors.Errorf("failed to clear stuck rm_message_hash %s: %w", piece.TxHash, err)
-			}
-			continue
-		}
-
-		pieceID := big.NewInt(piece.PieceID)
-		contains := lo.ContainsBy(removals, func(r *big.Int) bool {
-			return r.Cmp(pieceID) == 0
-		})
-		if !contains {
-			// Check for the case where next proving period has run and piece deletions fully processed
-			live, err := verifier.PieceLive(contract.EthCallOpts(ctx), big.NewInt(dataSetId), pieceID)
-			if err != nil {
-				return xerrors.Errorf("failed to check if piece is live: %w", err)
-			}
-			if live {
-				log.Warnw("piece is live but not in scheduled removals despite successful delete tx; (possible chain reorg) clearing stale delete tracking",
-					"dataSetId", dataSetId, "pieceID", piece.PieceID, "txHash", piece.TxHash)
-				_, err := n.db.Exec(ctx, `UPDATE pdp_data_set_pieces SET rm_message_hash = NULL
-                              WHERE data_set = $1 AND piece_id = $2 AND rm_message_hash = $3`,
-					dataSetId, piece.PieceID, piece.TxHash)
-				if err != nil {
-					return xerrors.Errorf("failed to clear stale rm_message_hash: %w", err)
-				}
-				continue
-			}
-			log.Infow("piece already removed on-chain, marking as removed in DB", "dataSetId", dataSetId, "pieceID", piece.PieceID, "txHash", piece.TxHash)
-		} else {
-			log.Infow("noticed scheduled deletion, marking as removed", "dataSetId", dataSetId, "pieceID", piece.PieceID, "txHash", piece.TxHash)
-		}
-
-		m, err := n.db.Exec(ctx, `UPDATE pdp_data_set_pieces
-								SET removed = TRUE
-								WHERE data_set = $1
-								  AND piece_id = $2
-								  AND rm_message_hash = $3
-								  AND removed = FALSE`, dataSetId, piece.PieceID, piece.TxHash)
-		if err != nil {
-			return xerrors.Errorf("failed to update pdp_data_set_pieces: %w", err)
-		}
-
-		if m != 1 {
-			return xerrors.Errorf("expected to update 1 row but updated %d", m)
-		}
-	}
-
-	return nil
 }
 
 // Note: this function needs revisiting if we are ever *shrinking* proving period or challenge window values
@@ -414,13 +306,13 @@ var _ = harmonytask.Reg(&NextProvingPeriodTask{})
 func resetDatasetToInitPP(ctx context.Context, db *harmonydb.DB, dataSetId int64) error {
 	log.Infow("resetting dataset to init proving period state", "dataSetId", dataSetId)
 	_, err := db.Exec(ctx, `
-             UPDATE pdp_data_sets
-             SET challenge_request_msg_hash = NULL,
-                     prove_at_epoch = NULL,
-                     init_ready = TRUE,
-                     prev_challenge_request_epoch = NULL
-             WHERE id = $1
-     `, dataSetId)
+		UPDATE pdp_data_sets
+		SET challenge_request_msg_hash = NULL,
+			prove_at_epoch = NULL,
+			init_ready = TRUE,
+			prev_challenge_request_epoch = NULL
+		WHERE id = $1
+	`, dataSetId)
 	if err != nil {
 		return xerrors.Errorf("failed to reset dataset to init state: %w", err)
 	}
@@ -494,12 +386,12 @@ func skipCurrentOnChainProvingPeriod(ctx context.Context, tx *harmonydb.Tx, prov
 	// because the local challenge_request_msg_hash is intentionally dropped; use
 	// the reconciliation height as a marker while prove_at_epoch drives scheduling.
 	affected, err := tx.Exec(`
-			UPDATE pdp_data_sets
-			SET challenge_request_msg_hash = NULL,
-				prev_challenge_request_epoch = $2,
-				prove_at_epoch = $3
-			WHERE id = $1
-			  AND unrecoverable_proving_failure_epoch IS NULL
+		UPDATE pdp_data_sets
+		SET challenge_request_msg_hash = NULL,
+			prev_challenge_request_epoch = $2,
+			prove_at_epoch = $3
+		WHERE id = $1
+		  AND unrecoverable_proving_failure_epoch IS NULL
 	`, dataSetId, currentHeight, challengeEpoch.Int64())
 	if err != nil {
 		return xerrors.Errorf("failed to skip current proving period: %w", err)
