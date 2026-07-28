@@ -32,7 +32,6 @@ type PDPDataSetSummary struct {
 	FirstUploadAt             *time.Time `json:"firstUploadAt,omitempty" db:"first_upload_at"`
 	ProveAtEpoch              *int64     `json:"proveAtEpoch,omitempty" db:"prove_at_epoch"`
 	ChallengeWindow           *int64     `json:"challengeWindow,omitempty" db:"challenge_window"`
-	ConsecutiveProveFailures  int        `json:"consecutiveProveFailures" db:"consecutive_prove_failures"`
 	UnrecoverableFailureEpoch *int64     `json:"unrecoverableFailureEpoch,omitempty" db:"unrecoverable_proving_failure_epoch"`
 	ProvingStatus             string     `json:"provingStatus"`
 }
@@ -56,8 +55,6 @@ type PDPDataSetDetail struct {
 	ProveAtEpoch              *int64     `json:"proveAtEpoch,omitempty"`
 	ChallengeWindow           *int64     `json:"challengeWindow,omitempty"`
 	ProvingPeriod             *int64     `json:"provingPeriod,omitempty"`
-	ConsecutiveProveFailures  int        `json:"consecutiveProveFailures"`
-	NextProveAttemptAt        *int64     `json:"nextProveAttemptAt,omitempty"`
 	UnrecoverableFailureEpoch *int64     `json:"unrecoverableFailureEpoch,omitempty"`
 	InitReady                 bool       `json:"initReady"`
 	Service                   string     `json:"service"`
@@ -97,12 +94,11 @@ const pdpDataSetStatsSelect = `
 		MIN(pr.created_at) AS first_upload_at,
 		ds.prove_at_epoch,
 		ds.challenge_window,
-		ds.consecutive_prove_failures,
 		ds.unrecoverable_proving_failure_epoch` + pdpDataSetStatsFrom
 
 const pdpDataSetStatsGroupBy = `
 	GROUP BY ds.id, ds.prove_at_epoch, ds.challenge_window,
-	         ds.consecutive_prove_failures, ds.unrecoverable_proving_failure_epoch`
+	         ds.unrecoverable_proving_failure_epoch`
 
 // Predefined page queries — harmonyquery only accepts SQL string literals (not fmt-built strings).
 const (
@@ -186,14 +182,13 @@ const pdpDataSetStatsByID = `
 		MIN(pr.created_at) AS first_upload_at,
 		ds.prove_at_epoch,
 		ds.challenge_window,
-		ds.consecutive_prove_failures,
 		ds.unrecoverable_proving_failure_epoch
 	FROM pdp_data_sets ds
 	LEFT JOIN pdp_data_set_pieces dsp ON dsp.data_set = ds.id
 	LEFT JOIN pdp_piecerefs pr ON pr.id = dsp.pdp_pieceref
 	WHERE ds.id = $1
 	GROUP BY ds.id, ds.prove_at_epoch, ds.challenge_window,
-	         ds.consecutive_prove_failures, ds.unrecoverable_proving_failure_epoch`
+	         ds.unrecoverable_proving_failure_epoch`
 
 type pdpDataSetStatsRow struct {
 	ID                        int64         `db:"id"`
@@ -202,7 +197,6 @@ type pdpDataSetStatsRow struct {
 	FirstUploadAt             sql.NullTime  `db:"first_upload_at"`
 	ProveAtEpoch              sql.NullInt64 `db:"prove_at_epoch"`
 	ChallengeWindow           sql.NullInt64 `db:"challenge_window"`
-	ConsecutiveProveFailures  int           `db:"consecutive_prove_failures"`
 	UnrecoverableFailureEpoch sql.NullInt64 `db:"unrecoverable_proving_failure_epoch"`
 }
 
@@ -350,8 +344,6 @@ func (a *WebRPC) PDPDataSetDetail(ctx context.Context, id int64) (*PDPDataSetDet
 		ProveAtEpoch              sql.NullInt64 `db:"prove_at_epoch"`
 		ChallengeWindow           sql.NullInt64 `db:"challenge_window"`
 		ProvingPeriod             sql.NullInt64 `db:"proving_period"`
-		ConsecutiveProveFailures  int           `db:"consecutive_prove_failures"`
-		NextProveAttemptAt        sql.NullInt64 `db:"next_prove_attempt_at"`
 		UnrecoverableFailureEpoch sql.NullInt64 `db:"unrecoverable_proving_failure_epoch"`
 		InitReady                 bool          `db:"init_ready"`
 		Service                   string        `db:"service"`
@@ -365,8 +357,6 @@ func (a *WebRPC) PDPDataSetDetail(ctx context.Context, id int64) (*PDPDataSetDet
 			ds.prove_at_epoch,
 			ds.challenge_window,
 			ds.proving_period,
-			ds.consecutive_prove_failures,
-			ds.next_prove_attempt_at,
 			ds.unrecoverable_proving_failure_epoch,
 			ds.init_ready,
 			ds.service
@@ -375,11 +365,10 @@ func (a *WebRPC) PDPDataSetDetail(ctx context.Context, id int64) (*PDPDataSetDet
 		LEFT JOIN pdp_piecerefs pr ON pr.id = dsp.pdp_pieceref
 		WHERE ds.id = $1
 		GROUP BY ds.id, ds.prove_at_epoch, ds.challenge_window, ds.proving_period,
-		         ds.consecutive_prove_failures, ds.next_prove_attempt_at,
 		         ds.unrecoverable_proving_failure_epoch, ds.init_ready, ds.service`, id).Scan(
 		&row.ID, &row.ObjectCount, &row.SizeBytes, &row.FirstUploadAt,
 		&row.ProveAtEpoch, &row.ChallengeWindow, &row.ProvingPeriod,
-		&row.ConsecutiveProveFailures, &row.NextProveAttemptAt, &row.UnrecoverableFailureEpoch,
+		&row.UnrecoverableFailureEpoch,
 		&row.InitReady, &row.Service)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, sql.ErrNoRows) {
@@ -392,13 +381,11 @@ func (a *WebRPC) PDPDataSetDetail(ctx context.Context, id int64) (*PDPDataSetDet
 		ID:                        row.ID,
 		ObjectCount:               row.ObjectCount,
 		SizeBytes:                 row.SizeBytes,
-		ConsecutiveProveFailures:  row.ConsecutiveProveFailures,
 		InitReady:                 row.InitReady,
 		Service:                   row.Service,
 		ProveAtEpoch:              nullInt64Ptr(row.ProveAtEpoch),
 		ChallengeWindow:           nullInt64Ptr(row.ChallengeWindow),
 		ProvingPeriod:             nullInt64Ptr(row.ProvingPeriod),
-		NextProveAttemptAt:        nullInt64Ptr(row.NextProveAttemptAt),
 		UnrecoverableFailureEpoch: nullInt64Ptr(row.UnrecoverableFailureEpoch),
 	}
 	if row.FirstUploadAt.Valid {
@@ -412,7 +399,7 @@ func (a *WebRPC) PDPDataSetDetail(ctx context.Context, id int64) (*PDPDataSetDet
 	}
 
 	detail.HeadEpoch = a.chainHeadEpoch(ctx)
-	detail.ProvingStatus = provingStatusLabel(row.ProveAtEpoch, row.ChallengeWindow, row.ConsecutiveProveFailures, row.UnrecoverableFailureEpoch, detail.HeadEpoch)
+	detail.ProvingStatus = provingStatusLabel(row.ProveAtEpoch, row.ChallengeWindow, row.UnrecoverableFailureEpoch, detail.HeadEpoch)
 
 	if base, err := urlhelper.GetExternalURL(&a.Deps.Cfg.HTTP); err == nil && base != nil && strings.TrimSpace(base.Host) != "" {
 		detail.ExploreURL = strings.TrimRight(base.String(), "/") + "/explore/data-sets/" + strconv.FormatInt(id, 10)
@@ -759,7 +746,6 @@ func summaryFromStatsRow(row pdpDataSetStatsRow, head int64) PDPDataSetSummary {
 		ID:                        row.ID,
 		ObjectCount:               row.ObjectCount,
 		SizeBytes:                 row.SizeBytes,
-		ConsecutiveProveFailures:  row.ConsecutiveProveFailures,
 		ProveAtEpoch:              nullInt64Ptr(row.ProveAtEpoch),
 		ChallengeWindow:           nullInt64Ptr(row.ChallengeWindow),
 		UnrecoverableFailureEpoch: nullInt64Ptr(row.UnrecoverableFailureEpoch),
@@ -768,16 +754,13 @@ func summaryFromStatsRow(row pdpDataSetStatsRow, head int64) PDPDataSetSummary {
 		t := row.FirstUploadAt.Time
 		s.FirstUploadAt = &t
 	}
-	s.ProvingStatus = provingStatusLabel(row.ProveAtEpoch, row.ChallengeWindow, row.ConsecutiveProveFailures, row.UnrecoverableFailureEpoch, head)
+	s.ProvingStatus = provingStatusLabel(row.ProveAtEpoch, row.ChallengeWindow, row.UnrecoverableFailureEpoch, head)
 	return s
 }
 
-func provingStatusLabel(proveAt, window sql.NullInt64, consecutive int, unrecoverable sql.NullInt64, head int64) string {
+func provingStatusLabel(proveAt, window sql.NullInt64, unrecoverable sql.NullInt64, head int64) string {
 	if unrecoverable.Valid {
 		return "unrecoverable"
-	}
-	if consecutive > 0 {
-		return "failing"
 	}
 	if !proveAt.Valid {
 		return "uninit"
