@@ -1,6 +1,6 @@
 import { LitElement, css, html } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs';
-import { getUIVariant, applySkiffDocumentClass } from '/lib/ui-variant.mjs';
+import { applySkiffDocumentClass, getUIVariant } from '/lib/ui-variant.mjs';
 
 class CurioUX extends LitElement {
   static properties = {

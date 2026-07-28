@@ -173,6 +173,7 @@ type Deps struct {
 	ServeChunker      *chunker.ServeChunker
 	EthClient         *lazy.Lazy[ethchain.EthClient]
 	Sender            *message.Sender
+	EthSender         *message.SenderETH // set when PDP ETH send task is registered; nil otherwise
 }
 
 const (

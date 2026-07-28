@@ -307,6 +307,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 				return nil, err
 			}
 			senderEth = httpSD.EthSender
+			dependencies.EthSender = senderEth
 		}
 
 		idxMax := taskhelp.Max(cfg.Subsystems.IndexingMaxTasks)
