@@ -802,6 +802,14 @@ func (r *Remote) Reader(ctx context.Context, s storiface.SectorRef, offset, size
 //
 //	Hopefully when PartialFile is removed, this method will be used instead of Reader.
 func (r *Remote) ReaderPiece(ctx context.Context, s storiface.SectorRef, ft storiface.SectorFileType, offset, size int64) (func(startOffset, endOffset int64) (io.ReadCloser, error), error) {
+	// Fast path: probe local disks before any sector-index DB lookup.
+	if path, ok := r.existingLocalFile(s.ID, ft); ok {
+		log.Debugw("returning piece reader from local disk probe", "sector", s.ID, "path", path, "offset", offset, "size", size)
+		return localPieceFileGetter(path, offset), nil
+	}
+
+	ctx = context.WithValue(ctx, FindSectorCacheKey, r.findSectorCache)
+
 	// check if we have the unsealed sector file locally
 	paths, _, err := r.local.AcquireSector(ctx, s, ft, storiface.FTNone, storiface.PathStorage, storiface.AcquireMove)
 	if err != nil {
@@ -812,82 +820,7 @@ func (r *Remote) ReaderPiece(ctx context.Context, s storiface.SectorRef, ft stor
 
 	if path != "" {
 		log.Debugw("returning piece reader for local unsealed piece sector=%+v, (offset=%d, size=%d)", s.ID, offset, size)
-
-		// refs keep track of the currently opened pf
-		// if they drop to 0 for longer than LocalReaderTimeout, pf will be closed
-		var refsLk sync.Mutex
-		refs := 0
-
-		var f *os.File
-
-		cleanupIdle := func() {
-			lastRefs := 1
-
-			ticker := time.NewTicker(LocalReaderTimeout)
-			defer ticker.Stop()
-
-			for range ticker.C {
-				refsLk.Lock()
-				if refs == 0 && lastRefs == 0 && f != nil {
-					log.Debugw("closing idle partial file", "path", path)
-					err := f.Close()
-					if err != nil {
-						log.Errorw("closing idle partial file", "path", path, "error", err)
-					}
-
-					f = nil
-					refsLk.Unlock()
-					return
-				}
-				lastRefs = refs
-				refsLk.Unlock()
-			}
-		}
-
-		getFile := func() (*os.File, func() error, error) {
-			refsLk.Lock()
-			defer refsLk.Unlock()
-
-			if f == nil {
-				// got closed in the meantime, reopen
-
-				var err error
-				f, err = os.Open(path)
-				if err != nil {
-					return nil, nil, xerrors.Errorf("reopening file: %w", err)
-				}
-				log.Debugf("local file reopened %s (+%d,%d)", path, offset, size)
-
-				go cleanupIdle()
-			}
-
-			refs++
-
-			return f, func() error {
-				refsLk.Lock()
-				defer refsLk.Unlock()
-
-				refs--
-				return nil
-			}, nil
-		}
-
-		return func(startOffset, endOffset int64) (io.ReadCloser, error) {
-			f, done, err := getFile()
-			if err != nil {
-				return nil, xerrors.Errorf("getting partialfile handle: %w", err)
-			}
-
-			r := io.NewSectionReader(f, offset+startOffset, endOffset-startOffset)
-
-			return struct {
-				io.Reader
-				io.Closer
-			}{
-				Reader: r,
-				Closer: funcCloser(done),
-			}, nil
-		}, nil
+		return localPieceFileGetter(path, offset), nil
 	}
 
 	// --- We don't have the piece file locally
@@ -930,6 +863,89 @@ func (r *Remote) ReaderPiece(ctx context.Context, s storiface.SectorRef, ft stor
 	// we couldn't find a unsealed file with the unsealed piece, will return a nil reader.
 	log.Debugf("returning nil reader, did not find unsealed piece for %+v (+%d,%d), last error=%s", s, offset, size, lastErr)
 	return nil, nil
+}
+
+func (r *Remote) existingLocalFile(sid abi.SectorID, ft storiface.SectorFileType) (string, bool) {
+	local, ok := r.local.(*Local)
+	if !ok {
+		return "", false
+	}
+	return local.ExistingLocalFile(sid, ft)
+}
+
+func localPieceFileGetter(path string, offset int64) func(startOffset, endOffset int64) (io.ReadCloser, error) {
+	var refsLk sync.Mutex
+	refs := 0
+	var f *os.File
+
+	cleanupIdle := func() {
+		lastRefs := 1
+
+		ticker := time.NewTicker(LocalReaderTimeout)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			refsLk.Lock()
+			if refs == 0 && lastRefs == 0 && f != nil {
+				log.Debugw("closing idle partial file", "path", path)
+				err := f.Close()
+				if err != nil {
+					log.Errorw("closing idle partial file", "path", path, "error", err)
+				}
+
+				f = nil
+				refsLk.Unlock()
+				return
+			}
+			lastRefs = refs
+			refsLk.Unlock()
+		}
+	}
+
+	getFile := func() (*os.File, func() error, error) {
+		refsLk.Lock()
+		defer refsLk.Unlock()
+
+		if f == nil {
+			// got closed in the meantime, reopen
+
+			var err error
+			f, err = os.Open(path)
+			if err != nil {
+				return nil, nil, xerrors.Errorf("reopening file: %w", err)
+			}
+			log.Debugf("local file reopened %s (+%d)", path, offset)
+
+			go cleanupIdle()
+		}
+
+		refs++
+
+		return f, func() error {
+			refsLk.Lock()
+			defer refsLk.Unlock()
+
+			refs--
+			return nil
+		}, nil
+	}
+
+	return func(startOffset, endOffset int64) (io.ReadCloser, error) {
+		f, done, err := getFile()
+		if err != nil {
+			return nil, xerrors.Errorf("getting partialfile handle: %w", err)
+		}
+
+		sr := io.NewSectionReader(f, offset+startOffset, endOffset-startOffset)
+
+		return struct {
+			io.Reader
+			io.Closer
+		}{
+			Reader: sr,
+			Closer: funcCloser(done),
+		}, nil
+	}
 }
 
 // ReaderSeq creates a simple sequential reader for a file. Does not work for

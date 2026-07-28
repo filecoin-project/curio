@@ -112,7 +112,9 @@ type path struct {
 	Reserved     int64
 	Reservations map[string]int64
 
-	CanSeal bool
+	CanSeal    bool
+	AllowTypes []string
+	DenyTypes  []string
 
 	lastSinfoTime time.Time
 	lastSinfo     *storiface.StorageInfo
@@ -244,6 +246,35 @@ func (p *path) sectorPath(sid abi.SectorID, fileType storiface.SectorFileType) s
 	return filepath.Join(p.Local, fileType.String(), storiface.SectorName(sid))
 }
 
+// ExistingLocalFile returns a local filesystem path for sid/ft if the file
+// exists under any registered local storage path that allows ft. It does not
+// consult the sector index (no DB round-trip). Callers should fall back to
+// AcquireSector / StorageFindSector when this returns false.
+//
+// When multiple local roots are registered, Stats run sequentially on each path.
+// The random order should tend toward less disk activity than purely-parallel searching.
+func (st *Local) ExistingLocalFile(sid abi.SectorID, ft storiface.SectorFileType) (string, bool) {
+	candidates := make([]string, 0, len(st.paths))
+	st.localLk.RLock()
+	for _, p := range st.paths {
+		if p.Local == "" || !ft.Allowed(p.AllowTypes, p.DenyTypes) {
+			continue
+		}
+		candidates = append(candidates, p.sectorPath(sid, ft))
+		if len(candidates) >= 5 {
+			return "", false // this is no fast path, return false
+		}
+	}
+	st.localLk.RUnlock()
+	for _, spath := range candidates {
+		// Worst= O(Log(dirLength)) which should be very fast for most cases.
+		if fi, err := os.Stat(spath); err == nil && !fi.IsDir() {
+			return spath, true
+		}
+	}
+	return "", false
+}
+
 type URLs []string
 
 func UrlsFromString(in string) URLs {
@@ -321,6 +352,8 @@ func (st *Local) openPath(ctx context.Context, p string, declare bool) (storifac
 		Reserved:     0,
 		Reservations: map[string]int64{},
 		CanSeal:      meta.CanSeal,
+		AllowTypes:   meta.AllowTypes,
+		DenyTypes:    meta.DenyTypes,
 	}
 
 	// Remove all stashes on startup

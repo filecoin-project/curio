@@ -117,6 +117,17 @@ func mergeConfigLayers(baseText string, overlayTexts ...string) (*config.CurioCo
 }
 
 func ensureSkiffBaseLayer(ctx context.Context, db *harmonydb.DB) error {
+	if db.ReadOnly() {
+		hasBase, err := layerExists(ctx, db, "base")
+		if err != nil {
+			return xerrors.Errorf("checking base layer: %w", err)
+		}
+		if !hasBase {
+			return xerrors.Errorf("readonly mode: base config layer must already exist in the database")
+		}
+		return nil
+	}
+
 	hasBase, err := layerExists(ctx, db, "base")
 	if err != nil {
 		return xerrors.Errorf("checking base layer: %w", err)

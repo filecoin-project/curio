@@ -47,6 +47,10 @@ func httpServerError(w http.ResponseWriter, statusCode int, msg string, err erro
 // PDPRoutePath is the base path for PDP routes
 const PDPRoutePath = "/pdp"
 
+// PingOKBody is the exact success body for GET /pdp/ping.
+// Reachability probes match this to confirm they hit Curio PDP, not a proxy.
+const PingOKBody = "curio-pdp"
+
 const (
 	// MaxCreateDataSetExtraDataSize defines the limit for extraData size in CreateDataSet calls (4KB).
 	MaxCreateDataSetExtraDataSize = 4096
@@ -138,6 +142,8 @@ func kvUploadUUID(r *http.Request) []any {
 
 // Routes registers the HTTP routes with the provided router.
 func Routes(r chi.Router, p *PDPService) {
+	mountExploreRoutes(r, p)
+
 	r.Route(PDPRoutePath, func(r chi.Router) {
 		r.Use(p.ipOffenseThrottle.Middleware)
 
@@ -226,7 +232,9 @@ func (p *PDPService) handlePing(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(PingOKBody))
 }
 
 // handleGetPieceStatus returns the indexing and IPNI status for a piece

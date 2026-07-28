@@ -2,6 +2,7 @@ package harmonydb
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -15,7 +16,7 @@ import (
 const (
 	adminQueryMaxSQLLen = 64 << 10
 	adminQueryMaxRows   = 1000
-	adminQueryTimeout   = 30 * time.Second
+	adminQueryTimeout   = 10 * time.Minute
 )
 
 type adminPool interface {
@@ -56,10 +57,27 @@ func AdminQuery(ctx context.Context, db *DB, sql string) (*AdminQueryResult, err
 	if err != nil {
 		return nil, err
 	}
+
+	var result *AdminQueryResult
 	if isAdminReadQuery(sql) {
-		return adminQueryRows(ctx, pool, sql)
+		result, err = adminQueryRows(ctx, pool, sql)
+	} else {
+		result, err = adminQueryExec(ctx, pool, sql)
 	}
-	return adminQueryExec(ctx, pool, sql)
+	return result, mapAdminQueryError(err)
+}
+
+func mapAdminQueryError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, context.Canceled) {
+		return fmt.Errorf("query cancelled")
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return fmt.Errorf("query timed out after %s", adminQueryTimeout)
+	}
+	return err
 }
 
 func adminPoolFromDB(db *DB) (adminPool, error) {
@@ -112,6 +130,9 @@ func adminQueryRows(ctx context.Context, pool adminPool, sql string) (*AdminQuer
 	out := make([][]string, 0)
 	truncated := false
 	for rows.Next() {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if len(out) >= adminQueryMaxRows {
 			truncated = true
 			break
@@ -127,6 +148,9 @@ func adminQueryRows(ctx context.Context, pool adminPool, sql string) (*AdminQuer
 		out = append(out, row)
 	}
 	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 

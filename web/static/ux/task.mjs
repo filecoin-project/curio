@@ -1,5 +1,6 @@
 import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@2/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs';
+import { loadingBlock, loadingStyles } from '/lib/loading.mjs';
 
 class TaskStatusElement extends LitElement {
     static properties= {
@@ -7,6 +8,8 @@ class TaskStatusElement extends LitElement {
         status: { type: Object },
         loading: { type: Boolean }
     }
+
+    static styles = [loadingStyles, css``];
 
     constructor() {
         super();
@@ -55,7 +58,7 @@ class TaskStatusElement extends LitElement {
 
     render() {
         if (this.loading) {
-            return html`<div>Loading...</div>`;
+            return loadingBlock('Loading…');
         }
 
         if (!this.status) {
@@ -83,7 +86,7 @@ class TaskStatusElement extends LitElement {
         const canRestart = this.status.status === 'failed';
 
         return html`
-            <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+            <link rel="stylesheet" href="/ux/vendor/bootstrap.min.css">
             <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'">
             
       <span style="display: inline-block; white-space: nowrap;">

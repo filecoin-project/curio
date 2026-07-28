@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Dataset Explorer</title>
+  <link rel="stylesheet" href="/explore/static/explore.css" />
+</head>
+<body>
+  <main class="page">
+    <header class="header">
+      <p class="eyebrow">Dataset Explorer</p>
+      <h1 id="title" class="mono">Dataset …</h1>
+      <p class="sub">Pieces stored on this provider. Soft-gated listing — not a public catalog API.</p>
+    </header>
+
+    <div id="status" class="status" aria-live="polite">Loading…</div>
+
+    <div class="table-wrap">
+      <table id="pieces-table" class="pieces" hidden>
+        <thead>
+          <tr>
+            <th>Uploaded</th>
+            <th>PieceCID</th>
+            <th>Size</th>
+          </tr>
+        </thead>
+        <tbody id="pieces-body"></tbody>
+      </table>
+    </div>
+
+    <nav id="pager" class="pager" hidden>
+      <button type="button" id="prev-btn">Previous</button>
+      <span id="page-info" class="muted"></span>
+      <button type="button" id="next-btn">Next</button>
+    </nav>
+  </main>
+
+  <script src="/explore/static/explore.js" defer></script>
+</body>
+</html>

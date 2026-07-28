@@ -12,7 +12,7 @@ require (
 	github.com/codeskyblue/go-sh v0.0.0-20250509230738-c29da582b0f5
 	github.com/consensys/gnark-crypto v0.20.1
 	github.com/curiostorage/go-openrpc-reflect v0.0.0-20260302234910-57f4605f0e7b
-	github.com/curiostorage/harmonyquery v1.0.2
+	github.com/curiostorage/harmonyquery v1.0.3-0.20260709213328-4e4a5b3b1f4d
 	github.com/detailyang/go-fallocate v0.0.0-20180908115635-432fa640bd2e
 	github.com/docker/go-units v0.5.0
 	github.com/dustin/go-humanize v1.0.1
@@ -118,7 +118,7 @@ require (
 	golang.org/x/text v0.37.0
 	golang.org/x/tools v0.44.0
 	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da
-	google.golang.org/grpc v1.79.3
+	google.golang.org/grpc v1.82.1
 	google.golang.org/protobuf v1.36.11
 )
 
