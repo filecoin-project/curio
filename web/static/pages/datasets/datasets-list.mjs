@@ -1,6 +1,6 @@
 import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js'
 import RPCCall from '/lib/jsonrpc.mjs'
-import { timeSince } from '/lib/dateutil.mjs'
+import { relativePhrase } from '/lib/dateutil.mjs'
 import { loadingBlock, loadingCssText } from '/lib/loading.mjs'
 
 function formatBytes(bytes) {
@@ -309,7 +309,7 @@ customElements.define('pdp-datasets-list', class PdpDatasetsList extends LitElem
                   <td class="mono">${ds.objectCount ?? 0}</td>
                   <td class="mono">${formatBytes(ds.sizeBytes)}</td>
                   <td class="status-${statusTone(ds.provingStatus)}">${ds.provingStatus || '—'}</td>
-                  <td>${ds.firstUploadAt ? timeSince(new Date(ds.firstUploadAt)) + ' ago' : '—'}</td>
+                  <td>${ds.firstUploadAt ? relativePhrase(new Date(ds.firstUploadAt)) : '—'}</td>
                 </tr>
               `)}
             </tbody>

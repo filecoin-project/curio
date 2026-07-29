@@ -13,19 +13,26 @@ function formatDuration(absSeconds) {
     if (hours > 0) result += `${hours}h `;
     if (minutes > 0) result += `${minutes}m`;
 
-    return result === '' ? 'just now' : result.trim();
+    return result.trim();
 }
 
 export function timeSince(date) {
     const seconds = Math.floor((new Date() - date) / 1000);
-    return formatDuration(Math.abs(seconds));
+
+    if (seconds < 0) {
+        const abs = -seconds;
+        if (abs < 60) return 'in a few seconds';
+        return `in ${formatDuration(abs)}`;
+    }
+
+    const duration = formatDuration(seconds);
+    return duration === '' ? 'just now' : duration;
 }
 
-function relativePhrase(date) {
+export function relativePhrase(date) {
     const rel = timeSince(date);
-    if (rel === 'just now') return rel;
-    const suffix = date.getTime() > Date.now() ? 'from now' : 'ago';
-    return `${rel} ${suffix}`;
+    if (rel === 'just now' || rel.startsWith('in ')) return rel;
+    return `${rel} ago`;
 }
 
 export function formatDate(dateString) {
