@@ -460,22 +460,11 @@ func (i *IndexStore) CheckHasPiece(ctx context.Context, piecev2 cid.Cid) (bool, 
 	return len(hashes) > 0, nil
 }
 
-func (i *IndexStore) InsertAggregateIndex(ctx context.Context, aggregatePieceCid cid.Cid, records []Record) error {
+func (i *IndexStore) InsertAggregateIndex(ctx context.Context, aggregatePieceCid cid.Cid, recordsChan chan Record) error {
 	if err := i.requireSession(); err != nil {
 		return err
 	}
 	aggregatePieceCidBytes := aggregatePieceCid.Bytes()
-
-	chanSize := i.settings.InsertConcurrency * i.settings.InsertBatchSize
-
-	recordsChan := make(chan Record, chanSize)
-
-	go func(f []Record) {
-		for _, r := range f {
-			recordsChan <- r
-		}
-		close(recordsChan)
-	}(records)
 
 	insertPieceByAggregate := `INSERT INTO piece_by_aggregate (AggregatePieceCid, PieceCid, UnpaddedOffset, UnpaddedLength) VALUES (?, ?, ?, ?)`
 	insertAggregateByPiece := `INSERT INTO aggregate_by_piece (PieceCid, AggregatePieceCid, UnpaddedOffset, UnpaddedLength) VALUES (?, ?, ?, ?)`

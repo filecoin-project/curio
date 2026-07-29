@@ -14,7 +14,7 @@ COMMANDS:
    run           Start a Curio process
    config        Manage node config by layers. The layer 'base' will always be applied at Curio start-up.
    test          Utility functions for testing
-   web           Start Curio web interface
+   web, gui      Start Curio web interface
    guided-setup  Run the guided setup for migrating from lotus-miner to Curio or Creating a new Curio miner
    seal          Manage the sealing pipeline
    unseal        Manage unsealed data
@@ -1043,6 +1043,7 @@ USAGE:
 DESCRIPTION:
    Start an instance of Curio web interface. 
      This creates the 'web' layer if it does not exist, then calls run with that layer.
+     In --db-readonly / CURIO_DB_READONLY mode, no config layer is written; the GUI is enabled in-memory.
 
 OPTIONS:
    --gui-listen value                 Address to listen for the GUI on (default: "0.0.0.0:4701")

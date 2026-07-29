@@ -442,8 +442,6 @@ func (cpr *CachedPieceReader) getPieceReaderFromPDPPark(ctx context.Context, pie
 }
 
 func (cpr *CachedPieceReader) getPieceReaderFromAggregate(ctx context.Context, pieceCidV2 cid.Cid, retrieval bool) (storiface.Reader, uint64, error) {
-	// Aggregate is a MK20 exclusive concept. The requesting pieceCID must be v2
-
 	pieces, err := cpr.idxStor.FindPieceInAggregate(ctx, pieceCidV2)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to find piece in aggregate: %w", err)

@@ -104,10 +104,12 @@ type mockEthTxManager struct {
 }
 
 type txRecord struct {
-	Status      string
-	MachineID   *int64
-	BlockNumber *int64
-	TxSuccess   *bool
+	Status        string
+	MachineID     *int64
+	LookupHash    string
+	BlockNumber   *int64
+	ConfirmedHash string
+	TxSuccess     *bool
 }
 
 func newMockEthTxManager() *mockEthTxManager {
@@ -128,12 +130,19 @@ func (m *mockEthTxManager) AssignPendingToMachine(ctx context.Context, machineID
 	return count, nil
 }
 
-func (m *mockEthTxManager) GetPendingForMachine(ctx context.Context, machineID int64) ([]string, error) {
+func (m *mockEthTxManager) GetPendingForMachine(ctx context.Context, machineID int64) ([]PendingEthTx, error) {
 	m.getCalls++
-	var results []string
+	var results []PendingEthTx
 	for hash, data := range m.txData {
 		if data.MachineID != nil && *data.MachineID == machineID && data.Status == "pending" {
-			results = append(results, hash)
+			lookupHash := data.LookupHash
+			if lookupHash == "" {
+				lookupHash = hash
+			}
+			results = append(results, PendingEthTx{
+				WaitHash:   hash,
+				LookupHash: lookupHash,
+			})
 		}
 	}
 	return results, nil
@@ -145,6 +154,7 @@ func (m *mockEthTxManager) UpdateToConfirmed(ctx context.Context, signedTxHash s
 		data.Status = "confirmed"
 		data.MachineID = nil
 		data.BlockNumber = &blockNumber
+		data.ConfirmedHash = confirmedTxHash
 		data.TxSuccess = &success
 	}
 	return nil
@@ -264,4 +274,47 @@ func TestMessageWatcherEthTimeout(t *testing.T) {
 	require.Equal(t, "pending", mockTxMgr.txData[txHash.Hex()].Status)
 	// Verify the API was actually called (not bypassed)
 	require.Equal(t, 1, mockClient.receiptCalls)
+}
+
+func TestMessageWatcherEthConfirmsOriginalWaitHashFromReplacement(t *testing.T) {
+	machineID := int64(1)
+	mockTxMgr := newMockEthTxManager()
+	mockTaskEngine := &mockTaskEngine{machineID: machineID}
+
+	waitHash := common.HexToHash("0x1111111111111111")
+	replacementHash := common.HexToHash("0x2222222222222222")
+	mockTxMgr.txData[waitHash.Hex()] = &txRecord{
+		Status:     "pending",
+		LookupHash: replacementHash.Hex(),
+	}
+
+	mockClient := &mockEthClient{
+		receipts: map[common.Hash]*types.Receipt{
+			replacementHash: {
+				Status:      types.ReceiptStatusSuccessful,
+				BlockNumber: big.NewInt(85),
+				TxHash:      replacementHash,
+			},
+		},
+		transactions: map[common.Hash]*types.Transaction{
+			replacementHash: types.NewTransaction(0, common.Address{}, big.NewInt(100), 21000, big.NewInt(1), nil),
+		},
+	}
+
+	mw := &MessageWatcherEth{
+		txMgr:          mockTxMgr,
+		ht:             mockTaskEngine,
+		api:            mockClient,
+		updateCh:       make(chan struct{}, 1),
+		ethCallTimeout: time.Second,
+	}
+	mw.bestBlockNumber.Store(big.NewInt(100))
+
+	mw.update()
+
+	record := mockTxMgr.txData[waitHash.Hex()]
+	require.Equal(t, "confirmed", record.Status)
+	require.Equal(t, replacementHash.Hex(), record.ConfirmedHash)
+	require.Equal(t, 1, mockClient.receiptCalls)
+	require.Equal(t, 1, mockClient.txCalls)
 }

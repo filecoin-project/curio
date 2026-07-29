@@ -1,8 +1,10 @@
 import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs';
 import '/ux/yesno.mjs';
+import { loadingBlock, loadingStyles } from '/lib/loading.mjs';
 
 class DefaultMarketFilters extends LitElement {
+    static styles = [loadingStyles];
     static properties = {
         data: { type: Object },
     };
@@ -24,7 +26,7 @@ class DefaultMarketFilters extends LitElement {
 
     render() {
         if (!this.data) {
-            return html`<div>Loading...</div>`;
+            return loadingBlock('Loading…');
         }
 
         return html`
