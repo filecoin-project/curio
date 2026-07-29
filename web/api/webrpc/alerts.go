@@ -128,7 +128,7 @@ func (a *WebRPC) AlertPendingCount(ctx context.Context) (int, error) {
 func (a *WebRPC) AlertSendTest(ctx context.Context) error {
 	const testMessage = "Test alert from Curio Web UI - if you see this, your alerting system is working correctly."
 
-	plugins := plugin.LoadAlertPlugins(a.Deps.Cfg.Alerting)
+	plugins := plugin.LoadAlertPlugins(a.Deps.Cfg.Alerting).Get()
 
 	var failures []string
 	for _, p := range plugins {

@@ -10,11 +10,11 @@ import (
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/lib/chainsched"
-	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/tasks/message"
@@ -25,7 +25,7 @@ import (
 
 type NextProvingPeriodTask struct {
 	db        *harmonydb.DB
-	ethClient ethchain.EthClient
+	ethClient api.EthClientInterface
 	sender    *message.SenderETH
 
 	fil NextProvingPeriodTaskChainApi
@@ -37,7 +37,7 @@ type NextProvingPeriodTaskChainApi interface {
 	ChainHead(context.Context) (*chainTypes.TipSet, error)
 }
 
-func NewNextProvingPeriodTask(db *harmonydb.DB, ethClient ethchain.EthClient, fil NextProvingPeriodTaskChainApi, chainSched *chainsched.CurioChainSched, sender *message.SenderETH) *NextProvingPeriodTask {
+func NewNextProvingPeriodTask(db *harmonydb.DB, ethClient api.EthClientInterface, fil NextProvingPeriodTaskChainApi, chainSched *chainsched.CurioChainSched, sender *message.SenderETH) *NextProvingPeriodTask {
 	n := &NextProvingPeriodTask{
 		db:        db,
 		ethClient: ethClient,

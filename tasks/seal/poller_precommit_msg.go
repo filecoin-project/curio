@@ -9,6 +9,7 @@ import (
 
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
+	miner15 "github.com/filecoin-project/go-state-types/builtin/v15/miner"
 	"github.com/filecoin-project/go-state-types/exitcode"
 
 	"github.com/filecoin-project/curio/build"
@@ -30,9 +31,9 @@ func (s *SealPoller) pollStartBatchPrecommitMsg(ctx context.Context) {
 		return
 	}
 
-	slackEpochs := SlackEpochs(s.cfg.preCommit.Slack, build.BlockDelaySecs)
-	timeout := s.cfg.preCommit.Timeout
-	maxBatch := s.cfg.preCommit.MaxPreCommitBatch
+	slackEpochs := SlackEpochs(s.cfg.preCommit.Slack.Get(), build.BlockDelaySecs)
+	timeout := s.cfg.preCommit.Timeout.Get()
+	maxBatch := ClampMaxBatch(s.cfg.preCommit.MaxPreCommitBatch.Get(), miner15.PreCommitSectorBatchMaxSize)
 	currentHeight := int64(ts.Height())
 
 	s.pollers[pollerPrecommitMsg].Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
@@ -73,7 +74,7 @@ func (s *SealPoller) pollStartBatchPrecommitMsg(ctx context.Context) {
 			FROM numbered
 			ORDER BY sp_id, reg_seal_proof, batch_index, start_epoch`,
 			policy.MaxPreCommitRandomnessLookback,
-			s.cfg.preCommit.MaxPreCommitBatch)
+			maxBatch)
 		if err != nil {
 			return false, xerrors.Errorf("getting precommit batch candidates: %w", err)
 		}

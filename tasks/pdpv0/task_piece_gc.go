@@ -17,12 +17,12 @@ import (
 
 	commcid "github.com/filecoin-project/go-fil-commcid"
 
+	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
-	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/lib/urlhelper"
 	"github.com/filecoin-project/curio/market/ipni/ipniculib"
 	"github.com/filecoin-project/curio/pdp/contract"
@@ -79,7 +79,7 @@ var _ = harmonytask.Reg(&PieceGCTask{})
 var _ harmonytask.TaskInterface = &PieceGCTask{}
 
 //nolint:unused // TODO: reinstate after debugging
-func _processPendingCleanup(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient) error {
+func _processPendingCleanup(ctx context.Context, db *harmonydb.DB, ethClient api.EthClientInterface) error {
 	var pieces []struct {
 		DataSetID int64  `db:"data_set"`
 		PieceID   int64  `db:"piece_id"`

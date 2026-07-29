@@ -99,7 +99,7 @@ func attachRouters(ctx context.Context, r *chi.Mux, d *deps.Deps, sd *ServiceDep
 		if err := pdp.MountRoutes(ctx, r, pdp.MountDeps{
 			DB:         d.DB,
 			LocalStore: d.LocalStore,
-			EthClient:  must.One(d.EthClient.Get()),
+			EthClient:  must.One(d.EthClient.Val()),
 			Chain:      d.Chain,
 			EthSender:  sd.EthSender,
 			AlertTask:  sd.AlertTask,
@@ -108,11 +108,15 @@ func attachRouters(ctx context.Context, r *chi.Mux, d *deps.Deps, sd *ServiceDep
 		}
 	}
 
-	dh, err := mhttp.NewMarketHandler(d.DB, d.Cfg, sd.DealMarket, must.One(d.EthClient.Get()), d.Chain, sd.EthSender, d.LocalStore)
-	if err != nil {
-		return nil, xerrors.Errorf("failed to create new market handler: %w", err)
+	// Market deal routes require a started deal market (EnableDealMarket + StartMarket).
+	// HTTP can still run for retrieval/IPNI/PDP without mounting /market/mk12|/mk20.
+	if sd.DealMarket != nil {
+		dh, err := mhttp.NewMarketHandler(d.DB, d.Cfg, sd.DealMarket, must.One(d.EthClient.Val()), d.Chain, sd.EthSender, d.LocalStore)
+		if err != nil {
+			return nil, xerrors.Errorf("failed to create new market handler: %w", err)
+		}
+		mhttp.Router(r, dh)
 	}
-	mhttp.Router(r, dh)
 
 	return r, nil
 }

@@ -18,9 +18,9 @@ import (
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/builtin/v16/verifreg"
 
+	curioapi "github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/curio/lib/ethchain"
 	mk20contract "github.com/filecoin-project/curio/market/mk20/contract"
 )
 
@@ -122,7 +122,7 @@ func (d *DDOV1) Validate(ctx context.Context, db *harmonydb.DB, cfg *config.MK20
 	return Ok, nil
 }
 
-func (d *DDOV1) VerifyMarketDeal(ctx context.Context, db *harmonydb.DB, eth ethchain.EthClient, deal *Deal) (DealCode, error) {
+func (d *DDOV1) VerifyMarketDeal(ctx context.Context, db *harmonydb.DB, eth curioapi.EthClientInterface, deal *Deal) (DealCode, error) {
 	if d.MarketAddress == "" {
 		return Ok, nil
 	}

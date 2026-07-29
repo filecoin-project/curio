@@ -127,7 +127,7 @@ func (s *SlackWebhook) SendAlert(data *AlertPayload) error {
 		return xerrors.Errorf("Error marshaling JSON: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", s.cfg.WebHookURL, bytes.NewBuffer(jsonData))
+	req, err := http.NewRequest("POST", s.cfg.WebHookURL.Get(), bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("error creating request: %w", err)
 	}

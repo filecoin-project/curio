@@ -24,7 +24,6 @@ import (
 	"github.com/filecoin-project/curio/alertmanager"
 	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/lib/paths"
 	ipni_provider "github.com/filecoin-project/curio/market/ipni/ipni-provider"
 	"github.com/filecoin-project/curio/pdp/contract"
@@ -77,7 +76,7 @@ type PDPService struct {
 	storage paths.StashStore
 
 	sender    ETHTxSender
-	ethClient ethchain.EthClient
+	ethClient api.EthClientInterface
 	filClient PDPServiceNodeApi
 
 	alertTask *alertmanager.AlertTask
@@ -94,11 +93,12 @@ type PDPServiceNodeApi interface {
 }
 
 // NewPDPService creates a new instance of PDPService with the provided stores.
+
 func NewPDPService(
 	ctx context.Context,
 	db *harmonydb.DB,
 	stor paths.StashStore,
-	ec ethchain.EthClient,
+	ec api.EthClientInterface,
 	fc PDPServiceNodeApi,
 	sn ETHTxSender,
 	alertTask *alertmanager.AlertTask,

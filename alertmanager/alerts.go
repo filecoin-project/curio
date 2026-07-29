@@ -118,6 +118,7 @@ func balanceCheck(al *alerts) {
 
 	var ret strings.Builder
 
+	minBalance := abi.TokenAmount(al.cfg.MinimumWalletBalance.Get())
 	for _, addr := range al.walletAddrs {
 		keyAddr, err := al.api.StateAccountKey(al.ctx, addr, types.EmptyTSK)
 		if err != nil {
@@ -140,8 +141,8 @@ func balanceCheck(al *alerts) {
 			al.alertMap[Name].err = err
 		}
 
-		if abi.TokenAmount(al.cfg.MinimumWalletBalance).GreaterThanEqual(balance) {
-			fmt.Fprintf(&ret, "Balance for wallet %s (%s) is below %s. ", addr, keyAddr, al.cfg.MinimumWalletBalance.Short())
+		if minBalance.GreaterThanEqual(balance) {
+			fmt.Fprintf(&ret, "Balance for wallet %s (%s) is below %s. ", addr, keyAddr, al.cfg.MinimumWalletBalance.Get().Short())
 		}
 	}
 	if ret.String() != "" {

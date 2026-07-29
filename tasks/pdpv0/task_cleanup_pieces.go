@@ -13,11 +13,11 @@ import (
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
-	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/tasks/message"
@@ -28,11 +28,11 @@ const cleanupPiecesBatchSize = 10_000
 
 type CleanupPiecesTask struct {
 	db        *harmonydb.DB
-	ethClient ethchain.EthClient
+	ethClient api.EthClientInterface
 	sender    *message.SenderETH
 }
 
-func NewCleanupPiecesTask(db *harmonydb.DB, ethClient ethchain.EthClient, sender *message.SenderETH) *CleanupPiecesTask {
+func NewCleanupPiecesTask(db *harmonydb.DB, ethClient api.EthClientInterface, sender *message.SenderETH) *CleanupPiecesTask {
 	return &CleanupPiecesTask{
 		db:        db,
 		ethClient: ethClient,
@@ -309,7 +309,7 @@ func isCleanupPiecesGasEstimateOutOfGas(err error) bool {
 
 // readDataSetCleanupState reduces PDPVerifier state to the deletion states
 // Curio cares about: live, cleanup mode, and finalized cleanup.
-func readDataSetCleanupState(ctx context.Context, ethClient ethchain.EthClient, dataSetID int64) (dataSetCleanupState, error) {
+func readDataSetCleanupState(ctx context.Context, ethClient api.EthClientInterface, dataSetID int64) (dataSetCleanupState, error) {
 	verifier, err := contract.NewPDPVerifier(contract.ContractAddresses().PDPVerifier, ethClient)
 	if err != nil {
 		return dataSetCleanupState{}, xerrors.Errorf("failed to instantiate PDPVerifier contract: %w", err)

@@ -152,8 +152,8 @@ func TestCalculateCollateral(t *testing.T) {
 			task := &SubmitCommitTask{
 				cfg: commitConfig{
 					feeCfg: &config.CurioFees{
-						CollateralFromMinerBalance: tt.collateralFromMinerBalance,
-						DisableCollateralFallback:  tt.disableCollateralFallback,
+						CollateralFromMinerBalance: config.NewDynamic(tt.collateralFromMinerBalance),
+						DisableCollateralFallback:  config.NewDynamic(tt.disableCollateralFallback),
 					},
 				},
 			}
@@ -210,10 +210,10 @@ func TestGoodFundsCalculation(t *testing.T) {
 			task := &SubmitCommitTask{
 				cfg: commitConfig{
 					feeCfg: &config.CurioFees{
-						CollateralFromMinerBalance: tt.collateralFromMinerBalance,
+						CollateralFromMinerBalance: config.NewDynamic(tt.collateralFromMinerBalance),
 						MaxCommitBatchGasFee: config.BatchFeeConfig{
-							Base:      types.MustParseFIL("0"),
-							PerSector: types.MustParseFIL("8"), // 8 FIL per sector
+							Base:      config.NewDynamic(types.MustParseFIL("0")),
+							PerSector: config.NewDynamic(types.MustParseFIL("8")), // 8 FIL per sector
 						},
 					},
 				},

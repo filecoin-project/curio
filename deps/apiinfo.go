@@ -4,30 +4,38 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
+	"math/big"
 	"math/rand"
+	"net"
 	"net/http"
 	"os"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	erpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/gorilla/websocket"
 	logging "github.com/ipfs/go-log/v2"
+	"github.com/samber/lo"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-jsonrpc"
-	"github.com/filecoin-project/go-state-types/big"
+	fbig "github.com/filecoin-project/go-state-types/big"
 
 	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/lib/ethchain"
 
-	"github.com/filecoin-project/lotus/chain/types"
+	ltypes "github.com/filecoin-project/lotus/chain/types"
 )
 
 var clog = logging.Logger("curio/chain")
@@ -48,89 +56,114 @@ func GetFullNodeAPIV1Curio(ctx *cli.Context, apis config.ApisConfig) (api.Chain,
 		return tn.(api.Chain), func() {}, nil
 	}
 
-	ainfoCfg, embedCloser, err := resolveChainAPIInfo(ctx, apis)
+	ainfoCfg, _, err := resolveChainAPIInfo(ctx, apis)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	if len(ainfoCfg) == 0 {
-		return nil, nil, xerrors.Errorf("could not get API info: none configured. \nConsider getting base.toml with './curio config get base >/tmp/base.toml' \nthen adding   \n[APIs] \n ChainApiInfo = [\" result_from lotus auth api-info --perm=admin \"]\n  and updating it with './curio config set /tmp/base.toml'")
-	}
-
-	var httpHeads []httpHead
-	version := "v1"
-	for _, i := range ainfoCfg {
-		ainfo := parseAPIInfo(i)
-		addr, err := ainfo.DialArgs(version)
-		if err != nil {
-			return nil, nil, xerrors.Errorf("could not get DialArgs: %w", err)
-		}
-		httpHeads = append(httpHeads, httpHead{addr: addr, header: ainfo.AuthHeader()})
-	}
-
-	if isChainAPIVeryVerbose() {
-		_, _ = fmt.Fprintln(ctx.App.Writer, "using full node API v1 endpoint:", httpHeads[0].addr)
-	}
-
-	var fullNodes []api.Chain
+	connections := map[string]api.Chain{}
 	var closers []jsonrpc.ClientCloser
+	var existingConnectionsMutex sync.Mutex
+	var fullNodes = config.NewDynamic([]api.Chain{})
 
-	// Check network compatibility for each node
-	for _, head := range httpHeads {
-		v1api, closer, err := newChainNodeRPCV1(ctx.Context, head.addr, head.header)
-		if err != nil {
-			clog.Warnf("Not able to establish connection to node with addr: %s, Reason: %s", head.addr, err.Error())
-			continue
+	var addresses []string
+	updateDynamic := func() error {
+		existingConnectionsMutex.Lock()
+		defer existingConnectionsMutex.Unlock()
+		if len(ainfoCfg.Get()) == 0 {
+			return fmt.Errorf("could not get API info: none configured. \nConsider getting base.toml with './curio config get base >/tmp/base.toml' \nthen adding   \n[APIs] \n ChainApiInfo = [\" result_from lotus auth api-info --perm=admin \"]\n  and updating it with './curio config set /tmp/base.toml'")
 		}
 
-		// Validate network match
-		netCtx, netCancel := chainStartupContext(ctx.Context)
-		networkName, err := v1api.StateNetworkName(netCtx)
-		netCancel()
-		if err != nil {
-			if skiffDockerMode() && errors.Is(err, context.DeadlineExceeded) {
-				clog.Warnf("Chain network check timed out for %s (chain node may still be syncing); continuing", head.addr)
-				fullNodes = append(fullNodes, v1api)
-				closers = append(closers, closer)
+		httpHeads := make(map[string]httpHead)
+		version := "v1"
+		for _, i := range ainfoCfg.Get() {
+			if _, ok := connections[i]; ok {
 				continue
 			}
-			clog.Warnf("Failed to get network name from node %s: %s", head.addr, err.Error())
-			closer()
-			continue
+			ainfo := parseAPIInfo(i)
+			addr, err := ainfo.DialArgs(version)
+			if err != nil {
+				return xerrors.Errorf("could not get DialArgs: %w", err)
+			}
+			addresses = append(addresses, addr)
+			httpHeads[i] = httpHead{addr: addr, header: ainfo.AuthHeader()}
 		}
 
-		// Compare with binary's network using BuildTypeString()
-		if !strings.HasPrefix(string(networkName), "test") && !strings.HasPrefix(string(networkName), "local") {
-			if networkName == "calibrationnet" {
-				networkName = "calibnet"
+		/// At this point we have a valid, dynamic httpHeads, but we don't want to rebuild existing connections.
+
+		if isChainAPIVeryVerbose() {
+			_, _ = fmt.Fprintln(ctx.App.Writer, "using full node API v1 endpoint:", strings.Join(addresses, ", "))
+		}
+
+		// Check network compatibility for each node
+		for identifier, head := range httpHeads {
+			if connections[identifier] != nil {
+				continue
 			}
 
-			if string(networkName) != build.BuildTypeString()[1:] {
-				clog.Warnf("Network mismatch for node %s: binary built for %s but node is on %s",
-					head.addr, build.BuildTypeString()[1:], networkName)
+			v1api, closer, err := newChainNodeRPCV1(ctx.Context, head.addr, head.header)
+			if err != nil {
+				clog.Warnf("Not able to establish connection to node with addr: %s, Reason: %s", head.addr, err.Error())
+				continue
+			}
+
+			// Validate network match
+			netCtx, netCancel := chainStartupContext(ctx.Context)
+			networkName, err := v1api.StateNetworkName(netCtx)
+			netCancel()
+			if err != nil {
+				if skiffDockerMode() && errors.Is(err, context.DeadlineExceeded) {
+					clog.Warnf("Chain network check timed out for %s (chain node may still be syncing); continuing", head.addr)
+					connections[identifier] = v1api
+					closers = append(closers, closer)
+					continue
+				}
+				clog.Warnf("Failed to get network name from node %s: %s", head.addr, err.Error())
 				closer()
 				continue
 			}
+
+			// Compare with binary's network using BuildTypeString()
+			if !strings.HasPrefix(string(networkName), "test") && !strings.HasPrefix(string(networkName), "local") {
+				if networkName == "calibrationnet" {
+					networkName = "calibnet"
+				}
+
+				if string(networkName) != build.BuildTypeString()[1:] {
+					clog.Warnf("Network mismatch for node %s: binary built for %s but node is on %s",
+						head.addr, build.BuildTypeString()[1:], networkName)
+					closer()
+					continue
+				}
+			}
+
+			connections[identifier] = v1api
+			closers = append(closers, closer)
 		}
-
-		fullNodes = append(fullNodes, v1api)
-		closers = append(closers, closer)
+		fullNodes.Set(lo.Map(slices.Collect(maps.Keys(connections)), func(k string, _ int) api.Chain { return connections[k] }))
+		return nil
 	}
 
-	if len(fullNodes) == 0 {
-		return nil, nil, xerrors.Errorf("failed to establish connection with all chain nodes")
+	err = updateDynamic()
+	if err != nil {
+		return nil, nil, err
 	}
-
-	finalCloser := func() {
-		embedCloser()
-		for _, c := range closers {
-			c()
+	ainfoCfg.OnChange(func() {
+		if err := updateDynamic(); err != nil {
+			clog.Errorf("failed to update http heads: %s", err)
 		}
-	}
+	})
 
 	var v1API api.ChainStruct
 	FullNodeProxy(fullNodes, &v1API)
 
+	finalCloser := func() {
+		existingConnectionsMutex.Lock()
+		defer existingConnectionsMutex.Unlock()
+		for _, c := range closers {
+			c()
+		}
+	}
 	return &v1API, finalCloser, nil
 }
 
@@ -165,23 +198,38 @@ const initialBackoff = time.Second
 const maxRetryAttempts = 5
 const maxBehindBestHealthy = 1
 
+// perProviderRPCTimeout bounds a single provider attempt so multi-provider
+// failover can still happen inside an overall call deadline.
+const perProviderRPCTimeout = 10 * time.Second
+
 var errorsToRetry = []error{&jsonrpc.RPCConnectionError{}, &jsonrpc.ErrClient{}}
 
 const preferredAllBad = -1
 
 // FullNodeProxy creates a proxy for the Chain API
-func FullNodeProxy[T api.Chain](ins []T, outstr *api.ChainStruct) {
-	providerCount := len(ins)
-
+func FullNodeProxy[T api.Chain](ins *config.Dynamic[[]T], outstr *api.ChainStruct) {
 	var healthyLk sync.Mutex
-	unhealthyProviders := make([]bool, providerCount)
+	unhealthyProviders := make([]bool, len(ins.Get()))
 
-	nextHealthyProvider := func(start int) int {
+	ensureHealthyLen := func(n int) {
+		if len(unhealthyProviders) == n {
+			return
+		}
+		next := make([]bool, n)
+		copy(next, unhealthyProviders)
+		unhealthyProviders = next
+	}
+
+	nextHealthyProvider := func(start, count int) int {
 		healthyLk.Lock()
 		defer healthyLk.Unlock()
+		if count <= 0 {
+			return preferredAllBad
+		}
+		ensureHealthyLen(count)
 
-		for i := range providerCount {
-			idx := (start + i) % providerCount
+		for i := range count {
+			idx := (start + i) % count
 			if !unhealthyProviders[idx] {
 				return idx
 			}
@@ -191,31 +239,35 @@ func FullNodeProxy[T api.Chain](ins []T, outstr *api.ChainStruct) {
 
 	// watch provider health
 	startWatch := func() {
-		if len(ins) == 1 {
-			// not like we have any onter node to go to..
-			return
-		}
-
 		// don't bother for short-running commands
 		time.Sleep(250 * time.Millisecond)
 
-		var bestKnownTipset, nextBestKnownTipset *types.TipSet
+		var bestKnownTipset, nextBestKnownTipset *ltypes.TipSet
 
 		for {
-			var wg sync.WaitGroup
-			wg.Add(providerCount)
+			providers := ins.Get()
+			count := len(providers)
+			if count <= 1 {
+				// not like we have any other node to go to..
+				time.Sleep(5 * time.Second)
+				continue
+			}
 
-			for i := range providerCount {
+			var wg sync.WaitGroup
+			wg.Add(count)
+
+			for i := range count {
 				go func(i int) {
 					defer wg.Done()
 
 					toctx, cancel := context.WithTimeout(context.Background(), 5*time.Second) // todo better timeout
-					ch, err := ins[i].ChainHead(toctx)
+					ch, err := providers[i].ChainHead(toctx)
 					cancel()
 
 					// error is definitely not healthy
 					if err != nil {
 						healthyLk.Lock()
+						ensureHealthyLen(count)
 						unhealthyProviders[i] = true
 						healthyLk.Unlock()
 
@@ -224,8 +276,9 @@ func FullNodeProxy[T api.Chain](ins []T, outstr *api.ChainStruct) {
 					}
 
 					healthyLk.Lock()
+					ensureHealthyLen(count)
 					// maybe set best next
-					if nextBestKnownTipset == nil || big.Cmp(ch.ParentWeight(), nextBestKnownTipset.ParentWeight()) > 0 || len(ch.Blocks()) > len(nextBestKnownTipset.Blocks()) {
+					if nextBestKnownTipset == nil || fbig.Cmp(ch.ParentWeight(), nextBestKnownTipset.ParentWeight()) > 0 || len(ch.Blocks()) > len(nextBestKnownTipset.Blocks()) {
 						nextBestKnownTipset = ch
 					}
 
@@ -249,29 +302,53 @@ func FullNodeProxy[T api.Chain](ins []T, outstr *api.ChainStruct) {
 	var starWatchOnce sync.Once
 
 	// populate output api proxy
+	populateProxyMethods(outstr, ins, nextHealthyProvider, startWatch, &starWatchOnce)
+}
 
+// populateProxyMethods sets up the proxy methods for the API struct with retry and health monitoring
+func populateProxyMethods[T, U any](outstr U, ins *config.Dynamic[[]T], nextHealthyProvider func(start, count int) int, startWatch func(), starWatchOnce *sync.Once) {
 	outs := api.GetInternalStructs(outstr)
 
 	var apiProviders []reflect.Value
-	for _, in := range ins {
-		apiProviders = append(apiProviders, reflect.ValueOf(in))
+	apiProvidersMx := sync.Mutex{}
+	providerFuncs := make([][][]reflect.Value, len(outs))
+
+	refreshProviders := func() {
+		apiProviders = nil
+		for _, in := range ins.Get() {
+			apiProviders = append(apiProviders, reflect.ValueOf(in))
+		}
+		for outIdx, out := range outs {
+			rOutStruct := reflect.ValueOf(out).Elem()
+			providerFuncs[outIdx] = make([][]reflect.Value, rOutStruct.NumField())
+
+			for f := 0; f < rOutStruct.NumField(); f++ {
+				field := rOutStruct.Type().Field(f)
+				providerFuncs[outIdx][f] = make([]reflect.Value, len(apiProviders))
+				for pIdx, rin := range apiProviders {
+					mv := rin.MethodByName(field.Name)
+					if !mv.IsValid() {
+						continue
+					}
+					providerFuncs[outIdx][f][pIdx] = mv
+				}
+			}
+		}
 	}
+	rpLockFunc := func() {
+		apiProvidersMx.Lock()
+		defer apiProvidersMx.Unlock()
+		refreshProviders()
+	}
+	rpLockFunc()
+	ins.OnChange(func() {
+		rpLockFunc()
+	})
 
-	for _, out := range outs {
+	for outIdx, out := range outs {
 		rOutStruct := reflect.ValueOf(out).Elem()
-
 		for f := 0; f < rOutStruct.NumField(); f++ {
 			field := rOutStruct.Type().Field(f)
-
-			var providerFuncs []reflect.Value
-			for _, rin := range apiProviders {
-				mv := rin.MethodByName(field.Name)
-				if !mv.IsValid() {
-					continue
-				}
-				providerFuncs = append(providerFuncs, mv)
-			}
-
 			rOutStruct.Field(f).Set(reflect.MakeFunc(field.Type, func(args []reflect.Value) (results []reflect.Value) {
 				starWatchOnce.Do(func() {
 					go startWatch()
@@ -279,9 +356,21 @@ func FullNodeProxy[T api.Chain](ins []T, outstr *api.ChainStruct) {
 
 				ctx := args[0].Interface().(context.Context)
 
+				apiProvidersMx.Lock()
+				providerCount := len(providerFuncs[outIdx][f])
+				apiProvidersMx.Unlock()
+
 				preferredProvider := new(int)
-				*preferredProvider = nextHealthyProvider(0)
+				*preferredProvider = nextHealthyProvider(0, providerCount)
 				if *preferredProvider == preferredAllBad {
+					if providerCount <= 0 {
+						var out []reflect.Value
+						for out0 := range field.Type.Outs() {
+							out = append(out, reflect.Zero(out0))
+						}
+						out[len(out)-1] = reflect.ValueOf(&api.ChainError{Err: xerrors.Errorf("no providers available")})
+						return out
+					}
 					// select at random, retry will do it's best
 					*preferredProvider = rand.Intn(providerCount)
 				}
@@ -296,16 +385,53 @@ func FullNodeProxy[T api.Chain](ins []T, outstr *api.ChainStruct) {
 					}
 				}
 
-				result, rerr := Retry(ctx, maxRetryAttempts, initialBackoff, errorsToRetry, func(isRetry bool) ([]reflect.Value, error) {
+				shouldRetry := func(err error) bool {
+					return shouldRetryRPCError(err, providerCount)
+				}
+
+				result, rerr := Retry(ctx, maxRetryAttempts, initialBackoff, shouldRetry, func(isRetry bool) ([]reflect.Value, error) {
+					apiProvidersMx.Lock()
+					funcs := providerFuncs[outIdx][f]
+					count := len(funcs)
+					apiProvidersMx.Unlock()
+
+					if count == 0 {
+						return nil, xerrors.Errorf("no providers available")
+					}
+
 					if isRetry {
-						pp := nextHealthyProvider(*preferredProvider + 1)
-						if pp == -1 {
+						pp := nextHealthyProvider(*preferredProvider+1, count)
+						if pp == preferredAllBad {
 							return nil, xerrors.Errorf("no healthy providers")
 						}
 						*preferredProvider = pp
 					}
 
-					result := providerFuncs[*preferredProvider].Call(args)
+					if *preferredProvider < 0 || *preferredProvider >= count {
+						return nil, xerrors.Errorf("provider index out of range")
+					}
+
+					apiProvidersMx.Lock()
+					fn := providerFuncs[outIdx][f][*preferredProvider]
+					apiProvidersMx.Unlock()
+					if !fn.IsValid() {
+						return nil, xerrors.Errorf("provider method unavailable")
+					}
+
+					callArgs := args
+					var cancel context.CancelFunc
+					// Cap each provider attempt so a hung peer cannot consume the
+					// whole caller deadline before failover.
+					if count > 1 {
+						tryCtx, tryCancel := context.WithTimeout(ctx, perProviderTryTimeout(ctx))
+						cancel = tryCancel
+						callArgs = slices.Clone(args)
+						callArgs[0] = reflect.ValueOf(tryCtx)
+					}
+					result := fn.Call(callArgs)
+					if cancel != nil {
+						cancel()
+					}
 					if result[len(result)-1].IsNil() {
 						return result, nil
 					}
@@ -324,10 +450,14 @@ func FullNodeProxy[T api.Chain](ins []T, outstr *api.ChainStruct) {
 					return out
 				}
 
-				// Wrap any error in ChainError so origin can be distinguished
+				// Wrap any error in ChainError so origin can be distinguished.
+				// Providers may already wrap (e.g. ethchain.ChainErrorWrap); don't nest.
 				if len(result) > 0 && !result[len(result)-1].IsNil() {
 					if errVal, ok := result[len(result)-1].Interface().(error); ok {
-						result[len(result)-1] = reflect.ValueOf(&api.ChainError{Err: errVal})
+						var ce *api.ChainError
+						if !errors.As(errVal, &ce) {
+							result[len(result)-1] = reflect.ValueOf(&api.ChainError{Err: errVal})
+						}
 					}
 				}
 				return result
@@ -336,15 +466,39 @@ func FullNodeProxy[T api.Chain](ins []T, outstr *api.ChainStruct) {
 	}
 }
 
-func Retry[T any](ctx context.Context, attempts int, initialBackoff time.Duration, errorTypes []error, f func(isRetry bool) (T, error)) (result T, err error) {
+func perProviderTryTimeout(ctx context.Context) time.Duration {
+	timeout := perProviderRPCTimeout
+	if deadline, ok := ctx.Deadline(); ok {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return time.Millisecond
+		}
+		// Leave a little budget for another provider attempt when possible.
+		if remaining < timeout {
+			return remaining
+		}
+		if remaining < 2*timeout {
+			return remaining / 2
+		}
+	}
+	return timeout
+}
+
+func Retry[T any](ctx context.Context, attempts int, initialBackoff time.Duration, shouldRetry func(error) bool, f func(isRetry bool) (T, error)) (result T, err error) {
 	for i := range attempts {
 		if i > 0 {
 			clog.Debugw("Retrying after error:", err)
-			time.Sleep(initialBackoff)
+			timer := time.NewTimer(initialBackoff)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return result, ctx.Err()
+			case <-timer.C:
+			}
 			initialBackoff *= 2
 		}
 		result, err = f(i > 0)
-		if err == nil || !ErrorIsIn(err, errorTypes) {
+		if err == nil || !shouldRetry(err) {
 			return result, err
 		}
 		if ctx.Err() != nil {
@@ -355,13 +509,51 @@ func Retry[T any](ctx context.Context, attempts int, initialBackoff time.Duratio
 	return result, err
 }
 
+// ErrorIsIn reports whether err unwraps to one of the concrete error types in
+// errorTypes. Each entry should be a non-nil pointer to the target error type
+// (for example &jsonrpc.RPCConnectionError{}).
 func ErrorIsIn(err error, errorTypes []error) bool {
+	if err == nil {
+		return false
+	}
 	for _, etype := range errorTypes {
-		if errors.As(err, new(reflect.New(reflect.PointerTo(reflect.ValueOf(etype).Elem().Type())).Interface())) {
+		if etype == nil {
+			continue
+		}
+		target := reflect.New(reflect.TypeOf(etype)).Interface()
+		if errors.As(err, target) {
 			return true
 		}
 	}
 	return false
+}
+
+func shouldRetryRPCError(err error, providerCount int) bool {
+	if ErrorIsIn(err, errorsToRetry) {
+		return true
+	}
+	// Timeouts / i/o errors are only worth retrying when another provider exists;
+	// otherwise we would burn the caller's deadline sleeping on the same peer.
+	return providerCount > 1 && isTimeoutOrIOError(err)
+}
+
+func isTimeoutOrIOError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return true
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "i/o timeout") ||
+		strings.Contains(msg, "deadline exceeded") ||
+		strings.Contains(msg, "connection reset") ||
+		strings.Contains(msg, "broken pipe") ||
+		strings.Contains(msg, "websocket: close")
 }
 
 func GetEthClient(cctx *cli.Context, apis config.ApisConfig) (ethchain.EthClient, error) {
@@ -370,62 +562,148 @@ func GetEthClient(cctx *cli.Context, apis config.ApisConfig) (ethchain.EthClient
 		return nil, err
 	}
 
-	if len(ainfoCfg) == 0 {
-		return nil, xerrors.Errorf("could not get API info: none configured. \nConsider getting base.toml with './curio config get base >/tmp/base.toml' \nthen adding   \n[APIs] \n ChainApiInfo = [\" result_from lotus auth api-info --perm=admin \"]\n  and updating it with './curio config set /tmp/base.toml'")
-	}
-
 	version := "v1"
-	var httpHeads []httpHead
-	for _, i := range ainfoCfg {
-		ainfo := parseAPIInfo(i)
-		addr, err := ainfo.DialArgs(version)
-		if err != nil {
-			return nil, xerrors.Errorf("could not get eth DialArgs: %w", err)
-		}
-		httpHeads = append(httpHeads, httpHead{addr: addr, header: ainfo.AuthHeader()})
-	}
-
-	var clients []ethchain.EthClient
-
-	for _, head := range httpHeads {
-		if isChainAPIVeryVerbose() {
-			_, _ = fmt.Fprintln(cctx.App.Writer, "using eth client endpoint:", head.addr)
+	var ethClientDynamic = config.NewDynamic([]ethchain.EthClient{})
+	updateDynamic := func() error {
+		if len(ainfoCfg.Get()) == 0 {
+			return xerrors.Errorf("could not get API info: none configured. \nConsider getting base.toml with './curio config get base >/tmp/base.toml' \nthen adding   \n[APIs] \n ChainApiInfo = [\" result_from lotus auth api-info --perm=admin \"]\n  and updating it with './curio config set /tmp/base.toml'")
 		}
 
-		d := websocket.Dialer{
-			HandshakeTimeout: 10 * time.Second,
-			ReadBufferSize:   4096,
-			WriteBufferSize:  4096,
+		var httpHeads []httpHead
+		for _, i := range ainfoCfg.Get() {
+			ainfo := parseAPIInfo(i)
+			addr, err := ainfo.DialArgs(version)
+			if err != nil {
+				return xerrors.Errorf("could not get eth DialArgs: %w", err)
+			}
+			httpHeads = append(httpHeads, httpHead{addr: addr, header: ainfo.AuthHeader()})
 		}
 
-		wopts := erpc.WithWebsocketDialer(d)
-		hopts := erpc.WithHeaders(head.header)
+		var clients []ethchain.EthClient
+		for _, head := range httpHeads {
+			if isChainAPIVeryVerbose() {
+				_, _ = fmt.Fprintln(cctx.App.Writer, "using eth client endpoint:", head.addr)
+			}
 
-		rpcClient, err := erpc.DialOptions(cctx.Context, head.addr, wopts, hopts)
-		if err != nil {
-			log.Warnf("failed to dial eth client: %s", err)
-			continue
-		}
-		client := &ethchain.ChainErrorWrap{EthClient: ethclient.NewClient(rpcClient)}
-		ethCtx, ethCancel := chainStartupContext(cctx.Context)
-		_, err = client.BlockNumber(ethCtx)
-		ethCancel()
-		if err != nil {
-			if skiffDockerMode() && errors.Is(err, context.DeadlineExceeded) {
-				log.Warnf("eth block number timed out for %s (chain node may still be syncing); continuing", head.addr)
-				clients = append(clients, client)
+			d := websocket.Dialer{
+				HandshakeTimeout: 10 * time.Second,
+				ReadBufferSize:   4096,
+				WriteBufferSize:  4096,
+			}
+
+			wopts := erpc.WithWebsocketDialer(d)
+			hopts := erpc.WithHeaders(head.header)
+
+			rpcClient, err := erpc.DialOptions(cctx.Context, head.addr, wopts, hopts)
+			if err != nil {
+				clog.Warnf("failed to dial eth client: %s", err)
 				continue
 			}
-			log.Warnf("failed to get eth block number: %s", err)
-			continue
+			client := &ethchain.ChainErrorWrap{EthClient: ethclient.NewClient(rpcClient)}
+			ethCtx, ethCancel := chainStartupContext(cctx.Context)
+			_, err = client.BlockNumber(ethCtx)
+			ethCancel()
+			if err != nil {
+				if skiffDockerMode() && errors.Is(err, context.DeadlineExceeded) {
+					clog.Warnf("eth block number timed out for %s (chain node may still be syncing); continuing", head.addr)
+					clients = append(clients, client)
+					continue
+				}
+				clog.Warnf("failed to get eth block number: %s", err)
+				continue
+			}
+			clients = append(clients, client)
 		}
-		clients = append(clients, client)
+
+		if len(clients) == 0 {
+			return errors.New("failed to establish connection with all nodes")
+		}
+
+		oldClients := ethClientDynamic.Get()
+		ethClientDynamic.Set(clients)
+		for _, c := range oldClients {
+			c.Close()
+		}
+		return nil
 	}
-
-	if len(clients) == 0 {
-		return nil, xerrors.Errorf("failed to establish connection with all chain nodes")
+	if err := updateDynamic(); err != nil {
+		return nil, err
 	}
+	ainfoCfg.OnChange(func() {
+		if err := updateDynamic(); err != nil {
+			clog.Errorf("failed to update eth client: %s", err)
+		}
+	})
 
-	return clients[0], nil
-
+	var ethClient api.EthClientInterfaceStruct
+	EthClientProxy(ethClientDynamic, &ethClient)
+	return &dynamicEthAdapter{EthClientInterface: &ethClient}, nil
 }
+
+func EthClientProxy(ins *config.Dynamic[[]ethchain.EthClient], outstr api.EthClientInterface) {
+	var healthyLk sync.Mutex
+	unhealthyProviders := make([]bool, len(ins.Get()))
+
+	ensureHealthyLen := func(n int) {
+		if len(unhealthyProviders) == n {
+			return
+		}
+		next := make([]bool, n)
+		copy(next, unhealthyProviders)
+		unhealthyProviders = next
+	}
+
+	nextHealthyProvider := func(start, count int) int {
+		healthyLk.Lock()
+		defer healthyLk.Unlock()
+		if count <= 0 {
+			return preferredAllBad
+		}
+		ensureHealthyLen(count)
+
+		for i := 0; i < count; i++ {
+			idx := (start + i) % count
+			if !unhealthyProviders[idx] {
+				return idx
+			}
+		}
+		return preferredAllBad
+	}
+
+	// Create a no-op start watch function since eth client doesn't need health monitoring like chain
+	startWatch := func() {}
+	var starWatchOnce sync.Once
+
+	// Use the existing populateProxyMethods function
+	populateProxyMethods(outstr, ins, nextHealthyProvider, startWatch, &starWatchOnce)
+}
+
+// dynamicEthAdapter adapts the dynamic api.EthClientInterface proxy to ethchain.EthClient.
+// Extra ethchain-only methods are unused by Curio call sites today.
+type dynamicEthAdapter struct {
+	api.EthClientInterface
+}
+
+func (e *dynamicEthAdapter) Close() {}
+
+func (e *dynamicEthAdapter) EstimateGasAtBlock(ctx context.Context, msg ethereum.CallMsg, blockNumber *big.Int) (uint64, error) {
+	return 0, xerrors.Errorf("EstimateGasAtBlock is not supported on the dynamic eth client proxy")
+}
+
+func (e *dynamicEthAdapter) EstimateGasAtBlockHash(ctx context.Context, msg ethereum.CallMsg, blockHash common.Hash) (uint64, error) {
+	return 0, xerrors.Errorf("EstimateGasAtBlockHash is not supported on the dynamic eth client proxy")
+}
+
+func (e *dynamicEthAdapter) SendRawTransactionSync(ctx context.Context, rawTx []byte, timeout *time.Duration) (*types.Receipt, error) {
+	return nil, xerrors.Errorf("SendRawTransactionSync is not supported on the dynamic eth client proxy")
+}
+
+func (e *dynamicEthAdapter) SendTransactionSync(ctx context.Context, tx *types.Transaction, timeout *time.Duration) (*types.Receipt, error) {
+	return nil, xerrors.Errorf("SendTransactionSync is not supported on the dynamic eth client proxy")
+}
+
+func (e *dynamicEthAdapter) SubscribeTransactionReceipts(ctx context.Context, q *ethereum.TransactionReceiptsQuery, ch chan<- []*types.Receipt) (ethereum.Subscription, error) {
+	return nil, xerrors.Errorf("SubscribeTransactionReceipts is not supported on the dynamic eth client proxy")
+}
+
+var _ ethchain.EthClient = (*dynamicEthAdapter)(nil)

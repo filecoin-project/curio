@@ -4,6 +4,8 @@ package lazy
 import (
 	"context"
 	"sync"
+
+	"golang.org/x/xerrors"
 )
 
 type Lazy[T any] struct {
@@ -22,7 +24,15 @@ func MakeLazy[T any](get func() (T, error)) *Lazy[T] {
 }
 
 func (l *Lazy[T]) Val() (T, error) {
+	var zero T
+	if l == nil {
+		return zero, xerrors.New("lazy: nil Lazy")
+	}
 	l.once.Do(func() {
+		if l.Get == nil {
+			l.err = xerrors.New("lazy: nil Get func")
+			return
+		}
 		l.val, l.err = l.Get()
 	})
 	return l.val, l.err
@@ -44,7 +54,15 @@ func MakeLazyCtx[T any](get func(context.Context) (T, error)) *LazyCtx[T] {
 }
 
 func (l *LazyCtx[T]) Val(ctx context.Context) (T, error) {
+	var zero T
+	if l == nil {
+		return zero, xerrors.New("lazy: nil LazyCtx")
+	}
 	l.once.Do(func() {
+		if l.Get == nil {
+			l.err = xerrors.New("lazy: nil Get func")
+			return
+		}
 		l.val, l.err = l.Get(ctx)
 	})
 	return l.val, l.err

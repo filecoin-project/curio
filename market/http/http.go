@@ -2,10 +2,11 @@ package http
 
 import (
 	"github.com/go-chi/chi/v5"
+	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/lib/paths"
 	mk12http "github.com/filecoin-project/curio/market/mk12/http"
 	mk20http "github.com/filecoin-project/curio/market/mk20/http"
@@ -21,8 +22,13 @@ type MarketHandler struct {
 }
 
 // NewMarketHandler is used to prepare all the required market handlers. Currently, it supports mk12 deal market.
-// This function should be used to expand the functionality under "/market" path
-func NewMarketHandler(db *harmonydb.DB, cfg *config.CurioConfig, dm *storage_market.CurioStorageDealMarket, eth ethchain.EthClient, fc pdp.PDPServiceNodeApi, sn *message.SenderETH, stor paths.StashStore) (*MarketHandler, error) {
+// This function should be used to expand the functionality under "/market" path.
+// dm must be non-nil with StartMarket already completed (MK12/MK20 handlers set).
+func NewMarketHandler(db *harmonydb.DB, cfg *config.CurioConfig, dm *storage_market.CurioStorageDealMarket, eth api.EthClientInterface, fc pdp.PDPServiceNodeApi, sn *message.SenderETH, stor paths.StashStore) (*MarketHandler, error) {
+	if dm == nil {
+		return nil, xerrors.New("deal market is required to mount market HTTP handlers")
+	}
+
 	mdh12, err := mk12http.NewMK12DealHandler(db, cfg, dm)
 	if err != nil {
 		return nil, err

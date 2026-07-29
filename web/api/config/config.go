@@ -207,7 +207,7 @@ func (c *cfg) setLayer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	//Write the TOML to the database
-	_, err = c.DB.Exec(context.Background(), `INSERT INTO harmony_config (title, config) VALUES ($1, $2) ON CONFLICT (title) DO UPDATE SET config = $2`, layer, configStr)
+	_, err = c.DB.Exec(context.Background(), `INSERT INTO harmony_config (title, config) VALUES ($1, $2) ON CONFLICT (title) DO UPDATE SET config = $2, timestamp = NOW()`, layer, configStr)
 	apihelper.OrHTTPFail(w, err)
 }
 
