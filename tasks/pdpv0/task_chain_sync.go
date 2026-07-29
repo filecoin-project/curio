@@ -2,7 +2,6 @@ package pdpv0
 
 import (
 	"context"
-	"database/sql"
 	"math/big"
 	"time"
 
@@ -56,13 +55,6 @@ func (t *TaskChainSync) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 	}
 	if err := t.syncMissingCleanupPiecesMessageWaits(ctx); err != nil {
 		return false, xerrors.Errorf("syncing missing PDP cleanupPieces message waits: %w", err)
-	}
-
-	if !stillOwned() {
-		return false, nil
-	}
-	if err := t.syncProvenDataSetFailureState(ctx); err != nil {
-		return false, xerrors.Errorf("syncing proven PDP data set failure state: %w", err)
 	}
 
 	if !stillOwned() {
@@ -357,85 +349,6 @@ func (t *TaskChainSync) syncMissingCleanupPiecesMessageWaits(ctx context.Context
 		}
 
 		return xerrors.Errorf("data set %d is not live, in cleanup mode, or finalized", detail.ID)
-	}
-
-	return nil
-}
-
-// syncProvenDataSetFailureState reconciles local proving backoff after PDPVerifier
-// reports that the data set has advanced past the local failure state.
-func (t *TaskChainSync) syncProvenDataSetFailureState(ctx context.Context) error {
-	var dataSets []struct {
-		ID                    int64         `db:"id"`
-		ProveAtEpoch          sql.NullInt64 `db:"prove_at_epoch"`
-		ConsecutiveFailures   int           `db:"consecutive_prove_failures"`
-		NextProveAttemptEpoch sql.NullInt64 `db:"next_prove_attempt_at"`
-	}
-	if err := t.db.Select(ctx, &dataSets, `SELECT id, prove_at_epoch, consecutive_prove_failures, next_prove_attempt_at
-		FROM pdp_data_sets
-		WHERE unrecoverable_proving_failure_epoch IS NULL
-		  AND (consecutive_prove_failures > 0 OR next_prove_attempt_at IS NOT NULL)
-		ORDER BY id`); err != nil {
-		return xerrors.Errorf("failed to select data sets with proving failure state: %w", err)
-	}
-
-	if len(dataSets) == 0 {
-		log.Debugw("no PDP data set proving failure state to reconcile")
-		return nil
-	}
-
-	pdpVerifier, err := contract.NewPDPVerifier(contract.ContractAddresses().PDPVerifier, t.ethClient)
-	if err != nil {
-		return xerrors.Errorf("failed to instantiate PDPVerifier contract: %w", err)
-	}
-
-	for _, dataSet := range dataSets {
-		dataSetID := big.NewInt(dataSet.ID)
-
-		live, err := pdpVerifier.DataSetLive(contract.EthCallOpts(ctx), dataSetID)
-		if err != nil {
-			return xerrors.Errorf("failed to check if data set %d is live: %w", dataSet.ID, err)
-		}
-		if !live {
-			continue
-		}
-
-		lastProvenEpoch, err := pdpVerifier.GetDataSetLastProvenEpoch(contract.EthCallOpts(ctx), dataSetID)
-		if err != nil {
-			return xerrors.Errorf("failed to get last proven epoch for data set %d: %w", dataSet.ID, err)
-		}
-		if lastProvenEpoch == nil || lastProvenEpoch.Sign() <= 0 {
-			continue
-		}
-
-		proofAfterLocalFailure := false
-		if dataSet.ProveAtEpoch.Valid && lastProvenEpoch.Cmp(big.NewInt(dataSet.ProveAtEpoch.Int64)) >= 0 {
-			proofAfterLocalFailure = true
-		} else if dataSet.ConsecutiveFailures > 0 && dataSet.NextProveAttemptEpoch.Valid {
-			lastFailureEpoch := dataSet.NextProveAttemptEpoch.Int64 - int64(CalculateBackoffBlocks(dataSet.ConsecutiveFailures))
-			proofAfterLocalFailure = lastProvenEpoch.Cmp(big.NewInt(lastFailureEpoch)) > 0
-		}
-		if !proofAfterLocalFailure {
-			continue
-		}
-
-		updated, err := t.db.Exec(ctx, `UPDATE pdp_data_sets
-			SET consecutive_prove_failures = 0,
-				next_prove_attempt_at = NULL
-			WHERE id = $1
-			  AND unrecoverable_proving_failure_epoch IS NULL
-			  AND (consecutive_prove_failures > 0 OR next_prove_attempt_at IS NOT NULL)`, dataSet.ID)
-		if err != nil {
-			return xerrors.Errorf("failed to reset proving failure state for data set %d: %w", dataSet.ID, err)
-		}
-		if updated != 0 && updated != 1 {
-			return xerrors.Errorf("expected to update 0 or 1 rows for data set %d, updated %d", dataSet.ID, updated)
-		}
-		if updated == 1 {
-			log.Infow("reset PDP data set proving failure state after confirmed PDPVerifier progress",
-				"dataSetId", dataSet.ID,
-				"lastProvenEpoch", lastProvenEpoch)
-		}
 	}
 
 	return nil

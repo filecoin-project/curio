@@ -464,6 +464,10 @@ func (p *DealProvider) checkMinerInfos(ctx context.Context, sender *message.Send
 		return !lo.Contains(disabledMiners, addr)
 	})
 	for _, m := range nonDisabledMiners {
+		if ctx.Err() != nil {
+			return
+		}
+
 		mi, err := p.api.StateMinerInfo(ctx, m, types.EmptyTSK)
 		if err != nil {
 			log.Errorw("failed to get miner info", "miner", m, "error", err)

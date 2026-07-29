@@ -7,6 +7,7 @@ import (
 	"github.com/snadrus/must"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/curio/cuhttp"
 	"github.com/filecoin-project/curio/cuhttp/servicedeps"
 	ipni_provider "github.com/filecoin-project/curio/market/ipni/ipni-provider"
 	"github.com/filecoin-project/curio/pdp"
@@ -24,14 +25,12 @@ func MountPDPRoutes(ctx context.Context, r chi.Router, d *Deps, sd *servicedeps.
 	}, ipp)
 }
 
-// MountPublicRoutes attaches PDP-only public HTTP routes (IPNI + PDP).
-func MountPublicRoutes(ctx context.Context, r chi.Router, d *Deps, sd *servicedeps.Deps) error {
-	ipp, err := ipni_provider.NewProvider(d.CurioDeps())
+// MountPublicRoutes attaches shared public HTTP routes (retrieval + denylist + IPNI) and PDP.
+func MountPublicRoutes(ctx context.Context, r *chi.Mux, d *Deps, sd *servicedeps.Deps) error {
+	ipp, err := cuhttp.MountCommonPublicRoutes(ctx, r, d.CurioDeps())
 	if err != nil {
-		return xerrors.Errorf("ipni provider: %w", err)
+		return xerrors.Errorf("common public routes: %w", err)
 	}
-
-	go ipp.StartPublishing(ctx)
 
 	return MountPDPRoutes(ctx, r, d, sd, ipp)
 }

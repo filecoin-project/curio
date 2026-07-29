@@ -10,6 +10,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
+	"github.com/filecoin-project/go-state-types/abi"
+
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/storiface"
 
@@ -97,4 +99,36 @@ func TestLocalStorage(t *testing.T) {
 	require.NoError(t, err)
 
 	// TODO: put more things here
+}
+
+func TestExistingLocalFile(t *testing.T) {
+	root := t.TempDir()
+	sid := abi.SectorID{Miner: 0, Number: 42}
+
+	pieceDir := filepath.Join(root, storiface.FTPiece.String())
+	require.NoError(t, os.MkdirAll(pieceDir, 0755))
+	fpath := filepath.Join(pieceDir, storiface.SectorName(sid))
+	require.NoError(t, os.WriteFile(fpath, []byte("piece-bytes"), 0644))
+
+	emptyRoot := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(emptyRoot, storiface.FTPiece.String()), 0755))
+
+	st := &Local{
+		paths: map[storiface.ID]*path{
+			"local-1": {Local: root},
+			"local-2": {Local: emptyRoot},
+		},
+	}
+
+	got, ok := st.ExistingLocalFile(sid, storiface.FTPiece)
+	require.True(t, ok)
+	require.Equal(t, fpath, got)
+
+	_, ok = st.ExistingLocalFile(abi.SectorID{Miner: 0, Number: 99}, storiface.FTPiece)
+	require.False(t, ok)
+
+	// Path that denies FTPiece should be skipped even if the file exists.
+	st.paths["local-1"].DenyTypes = []string{storiface.FTPiece.String()}
+	_, ok = st.ExistingLocalFile(sid, storiface.FTPiece)
+	require.False(t, ok)
 }

@@ -36,7 +36,6 @@ import (
 	"github.com/filecoin-project/curio/lib/ethchain"
 
 	ltypes "github.com/filecoin-project/lotus/chain/types"
-	cliutil "github.com/filecoin-project/lotus/cli/util"
 )
 
 var clog = logging.Logger("curio/chain")
@@ -92,7 +91,7 @@ func GetFullNodeAPIV1Curio(ctx *cli.Context, apis config.ApisConfig) (api.Chain,
 
 		/// At this point we have a valid, dynamic httpHeads, but we don't want to rebuild existing connections.
 
-		if cliutil.IsVeryVerbose {
+		if isChainAPIVeryVerbose() {
 			_, _ = fmt.Fprintln(ctx.App.Writer, "using full node API v1 endpoint:", strings.Join(addresses, ", "))
 		}
 
@@ -582,7 +581,7 @@ func GetEthClient(cctx *cli.Context, apis config.ApisConfig) (ethchain.EthClient
 
 		var clients []ethchain.EthClient
 		for _, head := range httpHeads {
-			if cliutil.IsVeryVerbose {
+			if isChainAPIVeryVerbose() {
 				_, _ = fmt.Fprintln(cctx.App.Writer, "using eth client endpoint:", head.addr)
 			}
 

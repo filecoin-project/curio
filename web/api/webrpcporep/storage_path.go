@@ -12,55 +12,12 @@ import (
 
 	"github.com/filecoin-project/go-address"
 
-	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/storiface"
-
-	"github.com/filecoin-project/lotus/chain/types"
+	"github.com/filecoin-project/curio/web/api/webrpc"
 )
 
-// StoragePathInfo contains detailed information about a storage path
-type StoragePathInfo struct {
-	StorageID     string     `db:"storage_id"`
-	URLs          *string    `db:"urls"`
-	Weight        *int64     `db:"weight"`
-	MaxStorage    *int64     `db:"max_storage"`
-	CanSeal       *bool      `db:"can_seal"`
-	CanStore      *bool      `db:"can_store"`
-	Groups        *string    `db:"groups"`
-	AllowTo       *string    `db:"allow_to"`
-	AllowTypes    *string    `db:"allow_types"`
-	DenyTypes     *string    `db:"deny_types"`
-	Capacity      *int64     `db:"capacity"`
-	Available     *int64     `db:"available"`
-	FSAvailable   *int64     `db:"fs_available"`
-	Reserved      *int64     `db:"reserved"`
-	Used          *int64     `db:"used"`
-	LastHeartbeat *time.Time `db:"last_heartbeat"`
-	HeartbeatErr  *string    `db:"heartbeat_err"`
-	AllowMiners   string     `db:"allow_miners"`
-	DenyMiners    string     `db:"deny_miners"`
-
-	// Computed fields for UI (not from DB)
-	PathType        string   `json:"PathType,omitempty"`
-	CapacityStr     string   `json:"CapacityStr,omitempty"`
-	AvailableStr    string   `json:"AvailableStr,omitempty"`
-	FSAvailableStr  string   `json:"FSAvailableStr,omitempty"`
-	ReservedStr     string   `json:"ReservedStr,omitempty"`
-	UsedStr         string   `json:"UsedStr,omitempty"`
-	MaxStorageStr   string   `json:"MaxStorageStr,omitempty"`
-	UsedPercent     float64  `json:"UsedPercent,omitempty"`
-	ReservedPercent float64  `json:"ReservedPercent,omitempty"`
-	HealthStatus    string   `json:"HealthStatus,omitempty"`
-	HealthOK        bool     `json:"HealthOK,omitempty"`
-	URLList         []string `json:"URLList,omitempty"`
-	HostList        []string `json:"HostList,omitempty"`
-	GroupList       []string `json:"GroupList,omitempty"`
-	AllowToList     []string `json:"AllowToList,omitempty"`
-	AllowTypesList  []string `json:"AllowTypesList,omitempty"`
-	DenyTypesList   []string `json:"DenyTypesList,omitempty"`
-	AllowMinersList []string `json:"AllowMinersList,omitempty"`
-	DenyMinersList  []string `json:"DenyMinersList,omitempty"`
-}
+// StoragePathInfo is the shared storage mount info type.
+type StoragePathInfo = webrpc.StoragePathInfo
 
 // StoragePathURLLiveness contains URL health information
 type StoragePathURLLiveness struct {
@@ -142,41 +99,29 @@ type StoragePathDetailResult struct {
 	ApprovedGC         int                       `json:"ApprovedGC"`
 }
 
-func (a *PoRep) StoragePathList(ctx context.Context) ([]*StoragePathInfo, error) {
-	var pathsList []*StoragePathInfo
-	err := a.Deps.DB.Select(ctx, &pathsList, `SELECT 
-		storage_id, 
-		urls, 
-		weight, 
-		max_storage, 
-		can_seal, 
-		can_store, 
-		groups, 
-		allow_to, 
-		allow_types, 
-		deny_types, 
-		capacity, 
-		available, 
-		fs_available, 
-		reserved, 
-		used, 
-		last_heartbeat, 
-		heartbeat_err, 
-		allow_miners, 
-		deny_miners FROM storage_path ORDER BY storage_id`)
+// StoragePathsSummary returns summary info about all storage paths sorted by capacity
+func (a *PoRep) StoragePathsSummary(ctx context.Context) ([]*StoragePathInfo, error) {
+	pathsInfo, err := a.StoragePathList(ctx)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to query storage paths: %w", err)
+		return nil, err
 	}
 
-	for _, p := range pathsList {
-		enrichStoragePathInfo(p)
-	}
+	sort.Slice(pathsInfo, func(i, j int) bool {
+		capI := int64(0)
+		capJ := int64(0)
+		if pathsInfo[i].Capacity != nil {
+			capI = *pathsInfo[i].Capacity
+		}
+		if pathsInfo[j].Capacity != nil {
+			capJ = *pathsInfo[j].Capacity
+		}
+		return capI > capJ
+	})
 
-	return pathsList, nil
+	return pathsInfo, nil
 }
 
 func (a *PoRep) StoragePathDetail(ctx context.Context, storageID string) (*StoragePathDetailResult, error) {
-	// Get basic path info
 	path := StoragePathInfo{}
 	err := a.Deps.DB.QueryRow(ctx, `SELECT 
 		storage_id, 
@@ -222,13 +167,22 @@ func (a *PoRep) StoragePathDetail(ctx context.Context, storageID string) (*Stora
 		return nil, xerrors.Errorf("failed to query storage path detail: %w", err)
 	}
 
-	enrichStoragePathInfo(&path)
+	webrpc.EnrichStoragePathInfo(&path)
+	if a.Deps.LocalStore != nil {
+		if locals, lerr := a.Deps.LocalStore.Local(ctx); lerr == nil {
+			for _, lp := range locals {
+				if string(lp.ID) == path.StorageID && lp.LocalPath != "" {
+					path.LocalPath = lp.LocalPath
+					break
+				}
+			}
+		}
+	}
 
 	result := &StoragePathDetailResult{
 		Info: &path,
 	}
 
-	// Get URL liveness
 	err = a.Deps.DB.Select(ctx, &result.URLs, `
 		SELECT url, last_checked, last_live, last_dead, last_dead_reason
 		FROM sector_path_url_liveness
@@ -242,12 +196,12 @@ func (a *PoRep) StoragePathDetail(ctx context.Context, storageID string) (*Stora
 	for i := range result.URLs {
 		u := &result.URLs[i]
 		u.IsLive = u.LastLive != nil && (u.LastDead == nil || u.LastLive.After(*u.LastDead))
-		u.LastCheckedStr = formatTimeAgo(u.LastChecked)
+		u.LastCheckedStr = webrpc.FormatTimeAgo(u.LastChecked)
 		if u.LastLive != nil {
-			u.LastLiveStr = formatTimeAgo(*u.LastLive)
+			u.LastLiveStr = webrpc.FormatTimeAgo(*u.LastLive)
 		}
 		if u.LastDead != nil {
-			u.LastDeadStr = formatTimeAgo(*u.LastDead)
+			u.LastDeadStr = webrpc.FormatTimeAgo(*u.LastDead)
 		}
 		if parsed, err := url.Parse(u.URL); err == nil {
 			u.Host = parsed.Host
@@ -256,7 +210,6 @@ func (a *PoRep) StoragePathDetail(ctx context.Context, storageID string) (*Stora
 		}
 	}
 
-	// Get sector summary by type
 	var typeSummary []struct {
 		FileType int64 `db:"sector_filetype"`
 		Count    int   `db:"count"`
@@ -284,7 +237,6 @@ func (a *PoRep) StoragePathDetail(ctx context.Context, storageID string) (*Stora
 	}
 	result.SecondaryEntries = result.TotalSectorEntries - result.PrimaryEntries
 
-	// Get sector summary by miner
 	var minerSummary []struct {
 		MinerID int64 `db:"miner_id"`
 		Count   int   `db:"count"`
@@ -313,7 +265,6 @@ func (a *PoRep) StoragePathDetail(ctx context.Context, storageID string) (*Stora
 		})
 	}
 
-	// Get GC marks
 	err = a.Deps.DB.Select(ctx, &result.GCMarks, `
 		SELECT sp_id, sector_num, sector_filetype, created_at, approved
 		FROM storage_removal_marks
@@ -333,7 +284,7 @@ func (a *PoRep) StoragePathDetail(ctx context.Context, storageID string) (*Stora
 			m.Miner = fmt.Sprintf("f0%d", m.MinerID)
 		}
 		m.FileTypeStr = storiface.SectorFileType(m.FileType).String()
-		m.CreatedAtStr = formatTimeAgo(m.CreatedAt)
+		m.CreatedAtStr = webrpc.FormatTimeAgo(m.CreatedAt)
 		if m.Approved {
 			result.ApprovedGC++
 		} else {
@@ -346,7 +297,6 @@ func (a *PoRep) StoragePathDetail(ctx context.Context, storageID string) (*Stora
 
 // StoragePathSectors returns paginated sectors for a storage path
 func (a *PoRep) StoragePathSectors(ctx context.Context, storageID string, limit, offset int) (*StoragePathSectorsResult, error) {
-	// Get total count
 	var total int
 	err := a.Deps.DB.QueryRow(ctx, `SELECT COUNT(*) FROM sector_location WHERE storage_id = $1`, storageID).Scan(&total)
 	if err != nil {
@@ -381,150 +331,6 @@ func (a *PoRep) StoragePathSectors(ctx context.Context, storageID string, limit,
 	}, nil
 }
 
-// Helper functions
-
-func enrichStoragePathInfo(info *StoragePathInfo) {
-	// Path type
-	canSeal := info.CanSeal != nil && *info.CanSeal
-	canStore := info.CanStore != nil && *info.CanStore
-	switch {
-	case canSeal && canStore:
-		info.PathType = "Seal + Store"
-	case canSeal:
-		info.PathType = "Seal"
-	case canStore:
-		info.PathType = "Store"
-	default:
-		info.PathType = "Read-Only"
-	}
-
-	// Format sizes
-	if info.Capacity != nil {
-		info.CapacityStr = types.SizeStr(types.NewInt(uint64(*info.Capacity)))
-	}
-	if info.Available != nil {
-		info.AvailableStr = types.SizeStr(types.NewInt(uint64(*info.Available)))
-	}
-	if info.FSAvailable != nil {
-		info.FSAvailableStr = types.SizeStr(types.NewInt(uint64(*info.FSAvailable)))
-	}
-	if info.Reserved != nil {
-		info.ReservedStr = types.SizeStr(types.NewInt(uint64(*info.Reserved)))
-	}
-	if info.Capacity != nil && info.FSAvailable != nil {
-		used := *info.Capacity - *info.FSAvailable
-		info.UsedStr = types.SizeStr(types.NewInt(uint64(used)))
-	}
-	if info.MaxStorage != nil && *info.MaxStorage > 0 {
-		info.MaxStorageStr = types.SizeStr(types.NewInt(uint64(*info.MaxStorage)))
-	}
-
-	// Percentages
-	if info.Capacity != nil && *info.Capacity > 0 {
-		if info.FSAvailable != nil {
-			info.UsedPercent = float64(*info.Capacity-*info.FSAvailable) * 100 / float64(*info.Capacity)
-		}
-		if info.Reserved != nil {
-			info.ReservedPercent = float64(*info.Reserved) * 100 / float64(*info.Capacity)
-		}
-	}
-
-	// Health status
-	if info.LastHeartbeat != nil {
-		heartbeatAge := time.Since(*info.LastHeartbeat)
-		if info.HeartbeatErr != nil {
-			info.HealthStatus = "Error: " + *info.HeartbeatErr
-			info.HealthOK = false
-		} else if heartbeatAge > paths.SkippedHeartbeatThresh {
-			info.HealthStatus = "Stale (" + heartbeatAge.Round(time.Second).String() + " ago)"
-			info.HealthOK = false
-		} else {
-			info.HealthStatus = "OK (" + heartbeatAge.Round(time.Second).String() + " ago)"
-			info.HealthOK = true
-		}
-	} else {
-		info.HealthStatus = "Unknown"
-		info.HealthOK = false
-	}
-
-	// Parse URL lists
-	if info.URLs != nil {
-		info.URLList = paths.UrlsFromString(*info.URLs)
-		info.HostList = make([]string, 0, len(info.URLList))
-		for _, u := range info.URLList {
-			if parsed, err := url.Parse(u); err == nil {
-				info.HostList = append(info.HostList, parsed.Host)
-			}
-		}
-	}
-
-	// Parse other lists
-	if info.Groups != nil {
-		info.GroupList = splitTrimmed(*info.Groups)
-	}
-	if info.AllowTo != nil {
-		info.AllowToList = splitTrimmed(*info.AllowTo)
-	}
-	if info.AllowTypes != nil {
-		info.AllowTypesList = splitTrimmed(*info.AllowTypes)
-	}
-	if info.DenyTypes != nil {
-		info.DenyTypesList = splitTrimmed(*info.DenyTypes)
-	}
-	info.AllowMinersList = splitTrimmed(info.AllowMiners)
-	info.DenyMinersList = splitTrimmed(info.DenyMiners)
-}
-
-func splitTrimmed(s string) []string {
-	if s == "" {
-		return nil
-	}
-	parts := strings.Split(s, ",")
-	result := make([]string, 0, len(parts))
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		if p != "" {
-			result = append(result, p)
-		}
-	}
-	return result
-}
-
-func formatTimeAgo(t time.Time) string {
-	d := time.Since(t)
-	if d < time.Minute {
-		return "just now"
-	} else if d < time.Hour {
-		return fmt.Sprintf("%dm ago", int(d.Minutes()))
-	} else if d < 24*time.Hour {
-		return fmt.Sprintf("%dh ago", int(d.Hours()))
-	}
-	return t.Format("2006-01-02 15:04")
-}
-
-// StoragePathsSummary returns summary info about all storage paths sorted by capacity
-func (a *PoRep) StoragePathsSummary(ctx context.Context) ([]*StoragePathInfo, error) {
-	pathsInfo, err := a.StoragePathList(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	// Sort by capacity descending
-	sort.Slice(pathsInfo, func(i, j int) bool {
-		capI := int64(0)
-		capJ := int64(0)
-		if pathsInfo[i].Capacity != nil {
-			capI = *pathsInfo[i].Capacity
-		}
-		if pathsInfo[j].Capacity != nil {
-			capJ = *pathsInfo[j].Capacity
-		}
-		return capI > capJ
-	})
-
-	return pathsInfo, nil
-}
-
 // HostToMachineID returns a map of host:port to machine ID for linking purposes
 func (a *PoRep) HostToMachineID(ctx context.Context, hosts []string) (map[string]int64, error) {
 	if len(hosts) == 0 {
@@ -542,17 +348,14 @@ func (a *PoRep) HostToMachineID(ctx context.Context, hosts []string) (map[string
 
 	result := make(map[string]int64)
 	for _, h := range hosts {
-		// Skip if already matched
 		if _, ok := result[h]; ok {
 			continue
 		}
 		for _, m := range machines {
-			// Match if the machine's host_and_port contains the host or equals it (exact match preferred)
 			if m.HostAndPort == h || strings.Contains(m.HostAndPort, h) || strings.Contains(h, m.HostAndPort) {
 				result[h] = m.ID
 				break
 			}
-			// Also try matching just the hostname part (before colon) with machine's host
 			hostOnly := strings.Split(h, ":")[0]
 			machineHost := strings.Split(m.HostAndPort, ":")[0]
 			if hostOnly == machineHost {

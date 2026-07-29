@@ -42,7 +42,6 @@ import (
 	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/pieceprovider"
-	"github.com/filecoin-project/curio/lib/repo"
 	"github.com/filecoin-project/curio/lib/robusthttp"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/indexstore"
@@ -52,7 +51,6 @@ import (
 	lapi "github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/node/modules/dtypes"
-	lrepo "github.com/filecoin-project/lotus/node/repo"
 )
 
 var log = logging.Logger("curio/deps")
@@ -67,6 +65,7 @@ func MakeDB(cctx *cli.Context) (*harmonydb.DB, error) {
 			Database:    cctx.String("db-name"),
 			Port:        cctx.String("db-port"),
 			LoadBalance: cctx.Bool("db-load-balance"),
+			ReadOnly:    cctx.Bool("db-readonly"),
 		}
 		return harmonydb.NewFromConfig(dbConfig)
 	}
@@ -186,19 +185,8 @@ func (deps *Deps) PopulateRemainingDeps(ctx context.Context, cctx *cli.Context, 
 		// Open repo
 		repoPath := cctx.String(FlagRepoPath)
 		fmt.Println("repopath", repoPath)
-		r, err := lrepo.NewFS(repoPath)
-		if err != nil {
+		if err := ensureCurioRepo(repoPath); err != nil {
 			return err
-		}
-
-		ok, err := r.Exists()
-		if err != nil {
-			return err
-		}
-		if !ok {
-			if err := r.Init(repo.Curio); err != nil {
-				return err
-			}
 		}
 	}
 
@@ -286,8 +274,12 @@ func (deps *Deps) PopulateRemainingDeps(ctx context.Context, cctx *cli.Context, 
 		deps.Bstore = curiochain.NewChainBlockstore(deps.Chain)
 	}
 
-	deps.LocalPaths = &paths.BasicLocalStorage{
-		PathToJSON: path.Join(cctx.String(FlagRepoPath), "storage.json"),
+	if deps.DB.ReadOnly() {
+		deps.LocalPaths = paths.NewReadonlyLocalStorage()
+	} else {
+		deps.LocalPaths = &paths.BasicLocalStorage{
+			PathToJSON: path.Join(cctx.String(FlagRepoPath), "storage.json"),
+		}
 	}
 
 	if deps.ListenAddr == "" {
@@ -312,6 +304,7 @@ func (deps *Deps) PopulateRemainingDeps(ctx context.Context, cctx *cli.Context, 
 	}
 
 	if cctx.IsSet("gui-listen") {
+		deps.Cfg.Subsystems.EnableWebGui = true
 		deps.Cfg.Subsystems.GuiAddress = cctx.String("gui-listen")
 	}
 	if deps.LocalStore == nil {
@@ -378,14 +371,18 @@ Get it with: jq .PrivateKey ~/.lotus-miner/keystore/MF2XI2BNNJ3XILLQOJUXMYLUMU`,
 	}
 
 	if deps.IndexStore == nil {
-		dbHost := cctx.String("db-host-cql")
-		if dbHost == "" {
-			dbHost = cctx.String("db-host")
-		}
+		if deps.DB.ReadOnly() {
+			deps.IndexStore = indexstore.NewReadonlyIndexStore(deps.Cfg)
+		} else {
+			dbHost := cctx.String("db-host-cql")
+			if dbHost == "" {
+				dbHost = cctx.String("db-host")
+			}
 
-		deps.IndexStore, err = indexstore.NewIndexStore(strings.Split(dbHost, ","), cctx.Int("db-cassandra-port"), deps.Cfg)
-		if err != nil {
-			return xerrors.Errorf("failed to create index store: %w", err)
+			deps.IndexStore, err = indexstore.NewIndexStore(strings.Split(dbHost, ","), cctx.Int("db-cassandra-port"), deps.Cfg)
+			if err != nil {
+				return xerrors.Errorf("failed to create index store: %w", err)
+			}
 		}
 		err = deps.IndexStore.Start(cctx.Context, false)
 		if err != nil {
@@ -416,13 +413,14 @@ func LoadConfigWithUpgrades(text string, curioConfigWithDefaults *config.CurioCo
 }
 
 func GetConfig(ctx context.Context, layers []string, db *harmonydb.DB) (*config.CurioConfig, error) {
-	err := updateBaseLayer(ctx, db)
-	if err != nil {
-		return nil, err
+	if !db.ReadOnly() {
+		if err := updateBaseLayer(ctx, db); err != nil {
+			return nil, err
+		}
 	}
 
 	curioConfig := config.DefaultCurioConfig()
-	err = ApplyLayers(ctx, db, curioConfig, layers)
+	err := ApplyLayers(ctx, db, curioConfig, layers)
 	if err != nil {
 		return nil, err
 	}
@@ -442,6 +440,10 @@ func ApplyLayers(ctx context.Context, db *harmonydb.DB, curioConfig *config.Curi
 }
 
 func updateBaseLayer(ctx context.Context, db *harmonydb.DB) error {
+	if db.ReadOnly() {
+		return nil
+	}
+
 	_, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		// Get existing base from DB
 		text := ""
