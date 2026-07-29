@@ -454,14 +454,12 @@ func (P *PDPIPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTask
 	}
 
 	// schedule submits
-	var stop bool
-	for !stop {
+	for {
+		stop := true
 		var markComplete, markCompletePayload, complete *string
 		var isRm bool
 
 		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-			stop = true // assume we're done until we find a task to schedule
-
 			var pendings []struct {
 				ID               string `db:"id"`
 				PieceCid         string `db:"piece_cid_v2"`
@@ -740,9 +738,11 @@ func (P *PDPIPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTask
 				return xerrors.Errorf("marking deal as complete: failed to commit transaction")
 			}
 		}
-	}
 
-	return nil
+		if stop {
+			return nil
+		}
+	}
 }
 
 func (P *PDPIPNITask) Adder(taskFunc harmonytask.AddTaskFunc) {}

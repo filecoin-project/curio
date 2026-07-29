@@ -379,10 +379,9 @@ func (a *AggregateChunksTask) TypeDetails() harmonytask.TaskTypeDetails {
 
 func (a *AggregateChunksTask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFunc) error {
 	// schedule submits
-	var stop bool
-	for !stop {
+	for {
+		stop := true
 		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-			stop = true // assume we're done until we find a task to schedule
 			var mid string
 			var count int
 			err := tx.QueryRow(`SELECT id, COUNT(*) AS total_chunks
@@ -422,8 +421,10 @@ func (a *AggregateChunksTask) schedule(ctx context.Context, taskFunc harmonytask
 			stop = false
 			return true, nil
 		})
+		if stop {
+			return nil
+		}
 	}
-	return nil
 }
 
 func (a *AggregateChunksTask) Adder(taskFunc harmonytask.AddTaskFunc) {}

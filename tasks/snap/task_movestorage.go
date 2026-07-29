@@ -142,11 +142,9 @@ func (m *MoveStorageTask) TypeDetails() harmonytask.TaskTypeDetails {
 }
 
 func (m *MoveStorageTask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFunc) error {
-	var stop bool
-	for !stop {
+	for {
+		stop := true
 		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-			stop = true // assume we're done until we find a task to schedule
-
 			n, err := tx.Exec(`WITH pending AS (
 					SELECT sp_id, sector_number
 					FROM sectors_snap_pipeline
@@ -177,10 +175,10 @@ func (m *MoveStorageTask) schedule(ctx context.Context, taskFunc harmonytask.Add
 			stop = false // we found a task to schedule, keep going
 			return true, nil
 		})
-
+		if stop {
+			return nil
+		}
 	}
-
-	return nil
 }
 
 func (m *MoveStorageTask) Adder(taskFunc harmonytask.AddTaskFunc) {

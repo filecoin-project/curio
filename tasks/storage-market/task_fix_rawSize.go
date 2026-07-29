@@ -162,12 +162,9 @@ func (f *FixRawSize) TypeDetails() harmonytask.TaskTypeDetails {
 }
 
 func (f *FixRawSize) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFunc) error {
-	var stop bool
-
-	for !stop {
+	for {
+		stop := true
 		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-			stop = true // assume we're done until we find a task to schedule
-
 			var running int64
 			err := tx.QueryRow(`SELECT COUNT(*) FROM harmony_task WHERE name = $1`, "FixRawSize").Scan(&running)
 			if err != nil {
@@ -213,9 +210,10 @@ func (f *FixRawSize) schedule(ctx context.Context, taskFunc harmonytask.AddTaskF
 			stop = false // we found a task to schedule, keep going
 			return true, nil
 		})
+		if stop {
+			return nil
+		}
 	}
-
-	return nil
 }
 
 func (f *FixRawSize) Adder(taskFunc harmonytask.AddTaskFunc) {}

@@ -449,14 +449,12 @@ func (I *IPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFun
 	}
 
 	// schedule submits
-	var stop bool
-	for !stop {
+	for {
+		stop := true
 		var markComplete *string
 		var mk20, isRM bool
 
 		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-			stop = true // assume we're done until we find a task to schedule
-
 			var pendings []itask
 
 			err := tx.Select(&pendings, `WITH unioned AS (
@@ -654,9 +652,11 @@ func (I *IPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFun
 				ilog.Errorf("store IPNI success: updated %d rows", n)
 			}
 		}
-	}
 
-	return nil
+		if stop {
+			return nil
+		}
+	}
 }
 
 func (I *IPNITask) Adder(taskFunc harmonytask.AddTaskFunc) {}
