@@ -215,28 +215,14 @@ func (a *WebRPC) PDPDataSetList(ctx context.Context, limit, offset int, filter, 
 
 	if looksLikeEthAddress(filter) {
 		addr := common.HexToAddress(filter)
-		// Map payer → dataset IDs on-chain, then keep only datasets this SP has in DB.
-		onChainTotal, terr := a.clientDataSetTotal(ctx, addr)
-		if terr != nil {
-			return out, terr
-		}
-		if onChainTotal == 0 {
-			return out, nil
-		}
-		ids, err := a.clientDataSetIDs(ctx, addr, 0, onChainTotal)
+		ids, err := a.localClientDataSetIDs(ctx, addr)
 		if err != nil {
 			return out, err
 		}
 		if len(ids) == 0 {
 			return out, nil
 		}
-		err = a.Deps.DB.QueryRow(ctx, `SELECT COUNT(*) FROM pdp_data_sets WHERE id = ANY($1)`, ids).Scan(&out.Total)
-		if err != nil {
-			return out, xerrors.Errorf("count datasets by wallet: %w", err)
-		}
-		if out.Total == 0 {
-			return out, nil
-		}
+		out.Total = len(ids)
 		rows, err := a.selectDataSetStatsByIDsPage(ctx, ids, limit, offset, sortBy, ascending)
 		if err != nil {
 			return out, xerrors.Errorf("list datasets by wallet: %w", err)
@@ -708,37 +694,75 @@ func (a *WebRPC) fwssView(ctx context.Context) (*FWSS.FilecoinWarmStorageService
 	return FWSS.NewFilecoinWarmStorageServiceStateView(viewAddr, eclient)
 }
 
-func (a *WebRPC) clientDataSetIDs(ctx context.Context, client common.Address, offset, limit int) ([]int64, error) {
+// clientDataSetIDPageSize is how many on-chain dataset IDs to fetch per eth_call.
+// IDs-only ClientDataSets is cheap; keep pages modest to stay under EthCallTimeout.
+const clientDataSetIDPageSize = 200
+
+// localClientDataSetIDs pages ClientDataSets (IDs only) for payer and keeps those
+// present in this SP's pdp_data_sets table.
+func (a *WebRPC) localClientDataSetIDs(ctx context.Context, client common.Address) ([]int64, error) {
 	view, err := a.fwssView(ctx)
 	if err != nil {
 		return nil, xerrors.Errorf("FWSS view: %w", err)
 	}
-	infos, err := view.GetClientDataSets(contract.EthCallOpts(ctx), client, big.NewInt(int64(offset)), big.NewInt(int64(limit)))
-	if err != nil {
-		return nil, xerrors.Errorf("GetClientDataSets: %w", err)
-	}
-	ids := make([]int64, 0, len(infos))
-	for _, info := range infos {
-		if info.DataSetId != nil {
-			ids = append(ids, info.DataSetId.Int64())
+
+	local := make([]int64, 0)
+	for offset := 0; ; offset += clientDataSetIDPageSize {
+		page, err := view.ClientDataSets(
+			contract.EthCallOpts(ctx),
+			client,
+			big.NewInt(int64(offset)),
+			big.NewInt(int64(clientDataSetIDPageSize)),
+		)
+		if err != nil {
+			return nil, xerrors.Errorf("ClientDataSets: %w", err)
+		}
+		if len(page) == 0 {
+			break
+		}
+
+		ids := make([]int64, 0, len(page))
+		for _, id := range page {
+			if id != nil {
+				ids = append(ids, id.Int64())
+			}
+		}
+		if len(ids) > 0 {
+			var found []int64
+			err = a.Deps.DB.Select(ctx, &found, `SELECT id FROM pdp_data_sets WHERE id = ANY($1)`, ids)
+			if err != nil {
+				return nil, xerrors.Errorf("filter datasets by wallet: %w", err)
+			}
+			local = append(local, found...)
+		}
+
+		if len(page) < clientDataSetIDPageSize {
+			break
 		}
 	}
-	return ids, nil
+	return local, nil
 }
 
-func (a *WebRPC) clientDataSetTotal(ctx context.Context, client common.Address) (int, error) {
-	view, err := a.fwssView(ctx)
+// PDPDataSetFindByTxHash resolves a create tx hash to a local dataset id.
+func (a *WebRPC) PDPDataSetFindByTxHash(ctx context.Context, txHash string) (int64, error) {
+	txHash = strings.TrimSpace(txHash)
+	if !looksLikeTxHash(txHash) {
+		return 0, xerrors.Errorf("invalid tx hash")
+	}
+	norm := strings.ToLower(txHash)
+
+	var id int64
+	err := a.Deps.DB.QueryRow(ctx, `
+		SELECT id FROM pdp_data_sets
+		WHERE LOWER(TRIM(BOTH FROM create_message_hash)) = $1
+		LIMIT 1`, norm).Scan(&id)
 	if err != nil {
-		return 0, err
+		if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, sql.ErrNoRows) {
+			return 0, xerrors.Errorf("no dataset found for create tx %s", norm)
+		}
+		return 0, xerrors.Errorf("lookup dataset by tx hash: %w", err)
 	}
-	n, err := view.GetClientDataSetsLength(contract.EthCallOpts(ctx), client)
-	if err != nil {
-		return 0, err
-	}
-	if n == nil {
-		return 0, nil
-	}
-	return int(n.Int64()), nil
+	return id, nil
 }
 
 func summaryFromStatsRow(row pdpDataSetStatsRow, head int64) PDPDataSetSummary {
@@ -784,5 +808,23 @@ func looksLikeEthAddress(s string) bool {
 	if !strings.HasPrefix(s, "0x") && !strings.HasPrefix(s, "0X") {
 		return false
 	}
+	if looksLikeTxHash(s) {
+		return false
+	}
 	return common.IsHexAddress(s)
+}
+
+func looksLikeTxHash(s string) bool {
+	if len(s) != 66 {
+		return false
+	}
+	if !strings.HasPrefix(s, "0x") && !strings.HasPrefix(s, "0X") {
+		return false
+	}
+	for _, c := range s[2:] {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') && (c < 'A' || c > 'F') {
+			return false
+		}
+	}
+	return true
 }

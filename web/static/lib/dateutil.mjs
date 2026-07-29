@@ -1,10 +1,7 @@
-export function timeSince(date) {
-    const now = new Date();
-    const seconds = Math.floor((now - date) / 1000);
-
-    let interval = Math.floor(seconds / 86400); // days
+function formatDuration(absSeconds) {
+    let interval = Math.floor(absSeconds / 86400); // days
     const days = interval;
-    interval = seconds % 86400;
+    interval = absSeconds % 86400;
 
     let hours = Math.floor(interval / 3600);
     interval = interval % 3600;
@@ -16,9 +13,19 @@ export function timeSince(date) {
     if (hours > 0) result += `${hours}h `;
     if (minutes > 0) result += `${minutes}m`;
 
-    if (result === '') result = 'just now';
+    return result === '' ? 'just now' : result.trim();
+}
 
-    return result.trim();
+export function timeSince(date) {
+    const seconds = Math.floor((new Date() - date) / 1000);
+    return formatDuration(Math.abs(seconds));
+}
+
+function relativePhrase(date) {
+    const rel = timeSince(date);
+    if (rel === 'just now') return rel;
+    const suffix = date.getTime() > Date.now() ? 'from now' : 'ago';
+    return `${rel} ${suffix}`;
 }
 
 export function formatDate(dateString) {
@@ -29,9 +36,7 @@ export function formatDate(dateString) {
         String(date.getHours()).padStart(2, '0') + ':' +
         String(date.getMinutes()).padStart(2, '0');
 
-    const timeAgo = timeSince(date);
-
-    return `${formattedDate} (${timeAgo} ago)`;
+    return `${formattedDate} (${relativePhrase(date)})`;
 }
 
 export function formatDateTwo(dateString) {
@@ -42,7 +47,5 @@ export function formatDateTwo(dateString) {
         String(date.getHours()).padStart(2, '0') + ':' +
         String(date.getMinutes()).padStart(2, '0');
 
-    const timeAgo = timeSince(date);
-
-    return [`${formattedDate}`, `${timeAgo} ago`];
+    return [`${formattedDate}`, relativePhrase(date)];
 }
