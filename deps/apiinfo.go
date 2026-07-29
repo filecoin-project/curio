@@ -7,6 +7,7 @@ import (
 	"maps"
 	"math/big"
 	"math/rand"
+	"net"
 	"net/http"
 	"os"
 	"reflect"
@@ -198,6 +199,10 @@ const initialBackoff = time.Second
 const maxRetryAttempts = 5
 const maxBehindBestHealthy = 1
 
+// perProviderRPCTimeout bounds a single provider attempt so multi-provider
+// failover can still happen inside an overall call deadline.
+const perProviderRPCTimeout = 10 * time.Second
+
 var errorsToRetry = []error{&jsonrpc.RPCConnectionError{}, &jsonrpc.ErrClient{}}
 
 const preferredAllBad = -1
@@ -381,7 +386,11 @@ func populateProxyMethods[T, U any](outstr U, ins *config.Dynamic[[]T], nextHeal
 					}
 				}
 
-				result, rerr := Retry(ctx, maxRetryAttempts, initialBackoff, errorsToRetry, func(isRetry bool) ([]reflect.Value, error) {
+				shouldRetry := func(err error) bool {
+					return shouldRetryRPCError(err, providerCount)
+				}
+
+				result, rerr := Retry(ctx, maxRetryAttempts, initialBackoff, shouldRetry, func(isRetry bool) ([]reflect.Value, error) {
 					apiProvidersMx.Lock()
 					funcs := providerFuncs[outIdx][f]
 					count := len(funcs)
@@ -410,7 +419,20 @@ func populateProxyMethods[T, U any](outstr U, ins *config.Dynamic[[]T], nextHeal
 						return nil, xerrors.Errorf("provider method unavailable")
 					}
 
-					result := fn.Call(args)
+					callArgs := args
+					var cancel context.CancelFunc
+					// Cap each provider attempt so a hung peer cannot consume the
+					// whole caller deadline before failover.
+					if count > 1 {
+						tryCtx, tryCancel := context.WithTimeout(ctx, perProviderTryTimeout(ctx))
+						cancel = tryCancel
+						callArgs = slices.Clone(args)
+						callArgs[0] = reflect.ValueOf(tryCtx)
+					}
+					result := fn.Call(callArgs)
+					if cancel != nil {
+						cancel()
+					}
 					if result[len(result)-1].IsNil() {
 						return result, nil
 					}
@@ -429,10 +451,14 @@ func populateProxyMethods[T, U any](outstr U, ins *config.Dynamic[[]T], nextHeal
 					return out
 				}
 
-				// Wrap any error in ChainError so origin can be distinguished
+				// Wrap any error in ChainError so origin can be distinguished.
+				// Providers may already wrap (e.g. ethchain.ChainErrorWrap); don't nest.
 				if len(result) > 0 && !result[len(result)-1].IsNil() {
 					if errVal, ok := result[len(result)-1].Interface().(error); ok {
-						result[len(result)-1] = reflect.ValueOf(&api.ChainError{Err: errVal})
+						var ce *api.ChainError
+						if !errors.As(errVal, &ce) {
+							result[len(result)-1] = reflect.ValueOf(&api.ChainError{Err: errVal})
+						}
 					}
 				}
 				return result
@@ -441,15 +467,39 @@ func populateProxyMethods[T, U any](outstr U, ins *config.Dynamic[[]T], nextHeal
 	}
 }
 
-func Retry[T any](ctx context.Context, attempts int, initialBackoff time.Duration, errorTypes []error, f func(isRetry bool) (T, error)) (result T, err error) {
+func perProviderTryTimeout(ctx context.Context) time.Duration {
+	timeout := perProviderRPCTimeout
+	if deadline, ok := ctx.Deadline(); ok {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return time.Millisecond
+		}
+		// Leave a little budget for another provider attempt when possible.
+		if remaining < timeout {
+			return remaining
+		}
+		if remaining < 2*timeout {
+			return remaining / 2
+		}
+	}
+	return timeout
+}
+
+func Retry[T any](ctx context.Context, attempts int, initialBackoff time.Duration, shouldRetry func(error) bool, f func(isRetry bool) (T, error)) (result T, err error) {
 	for i := range attempts {
 		if i > 0 {
 			clog.Debugw("Retrying after error:", err)
-			time.Sleep(initialBackoff)
+			timer := time.NewTimer(initialBackoff)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return result, ctx.Err()
+			case <-timer.C:
+			}
 			initialBackoff *= 2
 		}
 		result, err = f(i > 0)
-		if err == nil || !ErrorIsIn(err, errorTypes) {
+		if err == nil || !shouldRetry(err) {
 			return result, err
 		}
 		if ctx.Err() != nil {
@@ -460,13 +510,51 @@ func Retry[T any](ctx context.Context, attempts int, initialBackoff time.Duratio
 	return result, err
 }
 
+// ErrorIsIn reports whether err unwraps to one of the concrete error types in
+// errorTypes. Each entry should be a non-nil pointer to the target error type
+// (for example &jsonrpc.RPCConnectionError{}).
 func ErrorIsIn(err error, errorTypes []error) bool {
+	if err == nil {
+		return false
+	}
 	for _, etype := range errorTypes {
-		if errors.As(err, new(reflect.New(reflect.PointerTo(reflect.ValueOf(etype).Elem().Type())).Interface())) {
+		if etype == nil {
+			continue
+		}
+		target := reflect.New(reflect.TypeOf(etype)).Interface()
+		if errors.As(err, target) {
 			return true
 		}
 	}
 	return false
+}
+
+func shouldRetryRPCError(err error, providerCount int) bool {
+	if ErrorIsIn(err, errorsToRetry) {
+		return true
+	}
+	// Timeouts / i/o errors are only worth retrying when another provider exists;
+	// otherwise we would burn the caller's deadline sleeping on the same peer.
+	return providerCount > 1 && isTimeoutOrIOError(err)
+}
+
+func isTimeoutOrIOError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return true
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "i/o timeout") ||
+		strings.Contains(msg, "deadline exceeded") ||
+		strings.Contains(msg, "connection reset") ||
+		strings.Contains(msg, "broken pipe") ||
+		strings.Contains(msg, "websocket: close")
 }
 
 func GetEthClient(cctx *cli.Context, apis config.ApisConfig) (ethchain.EthClient, error) {
@@ -532,7 +620,11 @@ func GetEthClient(cctx *cli.Context, apis config.ApisConfig) (ethchain.EthClient
 			return errors.New("failed to establish connection with all nodes")
 		}
 
+		oldClients := ethClientDynamic.Get()
 		ethClientDynamic.Set(clients)
+		for _, c := range oldClients {
+			c.Close()
+		}
 		return nil
 	}
 	if err := updateDynamic(); err != nil {
