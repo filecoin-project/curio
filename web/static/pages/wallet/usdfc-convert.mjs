@@ -1,6 +1,9 @@
 import { LitElement, html } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs';
 
+/** Fixed size used only to sample the spot conversion rate. */
+const RATE_SAMPLE_USDFC = '1';
+
 customElements.define('usdfc-convert', class UsdfcConvertElement extends LitElement {
     static properties = {
         keyStatus: { type: Object },
@@ -13,6 +16,8 @@ customElements.define('usdfc-convert', class UsdfcConvertElement extends LitElem
         converting: { type: Boolean },
         result: { type: Object },
         convertError: { type: String },
+        rateFilPerUsdfc: { type: String },
+        rateError: { type: String },
     };
 
     constructor() {
@@ -27,16 +32,22 @@ customElements.define('usdfc-convert', class UsdfcConvertElement extends LitElem
         this.converting = false;
         this.result = null;
         this.convertError = '';
+        this.rateFilPerUsdfc = '';
+        this.rateError = '';
         this._quoteDebounce = null;
         this._quoteInterval = null;
+        this._rateInterval = null;
         this.loadKeyStatus();
     }
 
     connectedCallback() {
         super.connectedCallback();
-        this._refreshHandle = setInterval(() => this.loadKeyStatus(), 15000);
-        if (this.quoteAmount()) {
-            this.startQuotePolling();
+        this._refreshHandle = setInterval(() => this.loadKeyStatus({ silent: true }), 15000);
+        if (this.isVisible()) {
+            this.startRatePolling();
+            if (this.quoteAmount()) {
+                this.startQuotePolling();
+            }
         }
     }
 
@@ -47,21 +58,38 @@ customElements.define('usdfc-convert', class UsdfcConvertElement extends LitElem
             this._refreshHandle = null;
         }
         this.stopQuotePolling();
+        this.stopRatePolling();
         if (this._quoteDebounce) {
             clearTimeout(this._quoteDebounce);
             this._quoteDebounce = null;
         }
     }
 
-    async loadKeyStatus() {
-        this.keyStatusLoading = true;
+    isVisible() {
+        return !this.keyStatusLoading && this.keyStatus?.configured && this.keyStatus?.usdfcKnown;
+    }
+
+    async loadKeyStatus({ silent = false } = {}) {
+        // Only show the loading shell on the first fetch. Periodic refreshes must
+        // not remount the form — that blanks inputs and eats in-progress typing.
+        if (!silent && this.keyStatus === undefined) {
+            this.keyStatusLoading = true;
+        }
         try {
             this.keyStatus = await RPCCall('PDPKeyStatus', []);
         } catch (error) {
             console.error('Failed to load PDP key status:', error);
-            this.keyStatus = null;
+            if (this.keyStatus === undefined) {
+                this.keyStatus = null;
+            }
         } finally {
             this.keyStatusLoading = false;
+        }
+        if (this.isVisible()) {
+            this.startRatePolling();
+        } else {
+            this.stopRatePolling();
+            this.stopQuotePolling();
         }
     }
 
@@ -90,12 +118,14 @@ customElements.define('usdfc-convert', class UsdfcConvertElement extends LitElem
         if (this._quoteDebounce) {
             clearTimeout(this._quoteDebounce);
         }
-        this.quote = null;
         this.quoteError = '';
         if (!this.quoteAmount()) {
+            this.quote = null;
             this.stopQuotePolling();
             return;
         }
+        // Keep the previous quote visible while the new one loads so typing
+        // does not blank the expected-out display.
         this._quoteDebounce = setTimeout(() => {
             this._quoteDebounce = null;
             this.fetchQuote(true);
@@ -115,6 +145,61 @@ customElements.define('usdfc-convert', class UsdfcConvertElement extends LitElem
         }
     }
 
+    startRatePolling() {
+        if (this._rateInterval) {
+            return;
+        }
+        this.fetchRate();
+        this._rateInterval = setInterval(() => this.fetchRate(), 30000);
+    }
+
+    stopRatePolling() {
+        if (this._rateInterval) {
+            clearInterval(this._rateInterval);
+            this._rateInterval = null;
+        }
+    }
+
+    formatRate(quote) {
+        if (!quote?.amountOutAtto || !quote?.amountInUsdfc) {
+            return '';
+        }
+        const amountIn = Number(quote.amountInUsdfc);
+        if (!Number.isFinite(amountIn) || amountIn <= 0) {
+            return '';
+        }
+        // amountOutAtto is attoFIL (1e18). USDFC amount is in whole tokens.
+        const outFil = Number(quote.amountOutAtto) / 1e18;
+        if (!Number.isFinite(outFil)) {
+            return '';
+        }
+        const rate = outFil / amountIn;
+        if (!Number.isFinite(rate) || rate <= 0) {
+            return '';
+        }
+        return rate.toPrecision(6);
+    }
+
+    async fetchRate() {
+        if (this.converting) {
+            return;
+        }
+        try {
+            const quote = await RPCCall('PDPUsdfcFilQuote', [RATE_SAMPLE_USDFC]);
+            const rate = this.formatRate(quote);
+            if (rate) {
+                this.rateFilPerUsdfc = rate;
+                this.rateError = '';
+            }
+        } catch (error) {
+            console.error('Rate quote failed:', error);
+            // Keep the last good rate; only surface an error if we have none yet.
+            if (!this.rateFilPerUsdfc) {
+                this.rateError = error.message || String(error);
+            }
+        }
+    }
+
     async fetchQuote(showSpinner = false) {
         const amount = this.quoteAmount();
         if (!amount || this.converting) {
@@ -126,9 +211,13 @@ customElements.define('usdfc-convert', class UsdfcConvertElement extends LitElem
         this.quoteError = '';
         try {
             this.quote = await RPCCall('PDPUsdfcFilQuote', [amount]);
+            const rate = this.formatRate(this.quote);
+            if (rate) {
+                this.rateFilPerUsdfc = rate;
+                this.rateError = '';
+            }
         } catch (error) {
             console.error('Quote failed:', error);
-            this.quote = null;
             this.quoteError = error.message || String(error);
         } finally {
             if (showSpinner) {
@@ -151,7 +240,8 @@ customElements.define('usdfc-convert', class UsdfcConvertElement extends LitElem
         this.result = null;
         try {
             this.result = await RPCCall('PDPConvertUsdfcToFil', [amount, this.slippageBps]);
-            await this.loadKeyStatus();
+            await this.loadKeyStatus({ silent: true });
+            await this.fetchRate();
         } catch (error) {
             console.error('Convert failed:', error);
             this.convertError = error.message || String(error);
@@ -171,7 +261,7 @@ customElements.define('usdfc-convert', class UsdfcConvertElement extends LitElem
     }
 
     render() {
-        const visible = !this.keyStatusLoading && this.keyStatus?.configured && this.keyStatus?.usdfcKnown;
+        const visible = this.isVisible();
         if (this.keyStatusLoading) {
             return html`
                 <link rel="stylesheet" href="/ux/vendor/bootstrap.min.css">
@@ -197,18 +287,27 @@ customElements.define('usdfc-convert', class UsdfcConvertElement extends LitElem
                 Available: <strong>${this.keyStatus.usdfcBalance || '—'}</strong>
                 · FIL: <strong>${this.keyStatus.balance || '—'}</strong>
             </p>
+            <p class="mb-3">
+                Rate:
+                ${this.rateFilPerUsdfc
+                    ? html`<strong>≈ ${this.rateFilPerUsdfc} FIL / USDFC</strong>
+                        <span class="text-muted">(refreshes every 30s)</span>`
+                    : this.rateError
+                        ? html`<span class="text-warning">${this.rateError}</span>`
+                        : html`<span class="text-muted">fetching…</span>`}
+            </p>
 
             <div class="row g-2 align-items-end mb-3" style="max-width: 40rem;">
                 <div class="col-md-5">
                     <label class="form-label" for="usdfc-amount">Amount (USDFC)</label>
                     <input id="usdfc-amount" class="form-control" type="text" inputmode="decimal"
-                           .value=${this.amount} @input=${this.onAmountInput}
+                           @input=${this.onAmountInput}
                            ?disabled=${this.converting} placeholder="e.g. 10.5">
                 </div>
                 <div class="col-md-3">
                     <label class="form-label" for="slippage-bps">Slippage (bps)</label>
                     <input id="slippage-bps" class="form-control" type="number" min="0" max="5000"
-                           .value=${String(this.slippageBps)} @input=${this.onSlippageInput}
+                           value="100" @input=${this.onSlippageInput}
                            ?disabled=${this.converting}>
                 </div>
                 <div class="col-md-4">
@@ -219,14 +318,14 @@ customElements.define('usdfc-convert', class UsdfcConvertElement extends LitElem
                 </div>
             </div>
 
-            ${this.quoting ? html`<p class="text-muted">Fetching quote…</p>` : ''}
+            ${this.quoting && !this.quote ? html`<p class="text-muted">Fetching quote…</p>` : ''}
             ${this.quoteError ? html`<div class="alert alert-warning">${this.quoteError}</div>` : ''}
             ${this.quote ? html`
                 <div class="alert alert-secondary">
                     Expected ≈ <strong>${this.quote.amountOutFil} FIL</strong>
                     for ${this.quote.amountInUsdfc} USDFC
                     (min out uses ${this.slippageBps} bps slippage).
-                    <span class="text-muted">Quote refreshes every 30s.</span>
+                    ${this.quoting ? html`<span class="text-muted"> Updating…</span>` : ''}
                 </div>
             ` : ''}
 
