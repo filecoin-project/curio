@@ -17,6 +17,7 @@ func DefaultCurioConfig() *CurioConfig {
 			RequireActivationSuccess:       true,
 			RequireNotificationSuccess:     true,
 			PDPPullPieceMaxTasks:           20,
+			PDPUnclaimedUploadKeepHours:    NewDynamic(2),
 			IndexingMaxTasks:               8,
 			RemoteProofMaxUploads:          15,
 			ParkPieceMinFreeStoragePercent: 5,
@@ -421,6 +422,11 @@ type CurioSubsystemsConfig struct {
 	// Set 0 for unlimited. (Default: 20)
 	PDPPullPieceMaxTasks int
 
+	// PDPUnclaimedUploadKeepHours is how many hours to keep unclaimed PDP piece uploads (orphaned pdp_piecerefs
+	// with data_set_refcount = 0) before PieceGC deletes them. Must be >= 1. (Default: 2)
+	// Updates will affect running instances.
+	PDPUnclaimedUploadKeepHours *Dynamic[int]
+
 	// EnableCommP enables the commP task on te node. CommP is calculated before sending PublishDealMessage for a Mk12 deal
 	// Must have EnableDealMarket = True (Default: false)
 	EnableCommP bool
@@ -677,6 +683,9 @@ type CurioIngestConfig struct {
 }
 
 type CurioAlertingConfig struct {
+	// ClusterName identifies the Curio cluster in external alerts. When empty, the hostname of the node sending the alert is used.
+	ClusterName string
+
 	// MinimumWalletBalance is the minimum balance all active wallets. If the balance is below this value, an
 	// alerts will be triggered for the wallet
 	// Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "5 FIL")

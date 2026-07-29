@@ -177,6 +177,12 @@ including collateral and other operational resources.`,
 	},
 	"CurioAlertingConfig": {
 		{
+			Name: "ClusterName",
+			Type: "string",
+
+			Comment: `ClusterName identifies the Curio cluster in external alerts. When empty, the hostname of the node sending the alert is used.`,
+		},
+		{
 			Name: "MinimumWalletBalance",
 			Type: "types.FIL",
 
@@ -900,6 +906,14 @@ Overridden by the DATA_STORAGE env var and the --data CLI flag. (Default: /data)
 
 			Comment: `PDPPullPieceMaxTasks is the maximum number of PDPv0 pull-piece download tasks that can run simultaneously.
 Set 0 for unlimited. (Default: 20)`,
+		},
+		{
+			Name: "PDPUnclaimedUploadKeepHours",
+			Type: "int",
+
+			Comment: `PDPUnclaimedUploadKeepHours is how many hours to keep unclaimed PDP piece uploads (orphaned pdp_piecerefs
+with data_set_refcount = 0) before PieceGC deletes them. Must be >= 1. (Default: 2)
+Updates will affect running instances.`,
 		},
 		{
 			Name: "EnableCommP",

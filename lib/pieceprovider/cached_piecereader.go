@@ -26,7 +26,14 @@ var _ storiface.Reader = &pieceReader{}
 var MaxPieceReaderBurnBytes int64 = 1 << 20 // 1M
 var ReadBuf = 128 * (127 * 8)               // unpadded(128k)
 
+// MinRandomReadSize is the read-ahead cap for streaming ReadAt calls.
+// Requests at or below ExactReadAtMax are fetched exactly (no amplification).
 var MinRandomReadSize = int64(1 << 20)
+
+// ExactReadAtMax is the largest ReadAt satisfied without read-ahead.
+// Matches net/http MIME sniff length so HEAD/content-type peeks do not pull MinRandomReadSize.
+// market/retrieval.MIME_SNIFF_BYTES aliases this constant.
+const ExactReadAtMax int64 = 512
 
 type pieceGetter func(offset, size uint64) (io.ReadCloser, error)
 
@@ -243,12 +250,27 @@ func (p *pieceReader) ReadAt(b []byte, off int64) (n int, err error) {
 
 	readOff := off + filled
 	readSize := int64(len(b)) - filled
+	fetchSize := storageReadSize(readSize)
 
-	smallRead := readSize < MinRandomReadSize
+	if fetchSize == readSize {
+		// Exact fetch: peeks (incl. MIME sniff) and large reads go straight into the caller buffer.
+		bn, err := p.readInto(b[filled:], readOff)
+		if err != nil && err != io.EOF {
+			return int(filled), err
+		}
+		filled += int64(bn)
 
-	if smallRead {
-		// read into small read buf
-		readBuf := make([]byte, MinRandomReadSize)
+		sizeTag := "big"
+		if readSize <= ExactReadAtMax {
+			sizeTag = "exact"
+		}
+		_ = stats.RecordWithTags(p.atMCtx, []tag.Mutator{tag.Insert(metrics.PRReadSize, sizeTag)}, metrics.DagStorePRAtReadBytes.M(int64(bn)), metrics.DagStorePRAtReadCount.M(1))
+	} else {
+		// Read-ahead into remReads; never allocate more than MinRandomReadSize (1MiB).
+		if fetchSize > MinRandomReadSize {
+			fetchSize = MinRandomReadSize
+		}
+		readBuf := make([]byte, fetchSize)
 		bn, err := p.readInto(readBuf, readOff)
 		if err != nil && err != io.EOF {
 			return int(filled), err
@@ -256,27 +278,15 @@ func (p *pieceReader) ReadAt(b []byte, off int64) (n int, err error) {
 
 		_ = stats.RecordWithTags(p.atMCtx, []tag.Mutator{tag.Insert(metrics.PRReadSize, "small")}, metrics.DagStorePRAtReadBytes.M(int64(bn)), metrics.DagStorePRAtReadCount.M(1))
 
-		// reslice so that the slice is the data
 		readBuf = readBuf[:bn]
 
-		// fill user data
-		used := copy(b[filled:], readBuf[:])
+		used := copy(b[filled:], readBuf)
 		filled += int64(used)
 		readBuf = readBuf[used:]
 
-		// cache the rest
 		if len(readBuf) > 0 {
 			p.remReads.Add(readOff+int64(used), readBuf)
 		}
-	} else {
-		// read into user buf
-		bn, err := p.readInto(b[filled:], readOff)
-		if err != nil {
-			return int(filled), err
-		}
-		filled += int64(bn)
-
-		_ = stats.RecordWithTags(p.atMCtx, []tag.Mutator{tag.Insert(metrics.PRReadSize, "big")}, metrics.DagStorePRAtReadBytes.M(int64(bn)), metrics.DagStorePRAtReadCount.M(1))
 	}
 
 	if filled < int64(len(b)) {
@@ -284,6 +294,26 @@ func (p *pieceReader) ReadAt(b []byte, off int64) (n int, err error) {
 	}
 
 	return int(filled), nil
+}
+
+// storageReadSize chooses how many bytes to fetch for a ReadAt of the given size.
+// MIME-sniff peeks stay exact; mid-size streaming may read-ahead up to ReadBuf.
+// The read-ahead path never returns more than MinRandomReadSize (1MiB).
+func storageReadSize(requested int64) int64 {
+	if requested <= ExactReadAtMax {
+		return requested
+	}
+	if requested >= MinRandomReadSize {
+		return requested // exact into caller buffer (no extra alloc)
+	}
+	ahead := int64(ReadBuf)
+	if ahead < requested {
+		return requested
+	}
+	if ahead > MinRandomReadSize {
+		return MinRandomReadSize
+	}
+	return ahead
 }
 
 func (p *pieceReader) readInto(b []byte, off int64) (n int, err error) {

@@ -90,29 +90,23 @@ func TestPeerHTTPSendReceive(t *testing.T) {
 
 // TestPeerHTTPBidirectional verifies messages flow in both directions.
 //
-// Outbound ConnectToPeer is used for sending; each inbound POST refreshes the
-// receiver's connection via onConnect, so replies are read from that callback.
+// A node's connection is keyed by peer address: A's outbound connection to B is
+// also where A receives inbound messages from B (ServeHTTP routes by X-Peer-ID
+// into the existing connection rather than re-handshaking). This mirrors how the
+// production peering layer's handlePeer loop reads from the connection it was
+// handed.
 func TestPeerHTTPBidirectional(t *testing.T) {
-	peerA, addrA := startPeerHTTP(t, "A")
+	peerA, _ := startPeerHTTP(t, "A")
 	peerB, addrB := startPeerHTTP(t, "B")
 
-	var connOnB, connOnA harmonytask.PeerConnection
+	var connOnB harmonytask.PeerConnection
 	readyB := make(chan struct{})
-	readyA := make(chan struct{})
 	peerB.SetOnConnect(func(_ string, conn harmonytask.PeerConnection) {
 		connOnB = conn
 		select {
 		case <-readyB:
 		default:
 			close(readyB)
-		}
-	})
-	peerA.SetOnConnect(func(_ string, conn harmonytask.PeerConnection) {
-		connOnA = conn
-		select {
-		case <-readyA:
-		default:
-			close(readyA)
 		}
 	})
 
@@ -132,18 +126,12 @@ func TestPeerHTTPBidirectional(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []byte("A->B"), msgOnB)
 
-	connBA, err := peerB.ConnectToPeer(addrA)
-	require.NoError(t, err)
-	err = connBA.SendMessage([]byte("B->A"))
+	// B replies to A. A receives it on its existing connection to B (no new
+	// onConnect on A, since A already has a connection keyed to B's address).
+	err = connOnB.SendMessage([]byte("B->A"))
 	require.NoError(t, err)
 
-	select {
-	case <-readyA:
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for onConnect on A")
-	}
-
-	msgOnA, err := connOnA.ReceiveMessage()
+	msgOnA, err := connAB.ReceiveMessage()
 	require.NoError(t, err)
 	require.Equal(t, []byte("B->A"), msgOnA)
 }
@@ -158,17 +146,23 @@ func TestPeerHTTPMultipleMessages(t *testing.T) {
 	received := make([][]byte, 0, count)
 	ready := make(chan struct{})
 	once := sync.Once{}
+	// One connection is reused for all POSTs from the same peer, so onConnect
+	// fires once; drain it in a loop.
 	peerB.SetOnConnect(func(_ string, conn harmonytask.PeerConnection) {
-		once.Do(func() { close(ready) })
-		go func(c harmonytask.PeerConnection) {
-			msg, err := c.ReceiveMessage()
-			if err != nil {
-				return
-			}
-			msgsMu.Lock()
-			received = append(received, msg)
-			msgsMu.Unlock()
-		}(conn)
+		once.Do(func() {
+			close(ready)
+			go func(c harmonytask.PeerConnection) {
+				for {
+					msg, err := c.ReceiveMessage()
+					if err != nil {
+						return
+					}
+					msgsMu.Lock()
+					received = append(received, msg)
+					msgsMu.Unlock()
+				}
+			}(conn)
+		})
 	})
 
 	outConn, err := peerA.ConnectToPeer(addrB)
@@ -293,8 +287,8 @@ func TestPeerHTTPThreeNodes(t *testing.T) {
 }
 
 // TestPeerHTTPConnectionReuse verifies outbound ConnectToPeer reuses the same
-// connection object, while each inbound HTTP POST refreshes the receiver's
-// connection for that peer (onConnect fires per POST).
+// connection object, and that a burst of inbound HTTP POSTs from the same peer
+// reuses one receiver connection (onConnect fires once, not per POST).
 func TestPeerHTTPConnectionReuse(t *testing.T) {
 	peerA, _ := startPeerHTTP(t, "A")
 	peerB, addrB := startPeerHTTP(t, "B")
@@ -321,8 +315,8 @@ func TestPeerHTTPConnectionReuse(t *testing.T) {
 
 	time.Sleep(200 * time.Millisecond)
 
-	require.Equal(t, int32(5), atomic.LoadInt32(&onConnectCount),
-		"each inbound POST should refresh the peer connection")
+	require.Equal(t, int32(1), atomic.LoadInt32(&onConnectCount),
+		"inbound POSTs from a known peer should reuse the connection, firing onConnect once")
 }
 
 // TestPeerHTTPBinaryPayload verifies that arbitrary binary data is preserved.
@@ -408,17 +402,27 @@ func TestPeerHTTPServeHTTPValidation(t *testing.T) {
 }
 
 // TestPeerHTTPQueueFull verifies that a burst of inbound POSTs from the same
-// peer succeeds because each POST uses a fresh connection buffer.
+// peer reuses one connection, and once its buffer (cap 100) fills with nothing
+// draining it, further POSTs are dropped with 503 (the DB poll fallback then
+// ensures eventual consistency).
 func TestPeerHTTPQueueFull(t *testing.T) {
 	p := New("test:1000")
 
-	for i := 0; i < 101; i++ {
+	// No onConnect registered, so nothing drains the connection's buffer.
+	for i := 0; i < 100; i++ {
 		req := httptest.NewRequest(http.MethodPost, "/peer/v1", bytes.NewReader([]byte("msg")))
 		req.Header.Set("X-Peer-ID", "flood:2000")
 		w := httptest.NewRecorder()
 		p.ServeHTTP(w, req)
-		require.Equal(t, http.StatusOK, w.Code, "POST %d should succeed", i)
+		require.Equal(t, http.StatusOK, w.Code, "POST %d should fit in the buffer", i)
 	}
+
+	// Buffer is now full; the next POST on the reused connection is dropped.
+	req := httptest.NewRequest(http.MethodPost, "/peer/v1", bytes.NewReader([]byte("msg")))
+	req.Header.Set("X-Peer-ID", "flood:2000")
+	w := httptest.NewRecorder()
+	p.ServeHTTP(w, req)
+	require.Equal(t, http.StatusServiceUnavailable, w.Code, "POST past buffer capacity should be dropped")
 }
 
 // TestPeerHTTPConcurrentSenders verifies that multiple goroutines can send
@@ -435,17 +439,23 @@ func TestPeerHTTPConcurrentSenders(t *testing.T) {
 	received := make([][]byte, 0, total+1)
 	ready := make(chan struct{})
 	once := sync.Once{}
+	// One connection is reused for all POSTs from the same peer, so onConnect
+	// fires once; drain it in a loop.
 	peerB.SetOnConnect(func(_ string, conn harmonytask.PeerConnection) {
-		once.Do(func() { close(ready) })
-		go func(c harmonytask.PeerConnection) {
-			msg, err := c.ReceiveMessage()
-			if err != nil {
-				return
-			}
-			msgsMu.Lock()
-			received = append(received, msg)
-			msgsMu.Unlock()
-		}(conn)
+		once.Do(func() {
+			close(ready)
+			go func(c harmonytask.PeerConnection) {
+				for {
+					msg, err := c.ReceiveMessage()
+					if err != nil {
+						return
+					}
+					msgsMu.Lock()
+					received = append(received, msg)
+					msgsMu.Unlock()
+				}
+			}(conn)
+		})
 	})
 
 	outConn, err := peerA.ConnectToPeer(addrB)
@@ -570,42 +580,50 @@ func TestPeerHTTPCloseIsNoop(t *testing.T) {
 	t.Log("Close() is a no-op as documented — no breakage")
 }
 
-// TestPeerHTTPServeHTTPRefreshesInboundConnection verifies each inbound POST
-// replaces the stored connection and delivers the payload on the new connection.
-func TestPeerHTTPServeHTTPRefreshesInboundConnection(t *testing.T) {
+// TestPeerHTTPServeHTTPReusesInboundConnection verifies that repeated inbound
+// POSTs from the same peer reuse one connection (onConnect fires once) and the
+// payloads are delivered in order on that connection.
+func TestPeerHTTPServeHTTPReusesInboundConnection(t *testing.T) {
 	p := New("test:1000")
 
 	var connectCount int32
-	var lastConn harmonytask.PeerConnection
+	connCh := make(chan harmonytask.PeerConnection, 1)
 	peerAddr := "remote:2000"
-	p.SetOnConnect(func(addr string, conn harmonytask.PeerConnection) {
-		require.Equal(t, peerAddr, addr)
+	p.SetOnConnect(func(_ string, conn harmonytask.PeerConnection) {
 		atomic.AddInt32(&connectCount, 1)
-		lastConn = conn
+		select {
+		case connCh <- conn:
+		default:
+		}
 	})
 
-	post := func(body string) harmonytask.PeerConnection {
+	post := func(body string) {
 		req := httptest.NewRequest(http.MethodPost, "/peer/v1", bytes.NewReader([]byte(body)))
 		req.Header.Set("X-Peer-ID", peerAddr)
 		w := httptest.NewRecorder()
 		p.ServeHTTP(w, req)
 		require.Equal(t, http.StatusOK, w.Code)
-		time.Sleep(20 * time.Millisecond)
-		return lastConn
 	}
 
-	conn1 := post("first")
-	require.NotNil(t, conn1)
-	msg1, err := conn1.ReceiveMessage()
+	post("first")
+	var firstConn harmonytask.PeerConnection
+	select {
+	case firstConn = <-connCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("onConnect did not fire for first POST")
+	}
+	require.NotNil(t, firstConn)
+
+	post("second")
+	time.Sleep(50 * time.Millisecond)
+	require.Equal(t, int32(1), atomic.LoadInt32(&connectCount),
+		"inbound POST from a known peer should reuse the connection, not re-handshake")
+
+	msg1, err := firstConn.ReceiveMessage()
 	require.NoError(t, err)
 	require.Equal(t, []byte("first"), msg1)
 
-	conn2 := post("second")
-	require.NotNil(t, conn2)
-	require.NotSame(t, conn1, conn2, "inbound POST should replace stale connection")
-	require.Equal(t, int32(2), atomic.LoadInt32(&connectCount))
-
-	msg2, err := conn2.ReceiveMessage()
+	msg2, err := firstConn.ReceiveMessage()
 	require.NoError(t, err)
 	require.Equal(t, []byte("second"), msg2)
 }

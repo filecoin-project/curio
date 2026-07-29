@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <title>PDP Overview - Curio</title>
+    <script src="https://unpkg.com/htmx.org@1.9.5"
+        integrity="sha384-xcuj3WpfgjlKF+FXhSQFQ0ZNr39ln+hwjN3npfM9VBnUskLolQAcN80McRIVOPuO"
+        crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script type="module" src="pdp-overview-boot.mjs"></script>
+</head>
+<body style="visibility:hidden">
+    <curio-ux>
+        <div class="page pdp-overview-page">
+            <div class="page-header page-header-split">
+                <h1>PDP Overview</h1>
+                <aside id="pdp-wallet-aside"></aside>
+            </div>
+
+            <pdp-overview></pdp-overview>
+        </div>
+    </curio-ux>
+</body>
+</html>

@@ -719,9 +719,11 @@ When you initiate an upload with the `notify` field specified, the PDP Service w
 
 - **Fields:**
     - `extraData`: *(Optional)* Hex-encoded additional data for the contract call (max 256 bytes decoded).
-    - `pieceIds`: *(Optional)* Array of piece IDs to delete in a single batched, on-chain `schedulePieceDeletions` call. When this array is present and non-empty, it **overrides** the `pieceId` from the URL — every ID in the array is scheduled for deletion and the URL `pieceId` is ignored. When the array is omitted or empty, only the URL `pieceId` is deleted. Duplicate IDs are removed before processing. A maximum of 500 piece IDs may be supplied per call.
+    - `pieceIds`: *(Optional)* Array of piece IDs to delete in a single batched, on-chain `schedulePieceDeletions` call. When this array is present and non-empty, it **overrides** the `pieceId` from the URL — every ID in the array is scheduled for deletion and the URL `pieceId` is ignored. When the array is omitted or empty, only the URL `pieceId` is deleted. Duplicate IDs are removed before processing. A maximum of 200 piece IDs may be supplied per call.
 
 > **Note:** All requested pieces must belong to the data set. If any one of them is not found, the entire request fails with `404 Not Found` and no deletion is scheduled.
+
+> **Note:** If the data set already has 200 or more removals queued on-chain, the request is rejected with `429 Too Many Requests`. This check looks only at the existing queue, not the incoming batch, so an accepted request may push the queue above 200. The queue drains at the next proving period; retrying before then will not succeed.
 
 #### Response
 
@@ -739,9 +741,10 @@ When you initiate an upload with the `notify` field specified, the PDP Service w
 
 #### Errors
 
-- `400 Bad Request`: Invalid request, `extraData` exceeds size limit, a piece ID is out of range, or `pieceIds` exceeds the maximum batch size of 500.
+- `400 Bad Request`: Invalid request, `extraData` exceeds size limit, a piece ID is out of range, or `pieceIds` exceeds the maximum batch size of 200.
 - `401 Unauthorized`: Missing or invalid JWT token.
 - `404 Not Found`: Data set not found, or one or more of the requested pieces not found ("One or more piece not found").
+- `429 Too Many Requests`: The data set already has 200 or more scheduled removals queued on-chain; retry after the next proving period flushes the queue.
 - `500 Internal Server Error`: Failed to send on-chain transaction.
 
 ---

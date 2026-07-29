@@ -28,6 +28,7 @@ import (
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
+	"github.com/filecoin-project/curio/harmony/resources/ffigpu"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/chainsched"
 	"github.com/filecoin-project/curio/lib/curiochain"
@@ -95,6 +96,11 @@ func WindowPostScheduler(ctx context.Context, fc config.CurioFees, pc config.Cur
 }
 
 func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan struct{}) (*harmonytask.TaskEngine, error) {
+	if dependencies.DB.ReadOnly() {
+		log.Info("readonly database mode: skipping background tasks")
+		return nil, nil
+	}
+
 	cfg := dependencies.Cfg
 	db := dependencies.DB
 	full := dependencies.Chain
@@ -323,6 +329,8 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 
 		idxMax := taskhelp.Max(cfg.Subsystems.IndexingMaxTasks)
 
+		// Assign to outer vars (not :=) so Wake hooks below can see them.
+		// PDP indexing/IPNI tasks are registered via pdpnode.Attach above.
 		indexingTask = indexing.NewIndexingTask(db, sc, iStore, dependencies.SectorReader, dependencies.CachedPieceReader, cfg, idxMax)
 		ipniTask = indexing.NewIPNITask(db, cfg, idxMax, iStore)
 		fixRawSizeTask := storage_market.NewFixRawSize(db, sc, dependencies.SectorReader)
@@ -350,7 +358,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		"miner_addresses", miners,
 		"tasks", lo.Map(activeTasks, func(t harmonytask.TaskInterface, _ int) string { return t.TypeDetails().Name }))
 
-	ht, err := harmonytask.New(db, activeTasks, dependencies.ListenAddr, dependencies.PeerHTTP)
+	ht, err := harmonytask.New(db, activeTasks, dependencies.ListenAddr, dependencies.PeerHTTP, ffigpu.Inspector{})
 	if err != nil {
 		return nil, err
 	}

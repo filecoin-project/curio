@@ -103,6 +103,19 @@ func (h *taskTypeHandler) considerWork(from string, tasks []task, eventEmitter e
 		return true
 	}
 
+	// Skip IDs already running on this node. After a successful claim,
+	// running.Start happens before considerWork returns, so a later waterfall
+	// (TaskCompleted / bundle / tryStart) must not re-claim and log "already Taken".
+	if from != workSourceRecover {
+		tasks = lo.Filter(tasks, func(t task, _ int) bool {
+			_, running := h.running.Get(int64(t.ID))
+			return !running
+		})
+		if len(tasks) == 0 {
+			return true
+		}
+	}
+
 	if h.Max.AtMax() {
 		log.Debugw("did not accept task", "name", h.Name, "reason", "at max already")
 		return false
@@ -117,19 +130,7 @@ func (h *taskTypeHandler) considerWork(from string, tasks []task, eventEmitter e
 	ids := lo.Map(tasks, func(t task, _ int) TaskID {
 		return t.ID
 	})
-	// CanAccept: use the cache if the background poller filled it; otherwise
-	// call fresh. accept.Consume() returns nil if the cache expired, so we
-	// correctly fall back to a live call.
-	var tIDs []TaskID
-	cached := toTaskIDs(h.accept.Consume())
-	if len(cached) > 0 {
-		tIDs = lo.Filter(cached, func(tID TaskID, _ int) bool {
-			return lo.Contains(ids, tID)
-		})
-	} else {
-		tIDs, err = h.CanAccept(ids, h.TaskEngine)
-	}
-
+	tIDs, err := h.resolveAcceptedIDs(ids)
 	if err != nil {
 		log.Error(err)
 		return false
@@ -182,7 +183,9 @@ func (h *taskTypeHandler) considerWork(from string, tasks []task, eventEmitter e
 			return false
 		}
 		if len(tasksAccepted) == 0 {
-			log.Infow("did not accept task", "task_id", tIDs, "reason", "already Taken", "name", h.Name)
+			// Multi-node contention (or a rare local race). Self-races after a
+			// successful claim are filtered via running / NoteClaimed.
+			log.Debugw("did not accept task", "task_id", tIDs, "reason", "already Taken", "name", h.Name)
 
 			return false
 		}
@@ -242,14 +245,26 @@ func (h *taskTypeHandler) considerWork(from string, tasks []task, eventEmitter e
 		tag.Upsert(taskNameTag, h.Name),
 	}, TaskMeasures.ActiveTasks.M(int64(h.Max.ActiveThis())))
 
+	// Drop claimed IDs from the scheduler's available set immediately (same
+	// thread). Waiting for async TaskStarted left a window where another
+	// waterfall re-tried the SQL claim and logged "already Taken".
+	eventEmitter.NoteClaimed(h.Name, tIDs)
+
 	// 6. Launch a goroutine for each claimed task. Each goroutine:
-	//   - Emits TaskStarted so the scheduler removes it from available tasks
+	//   - Emits TaskStarted so peers are notified (local map already cleared)
 	//   - Calls Do() with a stillOwned callback for single-writer safety
 	//   - On completion, records results to DB and emits TaskCompleted
 	//   - On failure, emits TaskNew to re-add the task for retry
 	i := 0
 	for _, tID := range tIDs {
-		taskCtx, taskCancel := context.WithCancel(h.TaskEngine.cfg.ctx)
+		// Derive from context.Background(), not the engine ctx: a graceful
+		// shutdown (which cancels the engine ctx to stop picking up new work)
+		// must NOT cancel tasks already running, or in-flight time-sensitive
+		// work (WinningPost/WindowPost) would be aborted mid-flight even though
+		// GracefullyTerminate explicitly waits for it to finish. The only things
+		// that cancel a running task are preemption (handle.Preempt) and the
+		// task's own completion (the deferred taskCancel below).
+		taskCtx, taskCancel := context.WithCancel(context.Background())
 		meta := &completionMeta{vals: make(map[any]any)}
 		taskCtx = context.WithValue(taskCtx, completionMetaKey{}, meta)
 		handle := h.running.Start(int64(tID), taskCancel)
@@ -579,6 +594,31 @@ func reorderTaskIDsByPostedOrder(tasks []task, ids []TaskID) []TaskID {
 		}
 	}
 	return out
+}
+
+// resolveAcceptedIDs applies the acceptcache (when fresh) and falls back to a
+// live CanAccept call on miss, expiry, or empty intersection. An empty
+// intersection with a non-empty cache is a miss for this candidate set — not
+// a CanAccept refusal.
+func (h *taskTypeHandler) resolveAcceptedIDs(ids []TaskID) ([]TaskID, error) {
+	matched, hadFresh := h.accept.TakeMatching(toInt64s(ids))
+	if hadFresh && len(matched) > 0 {
+		tIDs := toTaskIDs(matched)
+		missing := lo.Filter(ids, func(id TaskID, _ int) bool {
+			return !lo.Contains(tIDs, id)
+		})
+		if len(missing) == 0 {
+			return tIDs, nil
+		}
+		extra, err := h.CanAccept(missing, h.TaskEngine)
+		if err != nil {
+			return nil, err
+		}
+		return append(tIDs, extra...), nil
+	}
+	// hadFresh && len(matched)==0 → unrelated cached ids; live CanAccept.
+	// !hadFresh → empty/expired cache; live CanAccept.
+	return h.CanAccept(ids, h.TaskEngine)
 }
 
 // toInt64s / toTaskIDs bridge the TaskID (int) and int64 domains used by

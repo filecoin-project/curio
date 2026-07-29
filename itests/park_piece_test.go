@@ -17,6 +17,7 @@ import (
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
+	"github.com/filecoin-project/curio/harmony/resources/ffigpu"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/parkpiece"
 	"github.com/filecoin-project/curio/lib/paths"
@@ -55,7 +56,7 @@ func TestParkPieceCanAccept_SliceBounds(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create a real TaskEngine so RunningCount works.
-	engine, err := harmonytask.New(db, []harmonytask.TaskInterface{ppt}, "testhost:1234", noopPeerConnector{})
+	engine, err := harmonytask.New(db, []harmonytask.TaskInterface{ppt}, "testhost:1234", noopPeerConnector{}, ffigpu.Inspector{})
 	require.NoError(t, err)
 	t.Cleanup(func() { engine.GracefullyTerminate() })
 

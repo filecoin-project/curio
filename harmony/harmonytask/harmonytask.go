@@ -35,6 +35,12 @@ const pollRarely = time.Second * 30
 // polling-heavy mode until peering is re-established.
 const pollFrequently = time.Second * 3
 
+// idleTryInterval is how often the scheduler invokes IAmBored when the event
+// loop is otherwise quiet. This does not poll the DB for existing work — that
+// stays on the rare background poller. Per-task Every/SingletonTaskAdder remain
+// the rate limiters for speculative work.
+const idleTryInterval = time.Second
+
 // cleanupFrequency controls how often dead worker cleanup runs. Each node
 // independently checks for stale harmony_machines entries on this interval.
 var cleanupFrequency = 5 * time.Minute
@@ -65,9 +71,12 @@ type TaskTypeDetails struct {
 	RetryWait func(retries int) time.Duration
 
 	// IAmBored is called (when populated) when there's capacity but no work.
+	// Invoked after the waterfall considers known tasks, and on a short idle
+	// tick (idleTryInterval) that does not poll/claim existing DB work.
+	// Rate-limit inside the callback (passcall.Every / SingletonTaskAdder).
 	// Tasks added will be proposed to CanAccept() on this machine.
 	// Ex: make new CC sectors, clean-up, or retrying pipelines that failed in later states.
-
+	//
 	// This is starved on busy machines, so use it to gather "above and beyond" work only.
 	IAmBored func(AddTaskFunc) error
 
@@ -248,9 +257,10 @@ func New(
 	db *harmonydb.DB,
 	impls []TaskInterface,
 	hostnameAndPort string,
-	peerConnector PeerConnectorInterface) (*TaskEngine, error) {
+	peerConnector PeerConnectorInterface,
+	inspector resources.ResourceInspector) (*TaskEngine, error) {
 
-	reg, err := resources.Register(db, hostnameAndPort)
+	reg, err := resources.Register(db, hostnameAndPort, inspector)
 	if err != nil {
 		return nil, fmt.Errorf("cannot get resources: %w", err)
 	}
@@ -348,7 +358,7 @@ func NewWithReg(
 		}
 		for _, w := range taskRet {
 			h := e.taskMap[w.Name]
-			if h == nil || !h.considerWork(workSourceRecover, []task{{ID: TaskID(w.ID), UpdateTime: w.UpdateTime, PostedTime: w.PostedTime, Retries: w.Retries}}, eventEmitter{e.schedulerChannel}) {
+			if h == nil || !h.considerWork(workSourceRecover, []task{{ID: TaskID(w.ID), UpdateTime: w.UpdateTime, PostedTime: w.PostedTime, Retries: w.Retries}}, eventEmitter{schedulerChannel: e.schedulerChannel}) {
 				// Task type no longer registered on this node (config change);
 				// release the claim so another node can pick it up.
 				_, err := db.Exec(e.cfg.ctx, `UPDATE harmony_task SET owner_id=NULL WHERE id=$1 AND owner_id=$2`, w.ID, e.cfg.ownerID)
@@ -417,7 +427,8 @@ type task struct {
 //
 // When capacity remains after processing all known work, IAmBored callbacks
 // are invoked in separate goroutines to avoid blocking the scheduler with
-// DB writes from speculative work creation.
+// DB writes from speculative work creation. Per-task rate limits belong in
+// IAmBored itself (passcall.Every / SingletonTaskAdder).
 func (e *TaskEngine) pollerTryAllWork(taskSource taskSource, eventEmitter eventEmitter) error {
 	schedulable := !e.atomics.yieldBackground.Load()
 	defer func() {
@@ -479,25 +490,35 @@ func (e *TaskEngine) pollerTryAllWork(taskSource taskSource, eventEmitter eventE
 		return nil
 	}
 
-	// IAmBored: when all known work is exhausted and capacity remains, let
-	// handlers generate speculative work (e.g., new CC sectors). Runs in a
-	// goroutine to keep DB writes off the scheduler thread.
+	e.invokeIAmBored()
+	return nil
+}
+
+// invokeIAmBored asks each handler with spare capacity to create speculative
+// work. It does not query or claim existing harmony_task rows — that remains
+// on the event-driven waterfall / rare DB poll. Safe to call on a short idle
+// tick; handlers rate-limit themselves.
+func (e *TaskEngine) invokeIAmBored() {
+	if e.atomics.yieldBackground.Load() {
+		return
+	}
 	for _, v := range e.handlers {
 		if ct, err := v.AssertMachineHasCapacity(); err != nil || ct == 0 {
 			continue
 		}
-		if v.IAmBored != nil {
-			go func() {
-				err := v.IAmBored(func(extraInfo func(TaskID, *harmonydb.Tx) (shouldCommit bool, seriousError error)) {
-					e.AddTaskByName(v.Name, extraInfo)
-				})
-				if err != nil {
-					log.Error("IAmBored failed: ", err)
-				}
-			}()
+		if v.IAmBored == nil {
+			continue
 		}
+		h := v
+		go func() {
+			err := h.IAmBored(func(extraInfo func(TaskID, *harmonydb.Tx) (shouldCommit bool, seriousError error)) {
+				e.AddTaskByName(h.Name, extraInfo)
+			})
+			if err != nil {
+				log.Error("IAmBored failed: ", err)
+			}
+		}()
 	}
-	return nil
 }
 
 func oldestFirstSeq(taskTypes map[string]*taskTypeHandler, ts taskSource, preferredTaskRunOrder map[string][]string) []*taskTypeHandler {
@@ -519,21 +540,32 @@ func oldestFirstSeq(taskTypes map[string]*taskTypeHandler, ts taskSource, prefer
 
 	var result []*taskTypeHandler
 	alreadySeen := make(map[string]bool)
+	appendType := func(name string) {
+		if alreadySeen[name] {
+			return
+		}
+		alreadySeen[name] = true
+		result = append(result, taskTypes[name])
+	}
+
+	// Time-sensitive task types always come first (oldest-first among them),
+	// so a battering-ram task (e.g. WindowPost/WinningPost) is attempted ahead
+	// of ordinary pipeline work whenever it has something queued.
+	for _, na := range oldestInOrder {
+		if h := taskTypes[na.name]; h != nil && h.TimeSensitive {
+			appendType(na.name)
+		}
+	}
+
 	for _, na := range oldestInOrder {
 		if alreadySeen[na.name] {
 			continue
 		}
 		// Run downstream pipeline stages (pipeline end first), then this type.
 		for _, name := range preferredTaskRunOrder[na.name] {
-			if !alreadySeen[name] {
-				alreadySeen[name] = true
-				result = append(result, taskTypes[name])
-			}
+			appendType(name)
 		}
-		if !alreadySeen[na.name] {
-			alreadySeen[na.name] = true
-			result = append(result, taskTypes[na.name])
-		}
+		appendType(na.name)
 	}
 	return result
 }
@@ -573,6 +605,16 @@ func (e *TaskEngine) OwnerID() int { return e.cfg.ownerID }
 
 // TestONLY_SetPollDuration overrides the DB polling interval (useful for tests).
 func (e *TaskEngine) TestONLY_SetPollDuration(d time.Duration) { e.atomics.pollDuration.Store(d) }
+
+// TestONLY_SeedAcceptCache injects pre-computed CanAccept IDs for a task type
+// (integration tests for accept-cache miss vs refuse behavior).
+func (e *TaskEngine) TestONLY_SeedAcceptCache(taskType string, ids []int64) {
+	h := e.taskMap[taskType]
+	if h == nil || h.accept == nil {
+		return
+	}
+	h.accept.Add(ids)
+}
 
 // TestONLY_TimeSensitiveSchedulerStarts returns how often the scheduler handled
 // schedulerSourceStartTimeSensitive (preempt + claim) for integration tests.

@@ -9,21 +9,32 @@ import (
 	"math/big"
 	"net/url"
 	"strings"
+	"sync"
+	"time"
 
+	"github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/go-address"
+
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/lib/urlhelper"
 	"github.com/filecoin-project/curio/pdp/contract"
 	pdpwallet "github.com/filecoin-project/curio/pdp/wallet"
 	"github.com/filecoin-project/curio/tasks/indexing"
 
 	"github.com/filecoin-project/lotus/chain/types"
+	"github.com/filecoin-project/lotus/chain/types/ethtypes"
 )
+
+// Minimal ERC-20 ABI for balanceOf(address).
+const erc20BalanceOfABI = `[{"inputs":[{"name":"account","type":"address"}],"name":"balanceOf","outputs":[{"name":"","type":"uint256"}],"stateMutability":"view","type":"function"}]`
 
 // PDPService represents a PDP service
 type PDPService struct {
@@ -153,6 +164,9 @@ func (a *WebRPC) CreatePDPKey(ctx context.Context) (*pdpwallet.CreatedKey, error
 		log.Errorf("CreatePDPKey: %v", err)
 		return nil, err
 	}
+	if filAddr, err := ethToFilAddress(created.Address); err == nil {
+		created.FilAddress = filAddr.String()
+	}
 	return created, nil
 }
 
@@ -169,21 +183,123 @@ func (a *WebRPC) enrichPDPKeyStatus(ctx context.Context, status pdpwallet.Status
 		return status, nil
 	}
 
+	if filAddr, err := ethToFilAddress(status.Address); err == nil {
+		status.FilAddress = filAddr.String()
+	} else {
+		log.Warnf("PDPKeyStatus: fil address derivation failed for %s: %v", status.Address, err)
+	}
+
+	// Chain lookups can be slow (eth RPC especially). Detach from the browser
+	// RPC context and allow enough time for FIL + USDFC in parallel.
+	enrichCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
 	client, err := a.Deps.EthClient.Val()
 	if err != nil {
 		log.Warnf("PDPKeyStatus: eth client unavailable: %v", err)
 		return status, nil
 	}
 
-	balance, err := client.BalanceAt(ctx, common.HexToAddress(status.Address), nil)
-	if err != nil {
-		log.Warnf("PDPKeyStatus: balance lookup failed for %s: %v", status.Address, err)
-		return status, nil
-	}
+	ethAddr := common.HexToAddress(status.Address)
+	var (
+		wg          sync.WaitGroup
+		actorExists bool
+		balance     *big.Int
+		balanceErr  error
+		usdfcBal    *big.Int
+		usdfcErr    error
+	)
+	wg.Add(3)
 
-	status.Balance = types.FIL(types.BigFromBytes(balance.Bytes())).Short()
-	status.Funded = balance.Sign() > 0
+	go func() {
+		defer wg.Done()
+		if status.FilAddress == "" {
+			return
+		}
+		filAddr, err := address.NewFromString(status.FilAddress)
+		if err != nil {
+			return
+		}
+		act, err := a.Deps.Chain.StateGetActor(enrichCtx, filAddr, types.EmptyTSK)
+		if err == nil && act != nil {
+			actorExists = true
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		// Prefer lotus WalletBalance (f4) — usually faster/more reliable than eth BalanceAt.
+		if status.FilAddress != "" {
+			if filAddr, err := address.NewFromString(status.FilAddress); err == nil {
+				filBal, err := a.Deps.Chain.WalletBalance(enrichCtx, filAddr)
+				if err == nil {
+					balance = filBal.Int
+					return
+				}
+				log.Warnf("PDPKeyStatus: WalletBalance failed for %s, falling back to eth: %v", status.Address, err)
+			}
+		}
+		balance, balanceErr = client.BalanceAt(enrichCtx, ethAddr, nil)
+	}()
+
+	go func() {
+		defer wg.Done()
+		usdfcBal, usdfcErr = erc20BalanceOf(enrichCtx, client, ethAddr)
+	}()
+
+	wg.Wait()
+
+	if actorExists {
+		status.ActorExists = true
+	}
+	if balanceErr != nil {
+		log.Warnf("PDPKeyStatus: FIL balance lookup failed for %s: %v", status.Address, balanceErr)
+	} else if balance != nil {
+		status.BalanceKnown = true
+		status.Balance = types.FIL(types.BigFromBytes(balance.Bytes())).Short()
+		status.Funded = balance.Sign() > 0
+		if status.Funded {
+			status.ActorExists = true
+		}
+	}
+	if usdfcErr != nil {
+		log.Warnf("PDPKeyStatus: USDFC balance lookup failed for %s: %v", status.Address, usdfcErr)
+	} else if usdfcBal != nil {
+		status.UsdfcKnown = true
+		status.UsdfcBalance = formatUsdfc(usdfcBal) + " USDFC"
+	}
 	return status, nil
+}
+
+func erc20BalanceOf(ctx context.Context, client ethchain.EthClient, account common.Address) (*big.Int, error) {
+	token, err := contract.USDFCAddress()
+	if err != nil {
+		return nil, err
+	}
+	parsed, err := abi.JSON(strings.NewReader(erc20BalanceOfABI))
+	if err != nil {
+		return nil, xerrors.Errorf("parse erc20 abi: %w", err)
+	}
+	data, err := parsed.Pack("balanceOf", account)
+	if err != nil {
+		return nil, xerrors.Errorf("pack balanceOf: %w", err)
+	}
+	out, err := client.CallContract(ctx, ethereum.CallMsg{To: &token, Data: data}, nil)
+	if err != nil {
+		return nil, err
+	}
+	vals, err := parsed.Unpack("balanceOf", out)
+	if err != nil {
+		return nil, xerrors.Errorf("unpack balanceOf: %w", err)
+	}
+	if len(vals) == 0 {
+		return nil, xerrors.Errorf("empty balanceOf result")
+	}
+	bal, ok := vals[0].(*big.Int)
+	if !ok {
+		return nil, xerrors.Errorf("unexpected balanceOf type %T", vals[0])
+	}
+	return bal, nil
 }
 
 func (a *WebRPC) ListPDPKeys(ctx context.Context) ([]string, error) {
@@ -248,6 +364,7 @@ type FSPDPOffering struct {
 	MinProvingPeriodInEpochs int64  `json:"min_proving_period"`
 	Location                 string `json:"location"`
 	PaymentTokenAddress      string `json:"payment_token_address"`
+	CapacityTiB              int64  `json:"capacity_tib"`
 }
 
 // capabilitiesToOffering converts contract capabilities to FSPDPOffering and remaining custom capabilities
@@ -282,6 +399,8 @@ func capabilitiesToOffering(keys []string, values [][]byte) (*FSPDPOffering, map
 			offering.Location = string(value)
 		case contract.CapPaymentToken:
 			offering.PaymentTokenAddress = contract.DecodeAddressCapability(value).Hex()
+		case contract.CapCapacityTiB:
+			offering.CapacityTiB = new(big.Int).SetBytes(value).Int64()
 		default:
 			// Custom capability - encode for safe round-trip through JSON/browser
 			customCaps[key] = contract.EncodeCapabilityForDisplay(value)
@@ -378,7 +497,7 @@ func (a *WebRPC) FSRegistryStatus(ctx context.Context) (*FSRegistryStatus, error
 	}, nil
 }
 
-func (a *WebRPC) FSRegister(ctx context.Context, name, description, location string) error {
+func (a *WebRPC) FSRegister(ctx context.Context, name, description, location string, capacityTiB int64) error {
 	if name == "" {
 		return fmt.Errorf("name cannot be empty")
 	}
@@ -396,6 +515,10 @@ func (a *WebRPC) FSRegister(ctx context.Context, name, description, location str
 
 	if len(location) > 128 {
 		return xerrors.Errorf("location must be less than 128 characters")
+	}
+
+	if capacityTiB <= 0 {
+		return xerrors.Errorf("storage capacity must be greater than 0 TiB")
 	}
 
 	pdpAddress, err := a.getPDPAddress(ctx)
@@ -460,9 +583,10 @@ func (a *WebRPC) FSRegister(ctx context.Context, name, description, location str
 		MinProvingPeriodInEpochs: big.NewInt(1440),              // 12 hours
 		Location:                 location,
 		PaymentTokenAddress:      tokenAddress,
+		CapacityTiB:              big.NewInt(capacityTiB),
 	}
 
-	err = contract.FSRegister(ctx, a.Deps.DB, a.Deps.Chain, eclient, name, description, offering, nil)
+	err = contract.FSRegister(ctx, a.Deps.DB, eclient, name, description, offering, nil)
 	if err != nil {
 		return xerrors.Errorf("failed to register storage provider with service contract: %w", err)
 	}
@@ -539,40 +663,12 @@ func (a *WebRPC) FSUpdatePDP(ctx context.Context, pdpOffering *FSPDPOffering, ca
 		}
 	}
 
-	if pdpOffering.MinPieceSizeInBytes < 127 {
-		return fmt.Errorf("minimum piece size must be at least 127 bytes")
-	} else if pdpOffering.MaxPieceSizeInBytes < 127 {
-		return fmt.Errorf("maximum piece size must be at least 127 bytes")
-	} else if pdpOffering.MaxPieceSizeInBytes < pdpOffering.MinPieceSizeInBytes {
-		return fmt.Errorf("maximum piece size must be greater than minimum piece size")
-	} else if pdpOffering.MaxPieceSizeInBytes > 64*1024*1024*1024 {
-		return fmt.Errorf("maximum piece size must be less than 64 GiB")
-	}
-
-	if pdpOffering.StoragePricePerTibPerDay < 0 {
-		return fmt.Errorf("storage price per TiB per day must be greater than or equal to 0")
-	}
-
-	if pdpOffering.MinProvingPeriodInEpochs < 0 {
-		return fmt.Errorf("minimum proving period in epochs must be greater than or equal to 0")
-	}
-
 	if len(pdpOffering.Location) > 128 {
 		return fmt.Errorf("location cannot be longer than 128 characters")
 	}
 
-	var peerID peer.ID
-	if pdpOffering.IpniIpfs || pdpOffering.IpniPiece {
-		_, err := a.Deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
-			peerID, err = indexing.PDPInitProvider(tx)
-			if err != nil {
-				return false, xerrors.Errorf("initializing PDP IPNI provider: %w", err)
-			}
-			return true, nil
-		})
-		if err != nil {
-			return xerrors.Errorf("in transaction: %w", err)
-		}
+	if pdpOffering.CapacityTiB <= 0 {
+		return fmt.Errorf("storage capacity must be greater than 0 TiB")
 	}
 
 	pdpAddress, err := a.getPDPAddress(ctx)
@@ -604,17 +700,78 @@ func (a *WebRPC) FSUpdatePDP(ctx context.Context, pdpOffering *FSPDPOffering, ca
 		return xerrors.Errorf("provider is not registered")
 	}
 
+	pid, err := registry.GetProviderIdByAddress(&bind.CallOpts{Context: ctx}, pdpAddress)
+	if err != nil {
+		return fmt.Errorf("failed to get provider id: %w", err)
+	}
+
+	hasProduct, err := registry.ProviderHasProduct(&bind.CallOpts{Context: ctx}, pid, uint8(0))
+	if err != nil {
+		return fmt.Errorf("failed to check if provider has product: %w", err)
+	}
+	if !hasProduct {
+		return xerrors.Errorf("provider does not have a PDP product")
+	}
+
+	providerWithProduct, err := registry.GetProviderWithProduct(&bind.CallOpts{Context: ctx}, pid, uint8(0))
+	if err != nil {
+		return fmt.Errorf("failed to get provider with product: %w", err)
+	}
+
+	currentOffering, _ := capabilitiesToOffering(providerWithProduct.Product.CapabilityKeys, providerWithProduct.ProductCapabilityValues)
+	currentOffering.ServiceURL = pdpOffering.ServiceURL
+	currentOffering.Location = pdpOffering.Location
+	currentOffering.CapacityTiB = pdpOffering.CapacityTiB
+
+	if currentOffering.MinPieceSizeInBytes < 127 {
+		return fmt.Errorf("minimum piece size must be at least 127 bytes")
+	} else if currentOffering.MaxPieceSizeInBytes < 127 {
+		return fmt.Errorf("maximum piece size must be at least 127 bytes")
+	} else if currentOffering.MaxPieceSizeInBytes < currentOffering.MinPieceSizeInBytes {
+		return fmt.Errorf("maximum piece size must be greater than minimum piece size")
+	} else if currentOffering.MaxPieceSizeInBytes > 64*1024*1024*1024 {
+		return fmt.Errorf("maximum piece size must be less than 64 GiB")
+	}
+
+	if currentOffering.StoragePricePerTibPerDay < 0 {
+		return fmt.Errorf("storage price per TiB per day must be greater than or equal to 0")
+	}
+
+	if currentOffering.MinProvingPeriodInEpochs < 0 {
+		return fmt.Errorf("minimum proving period in epochs must be greater than or equal to 0")
+	}
+
+	var peerID peer.ID
+	if currentOffering.IpniIpfs || currentOffering.IpniPiece {
+		_, err := a.Deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+			peerID, err = indexing.PDPInitProvider(tx)
+			if err != nil {
+				return false, xerrors.Errorf("initializing PDP IPNI provider: %w", err)
+			}
+			return true, nil
+		})
+		if err != nil {
+			return xerrors.Errorf("in transaction: %w", err)
+		}
+	}
+
+	tokenAddress, err := contract.USDFCAddress()
+	if err != nil {
+		return xerrors.Errorf("failed to get USDFC address: %w", err)
+	}
+
 	offering := contract.PDPOfferingData{
-		ServiceURL:               pdpOffering.ServiceURL,
-		MinPieceSizeInBytes:      big.NewInt(pdpOffering.MinPieceSizeInBytes),
-		MaxPieceSizeInBytes:      big.NewInt(pdpOffering.MaxPieceSizeInBytes),
-		IpniPiece:                pdpOffering.IpniPiece,
-		IpniIpfs:                 pdpOffering.IpniIpfs,
+		ServiceURL:               currentOffering.ServiceURL,
+		MinPieceSizeInBytes:      big.NewInt(currentOffering.MinPieceSizeInBytes),
+		MaxPieceSizeInBytes:      big.NewInt(currentOffering.MaxPieceSizeInBytes),
+		IpniPiece:                currentOffering.IpniPiece,
+		IpniIpfs:                 currentOffering.IpniIpfs,
 		IpniPeerID:               []byte(peerID),
-		StoragePricePerTibPerDay: big.NewInt(pdpOffering.StoragePricePerTibPerDay),
-		MinProvingPeriodInEpochs: big.NewInt(pdpOffering.MinProvingPeriodInEpochs),
-		Location:                 pdpOffering.Location,
-		PaymentTokenAddress:      common.HexToAddress("0x0000000000000000000000000000000000000000"),
+		StoragePricePerTibPerDay: big.NewInt(currentOffering.StoragePricePerTibPerDay),
+		MinProvingPeriodInEpochs: big.NewInt(currentOffering.MinProvingPeriodInEpochs),
+		Location:                 currentOffering.Location,
+		PaymentTokenAddress:      tokenAddress,
+		CapacityTiB:              big.NewInt(currentOffering.CapacityTiB),
 	}
 
 	hash, err := contract.FSUpdatePDPService(ctx, a.Deps.DB, eclient, offering, capabilities)
@@ -652,4 +809,12 @@ func (a *WebRPC) getPDPAddress(ctx context.Context) (common.Address, error) {
 		return common.Address{}, fmt.Errorf("failed to retrieve PDP key")
 	}
 	return common.HexToAddress(existingAddress), nil
+}
+
+func ethToFilAddress(ethAddr string) (address.Address, error) {
+	ea, err := ethtypes.ParseEthAddress(ethAddr)
+	if err != nil {
+		return address.Undef, err
+	}
+	return ea.ToFilecoinAddress()
 }

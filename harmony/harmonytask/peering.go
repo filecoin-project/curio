@@ -123,6 +123,8 @@ func startPeering(h *TaskEngine, peerConnector PeerConnectorInterface) *peering 
 				continue
 			}
 			go func(peer string) {
+				// PeerHTTP.ConnectToPeer is lazy and does not dial; it rarely
+				// errors. Handshake/send failures in handlePeer degrade polling.
 				conn, err := p.peerConnector.ConnectToPeer(peer)
 				if err != nil {
 					log.Warnw("failed to connect to peer", "peer", peer, "error", err)
@@ -162,10 +164,12 @@ func (p *peering) handlePeer(peerAddr string, conn PeerConnection) {
 	idMsg, err := marshalPeerMessage(messageTypeIdentity, 0, taskOther{HostAndPort: p.h.cfg.hostAndPort})
 	if err != nil {
 		log.Warnw("failed to marshal identity", "peer", peerAddr, "error", err)
+		p.h.atomics.pollDuration.Store(pollFrequently)
 		return
 	}
 	if err := conn.SendMessage(idMsg); err != nil {
 		log.Warnw("failed to send identity to peer", "peer", peerAddr, "error", err)
+		p.h.atomics.pollDuration.Store(pollFrequently)
 		return
 	}
 
@@ -179,6 +183,7 @@ func (p *peering) handlePeer(peerAddr string, conn PeerConnection) {
 		 WHERE hm.host_and_port = $1`, peerAddr).Scan(&machineDetails.ID, &machineDetails.Tasks)
 	if err != nil {
 		log.Warnw("failed to get machine details from peer", "peer", peerAddr, "error", err)
+		p.h.atomics.pollDuration.Store(pollFrequently)
 		return
 	}
 
@@ -187,6 +192,10 @@ func (p *peering) handlePeer(peerAddr string, conn PeerConnection) {
 	defer func() {
 		remove()
 		log.Infow("removed dead peer", "peer", peerAddr)
+		// No live peers left → rely on denser DB polling until reconnect.
+		if !p.HasPeers() {
+			p.h.atomics.pollDuration.Store(pollFrequently)
+		}
 	}()
 
 	for {

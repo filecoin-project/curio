@@ -46,6 +46,7 @@ func (p *PrometheusAlertManager) SendAlert(data *AlertPayload) error {
 			StartsAt: data.Time,
 			Labels: map[string]string{
 				"alertName": k,
+				"cluster":   data.Source,
 				"severity":  data.Severity,
 				"instance":  data.Source,
 			},

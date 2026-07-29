@@ -54,7 +54,7 @@ func (s *SlackWebhook) SendAlert(data *AlertPayload) error {
 				Type: "header",
 				Text: &TextBlock{
 					Type: "plain_text",
-					Text: "🚨 " + data.Summary,
+					Text: "🚨 " + data.Summary + " [" + data.Source + "]",
 				},
 			},
 			{

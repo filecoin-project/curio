@@ -36,6 +36,17 @@ type Storage interface {
 	// This allows some other system to claim space for this task. Returns a cleanup function
 	Claim(taskID int) (func() error, error)
 }
+
+// ResourceInspector reports the machine resources available to the task engine.
+// It is injected into Register (via harmonytask.New) so that the GPU probe — the
+// only part that requires filecoin-ffi/CGO — lives outside this package. Curio
+// supplies an FFI-backed implementation (harmony/resources/ffigpu); consumers
+// that build without CGO supply their own (e.g. a GPU-less stub). Implementations
+// should fill Cpu, Ram and Gpu; MachineID is assigned by Register.
+type ResourceInspector interface {
+	GetResources() (Resources, error)
+}
+
 type Reg struct {
 	Resources
 	shutdown atomic.Bool
@@ -45,9 +56,9 @@ var logger = logging.Logger("harmonytask")
 
 var lotusRE = regexp.MustCompile("lotus-worker|lotus-harmony|yugabyted|yb-master|yb-tserver")
 
-// Register probes this host and records capacity in harmony_machines.
-func Register(db *harmonydb.DB, hostnameAndPort string) (*Reg, error) {
-	res, err := getResources()
+// Register probes this host via inspector and records capacity in harmony_machines.
+func Register(db *harmonydb.DB, hostnameAndPort string, inspector ResourceInspector) (*Reg, error) {
+	res, err := inspector.GetResources()
 	if err != nil {
 		return nil, err
 	}
@@ -58,6 +69,11 @@ func Register(db *harmonydb.DB, hostnameAndPort string) (*Reg, error) {
 func RegisterWithResources(db *harmonydb.DB, hostnameAndPort string, res Resources) (*Reg, error) {
 	var reg Reg
 	reg.Resources = res
+	if db.ReadOnly() {
+		reg.MachineID = -1
+		logger.Infow("readonly database mode: skipping harmony_machines registration", "host", hostnameAndPort)
+		return &reg, nil
+	}
 	ctx := context.Background()
 	{ // Learn our owner_id while updating harmony_machines
 		var ownerID *int
@@ -125,7 +141,13 @@ func (res *Reg) Shutdown() {
 	res.shutdown.Store(true)
 }
 
-func getResources() (res Resources, err error) {
+// System gathers the FFI-free machine resources: CPU count (runtime.NumCPU) and
+// available RAM (go-sysinfo), plus a sanity check for co-located lotus/curio
+// processes. The GPU count is supplied by the caller (via an injected
+// ResourceInspector) since detecting GPUs requires filecoin-ffi/CGO, which this
+// package must not depend on. If HARMONY_OVERRIDE_GPUS is set it wins over the
+// passed value, preserving the historical override-first behavior.
+func System(gpu float64) (res Resources, err error) {
 	b, err := exec.Command(`ps`, `-ef`).CombinedOutput()
 	if err != nil {
 		logger.Warn("Could not safety check for 2+ processes: ", err)
@@ -151,10 +173,14 @@ func getResources() (res Resources, err error) {
 		return Resources{}, err
 	}
 
+	if n, ok := gpuOverrideCount(); ok {
+		gpu = n
+	}
+
 	res = Resources{
 		Cpu: runtime.NumCPU(),
 		Ram: mem.Available,
-		Gpu: getGPUDevices(),
+		Gpu: gpu,
 	}
 
 	return res, nil

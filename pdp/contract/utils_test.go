@@ -104,16 +104,16 @@ func TestDecodeAddressCapability_PadLeft(t *testing.T) {
 
 func TestOfferingToCapabilities_AdditionalHex(t *testing.T) {
 	offering := PDPOfferingData{
-		"https://pdp.example.com",
-		big.NewInt(32),
-		big.NewInt(0x1000000000000000),
-		false,
-		false,
-		[]byte{1, 1, 1, 1, 1, 1, 1, 1, 1},
-		big.NewInt(6000),
-		big.NewInt(30),
-		"narnia",
-		common.HexToAddress("0x0000000000004946c0e9F43F4Dee607b0eF1fA1c"),
+		ServiceURL:               "https://pdp.example.com",
+		MinPieceSizeInBytes:      big.NewInt(32),
+		MaxPieceSizeInBytes:      big.NewInt(0x1000000000000000),
+		IpniPiece:                false,
+		IpniIpfs:                 false,
+		IpniPeerID:               []byte{1, 1, 1, 1, 1, 1, 1, 1, 1},
+		StoragePricePerTibPerDay: big.NewInt(6000),
+		MinProvingPeriodInEpochs: big.NewInt(30),
+		Location:                 "narnia",
+		PaymentTokenAddress:      common.HexToAddress("0x0000000000004946c0e9F43F4Dee607b0eF1fA1c"),
 	}
 	additionalCaps := make(map[string]string)
 	additionalCaps["coolEndorsement"] = "0xccccaaaaddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddaaaacccc"

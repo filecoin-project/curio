@@ -529,6 +529,7 @@ func (i *IndexingTask) schedule(ctx context.Context, taskFunc harmonytask.AddTas
 					WHERE sealed = TRUE
 					  AND indexing_task_id IS NULL
 					  AND indexed = FALSE
+					  AND indexing_created_at IS NOT NULL
 					ORDER BY indexing_created_at ASC
 					LIMIT 1
 				)
@@ -556,6 +557,7 @@ func (i *IndexingTask) schedule(ctx context.Context, taskFunc harmonytask.AddTas
 					WHERE sealed = TRUE
 					  AND indexing_task_id IS NULL
 					  AND indexed = FALSE
+					  AND indexing_created_at IS NOT NULL
 					ORDER BY indexing_created_at ASC
 					LIMIT 1
 				)

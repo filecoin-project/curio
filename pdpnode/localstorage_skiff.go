@@ -17,7 +17,10 @@ type dataRootLocalStorage struct {
 
 var _ paths.LocalStorage = &dataRootLocalStorage{}
 
-func newLocalStorage(dataRoot string) (paths.LocalStorage, error) {
+func newLocalStorage(dataRoot string, readOnly bool) (paths.LocalStorage, error) {
+	if readOnly {
+		return newReadonlyLocalStorage(), nil
+	}
 	return &dataRootLocalStorage{dataRoot: dataRoot}, nil
 }
 

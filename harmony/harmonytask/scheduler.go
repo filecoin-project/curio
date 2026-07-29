@@ -186,13 +186,13 @@ func (e *TaskEngine) startScheduler() {
 		for _, h := range e.handlers {
 			availableTasks[h.Name] = &taskSchedule{hasID: make(map[TaskID]task)}
 		}
+		ee := eventEmitter{schedulerChannel: e.schedulerChannel, availableTasks: availableTasks}
 		tryStartNow := func(taskName string) {
-			if err := e.tryStartTask(taskName, taskSourceLocal{availableTasks}, eventEmitter{e.schedulerChannel}); err != nil {
+			if err := e.tryStartTask(taskName, taskSourceLocal{availableTasks}, ee); err != nil {
 				log.Errorw("failed to try start task", "taskType", taskName, "error", err)
 			}
 		}
 		ts := taskSourceLocal{availableTasks}
-		ee := eventEmitter{e.schedulerChannel}
 
 		for {
 			select {
@@ -206,8 +206,10 @@ func (e *TaskEngine) startScheduler() {
 				case schedulerSourceDBPoll:
 					// Replace the entire available-tasks map with the DB snapshot.
 					// This garbage-collects stale entries (tasks claimed/deleted by
-					// others).
-					hasNew := false
+					// others). Always re-enter the waterfall afterward: RetryWait
+					// may have elapsed for existing IDs, CanAccept cache was
+					// refreshed, and IAmBored must run when capacity remains with
+					// no claimable work (not only when new IDs appear).
 					for taskName, tasks := range event.DBTasks {
 						sched := availableTasks[taskName]
 						if sched == nil {
@@ -216,21 +218,14 @@ func (e *TaskEngine) startScheduler() {
 						newHas := lo.Associate(tasks, func(t task) (TaskID, task) {
 							return t.ID, t
 						})
-						for id := range newHas {
-							if _, exists := sched.hasID[id]; !exists {
-								hasNew = true
-							}
-						}
 						availableTasks[taskName] = &taskSchedule{
 							hasID:  newHas,
-							choked: len(tasks) > chokePoint,
+							choked: len(tasks) >= chokePoint,
 						}
 					}
 
-					if hasNew {
-						if err := e.pollerTryAllWork(ts, ee); err != nil {
-							log.Errorw("failed tryAllWork", "error", err)
-						}
+					if err := e.pollerTryAllWork(ts, ee); err != nil {
+						log.Errorw("failed tryAllWork", "error", err)
 					}
 
 				case schedulerSourceAdded:
@@ -260,7 +255,7 @@ func (e *TaskEngine) startScheduler() {
 					if !ok {
 						continue
 					}
-					if len(t.hasID) > chokePoint {
+					if len(t.hasID) >= chokePoint {
 						t.choked = true
 						continue
 					}
@@ -274,10 +269,11 @@ func (e *TaskEngine) startScheduler() {
 					}
 
 				case schedulerSourceTaskStarted:
-					// A local goroutine claimed and started a task. Remove from
-					// available set and notify peers.
-					avail := availableTasks[event.TaskType]
-					delete(avail.hasID, event.TaskID)
+					// Peer notify (+ idempotent local delete; NoteClaimed usually
+					// already cleared the ID on the claim path).
+					if avail := availableTasks[event.TaskType]; avail != nil {
+						delete(avail.hasID, event.TaskID)
+					}
 					e.peering.TellOthers(messageTypeStarted, event.TaskType, event.TaskID)
 
 				case schedulerSourcePeerStarted:
@@ -307,7 +303,7 @@ func (e *TaskEngine) startScheduler() {
 					e.executePreemption(plan)
 					tasks := taskSourceLocal{availableTasks}.GetTasks(event.TaskType)
 					if len(tasks) > 0 {
-						h.considerWork(workSourcePreempt, tasks, eventEmitter{e.schedulerChannel})
+						h.considerWork(workSourcePreempt, tasks, ee)
 						e.atomics.Count_TimeSensitivePreempt.Add(1)
 					}
 				case schedulerSourceInitialPoll:
@@ -319,11 +315,11 @@ func (e *TaskEngine) startScheduler() {
 				}
 			case taskName := <-bundleSleep:
 				tryStartNow(taskName)
-			case <-time.After(e.atomics.pollDuration.Load().(time.Duration)):
-				if err := e.pollerTryAllWork(ts, ee); err != nil {
-					log.Errorw("failed tryAllWork", "error", err)
-					continue
-				}
+			case <-time.After(idleTryInterval):
+				// Quiet-period tick: IAmBored only. Does not claim known work
+				// or query the DB — discovery/claims stay on events + the rare
+				// background poller. Per-task passcall.Every throttles work.
+				e.invokeIAmBored()
 			}
 		}
 	}()
@@ -339,6 +335,11 @@ type taskSource interface {
 func (e *TaskEngine) tryStartTask(taskName string, taskSource taskSource, eventEmitter eventEmitter) error {
 	h := e.taskMap[taskName]
 	if h != nil && h.TimeSensitive {
+		// When the machine is already full, free room by preempting cheaper
+		// non-time-sensitive work. When there is capacity, fall through to the
+		// waterfall below so the task starts immediately (oldestFirstSeq orders
+		// time-sensitive types first); otherwise a lone time-sensitive task on
+		// an idle node would wait for the next fallback poll before starting.
 		cap, capErr := h.AssertMachineHasCapacity()
 		if cap == 0 || capErr != nil {
 			if tasks := taskSource.GetTasks(taskName); len(tasks) > 0 {
@@ -346,8 +347,8 @@ func (e *TaskEngine) tryStartTask(taskName string, taskSource taskSource, eventE
 					go e.preemptForTimeSensitive(h, t.ID)
 				}
 			}
+			return nil
 		}
-		return nil
 	}
 	err := e.pollerTryAllWork(taskSource, eventEmitter)
 	if err != nil {
@@ -384,13 +385,29 @@ func (t taskSourceLocal) GetTasks(taskName string) []task {
 // they cannot modify the scheduler's in-memory state directly. Instead,
 // they emit events that the scheduler processes on its own thread.
 //
-// Emits are called from other threads, so we cannot change t.availableTasks.
-// This pattern keeps the scheduler single-threaded (no locks on
-// availableTasks) while allowing concurrent task execution to communicate
-// state changes: a task starting (remove from available), completing
-// (re-evaluate capacity), or failing with retry (re-add to available).
+// Emits are called from other threads, so they must not mutate availableTasks
+// directly — only the scheduler goroutine may. NoteClaimed is the exception:
+// it runs on the scheduler thread from considerWork before task goroutines
+// start, so clearing the local available set is race-free. TaskStarted events
+// still notify peers (and idempotently re-delete).
 type eventEmitter struct {
 	schedulerChannel chan schedulerEvent
+	availableTasks   map[string]*taskSchedule // nil outside the scheduler loop
+}
+
+// NoteClaimed removes claimed IDs from the in-memory available set immediately
+// so a subsequent waterfall in the same process cannot re-claim them.
+func (ee eventEmitter) NoteClaimed(taskName string, ids []TaskID) {
+	if ee.availableTasks == nil || len(ids) == 0 {
+		return
+	}
+	avail := ee.availableTasks[taskName]
+	if avail == nil {
+		return
+	}
+	for _, id := range ids {
+		delete(avail.hasID, id)
+	}
 }
 
 func (ee eventEmitter) EmitTaskStarted(taskName string, taskID TaskID) {
@@ -456,7 +473,7 @@ func (e *TaskEngine) pollAllTaskTypes() map[string][]task {
 		if _, ok := result[r.Name]; !ok {
 			continue
 		}
-		if len(result[r.Name]) > chokePoint {
+		if len(result[r.Name]) >= chokePoint {
 			continue
 		}
 		result[r.Name] = append(result[r.Name], task{
@@ -482,31 +499,36 @@ const bundleCollectionTimeout = time.Millisecond * 10
 // an event; the returned channel fires when the quiet period expires.
 //
 // Thread safety: the bundler func is called from the scheduler goroutine
-// (single-threaded), but the timer goroutines access the timers map
+// (single-threaded), but the AfterFunc callbacks access the timers map
 // concurrently, hence the mutex.
+//
+// The whole check-and-(reset|create) is done under the lock, closing the
+// window where a callback could delete a timer between the map read and the
+// Reset (which, with a manual <-t.C goroutine, would lose the wake). Using
+// time.AfterFunc means a Reset on an already-fired timer simply re-runs the
+// callback, and the callback only deletes its own entry, so the worst case is
+// a harmless duplicate wake (pollerTryAllWork is idempotent) — never a lost one.
 func bundler() (bundler func(string), bundleSleep <-chan string) {
 	timers := make(map[string]*time.Timer)
 	timerMx := sync.Mutex{}
 	output := make(chan string)
 	return func(taskType string) {
 		timerMx.Lock()
-		t, ok := timers[taskType]
-		timerMx.Unlock()
-		if !ok {
-			t = time.NewTimer(bundleCollectionTimeout)
-			timerMx.Lock()
-			timers[taskType] = t
-			timerMx.Unlock()
-			go func() {
-				<-t.C
-				timerMx.Lock()
-				delete(timers, taskType)
-				timerMx.Unlock()
-				output <- taskType
-			}()
-		} else {
+		defer timerMx.Unlock()
+		if t, ok := timers[taskType]; ok {
 			t.Reset(bundleCollectionTimeout)
+			return
 		}
+		var t *time.Timer
+		t = time.AfterFunc(bundleCollectionTimeout, func() {
+			timerMx.Lock()
+			if timers[taskType] == t {
+				delete(timers, taskType)
+			}
+			timerMx.Unlock()
+			output <- taskType
+		})
+		timers[taskType] = t
 	}, output
 }
 
