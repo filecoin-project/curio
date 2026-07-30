@@ -13,12 +13,14 @@ import (
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/ethchain"
+	"github.com/filecoin-project/curio/pdp"
 	"github.com/filecoin-project/curio/pdp/contract"
 )
 
 type DataSetCreate struct {
 	CreateMessageHash string `db:"create_message_hash"`
 	Service           string `db:"service"`
+	ExtraData         []byte `db:"extra_data"`
 }
 
 // processPendingDataSetCreates finalises data set creation best on transactions logs
@@ -28,7 +30,7 @@ func processPendingDataSetCreates(ctx context.Context, db *harmonydb.DB, ethClie
 	var dataSetCreates []DataSetCreate
 
 	err := db.Select(ctx, &dataSetCreates, `
-        SELECT create_message_hash, service
+        SELECT create_message_hash, service, extra_data
         FROM pdp_data_set_creates
         WHERE ok = TRUE AND data_set_created = FALSE
     `)
@@ -108,18 +110,33 @@ func processDataSetCreate(ctx context.Context, db *harmonydb.DB, psc DataSetCrea
 	if err != nil {
 		return xerrors.Errorf("failed to get max proving period: %w", err)
 	}
+	var ipniArg any
+	var ipniTrue bool
+	if known, ipni := pdp.IPNIFromExtraData(psc.ExtraData); known {
+		ipniArg = ipni
+		ipniTrue = ipni
+		log.Infow("Resolved data set IPNI intent from create extra_data",
+			"txHash", psc.CreateMessageHash, "dataSetId", dataSetId, "ipni", ipni)
+	}
+
 	comm, err := db.BeginTransaction(ctx, func(tx *harmonyquery.Tx) (commit bool, err error) {
 		// Insert a new entry into pdp_data_sets
 		n, err := tx.Exec(`
-        INSERT INTO pdp_data_sets (id, create_message_hash, service, proving_period, challenge_window)
-        VALUES ($1, $2, $3, $4, $5)
-    `, dataSetId, psc.CreateMessageHash, psc.Service, provingPeriod, challengeWindow)
+        INSERT INTO pdp_data_sets (id, create_message_hash, service, proving_period, challenge_window, ipni)
+        VALUES ($1, $2, $3, $4, $5, $6)
+    `, dataSetId, psc.CreateMessageHash, psc.Service, provingPeriod, challengeWindow, ipniArg)
 		if err != nil {
 			return false, xerrors.Errorf("failed to insert data set %d for tx %+v: %w", dataSetId, psc, err)
 		}
 
 		if n != 1 {
 			return false, xerrors.Errorf("expected to insert 1 row but inserted: %d", n)
+		}
+
+		if ipniTrue {
+			if err := pdp.RepairIndexingForDataSetInTx(tx, uint64(dataSetId)); err != nil {
+				return false, err
+			}
 		}
 
 		// Update pdp_data_set_creates to set data_set_created = TRUE

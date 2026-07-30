@@ -95,6 +95,7 @@ func buildPDPTasks(ctx context.Context, d *Deps, chainSched *chainsched.CurioCha
 		pdpv0.NewTaskPDPSaveCache(db, d.CachedPieceReader, d.IndexStore),
 		pdpv0.NewPieceGCTask(&cfg.HTTP, db, d.IndexStore, cfg.Subsystems.PDPUnclaimedUploadKeepHours),
 		pdpv0.NewReorgCheckTask(db, ethClient, d.Chain),
+		pdpv0.NewDatasetIdxTask(db, ethClient),
 	)
 
 	// Start PDP watcher after all internal watcher are created

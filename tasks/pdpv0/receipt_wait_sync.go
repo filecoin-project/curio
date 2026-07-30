@@ -405,12 +405,18 @@ func ensureDataSetRow(ctx context.Context, db *harmonydb.DB, eth ethchain.EthCli
 	}
 
 	service := wait.Service
+	var extraData []byte
+	var createService string
+	lookupErr := db.QueryRow(ctx, `
+		SELECT service, extra_data FROM pdp_data_set_creates
+		WHERE LOWER(TRIM(BOTH FROM create_message_hash)) = $1
+		LIMIT 1
+	`, normalizeTxHash(wait.TxHash)).Scan(&createService, &extraData)
+	if lookupErr != nil && !errors.Is(lookupErr, sql.ErrNoRows) {
+		return xerrors.Errorf("loading create row for %s: %w", wait.TxHash, lookupErr)
+	}
 	if service == "" {
-		_ = db.QueryRow(ctx, `
-			SELECT service FROM pdp_data_set_creates
-			WHERE LOWER(TRIM(BOTH FROM create_message_hash)) = $1
-			LIMIT 1
-		`, normalizeTxHash(wait.TxHash)).Scan(&service)
+		service = createService
 	}
 	if service == "" {
 		return xerrors.Errorf("no service for create tx %s when inserting data set %d", wait.TxHash, dataSetId)
@@ -425,17 +431,28 @@ func ensureDataSetRow(ctx context.Context, db *harmonydb.DB, eth ethchain.EthCli
 		return xerrors.Errorf("proving schedule for data set %d: %w", dataSetId, err)
 	}
 
+	var ipniArg any
+	if known, ipni := pdp.IPNIFromExtraData(extraData); known {
+		ipniArg = ipni
+	}
+
 	n, err := db.Exec(ctx, `
-		INSERT INTO pdp_data_sets (id, create_message_hash, service, proving_period, challenge_window)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO pdp_data_sets (id, create_message_hash, service, proving_period, challenge_window, ipni)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		ON CONFLICT (id) DO NOTHING
-	`, dataSetId, normalizeTxHash(wait.TxHash), service, provingPeriod, challengeWindow)
+	`, dataSetId, normalizeTxHash(wait.TxHash), service, provingPeriod, challengeWindow, ipniArg)
 	if err != nil {
 		return xerrors.Errorf("inserting pdp_data_sets %d: %w", dataSetId, err)
 	}
 	if n == 1 {
 		log.Infow("inserted pdp_data_sets row from clientNonces recovery",
-			"txHash", wait.TxHash, "dataSetId", dataSetId, "service", service)
+			"txHash", wait.TxHash, "dataSetId", dataSetId, "service", service, "ipni", ipniArg)
+	}
+	if ipniArg == true {
+		// Persist path also repairs missed needs_indexing flags for create-and-add races.
+		if err := pdp.PersistDatasetIPNI(ctx, db, uint64(dataSetId), true); err != nil {
+			return err
+		}
 	}
 	return nil
 }

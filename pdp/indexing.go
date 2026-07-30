@@ -2,74 +2,169 @@ package pdp
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"math/big"
 	"slices"
+
+	"github.com/yugabyte/pgx/v5"
+	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/pdp/contract"
 )
 
-// CheckIfIndexingNeeded checks if a data set has the withIPFSIndexing metadata flag.
-// Returns true if indexing is needed, false otherwise.
-// This is a read-only check that can be done outside a transaction for existing datasets.
-func CheckIfIndexingNeeded(
-	ctx context.Context,
-	ethClient ethchain.EthClient,
-	dataSetId uint64,
-) (bool, error) {
-	// Get the PDPVerifier contract instance (read-only caller is sufficient)
-	pdpVerifier, err := contract.NewPDPVerifierCaller(contract.ContractAddresses().PDPVerifier, ethClient)
-	if err != nil {
-		log.Errorw("Failed to instantiate PDPVerifier contract", "error", err, "dataSetId", dataSetId)
-		return false, err
+// IPNIFromExtraData returns whether create extraData encodes withIPFSIndexing.
+// known is false when extraData is empty or cannot be decoded as FWSS create metadata.
+func IPNIFromExtraData(extraData []byte) (known bool, ipni bool) {
+	if len(extraData) == 0 {
+		return false, false
 	}
 
-	// Get the listener (record keeper) address for this data set
-	listenerAddr, err := pdpVerifier.GetDataSetListener(contract.EthCallOpts(ctx), new(big.Int).SetUint64(dataSetId))
+	payload, err := DecodeFWSSCreateIdentityFromExtraData(extraData)
 	if err != nil {
-		// Soft-fail: indexing is optional; missing/unreadable listener must not block AddPieces.
-		log.Warnw("Failed to get listener address for data set, skipping indexing", "error", err, "dataSetId", dataSetId)
-		return false, nil
+		log.Debugw("Failed to decode extraData for IPNI intent", "error", err)
+		return false, false
 	}
 
-	// Check if the withIPFSIndexing metadata exists
-	mustIndex, _, err := contract.GetDataSetMetadataAtKey(ctx, listenerAddr, ethClient, new(big.Int).SetUint64(dataSetId), "withIPFSIndexing")
-	if err != nil {
-		// Hard to differentiate between unsupported listener type OR internal error
-		// So we log and skip indexing attempt
-		log.Warnw("Failed to get data set metadata, skipping indexing", "error", err, "dataSetId", dataSetId)
-		return false, nil
-	}
-
-	return mustIndex, nil
+	return true, slices.Contains(payload.MetadataKeys, "withIPFSIndexing")
 }
 
 // CheckIfIndexingNeededFromExtraData checks if extraData contains withIPFSIndexing metadata.
-// This is used for the CreateDataSet+AddPieces combined operation where the dataset doesn't exist yet.
-// The extraData format for combined operations is: (bytes createPayload, bytes addPayload)
-// We attempt to decode createPayload according to the
-// FilecoinWarmStorageService format:
-//
-//	(address payer, uint256 clientDataSetId, string[] keys, string[] values, bytes signature)
+// Used for CreateDataSet+AddPieces where the data set row does not exist yet.
 func CheckIfIndexingNeededFromExtraData(extraData []byte) (bool, error) {
-	if len(extraData) == 0 {
+	known, ipni := IPNIFromExtraData(extraData)
+	if !known {
 		return false, nil
 	}
-
-	payload, err := decodeFWSSCreatePayload(extraData)
-	if err != nil {
-		log.Debugw("Failed to decode extraData as combined operation, not an error", "error", err)
-		return false, nil
-	}
-
-	// Look for withIPFSIndexing in the keys array
-	if slices.Contains(payload.MetadataKeys, "withIPFSIndexing") {
+	if ipni {
 		log.Debugw("Found withIPFSIndexing in extraData metadata keys")
-		return true, nil
+	}
+	return ipni, nil
+}
+
+// ResolveDatasetIPNI returns the cached withIPFSIndexing intent for a data set.
+// If pdp_data_sets.ipni is NULL, it reads chain metadata, persists the result, and
+// when true repairs any pieces that were never marked for indexing.
+// Chain/read failures return an error so callers do not soft-fail into a permanent opt-out.
+func ResolveDatasetIPNI(
+	ctx context.Context,
+	db *harmonydb.DB,
+	ethClient ethchain.EthClient,
+	dataSetId uint64,
+) (bool, error) {
+	ipni, err := readDatasetIPNI(ctx, db, dataSetId)
+	if err != nil {
+		return false, err
+	}
+	if ipni != nil {
+		return *ipni, nil
 	}
 
-	return false, nil
+	mustIndex, err := fetchIPNIFromChain(ctx, ethClient, dataSetId)
+	if err != nil {
+		return false, err
+	}
+
+	if err := PersistDatasetIPNI(ctx, db, dataSetId, mustIndex); err != nil {
+		return false, err
+	}
+	return mustIndex, nil
+}
+
+func readDatasetIPNI(ctx context.Context, db *harmonydb.DB, dataSetId uint64) (*bool, error) {
+	var ipni sql.NullBool
+	err := db.QueryRow(ctx, `SELECT ipni FROM pdp_data_sets WHERE id = $1`, dataSetId).Scan(&ipni)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, xerrors.Errorf("data set %d not found", dataSetId)
+	}
+	if err != nil {
+		return nil, xerrors.Errorf("reading pdp_data_sets.ipni for %d: %w", dataSetId, err)
+	}
+	if !ipni.Valid {
+		return nil, nil
+	}
+	v := ipni.Bool
+	return &v, nil
+}
+
+func fetchIPNIFromChain(ctx context.Context, ethClient ethchain.EthClient, dataSetId uint64) (bool, error) {
+	pdpVerifier, err := contract.NewPDPVerifierCaller(contract.ContractAddresses().PDPVerifier, ethClient)
+	if err != nil {
+		return false, xerrors.Errorf("instantiate PDPVerifier: %w", err)
+	}
+
+	setID := new(big.Int).SetUint64(dataSetId)
+	listenerAddr, err := pdpVerifier.GetDataSetListener(contract.EthCallOpts(ctx), setID)
+	if err != nil {
+		return false, xerrors.Errorf("GetDataSetListener(%d): %w", dataSetId, err)
+	}
+
+	mustIndex, _, err := contract.GetDataSetMetadataAtKey(ctx, listenerAddr, ethClient, setID, "withIPFSIndexing")
+	if err != nil {
+		return false, xerrors.Errorf("GetDataSetMetadataAtKey(%d, withIPFSIndexing): %w", dataSetId, err)
+	}
+	return mustIndex, nil
+}
+
+// PersistDatasetIPNI stores a resolved ipni value when still NULL.
+// When ipni is true, marks unindexed piecerefs for the data set as needing indexing.
+func PersistDatasetIPNI(ctx context.Context, db *harmonydb.DB, dataSetId uint64, ipni bool) error {
+	_, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		n, err := tx.Exec(`
+			UPDATE pdp_data_sets
+			SET ipni = $1
+			WHERE id = $2 AND ipni IS NULL
+		`, ipni, dataSetId)
+		if err != nil {
+			return false, xerrors.Errorf("updating pdp_data_sets.ipni for %d: %w", dataSetId, err)
+		}
+		if n == 0 {
+			// Already resolved concurrently; still repair if the stored value is true.
+			var stored sql.NullBool
+			if err := tx.QueryRow(`SELECT ipni FROM pdp_data_sets WHERE id = $1`, dataSetId).Scan(&stored); err != nil {
+				return false, xerrors.Errorf("re-reading pdp_data_sets.ipni for %d: %w", dataSetId, err)
+			}
+			if !stored.Valid || !stored.Bool {
+				return true, nil
+			}
+			ipni = true
+		}
+
+		if ipni {
+			if err := RepairIndexingForDataSetInTx(tx, dataSetId); err != nil {
+				return false, err
+			}
+		}
+		return true, nil
+	}, harmonydb.OptionRetry())
+	return err
+}
+
+// RepairIndexingForDataSetInTx marks piecerefs belonging to the data set that look like
+// a missed indexing opt-in (needs_indexing=false, indexed_at IS NULL).
+func RepairIndexingForDataSetInTx(tx *harmonydb.Tx, dataSetId uint64) error {
+	_, err := tx.Exec(`
+		UPDATE pdp_piecerefs pr
+		SET needs_indexing = TRUE
+		WHERE pr.needs_indexing = FALSE
+		  AND pr.indexed_at IS NULL
+		  AND pr.id IN (
+			SELECT pdp_pieceref FROM pdp_data_set_pieces WHERE data_set = $1 AND pdp_pieceref IS NOT NULL
+			UNION
+			SELECT pdp_pieceref FROM pdp_data_set_piece_adds WHERE data_set = $1 AND pdp_pieceref IS NOT NULL
+			UNION
+			SELECT dspa.pdp_pieceref
+			FROM pdp_data_set_piece_adds dspa
+			JOIN pdp_data_sets ds ON ds.create_message_hash = dspa.add_message_hash
+			WHERE ds.id = $1 AND dspa.pdp_pieceref IS NOT NULL
+		  )
+	`, dataSetId)
+	if err != nil {
+		return xerrors.Errorf("repairing indexing flags for data set %d: %w", dataSetId, err)
+	}
+	return nil
 }
 
 // EnableIndexingForPiecesInTx marks the specified piecerefs as needing indexing within a transaction.

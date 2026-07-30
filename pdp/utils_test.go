@@ -77,6 +77,33 @@ func TestCreateIdentityFromPDPCalldata_CreateDataSetAndAddPieces(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestIPNIFromExtraData(t *testing.T) {
+	payer := common.HexToAddress("0x1111111111111111111111111111111111111111")
+
+	known, ipni := IPNIFromExtraData(nil)
+	require.False(t, known)
+	require.False(t, ipni)
+
+	withIndex := packCreatePayload(t, payer, 1, []string{"withIPFSIndexing"})
+	known, ipni = IPNIFromExtraData(withIndex)
+	require.True(t, known)
+	require.True(t, ipni)
+
+	combined := packCombinedExtraData(t, withIndex, []byte{0x01})
+	mustIndex, err := CheckIfIndexingNeededFromExtraData(combined)
+	require.NoError(t, err)
+	require.True(t, mustIndex)
+
+	without := packCreatePayload(t, payer, 2, []string{"other"})
+	known, ipni = IPNIFromExtraData(without)
+	require.True(t, known)
+	require.False(t, ipni)
+
+	known, ipni = IPNIFromExtraData([]byte{0xde, 0xad})
+	require.False(t, known)
+	require.False(t, ipni)
+}
+
 func TestFWSSPayerFromExtraData(t *testing.T) {
 	payer := common.HexToAddress("0x4444444444444444444444444444444444444444")
 	createPayload := packCreatePayload(t, payer, 1, nil)
@@ -85,3 +112,4 @@ func TestFWSSPayerFromExtraData(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, payer, got)
 }
+
