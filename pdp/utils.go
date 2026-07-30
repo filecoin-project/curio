@@ -18,8 +18,6 @@ type FWSSCreateIdentity struct {
 	MetadataKeys    []string
 }
 
-type fwssCreatePayload = FWSSCreateIdentity
-
 func createPayloadArgs() (abi.Arguments, error) {
 	bytesType, err := abi.NewType("bytes", "", nil)
 	if err != nil {
