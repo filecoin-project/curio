@@ -395,6 +395,7 @@ func (s *SenderETH) send(ctx context.Context, fromAddress common.Address, tx *ty
 			return common.Hash{}, fmt.Errorf("base fee not available; network might not support EIP-1559")
 		}
 
+                 // Measure current basefee as the max over the last 120 epochs (1 hour) 
 		if feeHist, fhErr := s.client.FeeHistory(ctx, 120, nil, nil); fhErr == nil {
 			for _, histFee := range feeHist.BaseFee {
 				if histFee != nil && histFee.Cmp(baseFee) > 0 {
