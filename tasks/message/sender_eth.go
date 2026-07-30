@@ -395,6 +395,14 @@ func (s *SenderETH) send(ctx context.Context, fromAddress common.Address, tx *ty
 			return common.Hash{}, fmt.Errorf("base fee not available; network might not support EIP-1559")
 		}
 
+		if feeHist, fhErr := s.client.FeeHistory(ctx, 120, nil, nil); fhErr == nil {
+			for _, histFee := range feeHist.BaseFee {
+				if histFee != nil && histFee.Cmp(baseFee) > 0 {
+					baseFee = histFee
+				}
+			}
+		}
+
 		// Set GasTipCap (maxPriorityFeePerGas)
 		gasTipCap, err := s.client.SuggestGasTipCap(ctx)
 		if err != nil {
@@ -402,7 +410,7 @@ func (s *SenderETH) send(ctx context.Context, fromAddress common.Address, tx *ty
 		}
 
 		// Calculate GasFeeCap (maxFeePerGas)
-		gasFeeCap := new(big.Int).Add(baseFee, gasTipCap)
+		gasFeeCap := new(big.Int).Add(new(big.Int).Mul(baseFee, big.NewInt(2)), gasTipCap)
 
 		chainID, err := s.client.NetworkID(ctx)
 		if err != nil {
