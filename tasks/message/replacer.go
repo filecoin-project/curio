@@ -42,7 +42,7 @@ type replaceTrigger struct {
 }
 
 // Removal tracked in https://github.com/filecoin-project/curio/issues/1386 complete
-// Message replacement only safe to enable once synapse sdk caller can be made aware of 
+// Message replacement only safe to enable once synapse sdk caller can be made aware of
 // replacement flow with small curio api redesign.
 const replaceByFeeEnabled = false
 
