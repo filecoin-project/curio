@@ -17,6 +17,7 @@ import (
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/ethchain"
+	"github.com/filecoin-project/curio/pdp"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/pdp/contract/FWSS"
 
@@ -37,6 +38,7 @@ type receiptOutcome int
 const (
 	receiptStuck receiptOutcome = iota
 	receiptLost
+	receiptDeferred // leave pending; cannot safely conclude lost
 )
 
 type pieceAddIntentRow struct {
@@ -139,10 +141,23 @@ func readMaxProvingPeriod(ctx context.Context, eth ethchain.EthClient) (uint64, 
 	return config.MaxProvingPeriod, nil
 }
 
+func fwssStateView(ctx context.Context, eth ethchain.EthClient) (*FWSS.FilecoinWarmStorageServiceStateView, error) {
+	sAddr := contract.ContractAddresses().AllowedPublicRecordKeepers.FWSService
+	viewAddr, err := contract.ResolveViewAddress(ctx, sAddr, eth)
+	if err != nil {
+		return nil, xerrors.Errorf("resolving FWSS view address: %w", err)
+	}
+	fwssv, err := FWSS.NewFilecoinWarmStorageServiceStateView(viewAddr, eth)
+	if err != nil {
+		return nil, xerrors.Errorf("instantiating FWSS state view: %w", err)
+	}
+	return fwssv, nil
+}
+
 func reconcileStaleReceipt(ctx context.Context, db *harmonydb.DB, eth ethchain.EthClient, verifier *contract.PDPVerifier, wait OutstandingReceipt) error {
-	// Prefer PDPVerifier chain state (data set created / pieces added). Do not rely on
+	// Prefer chain state (clientNonces / piece live checks). Do not rely on
 	// eth TransactionReceipt/TransactionByHash — many nodes prune those.
-	landed, err := tryMaterializeFromChainState(ctx, db, verifier, &wait)
+	landed, err := tryMaterializeFromChainState(ctx, db, eth, verifier, &wait)
 	if err != nil {
 		return err
 	}
@@ -158,33 +173,69 @@ func reconcileStaleReceipt(ctx context.Context, db *harmonydb.DB, eth ethchain.E
 	case receiptStuck:
 		return rebroadcastStuckReceipt(ctx, eth, wait, signedTx)
 	case receiptLost:
+		if wait.HasCreate {
+			created, known, checkErr := checkCreateLandedViaClientNonces(ctx, db, eth, wait, signedTx)
+			if checkErr != nil {
+				return checkErr
+			}
+			if !known {
+				log.Warnw("cannot confirm Create receipt lost (no create identity); leaving pending",
+					"txHash", wait.TxHash)
+				return nil
+			}
+			if created {
+				log.Warnw("Create landed on chain (clientNonces) but not fully materialized; leaving pending",
+					"txHash", wait.TxHash)
+				return nil
+			}
+		}
 		return markReceiptLost(ctx, db, wait)
+	case receiptDeferred:
+		return nil
 	default:
 		return nil
 	}
 }
 
-// dataSetIDDiscoverLookback caps how far back from getNextDataSetId we scan when
-// recovering create-and-add waits that never recorded a local data_set id.
-const dataSetIDDiscoverLookback = 512
-
-func tryMaterializeFromChainState(ctx context.Context, db *harmonydb.DB, verifier *contract.PDPVerifier, wait *OutstandingReceipt) (bool, error) {
-	if wait.HasAddPiece {
-		if !wait.DataSet.Valid {
-			id, pieceIDs, found, err := discoverDataSetByPieceCIDs(ctx, db, verifier, wait.TxHash)
-			if err != nil {
-				return false, err
+func tryMaterializeFromChainState(ctx context.Context, db *harmonydb.DB, eth ethchain.EthClient, verifier *contract.PDPVerifier, wait *OutstandingReceipt) (bool, error) {
+	if wait.HasCreate && !wait.DataSet.Valid {
+		id, found, err := discoverDataSetViaClientNonces(ctx, db, eth, wait)
+		if err != nil {
+			return false, err
+		}
+		if found {
+			wait.DataSet = sql.NullInt64{Int64: id, Valid: true}
+			live, liveErr := verifier.DataSetLive(contract.EthCallOpts(ctx), big.NewInt(id))
+			if liveErr != nil {
+				return false, xerrors.Errorf("DataSetLive(%d): %w", id, liveErr)
 			}
-			if !found {
+			if !live {
 				return false, nil
 			}
-			wait.DataSet = sql.NullInt64{Int64: id, Valid: true}
+			if err := ensureDataSetRow(ctx, db, eth, verifier, *wait, id); err != nil {
+				return false, err
+			}
+			if !wait.HasAddPiece {
+				if err := materializeLandedReceipt(ctx, db, *wait, nil); err != nil {
+					return false, err
+				}
+				return true, nil
+			}
+			pieceIDs, allFound, matchErr := matchPieceAddsOnChain(ctx, db, verifier, id, wait.TxHash)
+			if matchErr != nil {
+				return false, matchErr
+			}
+			if !allFound {
+				return false, nil
+			}
 			if err := materializeLandedReceipt(ctx, db, *wait, pieceIDs); err != nil {
 				return false, err
 			}
 			return true, nil
 		}
+	}
 
+	if wait.HasAddPiece && wait.DataSet.Valid {
 		pieceIDs, allFound, err := matchLivePieceAdds(ctx, db, verifier, wait.DataSet.Int64, wait.TxHash)
 		if err != nil {
 			return false, err
@@ -198,8 +249,8 @@ func tryMaterializeFromChainState(ctx context.Context, db *harmonydb.DB, verifie
 		return true, nil
 	}
 
-	if wait.HasCreate {
-		// Create-only: if the data set row already exists for this create hash, just confirm.
+	if wait.HasCreate && !wait.HasAddPiece {
+		// Create-only fallback: local data_set row already present (e.g. prior partial recovery).
 		var id int64
 		err := db.QueryRow(ctx, `
 			SELECT id FROM pdp_data_sets
@@ -229,37 +280,164 @@ func tryMaterializeFromChainState(ctx context.Context, db *harmonydb.DB, verifie
 	return false, nil
 }
 
-func discoverDataSetByPieceCIDs(ctx context.Context, db *harmonydb.DB, verifier *contract.PDPVerifier, txHash string) (int64, map[uint64]int64, bool, error) {
-	nextID, err := verifier.GetNextDataSetId(contract.EthCallOpts(ctx))
+var errNoCreateIdentity = xerrors.New("no create identity available")
+
+func discoverDataSetViaClientNonces(ctx context.Context, db *harmonydb.DB, eth ethchain.EthClient, wait *OutstandingReceipt) (int64, bool, error) {
+	identity, err := resolveCreateIdentity(ctx, db, wait, nil)
 	if err != nil {
-		return 0, nil, false, xerrors.Errorf("getNextDataSetId: %w", err)
+		if errors.Is(err, errNoCreateIdentity) {
+			log.Debugw("create identity unavailable for clientNonces lookup",
+				"txHash", wait.TxHash, "error", err)
+			return 0, false, nil
+		}
+		return 0, false, err
 	}
-	if nextID == 0 {
-		return 0, nil, false, nil
+	return lookupDataSetIdViaClientNonces(ctx, eth, identity)
+}
+
+func resolveCreateIdentity(ctx context.Context, db *harmonydb.DB, wait *OutstandingReceipt, signedTx *types.Transaction) (*pdp.FWSSCreateIdentity, error) {
+	var extraData []byte
+	err := db.QueryRow(ctx, `
+		SELECT extra_data FROM pdp_data_set_creates
+		WHERE LOWER(TRIM(BOTH FROM create_message_hash)) = $1
+		LIMIT 1
+	`, normalizeTxHash(wait.TxHash)).Scan(&extraData)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, xerrors.Errorf("loading create extra_data for %s: %w", wait.TxHash, err)
+	}
+	if len(extraData) > 0 {
+		identity, decErr := pdp.DecodeFWSSCreateIdentityFromExtraData(extraData)
+		if decErr == nil {
+			return identity, nil
+		}
+		log.Debugw("failed to decode persisted create extra_data", "txHash", wait.TxHash, "error", decErr)
 	}
 
-	start := int64(nextID) - 1
-	end := start - dataSetIDDiscoverLookback
-	if end < 0 {
-		end = -1
+	if signedTx == nil {
+		var signedTxBytes []byte
+		loadErr := db.QueryRow(ctx, `
+			SELECT signed_tx
+			FROM message_sends_eth
+			WHERE LOWER(TRIM(BOTH FROM signed_hash)) = $1
+			ORDER BY send_time DESC NULLS LAST
+			LIMIT 1
+		`, normalizeTxHash(wait.TxHash)).Scan(&signedTxBytes)
+		if loadErr != nil && !errors.Is(loadErr, sql.ErrNoRows) {
+			return nil, xerrors.Errorf("loading signed tx for %s: %w", wait.TxHash, loadErr)
+		}
+		if len(signedTxBytes) > 0 {
+			tx := new(types.Transaction)
+			if uerr := tx.UnmarshalBinary(signedTxBytes); uerr != nil {
+				return nil, xerrors.Errorf("unmarshaling signed tx %s: %w", wait.TxHash, uerr)
+			}
+			signedTx = tx
+		}
 	}
-	for id := start; id > end; id-- {
-		live, liveErr := verifier.DataSetLive(contract.EthCallOpts(ctx), big.NewInt(id))
-		if liveErr != nil {
-			return 0, nil, false, xerrors.Errorf("DataSetLive(%d): %w", id, liveErr)
-		}
-		if !live {
-			continue
-		}
-		pieceIDs, allFound, matchErr := matchPieceAddsOnChain(ctx, db, verifier, id, txHash)
-		if matchErr != nil {
-			return 0, nil, false, matchErr
-		}
-		if allFound {
-			return id, pieceIDs, true, nil
-		}
+	if signedTx == nil {
+		return nil, errNoCreateIdentity
 	}
-	return 0, nil, false, nil
+	identity, decErr := pdp.CreateIdentityFromSignedTx(signedTx)
+	if decErr != nil {
+		return nil, errNoCreateIdentity
+	}
+	return identity, nil
+}
+
+func lookupDataSetIdViaClientNonces(ctx context.Context, eth ethchain.EthClient, identity *pdp.FWSSCreateIdentity) (int64, bool, error) {
+	if identity == nil || identity.ClientDataSetId == nil {
+		return 0, false, nil
+	}
+	if identity.Payer == (common.Address{}) {
+		return 0, false, nil
+	}
+	fwssv, err := fwssStateView(ctx, eth)
+	if err != nil {
+		return 0, false, err
+	}
+	raw, err := fwssv.ClientNonces(contract.EthCallOpts(ctx), identity.Payer, identity.ClientDataSetId)
+	if err != nil {
+		return 0, false, xerrors.Errorf("clientNonces(%s, %s): %w", identity.Payer.Hex(), identity.ClientDataSetId.String(), err)
+	}
+	if raw == nil || raw.Sign() == 0 {
+		return 0, false, nil
+	}
+	id := dataSetIdFromClientNonce(raw)
+	if id <= 0 {
+		return 0, false, nil
+	}
+	return id, true, nil
+}
+
+// dataSetIdFromClientNonce returns the data set id stored in clientNonces.
+// Create stores the bare id; AddPieces packs nextPieceId in the upper 128 bits.
+func dataSetIdFromClientNonce(v *big.Int) int64 {
+	mask := new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 128), big.NewInt(1))
+	id := new(big.Int).And(v, mask)
+	if !id.IsInt64() {
+		return 0
+	}
+	return id.Int64()
+}
+
+func checkCreateLandedViaClientNonces(ctx context.Context, db *harmonydb.DB, eth ethchain.EthClient, wait OutstandingReceipt, signedTx *types.Transaction) (created bool, known bool, err error) {
+	identity, idErr := resolveCreateIdentity(ctx, db, &wait, signedTx)
+	if idErr != nil {
+		if errors.Is(idErr, errNoCreateIdentity) {
+			return false, false, nil
+		}
+		return false, false, idErr
+	}
+	_, found, lookErr := lookupDataSetIdViaClientNonces(ctx, eth, identity)
+	if lookErr != nil {
+		return false, false, lookErr
+	}
+	return found, true, nil
+}
+
+func ensureDataSetRow(ctx context.Context, db *harmonydb.DB, eth ethchain.EthClient, verifier *contract.PDPVerifier, wait OutstandingReceipt, dataSetId int64) error {
+	var existing int64
+	err := db.QueryRow(ctx, `SELECT id FROM pdp_data_sets WHERE id = $1`, dataSetId).Scan(&existing)
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return xerrors.Errorf("checking pdp_data_sets %d: %w", dataSetId, err)
+	}
+
+	service := wait.Service
+	if service == "" {
+		_ = db.QueryRow(ctx, `
+			SELECT service FROM pdp_data_set_creates
+			WHERE LOWER(TRIM(BOTH FROM create_message_hash)) = $1
+			LIMIT 1
+		`, normalizeTxHash(wait.TxHash)).Scan(&service)
+	}
+	if service == "" {
+		return xerrors.Errorf("no service for create tx %s when inserting data set %d", wait.TxHash, dataSetId)
+	}
+
+	listenerAddr, err := verifier.GetDataSetListener(contract.EthCallOpts(ctx), big.NewInt(dataSetId))
+	if err != nil {
+		return xerrors.Errorf("GetDataSetListener(%d): %w", dataSetId, err)
+	}
+	provingPeriod, challengeWindow, err := getProvingPeriodChallengeWindow(ctx, eth, listenerAddr)
+	if err != nil {
+		return xerrors.Errorf("proving schedule for data set %d: %w", dataSetId, err)
+	}
+
+	n, err := db.Exec(ctx, `
+		INSERT INTO pdp_data_sets (id, create_message_hash, service, proving_period, challenge_window)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (id) DO NOTHING
+	`, dataSetId, normalizeTxHash(wait.TxHash), service, provingPeriod, challengeWindow)
+	if err != nil {
+		return xerrors.Errorf("inserting pdp_data_sets %d: %w", dataSetId, err)
+	}
+	if n == 1 {
+		log.Infow("inserted pdp_data_sets row from clientNonces recovery",
+			"txHash", wait.TxHash, "dataSetId", dataSetId, "service", service)
+	}
+	return nil
 }
 
 func matchLivePieceAdds(ctx context.Context, db *harmonydb.DB, verifier *contract.PDPVerifier, dataSetId int64, txHash string) (map[uint64]int64, bool, error) {
@@ -404,7 +582,8 @@ func classifyMissingReceipt(ctx context.Context, db *harmonydb.DB, eth ethchain.
 		LIMIT 1
 	`, normalizeTxHash(wait.TxHash)).Scan(&fromAddress, &nonce, &signedTxBytes)
 	if errors.Is(err, sql.ErrNoRows) || len(signedTxBytes) == 0 || !nonce.Valid {
-		return receiptLost, nil, nil
+		// Without send metadata we cannot safely rebroadcast or conclude lost.
+		return receiptDeferred, nil, nil
 	}
 	if err != nil {
 		return 0, nil, xerrors.Errorf("loading signed receipt tx %s: %w", wait.TxHash, err)

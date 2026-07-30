@@ -1,8 +1,11 @@
 package pdpv0
 
 import (
+	"math/big"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 
 	"github.com/filecoin-project/lotus/build"
 )
@@ -33,4 +36,15 @@ func TestNormalizeTxHash(t *testing.T) {
 	if got := normalizeTxHash(" 0xAbC "); got != "0xabc" {
 		t.Fatalf("got %q", got)
 	}
+}
+
+func TestDataSetIdFromClientNonce(t *testing.T) {
+	require.Equal(t, int64(123), dataSetIdFromClientNonce(big.NewInt(123)))
+
+	// AddPieces packing: (nextPieceId << 128) | dataSetId
+	packed := new(big.Int).Lsh(big.NewInt(5), 128)
+	packed.Or(packed, big.NewInt(99))
+	require.Equal(t, int64(99), dataSetIdFromClientNonce(packed))
+
+	require.Equal(t, int64(0), dataSetIdFromClientNonce(big.NewInt(0)))
 }

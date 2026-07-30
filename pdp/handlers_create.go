@@ -147,7 +147,7 @@ func (p *PDPService) handleCreateDataSetAndAddPieces(w http.ResponseWriter, r *h
 		"recordKeeper", recordKeeperAddr.Hex())
 	// Begin a database transaction
 	comm, err := p.db.BeginTransaction(workCtx, func(tx *harmonydb.Tx) (bool, error) {
-		err := p.insertMessageWaitsAndDataSetCreate(tx, txHashLower, serviceLabel)
+		err := p.insertMessageWaitsAndDataSetCreate(tx, txHashLower, serviceLabel, extraDataBytes)
 		if err != nil {
 			return false, err
 		}
@@ -323,7 +323,7 @@ func (p *PDPService) handleCreateDataSet(w http.ResponseWriter, r *http.Request)
 
 	// Begin a database transaction
 	comm, err := p.db.BeginTransaction(workCtx, func(tx *harmonydb.Tx) (bool, error) {
-		err := p.insertMessageWaitsAndDataSetCreate(tx, txHashLower, serviceLabel)
+		err := p.insertMessageWaitsAndDataSetCreate(tx, txHashLower, serviceLabel, extraDataBytes)
 		if err != nil {
 			return false, err
 		}
@@ -348,7 +348,7 @@ func (p *PDPService) handleCreateDataSet(w http.ResponseWriter, r *http.Request)
 }
 
 // insertMessageWaitsAndDataSetCreate inserts records into message_waits_eth and pdp_data_set_creates
-func (p *PDPService) insertMessageWaitsAndDataSetCreate(tx *harmonydb.Tx, txHashHex string, serviceLabel string) error {
+func (p *PDPService) insertMessageWaitsAndDataSetCreate(tx *harmonydb.Tx, txHashHex string, serviceLabel string, extraData []byte) error {
 	// Insert into message_waits_eth
 	log.Debugw("Inserting into message_waits_eth",
 		"txHash", txHashHex,
@@ -368,14 +368,19 @@ func (p *PDPService) insertMessageWaitsAndDataSetCreate(tx *harmonydb.Tx, txHash
 		return fmt.Errorf("expected 1 row to be inserted into message_waits_eth, got %d", n)
 	}
 
-	// Insert into pdp_data_set_creates
+	// Insert into pdp_data_set_creates (persist extra_data for lost-receipt recovery)
 	log.Debugw("Inserting into pdp_data_set_creates",
 		"txHash", txHashHex,
-		"service", serviceLabel)
+		"service", serviceLabel,
+		"extraDataLen", len(extraData))
+	var extraDataArg any
+	if len(extraData) > 0 {
+		extraDataArg = extraData
+	}
 	n, err = tx.Exec(`
-            INSERT INTO pdp_data_set_creates (create_message_hash, service)
-            VALUES ($1, $2)
-        `, txHashHex, serviceLabel)
+            INSERT INTO pdp_data_set_creates (create_message_hash, service, extra_data)
+            VALUES ($1, $2, $3)
+        `, txHashHex, serviceLabel, extraDataArg)
 	if err != nil {
 		log.Errorw("Failed to insert into pdp_data_set_creates",
 			"txHash", txHashHex,
