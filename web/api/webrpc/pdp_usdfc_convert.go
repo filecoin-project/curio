@@ -24,7 +24,6 @@ type PDPUsdfcFilQuoteResult struct {
 type PDPConvertUsdfcToFilResult struct {
 	ApproveTxHash string `json:"approveTxHash,omitempty"`
 	SwapTxHash    string `json:"swapTxHash"`
-	UnwrapTxHash  string `json:"unwrapTxHash"`
 	QuotedOutFil  string `json:"quotedOutFil"`
 	MinOutFil     string `json:"minOutFil"`
 }
@@ -50,7 +49,8 @@ func (a *WebRPC) PDPUsdfcFilQuote(ctx context.Context, amountIn string) (*PDPUsd
 	}, nil
 }
 
-// PDPConvertUsdfcToFil converts USDFC to native FIL via SushiSwap V3 (approve if needed, swap, unwrap).
+// PDPConvertUsdfcToFil converts USDFC to native FIL via SushiSwap V3 (approve if needed, then
+// a single router multicall that swaps and unwraps to FIL).
 // slippageBps is basis points (100 = 1%). Pass 0 to use the default of 100.
 func (a *WebRPC) PDPConvertUsdfcToFil(ctx context.Context, amountIn string, slippageBps int) (*PDPConvertUsdfcToFilResult, error) {
 	if a.Deps.EthSender == nil {
@@ -76,7 +76,6 @@ func (a *WebRPC) PDPConvertUsdfcToFil(ctx context.Context, amountIn string, slip
 	out := &PDPConvertUsdfcToFilResult{
 		ApproveTxHash: res.ApproveTxHash,
 		SwapTxHash:    res.SwapTxHash,
-		UnwrapTxHash:  res.UnwrapTxHash,
 	}
 	if res.QuotedOut != nil {
 		out.QuotedOutFil = types.FIL(types.BigFromBytes(res.QuotedOut.Bytes())).Short()

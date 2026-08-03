@@ -341,14 +341,9 @@ customElements.define('usdfc-convert', class UsdfcConvertElement extends LitElem
                             </a>
                         </div>
                     ` : ''}
-                    <div>Swap:
+                    <div>Swap → FIL:
                         <a href="${this.filfoxTx(this.result.swapTxHash)}" target="_blank" rel="noopener">
                             ${this.shortHash(this.result.swapTxHash)}
-                        </a>
-                    </div>
-                    <div>Unwrap:
-                        <a href="${this.filfoxTx(this.result.unwrapTxHash)}" target="_blank" rel="noopener">
-                            ${this.shortHash(this.result.unwrapTxHash)}
                         </a>
                     </div>
                     <div class="mt-1"><a href="/pages/chain/">View pending chain messages</a></div>

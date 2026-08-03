@@ -180,10 +180,11 @@ func ServiceRegistryAddress() (common.Address, error) {
 const USDFCAddressMainnet = "0x80B98d3aa09ffff255c3ba4A241111Ff1262F045"
 const USDFCAddressCalibnet = "0xb3042734b608a1B16e9e86B374A3f3e389B4cDf0"
 
-// SushiSwap V3 (Filecoin mainnet) addresses for USDFC → WFIL → FIL conversion.
+// SushiSwap V3 (Filecoin mainnet) addresses for USDFC → native FIL conversion.
 // SwapRouter: https://github.com/sushiswap/v3-periphery/blob/master/deployments/filecoin/SwapRouter.json
 // QuoterV2: https://github.com/sushiswap/v3-periphery/blob/master/deployments/filecoin/QuoterV2.json
-// WFIL is the Sushi-pool wrapped FIL (not an official Filecoin-issued WFIL).
+// The pool is USDFC/WFIL (V3 pools are ERC-20 only). The router multicalls unwrapWETH9
+// so the wallet receives native FIL; WFIL is never left in the PDP wallet.
 const (
 	WFILAddressMainnet            = "0x60E1773636CF5E4A227D9AC24F20FECA034EE25A"
 	SushiSwapRouterAddressMainnet = "0x0389879e0156033202C44BF784ac18fC02edeE4f"

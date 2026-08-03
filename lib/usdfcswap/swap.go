@@ -24,9 +24,12 @@ const (
 
 	quoterABI = `[{"inputs":[{"components":[{"name":"tokenIn","type":"address"},{"name":"tokenOut","type":"address"},{"name":"amountIn","type":"uint256"},{"name":"fee","type":"uint24"},{"name":"sqrtPriceLimitX96","type":"uint160"}],"name":"params","type":"tuple"}],"name":"quoteExactInputSingle","outputs":[{"name":"amountOut","type":"uint256"},{"name":"sqrtPriceX96After","type":"uint160"},{"name":"initializedTicksCrossed","type":"uint32"},{"name":"gasEstimate","type":"uint256"}],"stateMutability":"nonpayable","type":"function"}]`
 
-	routerABI = `[{"inputs":[{"components":[{"name":"tokenIn","type":"address"},{"name":"tokenOut","type":"address"},{"name":"fee","type":"uint24"},{"name":"recipient","type":"address"},{"name":"deadline","type":"uint256"},{"name":"amountIn","type":"uint256"},{"name":"amountOutMinimum","type":"uint256"},{"name":"sqrtPriceLimitX96","type":"uint160"}],"name":"params","type":"tuple"}],"name":"exactInputSingle","outputs":[{"name":"amountOut","type":"uint256"}],"stateMutability":"payable","type":"function"}]`
-
-	wfilABI = `[{"inputs":[{"name":"wad","type":"uint256"}],"name":"withdraw","outputs":[],"stateMutability":"nonpayable","type":"function"}]`
+	// SwapRouter multicall: exactInputSingle (recipient=0 → router holds WFIL) then unwrapWETH9 → native FIL.
+	routerABI = `[
+		{"inputs":[{"components":[{"name":"tokenIn","type":"address"},{"name":"tokenOut","type":"address"},{"name":"fee","type":"uint24"},{"name":"recipient","type":"address"},{"name":"deadline","type":"uint256"},{"name":"amountIn","type":"uint256"},{"name":"amountOutMinimum","type":"uint256"},{"name":"sqrtPriceLimitX96","type":"uint160"}],"name":"params","type":"tuple"}],"name":"exactInputSingle","outputs":[{"name":"amountOut","type":"uint256"}],"stateMutability":"payable","type":"function"},
+		{"inputs":[{"name":"amountMinimum","type":"uint256"},{"name":"recipient","type":"address"}],"name":"unwrapWETH9","outputs":[],"stateMutability":"payable","type":"function"},
+		{"inputs":[{"name":"data","type":"bytes[]"}],"name":"multicall","outputs":[{"name":"results","type":"bytes[]"}],"stateMutability":"payable","type":"function"}
+	]`
 
 	defaultConfirmTimeout = 5 * time.Minute
 	confirmPollInterval   = 3 * time.Second
@@ -52,7 +55,7 @@ type exactInputSingleParams struct {
 	SqrtPriceLimitX96 *big.Int
 }
 
-// QuoteResult is the expected WFIL/FIL out for a USDFC amount in.
+// QuoteResult is the expected native FIL out for a USDFC amount in.
 type QuoteResult struct {
 	AmountOut *big.Int
 }
@@ -61,12 +64,12 @@ type QuoteResult struct {
 type ConvertResult struct {
 	ApproveTxHash string
 	SwapTxHash    string
-	UnwrapTxHash  string
 	AmountOutMin  *big.Int
 	QuotedOut     *big.Int
 }
 
-// Quote returns expected WFIL out for amountIn USDFC (18-decimal base units).
+// Quote returns expected native FIL out for amountIn USDFC (18-decimal base units).
+// Quotes the USDFC/WFIL pool; 1 WFIL = 1 FIL after router unwrap.
 func Quote(ctx context.Context, client ethchain.EthClient, amountIn *big.Int) (*QuoteResult, error) {
 	if amountIn == nil || amountIn.Sign() <= 0 {
 		return nil, xerrors.Errorf("amountIn must be positive")
@@ -111,7 +114,8 @@ func Quote(ctx context.Context, client ethchain.EthClient, amountIn *big.Int) (*
 	return &QuoteResult{AmountOut: new(big.Int).Set(amountOut)}, nil
 }
 
-// Convert swaps USDFC for WFIL via SushiSwap V3, then unwraps WFIL to native FIL.
+// Convert swaps USDFC to native FIL via SushiSwap V3 in one router multicall
+// (exactInputSingle into the router, then unwrapWETH9 to the PDP wallet).
 // slippageBps is basis points (100 = 1%). If zero, defaults to 100.
 func Convert(ctx context.Context, db *harmonydb.DB, client ethchain.EthClient, sender *message.SenderETH, from common.Address, amountIn *big.Int, slippageBps int) (*ConvertResult, error) {
 	if sender == nil {
@@ -186,28 +190,11 @@ func Convert(ctx context.Context, db *harmonydb.DB, client ethchain.EthClient, s
 		}
 	}
 
-	swapHash, err := sendExactInputSingle(ctx, db, sender, from, usdfc, wfil, router, fee, amountIn, amountOutMin)
+	swapHash, err := sendSwapToNativeFil(ctx, db, sender, from, usdfc, wfil, router, fee, amountIn, amountOutMin)
 	if err != nil {
 		return result, err
 	}
 	result.SwapTxHash = strings.ToLower(swapHash.Hex())
-	if err := waitConfirmed(ctx, db, result.SwapTxHash, defaultConfirmTimeout); err != nil {
-		return result, xerrors.Errorf("waiting for swap confirmation: %w", err)
-	}
-
-	wfilBal, err := erc20BalanceOf(ctx, client, wfil, from)
-	if err != nil {
-		return result, xerrors.Errorf("WFIL balance after swap: %w", err)
-	}
-	if wfilBal.Sign() <= 0 {
-		return result, xerrors.Errorf("no WFIL to unwrap after swap")
-	}
-
-	unwrapHash, err := sendWfilWithdraw(ctx, db, sender, from, wfil, wfilBal)
-	if err != nil {
-		return result, err
-	}
-	result.UnwrapTxHash = strings.ToLower(unwrapHash.Hex())
 	return result, nil
 }
 
@@ -285,17 +272,20 @@ func sendApprove(ctx context.Context, db *harmonydb.DB, sender *message.SenderET
 	return hash, nil
 }
 
-func sendExactInputSingle(ctx context.Context, db *harmonydb.DB, sender *message.SenderETH, from, usdfc, wfil, router common.Address, fee uint32, amountIn, amountOutMin *big.Int) (common.Hash, error) {
+// sendSwapToNativeFil multicalls exactInputSingle + unwrapWETH9 so the wallet receives native FIL.
+// Pool tokenOut is still WFIL (V3 pools are ERC-20 only); recipient address(0) keeps WFIL on the
+// router, then unwrapWETH9 converts it to FIL and transfers to `from`.
+func sendSwapToNativeFil(ctx context.Context, db *harmonydb.DB, sender *message.SenderETH, from, usdfc, wfil, router common.Address, fee uint32, amountIn, amountOutMin *big.Int) (common.Hash, error) {
 	parsed, err := abi.JSON(strings.NewReader(routerABI))
 	if err != nil {
 		return common.Hash{}, xerrors.Errorf("parse router abi: %w", err)
 	}
 	deadline := big.NewInt(time.Now().Add(swapDeadlineSkew).Unix())
-	data, err := parsed.Pack("exactInputSingle", exactInputSingleParams{
+	swapData, err := parsed.Pack("exactInputSingle", exactInputSingleParams{
 		TokenIn:           usdfc,
 		TokenOut:          wfil,
 		Fee:               big.NewInt(int64(fee)),
-		Recipient:         from,
+		Recipient:         common.Address{}, // address(0) → router custodians WFIL for unwrap
 		Deadline:          deadline,
 		AmountIn:          amountIn,
 		AmountOutMinimum:  amountOutMin,
@@ -303,6 +293,14 @@ func sendExactInputSingle(ctx context.Context, db *harmonydb.DB, sender *message
 	})
 	if err != nil {
 		return common.Hash{}, xerrors.Errorf("pack exactInputSingle: %w", err)
+	}
+	unwrapData, err := parsed.Pack("unwrapWETH9", amountOutMin, from)
+	if err != nil {
+		return common.Hash{}, xerrors.Errorf("pack unwrapWETH9: %w", err)
+	}
+	data, err := parsed.Pack("multicall", [][]byte{swapData, unwrapData})
+	if err != nil {
+		return common.Hash{}, xerrors.Errorf("pack multicall: %w", err)
 	}
 	tx := types.NewTx(&types.LegacyTx{
 		Nonce:    0,
@@ -315,33 +313,6 @@ func sendExactInputSingle(ctx context.Context, db *harmonydb.DB, sender *message
 	hash, err := sender.Send(ctx, from, tx, "usdfc-to-fil")
 	if err != nil {
 		return common.Hash{}, xerrors.Errorf("send swap: %w", err)
-	}
-	if err := insertWait(ctx, db, hash); err != nil {
-		return hash, err
-	}
-	return hash, nil
-}
-
-func sendWfilWithdraw(ctx context.Context, db *harmonydb.DB, sender *message.SenderETH, from, wfil common.Address, amount *big.Int) (common.Hash, error) {
-	parsed, err := abi.JSON(strings.NewReader(wfilABI))
-	if err != nil {
-		return common.Hash{}, xerrors.Errorf("parse wfil abi: %w", err)
-	}
-	data, err := parsed.Pack("withdraw", amount)
-	if err != nil {
-		return common.Hash{}, xerrors.Errorf("pack withdraw: %w", err)
-	}
-	tx := types.NewTx(&types.LegacyTx{
-		Nonce:    0,
-		To:       &wfil,
-		Value:    big.NewInt(0),
-		Gas:      0,
-		GasPrice: nil,
-		Data:     data,
-	})
-	hash, err := sender.Send(ctx, from, tx, "wfil-unwrap")
-	if err != nil {
-		return common.Hash{}, xerrors.Errorf("send unwrap: %w", err)
 	}
 	if err := insertWait(ctx, db, hash); err != nil {
 		return hash, err
