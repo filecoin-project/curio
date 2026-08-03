@@ -405,8 +405,8 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 		data,
 	)
 
-	// Step 8: Resolve indexing intent from cached pdp_data_sets.ipni (chain-fill if NULL).
-	mustIndex, err := ResolveDatasetShouldIPNI(workCtx, p.db, p.ethClient, dataSetIdUint64)
+	// Step 8: Resolve indexing intent from cached pdp_data_sets.ipfs_indexing (chain-fill if NULL).
+	mustIndex, err := ResolveDatasetIPFSIndexing(workCtx, p.db, p.ethClient, dataSetIdUint64)
 	if err != nil {
 		log.Errorw("Failed to resolve indexing requirements", "error", err, "dataSetId", dataSetId)
 		httpServerError(w, http.StatusInternalServerError, "Internal server error", err)

@@ -143,10 +143,10 @@ func TestSkiffCreateAddRetrieveLifecycle(t *testing.T) {
 	createTxHash := strings.TrimPrefix(createLoc, "/pdp/data-sets/created/")
 
 	const dataSetID uint64 = 4242
-	// ipni is resolved at create/watch time from extraData (or chain backfill).
+	// ipfs_indexing is resolved at create/watch time from extraData (or chain backfill).
 	// This fixture has no FWSS create metadata and a stub eth client, so set it explicitly.
 	_, err = db.Exec(ctx, `
-		INSERT INTO pdp_data_sets (id, create_message_hash, service, proving_period, challenge_window, init_ready, ipni)
+		INSERT INTO pdp_data_sets (id, create_message_hash, service, proving_period, challenge_window, init_ready, ipfs_indexing)
 		VALUES ($1, $2, 'public', 100, 10, FALSE, FALSE)`,
 		int64(dataSetID), createTxHash)
 	require.NoError(t, err)

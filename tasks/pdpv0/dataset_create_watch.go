@@ -110,21 +110,21 @@ func processDataSetCreate(ctx context.Context, db *harmonydb.DB, psc DataSetCrea
 	if err != nil {
 		return xerrors.Errorf("failed to get max proving period: %w", err)
 	}
-	var ipniArg any
-	var ipniTrue bool
-	if known, ipni := pdp.IPNIFromExtraData(psc.ExtraData); known {
-		ipniArg = ipni
-		ipniTrue = ipni
-		log.Infow("Resolved data set IPNI intent from create extra_data",
-			"txHash", psc.CreateMessageHash, "dataSetId", dataSetId, "ipni", ipni)
+	var ipfsIndexingArg any
+	var ipfsIndexingTrue bool
+	if known, ipfsIndexing := pdp.IPFSIndexingFromExtraData(psc.ExtraData); known {
+		ipfsIndexingArg = ipfsIndexing
+		ipfsIndexingTrue = ipfsIndexing
+		log.Infow("Resolved data set IPFS indexing intent from create extra_data",
+			"txHash", psc.CreateMessageHash, "dataSetId", dataSetId, "ipfsIndexing", ipfsIndexing)
 	}
 
 	comm, err := db.BeginTransaction(ctx, func(tx *harmonyquery.Tx) (commit bool, err error) {
 		// Insert a new entry into pdp_data_sets
 		n, err := tx.Exec(`
-        INSERT INTO pdp_data_sets (id, create_message_hash, service, proving_period, challenge_window, ipni)
+        INSERT INTO pdp_data_sets (id, create_message_hash, service, proving_period, challenge_window, ipfs_indexing)
         VALUES ($1, $2, $3, $4, $5, $6)
-    `, dataSetId, psc.CreateMessageHash, psc.Service, provingPeriod, challengeWindow, ipniArg)
+    `, dataSetId, psc.CreateMessageHash, psc.Service, provingPeriod, challengeWindow, ipfsIndexingArg)
 		if err != nil {
 			return false, xerrors.Errorf("failed to insert data set %d for tx %+v: %w", dataSetId, psc, err)
 		}
@@ -133,7 +133,7 @@ func processDataSetCreate(ctx context.Context, db *harmonydb.DB, psc DataSetCrea
 			return false, xerrors.Errorf("expected to insert 1 row but inserted: %d", n)
 		}
 
-		if ipniTrue {
+		if ipfsIndexingTrue {
 			if err := pdp.RepairIndexingForDataSetInTx(tx, uint64(dataSetId)); err != nil {
 				return false, err
 			}

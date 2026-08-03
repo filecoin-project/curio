@@ -431,26 +431,26 @@ func ensureDataSetRow(ctx context.Context, db *harmonydb.DB, eth ethchain.EthCli
 		return xerrors.Errorf("proving schedule for data set %d: %w", dataSetId, err)
 	}
 
-	var ipniArg any
-	if known, ipni := pdp.IPNIFromExtraData(extraData); known {
-		ipniArg = ipni
+	var ipfsIndexingArg any
+	if known, ipfsIndexing := pdp.IPFSIndexingFromExtraData(extraData); known {
+		ipfsIndexingArg = ipfsIndexing
 	}
 
 	n, err := db.Exec(ctx, `
-		INSERT INTO pdp_data_sets (id, create_message_hash, service, proving_period, challenge_window, ipni)
+		INSERT INTO pdp_data_sets (id, create_message_hash, service, proving_period, challenge_window, ipfs_indexing)
 		VALUES ($1, $2, $3, $4, $5, $6)
 		ON CONFLICT (id) DO NOTHING
-	`, dataSetId, normalizeTxHash(wait.TxHash), service, provingPeriod, challengeWindow, ipniArg)
+	`, dataSetId, normalizeTxHash(wait.TxHash), service, provingPeriod, challengeWindow, ipfsIndexingArg)
 	if err != nil {
 		return xerrors.Errorf("inserting pdp_data_sets %d: %w", dataSetId, err)
 	}
 	if n == 1 {
 		log.Infow("inserted pdp_data_sets row from clientNonces recovery",
-			"txHash", wait.TxHash, "dataSetId", dataSetId, "service", service, "ipni", ipniArg)
+			"txHash", wait.TxHash, "dataSetId", dataSetId, "service", service, "ipfsIndexing", ipfsIndexingArg)
 	}
-	if ipniArg == true {
+	if ipfsIndexingArg == true {
 		// Persist path also repairs missed needs_indexing flags for create-and-add races.
-		if err := pdp.PersistDatasetShouldIPNI(ctx, db, uint64(dataSetId), true); err != nil {
+		if err := pdp.PersistDatasetIPFSIndexing(ctx, db, uint64(dataSetId), true); err != nil {
 			return err
 		}
 	}

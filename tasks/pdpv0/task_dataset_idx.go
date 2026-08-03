@@ -18,7 +18,7 @@ import (
 const datasetIdxInterval = 15 * time.Minute
 const datasetIdxBatchSize = 100
 
-// DatasetIdxTask backfills pdp_data_sets.ipni for rows still NULL via chain reads,
+// DatasetIdxTask backfills pdp_data_sets.ipfs_indexing for rows still NULL via chain reads,
 // and repairs missed needs_indexing flags when intent resolves to true.
 type DatasetIdxTask struct {
 	db        *harmonydb.DB
@@ -42,12 +42,12 @@ func (t *DatasetIdxTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 	err = t.db.Select(ctx, &rows, `
 		SELECT id
 		FROM pdp_data_sets
-		WHERE ipni IS NULL
+		WHERE ipfs_indexing IS NULL
 		ORDER BY id
 		LIMIT $1
 	`, datasetIdxBatchSize)
 	if err != nil {
-		return false, xerrors.Errorf("selecting data sets with null ipni: %w", err)
+		return false, xerrors.Errorf("selecting data sets with null ipfs_indexing: %w", err)
 	}
 	if len(rows) == 0 {
 		return true, nil
@@ -58,17 +58,17 @@ func (t *DatasetIdxTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 		if !stillOwned() {
 			return false, nil
 		}
-		mustIndex, err := pdp.ResolveDatasetShouldIPNI(ctx, t.db, t.ethClient, row.ID)
+		mustIndex, err := pdp.ResolveDatasetIPFSIndexing(ctx, t.db, t.ethClient, row.ID)
 		if err != nil {
 			log.Warnw("dataset idx fixup failed for data set", "dataSetId", row.ID, "error", err)
 			resolveErrs++
 			continue
 		}
-		log.Infow("dataset idx fixup resolved data set", "dataSetId", row.ID, "ipni", mustIndex)
+		log.Infow("dataset idx fixup resolved data set", "dataSetId", row.ID, "ipfsIndexing", mustIndex)
 	}
 
 	if resolveErrs > 0 {
-		return false, xerrors.Errorf("failed to resolve ipni for %d/%d data sets", resolveErrs, len(rows))
+		return false, xerrors.Errorf("failed to resolve ipfs_indexing for %d/%d data sets", resolveErrs, len(rows))
 	}
 	return true, nil
 }

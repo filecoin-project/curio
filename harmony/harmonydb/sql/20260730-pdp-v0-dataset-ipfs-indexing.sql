@@ -6,12 +6,12 @@ BEGIN
         SELECT 1
         FROM information_schema.columns
         WHERE table_name = 'pdp_data_sets'
-          AND column_name = 'ipni'
+          AND column_name = 'ipfs_indexing'
     ) THEN
         ALTER TABLE pdp_data_sets
-            ADD COLUMN ipni BOOLEAN;
+            ADD COLUMN ipfs_indexing BOOLEAN;
     END IF;
 END $$;
 
-COMMENT ON COLUMN pdp_data_sets.ipni IS
+COMMENT ON COLUMN pdp_data_sets.ipfs_indexing IS
     'withIPFSIndexing intent: TRUE/FALSE once known, NULL until resolved from create extra_data or chain';

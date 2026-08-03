@@ -15,16 +15,16 @@ import (
 	"github.com/filecoin-project/curio/pdp/contract"
 )
 
-// IPNIFromExtraData returns whether create extraData encodes withIPFSIndexing.
+// IPFSIndexingFromExtraData returns whether create extraData encodes withIPFSIndexing.
 // known is false when extraData is empty or cannot be decoded as FWSS create metadata.
-func IPNIFromExtraData(extraData []byte) (known bool, ipni bool) {
+func IPFSIndexingFromExtraData(extraData []byte) (known bool, ipfsIndexing bool) {
 	if len(extraData) == 0 {
 		return false, false
 	}
 
 	payload, err := DecodeFWSSCreateIdentityFromExtraData(extraData)
 	if err != nil {
-		log.Debugw("Failed to decode extraData for IPNI intent", "error", err)
+		log.Debugw("Failed to decode extraData for IPFS indexing intent", "error", err)
 		return false, false
 	}
 
@@ -34,62 +34,62 @@ func IPNIFromExtraData(extraData []byte) (known bool, ipni bool) {
 // CheckIfIndexingNeededFromExtraData checks if extraData contains withIPFSIndexing metadata.
 // Used for CreateDataSet+AddPieces where the data set row does not exist yet.
 func CheckIfIndexingNeededFromExtraData(extraData []byte) (bool, error) {
-	known, ipni := IPNIFromExtraData(extraData)
+	known, ipfsIndexing := IPFSIndexingFromExtraData(extraData)
 	if !known {
 		return false, nil
 	}
-	if ipni {
+	if ipfsIndexing {
 		log.Debugw("Found withIPFSIndexing in extraData metadata keys")
 	}
-	return ipni, nil
+	return ipfsIndexing, nil
 }
 
-// ResolveDatasetShouldIPNI returns the cached withIPFSIndexing intent for a data set.
-// If pdp_data_sets.ipni is NULL, it reads chain metadata, persists the result, and
+// ResolveDatasetIPFSIndexing returns the cached withIPFSIndexing intent for a data set.
+// If pdp_data_sets.ipfs_indexing is NULL, it reads chain metadata, persists the result, and
 // when true repairs any pieces that were never marked for indexing.
 // Chain/read failures return an error so callers do not soft-fail into a permanent opt-out.
-func ResolveDatasetShouldIPNI(
+func ResolveDatasetIPFSIndexing(
 	ctx context.Context,
 	db *harmonydb.DB,
 	ethClient ethchain.EthClient,
 	dataSetId uint64,
 ) (bool, error) {
-	ipni, err := read_DatasetShouldIPNI(ctx, db, dataSetId)
+	ipfsIndexing, err := readDatasetIPFSIndexing(ctx, db, dataSetId)
 	if err != nil {
 		return false, err
 	}
-	if ipni != nil {
-		return *ipni, nil
+	if ipfsIndexing != nil {
+		return *ipfsIndexing, nil
 	}
 
-	mustIndex, err := fetchFromChain_shouldIPNI(ctx, ethClient, dataSetId)
+	mustIndex, err := fetchFromChainIPFSIndexing(ctx, ethClient, dataSetId)
 	if err != nil {
 		return false, err
 	}
 
-	if err := PersistDatasetShouldIPNI(ctx, db, dataSetId, mustIndex); err != nil {
+	if err := PersistDatasetIPFSIndexing(ctx, db, dataSetId, mustIndex); err != nil {
 		return false, err
 	}
 	return mustIndex, nil
 }
 
-func read_DatasetShouldIPNI(ctx context.Context, db *harmonydb.DB, dataSetId uint64) (*bool, error) {
-	var ipni sql.NullBool
-	err := db.QueryRow(ctx, `SELECT ipni FROM pdp_data_sets WHERE id = $1`, dataSetId).Scan(&ipni)
+func readDatasetIPFSIndexing(ctx context.Context, db *harmonydb.DB, dataSetId uint64) (*bool, error) {
+	var ipfsIndexing sql.NullBool
+	err := db.QueryRow(ctx, `SELECT ipfs_indexing FROM pdp_data_sets WHERE id = $1`, dataSetId).Scan(&ipfsIndexing)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, xerrors.Errorf("data set %d not found", dataSetId)
 	}
 	if err != nil {
-		return nil, xerrors.Errorf("reading pdp_data_sets.ipni for %d: %w", dataSetId, err)
+		return nil, xerrors.Errorf("reading pdp_data_sets.ipfs_indexing for %d: %w", dataSetId, err)
 	}
-	if !ipni.Valid {
+	if !ipfsIndexing.Valid {
 		return nil, nil
 	}
-	v := ipni.Bool
+	v := ipfsIndexing.Bool
 	return &v, nil
 }
 
-func fetchFromChain_shouldIPNI(ctx context.Context, ethClient ethchain.EthClient, dataSetId uint64) (bool, error) {
+func fetchFromChainIPFSIndexing(ctx context.Context, ethClient ethchain.EthClient, dataSetId uint64) (bool, error) {
 	pdpVerifier, err := contract.NewPDPVerifierCaller(contract.ContractAddresses().PDPVerifier, ethClient)
 	if err != nil {
 		return false, xerrors.Errorf("instantiate PDPVerifier: %w", err)
@@ -108,31 +108,31 @@ func fetchFromChain_shouldIPNI(ctx context.Context, ethClient ethchain.EthClient
 	return mustIndex, nil
 }
 
-// PersistDatasetShouldIPNI stores a resolved ipni value when still NULL.
-// When ipni is true, marks unindexed piecerefs for the data set as needing indexing.
-func PersistDatasetShouldIPNI(ctx context.Context, db *harmonydb.DB, dataSetId uint64, ipni bool) error {
+// PersistDatasetIPFSIndexing stores a resolved ipfs_indexing value when still NULL.
+// When ipfsIndexing is true, marks unindexed piecerefs for the data set as needing indexing.
+func PersistDatasetIPFSIndexing(ctx context.Context, db *harmonydb.DB, dataSetId uint64, ipfsIndexing bool) error {
 	_, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
 		n, err := tx.Exec(`
 			UPDATE pdp_data_sets
-			SET ipni = $1
-			WHERE id = $2 AND ipni IS NULL
-		`, ipni, dataSetId)
+			SET ipfs_indexing = $1
+			WHERE id = $2 AND ipfs_indexing IS NULL
+		`, ipfsIndexing, dataSetId)
 		if err != nil {
-			return false, xerrors.Errorf("updating pdp_data_sets.ipni for %d: %w", dataSetId, err)
+			return false, xerrors.Errorf("updating pdp_data_sets.ipfs_indexing for %d: %w", dataSetId, err)
 		}
 		if n == 0 {
 			// Already resolved concurrently; still repair if the stored value is true.
 			var stored sql.NullBool
-			if err := tx.QueryRow(`SELECT ipni FROM pdp_data_sets WHERE id = $1`, dataSetId).Scan(&stored); err != nil {
-				return false, xerrors.Errorf("re-reading pdp_data_sets.ipni for %d: %w", dataSetId, err)
+			if err := tx.QueryRow(`SELECT ipfs_indexing FROM pdp_data_sets WHERE id = $1`, dataSetId).Scan(&stored); err != nil {
+				return false, xerrors.Errorf("re-reading pdp_data_sets.ipfs_indexing for %d: %w", dataSetId, err)
 			}
 			if !stored.Valid || !stored.Bool {
 				return true, nil
 			}
-			ipni = true
+			ipfsIndexing = true
 		}
 
-		if ipni {
+		if ipfsIndexing {
 			if err := RepairIndexingForDataSetInTx(tx, dataSetId); err != nil {
 				return false, err
 			}
