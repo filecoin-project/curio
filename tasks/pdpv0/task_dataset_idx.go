@@ -58,7 +58,7 @@ func (t *DatasetIdxTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 		if !stillOwned() {
 			return false, nil
 		}
-		mustIndex, err := pdp.ResolveDatasetIPNI(ctx, t.db, t.ethClient, row.ID)
+		mustIndex, err := pdp.ResolveDatasetShouldIPNI(ctx, t.db, t.ethClient, row.ID)
 		if err != nil {
 			log.Warnw("dataset idx fixup failed for data set", "dataSetId", row.ID, "error", err)
 			resolveErrs++

@@ -112,4 +112,3 @@ func TestFWSSPayerFromExtraData(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, payer, got)
 }
-

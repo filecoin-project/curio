@@ -1,18 +1,4 @@
 definitions:
-  address.Address:
-    type: object
-  github_com_filecoin-project_go-state-types_builtin_v16_verifreg.AllocationId:
-    enum:
-    - 0
-    type: integer
-    x-enum-varnames:
-    - NoAllocationID
-  http.Header:
-    additionalProperties:
-      items:
-        type: string
-      type: array
-    type: object
   mk20.AggregateType:
     enum:
     - 0
@@ -21,119 +7,9 @@ definitions:
     x-enum-varnames:
     - AggregateTypeNone
     - AggregateTypeV1
-  mk20.DDOV1:
-    properties:
-      allocation_id:
-        allOf:
-        - $ref: '#/definitions/github_com_filecoin-project_go-state-types_builtin_v16_verifreg.AllocationId'
-        description: AllocationId represents an allocation identifier for the deal.
-      duration:
-        description: |-
-          Duration represents the deal duration in epochs. This value is ignored for the deal with allocationID.
-          It must be at least 518400
-        type: integer
-      market_address:
-        description: MarketAddress specifies the address of the market governing the
-          deal
-        type: string
-      market_deal_id:
-        description: MarketDealID specifies the deal ID for the market actor at MarketAddress
-        type: integer
-      notification_address:
-        allOf:
-        - $ref: '#/definitions/address.Address'
-        description: NotificationAddress specifies the address to which notifications
-          will be relayed to when sector is activated
-      notification_payload:
-        description: NotificationPayload holds the notification data, typically in
-          a serialized byte array format.
-        items:
-          type: integer
-        type: array
-      provider:
-        allOf:
-        - $ref: '#/definitions/address.Address'
-        description: Provider specifies the address of the provider
-      start_epoch:
-        description: StartEpoch optionally specifies the epoch by which a deal should
-          be active on the chain
-        type: integer
-    type: object
   mk20.DataSource:
-    properties:
-      format:
-        allOf:
-        - $ref: '#/definitions/mk20.PieceDataFormat'
-        description: Format defines the format of the piece data, which can include
-          CAR, Aggregate, or Raw formats.
-      piece_cid:
-        additionalProperties:
-          type: string
-        description: PieceCID represents the unique identifier (pieceCID V2) for a
-          piece of data, stored as a CID object.
-        example:
-          /: bafkzcibfxx3meais3xzh6qn56y6hiasmrufhegoweu3o5ccofs74nfdfr4yn76pqz4pq
-        type: object
-      source_aggregate:
-        allOf:
-        - $ref: '#/definitions/mk20.DataSourceAggregate'
-        description: SourceAggregate represents an aggregated source, comprising multiple
-          data sources as pieces.
-      source_http:
-        allOf:
-        - $ref: '#/definitions/mk20.DataSourceHTTP'
-        description: SourceHTTP represents the HTTP-based source of piece data within
-          a deal, including raw size and URLs for retrieval.
-      source_http_put:
-        allOf:
-        - $ref: '#/definitions/mk20.DataSourceHttpPut'
-        description: SourceHttpPut allow clients to push piece data after deal is
-          accepted
-      source_offline:
-        allOf:
-        - $ref: '#/definitions/mk20.DataSourceOffline'
-        description: SourceOffline defines the data source for offline pieces, including
-          raw size information.
-    type: object
-  mk20.DataSourceAggregate:
-    properties:
-      pieces:
-        items:
-          $ref: '#/definitions/mk20.DataSource'
-        type: array
-    type: object
-  mk20.DataSourceHTTP:
-    properties:
-      urls:
-        description: URLs lists the HTTP endpoints where the piece data can be fetched.
-        items:
-          $ref: '#/definitions/mk20.HttpUrl'
-        type: array
-    type: object
-  mk20.DataSourceHttpPut:
-    type: object
-  mk20.DataSourceOffline:
     type: object
   mk20.Deal:
-    properties:
-      client:
-        description: Client wallet string for the deal
-        type: string
-      data:
-        allOf:
-        - $ref: '#/definitions/mk20.DataSource'
-        description: Data represents the source of piece data and associated metadata.
-      identifier:
-        description: Identifier represents a unique identifier for the deal in ULID
-          format.
-        example: 01ARZ3NDEKTSV4RRFFQ69G5FAV
-        format: ulid
-        type: string
-      products:
-        allOf:
-        - $ref: '#/definitions/mk20.Products'
-        description: Products represents a collection of product-specific information
-          associated with a deal
     type: object
   mk20.DealCode:
     enum:
@@ -229,63 +105,6 @@ definitions:
     type: object
   mk20.FormatCar:
     type: object
-  mk20.HttpUrl:
-    properties:
-      fallback:
-        description: Fallback indicates whether this URL serves as a fallback option
-          when other URLs fail.
-        type: boolean
-      headers:
-        allOf:
-        - $ref: '#/definitions/http.Header'
-        description: HTTPHeaders represents the HTTP headers associated with the URL.
-      priority:
-        description: Priority indicates the order preference for using the URL in
-          requests, with lower values having higher priority.
-        type: integer
-      url:
-        description: URL specifies the HTTP endpoint where the piece data can be fetched.
-        type: string
-    type: object
-  mk20.PDPV1:
-    properties:
-      add_piece:
-        description: AddPiece indicated that this deal is meant to add Piece to a
-          given DataSet. DataSetID must be defined.
-        type: boolean
-      create_data_set:
-        description: CreateDataSet indicated that this deal is meant to create a new
-          DataSet for the client by storage provider.
-        type: boolean
-      data_set_id:
-        description: DataSetID is PDP verified contract dataset ID. It must be defined
-          for all deals except when CreateDataSet is true.
-        type: integer
-      delete_data_set:
-        description: |-
-          DeleteDataSet indicated that this deal is meant to delete an existing DataSet created by SP for the client.
-          DataSetID must be defined.
-        type: boolean
-      delete_piece:
-        description: DeletePiece indicates whether the Piece of the data should be
-          deleted. DataSetID must be defined.
-        type: boolean
-      extra_data:
-        description: ExtraData can be used to send additional information to service
-          contract when Verifier action like AddPiece, DeletePiece, etc. are performed.
-        items:
-          type: integer
-        type: array
-      piece_ids:
-        description: PieceIDs is a list of Piece ids in a proof set.
-        items:
-          type: integer
-        type: array
-      record_keeper:
-        description: RecordKeeper specifies the record keeper contract address for
-          the new PDP dataset.
-        type: string
-    type: object
   mk20.PieceDataFormat:
     properties:
       aggregate:
@@ -302,39 +121,6 @@ definitions:
         - $ref: '#/definitions/mk20.FormatBytes'
         description: Raw represents the raw format of the piece data, encapsulated
           as bytes.
-    type: object
-  mk20.Products:
-    properties:
-      ddo_v1:
-        allOf:
-        - $ref: '#/definitions/mk20.DDOV1'
-        description: DDOV1 represents a product v1 configuration for Direct Data Onboarding
-          (DDO)
-      pdp_v1:
-        allOf:
-        - $ref: '#/definitions/mk20.PDPV1'
-        description: PDPV1 represents product-specific configuration for PDP version
-          1 deals.
-      retrieval_v1:
-        allOf:
-        - $ref: '#/definitions/mk20.RetrievalV1'
-        description: RetrievalV1 represents configuration for retrieval settings in
-          the system, including indexing and announcement flags.
-    type: object
-  mk20.RetrievalV1:
-    properties:
-      announce_payload:
-        description: AnnouncePayload indicates whether the payload should be announced
-          to IPNI.
-        type: boolean
-      announce_piece:
-        description: AnnouncePiece indicates whether the piece information should
-          be announced to IPNI.
-        type: boolean
-      indexing:
-        description: Indexing indicates if the deal is to be indexed in the provider's
-          system to support CIDs based retrieval
-        type: boolean
     type: object
   mk20.StartUpload:
     properties:

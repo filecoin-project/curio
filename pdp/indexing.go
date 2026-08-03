@@ -44,17 +44,17 @@ func CheckIfIndexingNeededFromExtraData(extraData []byte) (bool, error) {
 	return ipni, nil
 }
 
-// ResolveDatasetIPNI returns the cached withIPFSIndexing intent for a data set.
+// ResolveDatasetShouldIPNI returns the cached withIPFSIndexing intent for a data set.
 // If pdp_data_sets.ipni is NULL, it reads chain metadata, persists the result, and
 // when true repairs any pieces that were never marked for indexing.
 // Chain/read failures return an error so callers do not soft-fail into a permanent opt-out.
-func ResolveDatasetIPNI(
+func ResolveDatasetShouldIPNI(
 	ctx context.Context,
 	db *harmonydb.DB,
 	ethClient ethchain.EthClient,
 	dataSetId uint64,
 ) (bool, error) {
-	ipni, err := readDatasetIPNI(ctx, db, dataSetId)
+	ipni, err := read_DatasetShouldIPNI(ctx, db, dataSetId)
 	if err != nil {
 		return false, err
 	}
@@ -62,18 +62,18 @@ func ResolveDatasetIPNI(
 		return *ipni, nil
 	}
 
-	mustIndex, err := fetchIPNIFromChain(ctx, ethClient, dataSetId)
+	mustIndex, err := fetchFromChain_shouldIPNI(ctx, ethClient, dataSetId)
 	if err != nil {
 		return false, err
 	}
 
-	if err := PersistDatasetIPNI(ctx, db, dataSetId, mustIndex); err != nil {
+	if err := PersistDatasetShouldIPNI(ctx, db, dataSetId, mustIndex); err != nil {
 		return false, err
 	}
 	return mustIndex, nil
 }
 
-func readDatasetIPNI(ctx context.Context, db *harmonydb.DB, dataSetId uint64) (*bool, error) {
+func read_DatasetShouldIPNI(ctx context.Context, db *harmonydb.DB, dataSetId uint64) (*bool, error) {
 	var ipni sql.NullBool
 	err := db.QueryRow(ctx, `SELECT ipni FROM pdp_data_sets WHERE id = $1`, dataSetId).Scan(&ipni)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -89,7 +89,7 @@ func readDatasetIPNI(ctx context.Context, db *harmonydb.DB, dataSetId uint64) (*
 	return &v, nil
 }
 
-func fetchIPNIFromChain(ctx context.Context, ethClient ethchain.EthClient, dataSetId uint64) (bool, error) {
+func fetchFromChain_shouldIPNI(ctx context.Context, ethClient ethchain.EthClient, dataSetId uint64) (bool, error) {
 	pdpVerifier, err := contract.NewPDPVerifierCaller(contract.ContractAddresses().PDPVerifier, ethClient)
 	if err != nil {
 		return false, xerrors.Errorf("instantiate PDPVerifier: %w", err)
@@ -108,9 +108,9 @@ func fetchIPNIFromChain(ctx context.Context, ethClient ethchain.EthClient, dataS
 	return mustIndex, nil
 }
 
-// PersistDatasetIPNI stores a resolved ipni value when still NULL.
+// PersistDatasetShouldIPNI stores a resolved ipni value when still NULL.
 // When ipni is true, marks unindexed piecerefs for the data set as needing indexing.
-func PersistDatasetIPNI(ctx context.Context, db *harmonydb.DB, dataSetId uint64, ipni bool) error {
+func PersistDatasetShouldIPNI(ctx context.Context, db *harmonydb.DB, dataSetId uint64, ipni bool) error {
 	_, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
 		n, err := tx.Exec(`
 			UPDATE pdp_data_sets

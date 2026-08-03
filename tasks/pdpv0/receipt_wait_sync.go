@@ -450,7 +450,7 @@ func ensureDataSetRow(ctx context.Context, db *harmonydb.DB, eth ethchain.EthCli
 	}
 	if ipniArg == true {
 		// Persist path also repairs missed needs_indexing flags for create-and-add races.
-		if err := pdp.PersistDatasetIPNI(ctx, db, uint64(dataSetId), true); err != nil {
+		if err := pdp.PersistDatasetShouldIPNI(ctx, db, uint64(dataSetId), true); err != nil {
 			return err
 		}
 	}
