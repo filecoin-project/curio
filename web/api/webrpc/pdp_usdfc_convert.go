@@ -99,7 +99,7 @@ func parseUsdfcAmount(s string) (*big.Int, error) {
 	if err != nil {
 		return nil, xerrors.Errorf("invalid USDFC amount %q: %w", s, err)
 	}
-	if fil.Int.Sign() <= 0 {
+	if fil.Sign() <= 0 {
 		return nil, xerrors.Errorf("amount must be positive")
 	}
 	return fil.Int, nil
