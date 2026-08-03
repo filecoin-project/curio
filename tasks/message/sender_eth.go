@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/big"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ethereum/go-ethereum"
@@ -32,6 +33,10 @@ type SenderETH struct {
 	sendTask *SendTaskETH
 
 	db *harmonydb.DB
+
+	feeFloorLk sync.Mutex
+	feeFloor   *big.Int
+	feeFloorAt time.Time
 }
 
 type SendTaskETH struct {
@@ -342,6 +347,40 @@ func NewSenderETH(client ethchain.EthClient, db *harmonydb.DB) (*SenderETH, *Sen
 	}, st
 }
 
+const baseFeeFloorTTL = time.Minute
+const baseFeeFloorTimeout = 5 * time.Second
+
+func (s *SenderETH) baseFeeFloor(ctx context.Context) *big.Int {
+	s.feeFloorLk.Lock()
+	defer s.feeFloorLk.Unlock()
+
+	if s.feeFloor != nil && time.Since(s.feeFloorAt) < baseFeeFloorTTL {
+		return new(big.Int).Set(s.feeFloor)
+	}
+
+	fhCtx, cancel := context.WithTimeout(ctx, baseFeeFloorTimeout)
+	defer cancel()
+
+	feeHist, err := s.client.FeeHistory(fhCtx, 120, nil, nil)
+	if err != nil {
+		if s.feeFloor == nil {
+			return nil
+		}
+		return new(big.Int).Set(s.feeFloor)
+	}
+
+	floor := new(big.Int)
+	for _, histFee := range feeHist.BaseFee {
+		if histFee != nil && histFee.Cmp(floor) > 0 {
+			floor.Set(histFee)
+		}
+	}
+
+	s.feeFloor = floor
+	s.feeFloorAt = time.Now()
+	return new(big.Int).Set(floor)
+}
+
 // Send sends an Ethereum transaction, coordinating nonce assignment, signing, and broadcasting.
 func (s *SenderETH) Send(ctx context.Context, fromAddress common.Address, tx *types.Transaction, reason string) (common.Hash, error) {
 	return s.send(ctx, fromAddress, tx, reason, 1.0)
@@ -395,13 +434,9 @@ func (s *SenderETH) send(ctx context.Context, fromAddress common.Address, tx *ty
 			return common.Hash{}, fmt.Errorf("base fee not available; network might not support EIP-1559")
 		}
 
-                 // Measure current basefee as the max over the last 120 epochs (1 hour) 
-		if feeHist, fhErr := s.client.FeeHistory(ctx, 120, nil, nil); fhErr == nil {
-			for _, histFee := range feeHist.BaseFee {
-				if histFee != nil && histFee.Cmp(baseFee) > 0 {
-					baseFee = histFee
-				}
-			}
+		// Measure current basefee as the max over the last 120 epochs (1 hour), cached
+		if floor := s.baseFeeFloor(ctx); floor != nil && floor.Cmp(baseFee) > 0 {
+			baseFee = floor
 		}
 
 		// Set GasTipCap (maxPriorityFeePerGas)
