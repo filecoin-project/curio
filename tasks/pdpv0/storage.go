@@ -2,6 +2,7 @@ package pdpv0
 
 import (
 	"context"
+	"io"
 
 	"github.com/ipfs/go-cid"
 
@@ -36,4 +37,12 @@ type ProofCacheStore interface {
 // *indexstore.IndexStore.
 type IndexCleaner interface {
 	RemoveIndexes(ctx context.Context, pieceCidv2 cid.Cid) error
+}
+
+// ParkedPieceStore opens raw parked piece data by park id. The repair task uses
+// it to confirm that a piece the chain says we store is actually reachable in
+// storage, which a parked_pieces row alone does not prove. Satisfied by
+// piecestore.PieceIO.
+type ParkedPieceStore interface {
+	PieceReader(ctx context.Context, id storiface.PieceNumber) (io.ReadCloser, error)
 }
