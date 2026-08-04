@@ -40,9 +40,7 @@ func NewCleanupPiecesTask(db *harmonydb.DB, ethClient ethchain.EthClient, sender
 	}
 }
 
-func (t *CleanupPiecesTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
-
+func (t *CleanupPiecesTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	var dataSetID int64
 	err = t.db.QueryRow(ctx, `SELECT id FROM pdp_delete_data_set WHERE cleanup_pieces_task_id = $1`, taskID).Scan(&dataSetID)
 	if err != nil {

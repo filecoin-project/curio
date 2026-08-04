@@ -24,6 +24,7 @@ import (
 	"github.com/filecoin-project/curio/lib/passcall"
 	storiface "github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/tasks/seal"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 const MinSnapSchedInterval = 10 * time.Second
@@ -47,7 +48,7 @@ func NewEncodeTask(sc *ffi.SealCalls, db *harmonydb.DB, max int, bindToData bool
 	}
 }
 
-func (e *EncodeTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
+func (e *EncodeTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	var tasks []struct {
 		SpID         int64 `db:"sp_id"`
 		SectorNumber int64 `db:"sector_number"`
@@ -57,8 +58,6 @@ func (e *EncodeTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 
 		OrigSealedCID string `db:"orig_sealed_cid"`
 	}
-
-	ctx := context.Background()
 
 	err = e.db.Select(ctx, &tasks, `
 		SELECT snp.sp_id, snp.sector_number, snp.upgrade_proof, sm.reg_seal_proof, sm.orig_sealed_cid
@@ -276,8 +275,9 @@ func (e *EncodeTask) TypeDetails() harmonytask.TaskTypeDetails {
 	}
 
 	return harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(e.max),
-		Name: "UpdateEncode",
+		Max:       taskhelp.Max(e.max),
+		Name:      tasknames.UpdateEncode,
+		MayFollow: []string{tasknames.AggregateDeals},
 		Cost: resources.Resources{
 			Cpu:     1,
 			Ram:     1 << 30, // todo correct value

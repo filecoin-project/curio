@@ -18,6 +18,7 @@ import (
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 
 	"github.com/filecoin-project/lotus/build"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
@@ -47,8 +48,7 @@ func NewTaskUnsealSDR(sc *ffi.SealCalls, db *harmonydb.DB, max taskhelp.Limiter,
 	}
 }
 
-func (t *TaskUnsealSdr) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (t *TaskUnsealSdr) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	var sectorParamsArr []struct {
 		SpID         int64 `db:"sp_id"`
@@ -130,8 +130,9 @@ func (t *TaskUnsealSdr) TypeDetails() harmonytask.TaskTypeDetails {
 	}
 
 	res := harmonytask.TaskTypeDetails{
-		Max:  t.max,
-		Name: "SDRKeyRegen",
+		Max:       t.max,
+		Name:      tasknames.SDRKeyRegen,
+		MayFollow: []string{tasknames.MoveStorage, tasknames.UpdateStore},
 		Cost: resources.Resources{
 			Cpu:     4, // todo multicore sdr
 			Gpu:     0,

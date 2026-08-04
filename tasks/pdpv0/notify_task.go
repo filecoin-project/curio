@@ -25,7 +25,7 @@ import (
 var log = logging.Logger("pdpv0")
 
 // NotifyPollInterval is how often to poll for uploads ready to finalize.
-var NotifyPollInterval = 2 * time.Second
+var NotifyPollInterval = 5 * time.Second
 
 // PDPNotifyTask finalizes completed piece uploads.
 //
@@ -109,8 +109,7 @@ func (t *PDPNotifyTask) poll(ctx context.Context) {
 	}
 }
 
-func (t *PDPNotifyTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (t *PDPNotifyTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	// Fetch the pdp_piece_uploads entry associated with the taskID
 	var upload struct {

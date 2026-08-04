@@ -37,6 +37,7 @@ import (
 	storiface "github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/lib/supraffi"
 	"github.com/filecoin-project/curio/tasks/seal"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 
 	"github.com/filecoin-project/lotus/chain/types"
 )
@@ -261,8 +262,7 @@ func NewSupraSeal(sectorSize string, batchSize, pipelines int, dualHashers bool,
 	return ssl, slots, ssl.outSDR.IsInPhase(), nil
 }
 
-func (s *SupraSeal) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (s *SupraSeal) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	var sectors []struct {
 		SpID         int64 `db:"sp_id"`
@@ -344,7 +344,7 @@ func (s *SupraSeal) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 			ProofType: abi.RegisteredSealProof(t.RegSealProof),
 		}
 
-		ctx := context.WithValue(ctx, paths.SpaceUseKey, paths.SpaceUseFunc(SupraSpaceUse))
+		ctx = context.WithValue(ctx, paths.SpaceUseKey, paths.SpaceUseFunc(SupraSpaceUse))
 
 		ps, pathIDs, release, err := s.sc.Sectors.AcquireSector(ctx, &taskID, sref, storiface.FTNone, alloc, storiface.PathSealing)
 		if err != nil {
@@ -548,8 +548,9 @@ func (s *SupraSeal) TypeDetails() harmonytask.TaskTypeDetails {
 	}
 
 	return harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(s.pipelines),
-		Name: fmt.Sprintf("Batch%d-%s", s.sectors, ssizeToName[must.One(s.spt.SectorSize())]),
+		Max:       taskhelp.Max(s.pipelines),
+		Name:      fmt.Sprintf("Batch%d-%s", s.sectors, ssizeToName[must.One(s.spt.SectorSize())]),
+		MayFollow: []string{tasknames.AggregateDeals},
 		Cost: resources.Resources{
 			Cpu:     1,
 			Gpu:     0,

@@ -42,9 +42,7 @@ func NewTerminateServiceTask(db *harmonydb.DB, ethClient ethchain.EthClient, sen
 	}
 }
 
-func (t *TerminateFWSSTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
-
+func (t *TerminateFWSSTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	var dataSet terminateDataSet
 	err = t.db.QueryRow(ctx, `
 		SELECT id, client_requested_termination, termination_extra_data
@@ -176,7 +174,8 @@ func (t *TerminateFWSSTask) CanAccept(ids []harmonytask.TaskID, engine *harmonyt
 
 func (t *TerminateFWSSTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name: tasknames.PDPv0_TermFWSS,
+		Name:      tasknames.PDPv0_TermFWSS,
+		MayFollow: []string{tasknames.PDPv0_Prove},
 		Cost: resources.Resources{
 			Cpu: 0,
 			Gpu: 0,

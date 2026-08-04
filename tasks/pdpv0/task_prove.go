@@ -166,9 +166,7 @@ func NewProveTask(db *harmonydb.DB, ethClient ethchain.EthClient, fil ProveTaskC
 	return pt
 }
 
-func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
-
+func (p *ProveTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	// Retrieve data set and challenge epoch for the task
 	var dataSetId int64
 
@@ -913,6 +911,11 @@ func (p *ProveTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Name:          tasknames.PDPv0_Prove,
 		TimeSensitive: true,
+		// MayFollow must stay acyclic for harmonytask scheduling (see treehelper).
+		// PDPv0_ProvPeriod already follows PDPv0_Prove; do not list ProvPeriod here.
+		// Proving pipeline only: onboarding ends before PDPv0_InitPP (see task_init_pp);
+		// chain is PDPv0_InitPP → PDPv0_Prove → PDPv0_ProvPeriod.
+		MayFollow: []string{tasknames.PDPv0_InitPP},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Gpu: 0,

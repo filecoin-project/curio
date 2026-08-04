@@ -113,8 +113,7 @@ func (s *SubmitCommitTask) GetSectorID(db *harmonydb.DB, taskID int64) (*abi.Sec
 
 var _ = harmonytask.Reg(&SubmitCommitTask{})
 
-func (s *SubmitCommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (s *SubmitCommitTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	var sectorParamsArr []struct {
 		SpID         int64                   `db:"sp_id"`
@@ -653,8 +652,9 @@ func (s *SubmitCommitTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.Ta
 
 func (s *SubmitCommitTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(128),
-		Name: tasknames.CommitBatch,
+		Max:       taskhelp.Max(128),
+		Name:      tasknames.CommitBatch,
+		MayFollow: []string{tasknames.PoRep},
 		Cost: resources.Resources{
 			Cpu: 0,
 			Gpu: 0,

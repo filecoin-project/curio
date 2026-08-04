@@ -179,9 +179,8 @@ func (a *AlertTask) Problems() bool {
 	return a.pingProblems
 }
 
-func (a *AlertTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
+func (a *AlertTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	now := build.Clock.Now()
-	ctx := context.Background()
 	altrs := &alerts{
 		ctx:      ctx,
 		api:      a.api,

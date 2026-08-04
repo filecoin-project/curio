@@ -3,6 +3,7 @@ package seal
 import (
 	"context"
 	"database/sql"
+	"sync"
 	"time"
 
 	logging "github.com/ipfs/go-log/v2"
@@ -39,7 +40,12 @@ const (
 	numPollers
 )
 
-const sealPollerInterval = 10 * time.Second
+const sealPollerInterval = 60 * time.Second
+
+// sealPollerWakeMinInterval caps how often completion-driven wakes may trigger poll().
+// Idle ticker (sealPollerInterval) is unchanged; wakes provide a fast path for events
+// like CommitBatch/PreCommitBatch completion or chain message landing.
+const sealPollerWakeMinInterval = 2 * time.Second
 const seedEpochConfidence = 3
 
 type SealPollerAPI interface {
@@ -73,6 +79,26 @@ type SealPoller struct {
 	cfg pollerConfig
 
 	pollers [numPollers]promise.Promise[harmonytask.AddTaskFunc]
+
+	// Wake-driven polls: at most one every sealPollerWakeMinInterval (see WakePoll).
+	wakeMu       sync.Mutex
+	lastWakePoll time.Time
+	wakeTimer    *time.Timer     // non-nil while a wake delivery is already scheduled
+	wakeReq      chan struct{}   // unbuffered: run one wake-driven poll
+	wakeLoopCtx  context.Context // set in RunPoller before the loop starts
+
+	// Future-deadline wake: at most one timer scheduled for the soonest pending
+	// batch (or other) deadline. Used to fire poll() right when a batch becomes
+	// timeout-eligible without waiting for the next sealPollerInterval tick.
+	deadlineMu    sync.Mutex
+	deadlineTimer *time.Timer
+	deadlineAt    time.Time
+
+	// Hooks invoked after pollCommitMsgLanded flips sealed=TRUE on at least one
+	// market_mk12_deal_pipeline / market_mk20_pipeline row. Wire indexing wakes
+	// here so they fire exactly when the deal pipeline becomes index-eligible.
+	hookMu   sync.Mutex
+	onSealed []func()
 }
 
 func NewPoller(db *harmonydb.DB, api SealPollerAPI, cfg *config.CurioConfig) *SealPoller {
@@ -94,24 +120,155 @@ func NewPoller(db *harmonydb.DB, api SealPollerAPI, cfg *config.CurioConfig) *Se
 	}
 
 	return &SealPoller{
-		db:  db,
-		api: api,
-		cfg: c,
+		db:          db,
+		api:         api,
+		cfg:         c,
+		wakeReq:     make(chan struct{}),
+		wakeLoopCtx: context.Background(),
 	}
 }
 
+// AddOnSealed registers a callback fired (best-effort, in a goroutine) right
+// after pollCommitMsgLanded flips sealed=TRUE on one or more deal-pipeline rows.
+// Use this to wake downstream stages (e.g. IndexingTask) at the precise moment
+// the deal becomes index-eligible — `OnTaskComplete("CommitBatch")` is too early
+// because at that point the commit message has been queued but has not yet
+// landed on chain.
+//
+// Must be called before RunPoller starts; safe to call concurrently with itself.
+func (s *SealPoller) AddOnSealed(fn func()) {
+	if s == nil || fn == nil {
+		return
+	}
+	s.hookMu.Lock()
+	defer s.hookMu.Unlock()
+	s.onSealed = append(s.onSealed, fn)
+}
+
+// notifySealed invokes registered onSealed hooks asynchronously so that callers
+// inside a DB transaction commit path are not blocked by hook work (which itself
+// may take its own DB transactions, e.g. IndexingTask.Wake).
+func (s *SealPoller) notifySealed() {
+	if s == nil {
+		return
+	}
+	s.hookMu.Lock()
+	if len(s.onSealed) == 0 {
+		s.hookMu.Unlock()
+		return
+	}
+	fns := make([]func(), len(s.onSealed))
+	copy(fns, s.onSealed)
+	s.hookMu.Unlock()
+	go func() {
+		for _, fn := range fns {
+			fn()
+		}
+	}()
+}
+
+// wakePollAt schedules a one-shot wake at time `at`. If `at` is in the past, it
+// wakes immediately; if a sooner wake is already pending, this is a no-op. The
+// resulting WakePoll honours sealPollerWakeMinInterval. Intended for batch
+// timeout deadlines so poll() runs the moment a batch becomes dispatchable
+// instead of waiting for the next sealPollerInterval tick.
+func (s *SealPoller) wakePollAt(at time.Time) {
+	if s == nil || at.IsZero() {
+		return
+	}
+	d := time.Until(at)
+	if d <= 0 {
+		s.WakePoll()
+		return
+	}
+	s.deadlineMu.Lock()
+	defer s.deadlineMu.Unlock()
+	// If we already have a sooner-or-equal pending timer, leave it alone.
+	if s.deadlineTimer != nil && !s.deadlineAt.After(at) {
+		return
+	}
+	if s.deadlineTimer != nil {
+		s.deadlineTimer.Stop()
+	}
+	s.deadlineAt = at
+	s.deadlineTimer = time.AfterFunc(d, func() {
+		s.deadlineMu.Lock()
+		s.deadlineTimer = nil
+		s.deadlineMu.Unlock()
+		s.WakePoll()
+	})
+}
+
+// WakePoll asks the seal poller to run poll() sooner than the idle ticker, but not more
+// often than sealPollerWakeMinInterval since the last wake-driven poll (idle ticker is
+// unchanged). Use this from task-completion or chain-event callbacks (e.g. CommitBatch
+// task done, message_waits row populated) so the pipeline doesn't have to wait up to
+// sealPollerInterval before the next stage is dispatched or a landed message is noticed.
+func (s *SealPoller) WakePoll() {
+	if s == nil || s.wakeReq == nil {
+		return
+	}
+	s.wakeMu.Lock()
+	if s.wakeTimer != nil {
+		s.wakeMu.Unlock()
+		return
+	}
+	wait := time.Until(s.lastWakePoll.Add(sealPollerWakeMinInterval))
+	if wait < 0 {
+		wait = 0
+	}
+	s.wakeTimer = time.AfterFunc(wait, func() {
+		loopCtx := s.wakeLoopCtx
+		if loopCtx == nil {
+			loopCtx = context.Background()
+		}
+		select {
+		case s.wakeReq <- struct{}{}:
+		case <-loopCtx.Done():
+		}
+		s.wakeMu.Lock()
+		s.wakeTimer = nil
+		s.wakeMu.Unlock()
+	})
+	s.wakeMu.Unlock()
+}
+
 func (s *SealPoller) RunPoller(ctx context.Context) {
+	s.wakeLoopCtx = ctx
 	ticker := time.NewTicker(sealPollerInterval)
 	defer ticker.Stop()
+	defer func() {
+		s.wakeMu.Lock()
+		if s.wakeTimer != nil {
+			s.wakeTimer.Stop()
+			s.wakeTimer = nil
+		}
+		s.wakeMu.Unlock()
+		s.deadlineMu.Lock()
+		if s.deadlineTimer != nil {
+			s.deadlineTimer.Stop()
+			s.deadlineTimer = nil
+		}
+		s.deadlineMu.Unlock()
+	}()
+
+	doPoll := func() {
+		if err := s.poll(ctx); err != nil {
+			log.Errorw("polling failed", "error", err)
+		}
+	}
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if err := s.poll(ctx); err != nil {
-				log.Errorw("polling failed", "error", err)
-			}
+			doPoll()
+		case <-s.wakeReq:
+			s.wakeMu.Lock()
+			s.lastWakePoll = time.Now()
+			s.wakeMu.Unlock()
+			doPoll()
 		}
 	}
 }
@@ -240,6 +397,83 @@ func (s *SealPoller) poll(ctx context.Context) error {
 	s.pollStartBatchCommitMsg(ctx)
 
 	return nil
+}
+
+// SignalNext runs the same per-sector dispatch as poll for one pipeline row.
+// Used after seal stage tasks complete so the next stage can start without
+// waiting for the periodic poller.
+func (s *SealPoller) SignalNext(ctx context.Context, spID, sectorNum int64) {
+	var tasks []pollTask
+	err := s.db.Select(ctx, &tasks, `SELECT 
+												p.sp_id, 
+												p.sector_number, 
+												p.reg_seal_proof, 
+												p.ticket_epoch,
+												p.task_id_sdr, 
+												p.after_sdr,
+												p.task_id_tree_d, 
+												p.after_tree_d,
+												p.task_id_tree_c, 
+												p.after_tree_c,
+												p.task_id_tree_r, 
+												p.after_tree_r,
+												p.task_id_synth, 
+												p.after_synth,
+												p.precommit_ready_at,
+												p.task_id_precommit_msg, 
+												p.after_precommit_msg,
+												p.after_precommit_msg_success, 
+												p.seed_epoch,
+												p.task_id_porep, 
+												p.porep_proof, 
+												p.after_porep,
+												p.task_id_finalize, 
+												p.after_finalize,
+												p.task_id_move_storage, 
+												p.after_move_storage,
+												p.commit_ready_at,
+												p.task_id_commit_msg, 
+												p.after_commit_msg,
+												p.after_commit_msg_success,
+												p.failed, 
+												p.failed_reason,
+												p.start_epoch
+											FROM 
+												sectors_sdr_pipeline p
+											WHERE 
+												p.sp_id = $1 AND p.sector_number = $2
+												AND (p.after_commit_msg_success != TRUE 
+												OR p.after_move_storage != TRUE);`, spID, sectorNum)
+	if err != nil {
+		log.Errorw("SignalNext: select pipeline", "error", err, "sp_id", spID, "sector", sectorNum)
+		return
+	}
+	if len(tasks) == 0 {
+		return
+	}
+	task := tasks[0]
+	if task.Failed {
+		return
+	}
+	ts, err := s.api.ChainHead(ctx)
+	if err != nil {
+		log.Errorw("SignalNext: chain head", "error", err)
+		return
+	}
+
+	s.pollStartSDR(ctx, task)
+	s.pollStartSDRTreeD(ctx, task)
+	s.pollStartSDRTreeRC(ctx, task)
+	s.pollStartSynth(ctx, task)
+	s.mustPoll(s.pollPrecommitMsgLanded(ctx, task))
+	s.pollStartPoRep(ctx, task, ts)
+	s.mustPoll(s.pollerAddStartEpoch(ctx, task))
+	s.pollStartFinalize(ctx, task, ts)
+	s.pollStartMoveStorage(ctx, task)
+	s.mustPoll(s.pollCommitMsgLanded(ctx, task))
+
+	s.pollStartBatchPrecommitMsg(ctx)
+	s.pollStartBatchCommitMsg(ctx)
 }
 
 func (s *SealPoller) pollStartSDR(ctx context.Context, task pollTask) {
