@@ -60,15 +60,15 @@ func (t *DatasetIdxTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 		}
 		mustIndex, err := pdp.ResolveDatasetIPFSIndexing(ctx, t.db, t.ethClient, row.ID)
 		if err != nil {
-			log.Warnw("dataset idx fixup failed for data set", "dataSetId", row.ID, "error", err)
+			log.Warnw("failed to resolve IPFS indexing intent", "dataSetId", row.ID, "error", err)
 			resolveErrs++
 			continue
 		}
-		log.Infow("dataset idx fixup resolved data set", "dataSetId", row.ID, "ipfsIndexing", mustIndex)
+		log.Infow("resolved IPFS indexing intent", "dataSetId", row.ID, "ipfsIndexing", mustIndex)
 	}
 
 	if resolveErrs > 0 {
-		return false, xerrors.Errorf("failed to resolve ipfs_indexing for %d/%d data sets", resolveErrs, len(rows))
+		return false, xerrors.Errorf("failed to resolve IPFS indexing intent for %d of %d data sets", resolveErrs, len(rows))
 	}
 	return true, nil
 }
