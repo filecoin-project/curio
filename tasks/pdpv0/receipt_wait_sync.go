@@ -14,14 +14,13 @@ import (
 	"golang.org/x/xerrors"
 
 	commcid "github.com/filecoin-project/go-fil-commcid"
+	"github.com/filecoin-project/lotus/build/buildconstants"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/pdp"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/pdp/contract/FWSS"
-
-	"github.com/filecoin-project/lotus/build"
 )
 
 // OutstandingReceipt is a pending CreateDataset and/or AddPiece wait for a dataset.
@@ -55,13 +54,14 @@ func normalizeTxHash(txHash string) string {
 	return strings.ToLower(strings.TrimSpace(txHash))
 }
 
+const epochsPerDay = uint64((24 * time.Hour / time.Second) / time.Duration(buildconstants.BlockDelaySecs))
+
 // provingPeriodsPerDay is how many MaxProvingPeriod windows fit in one day,
 // derived from contract PDP config (epochs/day ÷ MaxProvingPeriod).
 func provingPeriodsPerDay(maxProvingPeriod uint64) uint64 {
 	if maxProvingPeriod == 0 {
 		return 1
 	}
-	epochsPerDay := uint64((24 * time.Hour / time.Second) / time.Duration(build.BlockDelaySecs))
 	n := epochsPerDay / maxProvingPeriod
 	if n == 0 {
 		return 1 // proving period longer than a day
@@ -77,8 +77,9 @@ func StaleReceiptAge(maxProvingPeriod uint64) time.Duration {
 }
 
 // SyncStaleCreateAddReceipts reconciles pending CreateDataSet / AddPiece waits older
-// than 1/(proving periods per day) of a day by querying chain state (and rebroadcasting
-// or marking lost when effects are still missing). Intended for the 8h chain-sync timer.
+// than 1/(proving periods per day) of a day by querying chain state (and marking lost
+// when effects are still missing). Stuck txs are left pending. Intended for the 8h
+// chain-sync timer.
 func SyncStaleCreateAddReceipts(ctx context.Context, db *harmonydb.DB, eth ethchain.EthClient) error {
 	maxPeriod, err := readMaxProvingPeriod(ctx, eth)
 	if err != nil {
@@ -171,7 +172,9 @@ func reconcileStaleReceipt(ctx context.Context, db *harmonydb.DB, eth ethchain.E
 	}
 	switch outcome {
 	case receiptStuck:
-		return rebroadcastStuckReceipt(ctx, eth, wait, signedTx)
+		log.Errorw("stale Create/Add receipt appears stuck (pending nonce not advanced); leaving pending",
+			"txHash", wait.TxHash)
+		return nil
 	case receiptLost:
 		if wait.HasCreate {
 			created, known, checkErr := checkCreateLandedViaClientNonces(ctx, db, eth, wait, signedTx)
@@ -451,24 +454,6 @@ func matchLivePieceAdds(ctx context.Context, db *harmonydb.DB, verifier *contrac
 	return matchPieceAddsOnChain(ctx, db, verifier, dataSetId, txHash)
 }
 
-func rebroadcastStuckReceipt(ctx context.Context, eth ethchain.EthClient, wait OutstandingReceipt, signedTx *types.Transaction) error {
-	if signedTx == nil {
-		return xerrors.Errorf("no signed tx available to rebroadcast for %s", wait.TxHash)
-	}
-	sendErr := eth.SendTransaction(ctx, signedTx)
-	if sendErr != nil {
-		msg := strings.ToLower(sendErr.Error())
-		if !strings.Contains(msg, "already known") &&
-			!strings.Contains(msg, "nonce too low") &&
-			!strings.Contains(msg, "known transaction") {
-			return xerrors.Errorf("rebroadcasting stuck receipt %s: %w", wait.TxHash, sendErr)
-		}
-		log.Infow("rebroadcast receipt tx already known to eth node", "txHash", wait.TxHash, "error", sendErr)
-	}
-	log.Infow("rebroadcasted stuck Create/Add receipt tx", "txHash", wait.TxHash)
-	return nil
-}
-
 func markReceiptLost(ctx context.Context, db *harmonydb.DB, wait OutstandingReceipt) error {
 	n, err := db.Exec(ctx, `
 		UPDATE message_waits_eth SET
@@ -582,7 +567,7 @@ func classifyMissingReceipt(ctx context.Context, db *harmonydb.DB, eth ethchain.
 		LIMIT 1
 	`, normalizeTxHash(wait.TxHash)).Scan(&fromAddress, &nonce, &signedTxBytes)
 	if errors.Is(err, sql.ErrNoRows) || len(signedTxBytes) == 0 || !nonce.Valid {
-		// Without send metadata we cannot safely rebroadcast or conclude lost.
+		// Without send metadata we cannot safely classify stuck vs lost.
 		return receiptDeferred, nil, nil
 	}
 	if err != nil {
