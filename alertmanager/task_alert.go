@@ -21,6 +21,7 @@ import (
 	"github.com/filecoin-project/go-state-types/dline"
 
 	"github.com/filecoin-project/curio/alertmanager/plugin"
+	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
@@ -179,7 +180,7 @@ func (a *AlertTask) Problems() bool {
 }
 
 func (a *AlertTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	now := time.Now()
+	now := build.Clock.Now()
 	altrs := &alerts{
 		ctx:      ctx,
 		api:      a.api,
