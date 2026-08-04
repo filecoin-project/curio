@@ -43,7 +43,7 @@ func TestSendTaskETHAmbiguousSendSucceedsAfterExactLookup(t *testing.T) {
 	}
 	task := &SendTaskETH{client: client, db: db}
 
-	done, err := task.Do(taskID, func() bool { return true })
+	done, err := task.Do(ctx, taskID, func() bool { return true })
 	require.NoError(t, err)
 	require.True(t, done)
 	require.Equal(t, 1, client.sendCalls)
@@ -86,7 +86,7 @@ func TestSendTaskETHDoesNotTrustAmbiguousSendWithoutExactLookup(t *testing.T) {
 	}
 	task := &SendTaskETH{client: client, db: db}
 
-	done, err := task.Do(taskID, func() bool { return true })
+	done, err := task.Do(ctx, taskID, func() bool { return true })
 	require.Error(t, err)
 	require.False(t, done)
 	require.Equal(t, 1, client.sendCalls)
@@ -127,7 +127,7 @@ func TestSendTaskETHFreshSendAssignsPendingNonce(t *testing.T) {
 	client := &sendTaskETHClient{pendingNonce: 13}
 	task := &SendTaskETH{client: client, db: db}
 
-	done, err := task.Do(taskID, func() bool { return true })
+	done, err := task.Do(ctx, taskID, func() bool { return true })
 	require.NoError(t, err)
 	require.True(t, done)
 	require.Equal(t, 1, client.pendingNonceCalls)
@@ -164,7 +164,7 @@ func TestSendTaskETHFreshSendUsesDBNonceWhenItIsAhead(t *testing.T) {
 	client := &sendTaskETHClient{pendingNonce: 13}
 	task := &SendTaskETH{client: client, db: db}
 
-	done, err := task.Do(taskID, func() bool { return true })
+	done, err := task.Do(ctx, taskID, func() bool { return true })
 	require.NoError(t, err)
 	require.True(t, done)
 	require.Equal(t, 1, client.pendingNonceCalls)
@@ -194,7 +194,7 @@ func TestSendTaskETHRetryUsesStoredSignedTransaction(t *testing.T) {
 	client := &sendTaskETHClient{pendingNonce: 99}
 	task := &SendTaskETH{client: client, db: db}
 
-	done, err := task.Do(harmonytask.TaskID(5), func() bool { return true })
+	done, err := task.Do(ctx, harmonytask.TaskID(5), func() bool { return true })
 	require.NoError(t, err)
 	require.True(t, done)
 	require.Equal(t, 0, client.pendingNonceCalls)
@@ -229,7 +229,7 @@ func TestSendTaskETHDefinitiveSendFailureFinalizesRow(t *testing.T) {
 	}
 	task := &SendTaskETH{client: client, db: db}
 
-	done, err := task.Do(taskID, func() bool { return true })
+	done, err := task.Do(ctx, taskID, func() bool { return true })
 	require.NoError(t, err)
 	require.True(t, done)
 	require.Equal(t, 1, client.sendCalls)
@@ -262,7 +262,7 @@ func TestSendTaskETHAlreadyFinalizedRowIsNotResent(t *testing.T) {
 	client := &sendTaskETHClient{pendingNonce: 17}
 	task := &SendTaskETH{client: client, db: db}
 
-	done, err := task.Do(harmonytask.TaskID(7), func() bool { return true })
+	done, err := task.Do(ctx, harmonytask.TaskID(7), func() bool { return true })
 	require.NoError(t, err)
 	require.True(t, done)
 	require.Equal(t, 0, client.pendingNonceCalls)
