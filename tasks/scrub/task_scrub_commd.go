@@ -17,6 +17,7 @@ import (
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 const MinSchedInterval = 10 * time.Second
@@ -30,8 +31,7 @@ func NewCommDCheckTask(db *harmonydb.DB, sc *ffi.SealCalls) *ScrubCommDTask {
 	return &ScrubCommDTask{db: db, sc: sc}
 }
 
-func (c *ScrubCommDTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (c *ScrubCommDTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	var checkReq []struct {
 		CheckID           int64  `db:"check_id"`
@@ -106,7 +106,8 @@ func (c *ScrubCommDTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.Task
 
 func (c *ScrubCommDTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name: "ScrubCommDCheck",
+		Name:      tasknames.ScrubCommDCheck,
+		MayFollow: []string{tasknames.CommP},
 		Cost: resources.Resources{
 			Cpu: min(1, runtime.NumCPU()/4),
 			Ram: uint64(runtime.NumCPU())*(8<<20) + 128<<20,

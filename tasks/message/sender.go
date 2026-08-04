@@ -21,6 +21,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/promise"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/types"
@@ -81,8 +82,7 @@ type SendTask struct {
 	db *harmonydb.DB
 }
 
-func (s *SendTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.TODO()
+func (s *SendTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	// get message from db
 
@@ -258,14 +258,13 @@ func (s *SendTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskE
 func (s *SendTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:  taskhelp.Max(1024),
-		Name: "SendMessage",
+		Name: tasknames.SendMessage,
 		Cost: resources.Resources{
 			Cpu: 0,
 			Gpu: 0,
 			Ram: 1 << 20,
 		},
 		MaxFailures: 1000,
-		Follows:     nil,
 		RetryWait: func(retries int) time.Duration {
 			return min(time.Second*time.Duration(retries), time.Second*10)
 		},

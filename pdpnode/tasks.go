@@ -139,7 +139,7 @@ func RegisterTasks(ctx context.Context, d *Deps) (*TaskResult, error) {
 		return nil, err
 	}
 
-	ht, err := harmonytask.New(d.DB, bundle.tasks, d.MachineHost, ffigpu.Inspector{})
+	ht, err := harmonytask.New(d.DB, bundle.tasks, d.MachineHost, nil, ffigpu.Inspector{})
 	if err != nil {
 		return nil, err
 	}

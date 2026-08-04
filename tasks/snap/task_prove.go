@@ -21,6 +21,7 @@ import (
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/tasks/seal"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 type ProveTask struct {
@@ -47,7 +48,7 @@ func NewProveTask(sc *ffi.SealCalls, db *harmonydb.DB, paramck func() (bool, err
 	}
 }
 
-func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
+func (p *ProveTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	var tasks []struct {
 		SpID         int64 `db:"sp_id"`
 		SectorNumber int64 `db:"sector_number"`
@@ -59,8 +60,6 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		UpdateSealedCID   string `db:"update_sealed_cid"`
 		UpdateUnsealedCID string `db:"update_unsealed_cid"`
 	}
-
-	ctx := context.Background()
 
 	err = p.db.Select(ctx, &tasks, `
 		SELECT snp.sp_id, snp.sector_number, snp.upgrade_proof, sm.reg_seal_proof, sm.orig_sealed_cid, snp.update_sealed_cid, snp.update_unsealed_cid
@@ -167,8 +166,9 @@ func (p *ProveTask) TypeDetails() harmonytask.TaskTypeDetails {
 	}
 
 	return harmonytask.TaskTypeDetails{
-		Max:  maxLimiter,
-		Name: "UpdateProve",
+		Max:       maxLimiter,
+		Name:      tasknames.UpdateProve,
+		MayFollow: []string{tasknames.UpdateEncode},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Gpu: gpu,

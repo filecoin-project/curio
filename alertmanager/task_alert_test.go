@@ -1,6 +1,7 @@
 package alertmanager
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -53,7 +54,7 @@ func TestAlertNow(t *testing.T) {
 
 	// Create a new alert task
 	at := NewAlertTask(nil, db, config.CurioAlertingConfig{})
-	done, err := at.Do(123, func() bool { return true })
+	done, err := at.Do(context.Background(), 123, func() bool { return true })
 	require.NoError(t, err)
 	require.True(t, done)
 	require.Equal(t, "Machine alertNowMachine: testMessage", tp.output)

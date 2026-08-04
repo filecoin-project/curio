@@ -65,14 +65,12 @@ func (f *FinalizeTask) GetSectorID(db *harmonydb.DB, taskID int64) (*abi.SectorI
 
 var _ = harmonytask.Reg(&FinalizeTask{})
 
-func (f *FinalizeTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
+func (f *FinalizeTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	var tasks []struct {
 		SpID         int64 `db:"sp_id"`
 		SectorNumber int64 `db:"sector_number"`
 		RegSealProof int64 `db:"reg_seal_proof"`
 	}
-
-	ctx := context.Background()
 
 	err = f.db.Select(ctx, &tasks, `
 		SELECT sp_id, sector_number, reg_seal_proof FROM sectors_sdr_pipeline WHERE task_id_finalize = $1`, taskID)
@@ -84,6 +82,7 @@ func (f *FinalizeTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 		return false, xerrors.Errorf("expected one task")
 	}
 	task := tasks[0]
+	harmonytask.SetMeta(ctx, PoRepPipelineKey, [2]int64{task.SpID, task.SectorNumber})
 
 	var keepUnsealed bool
 
@@ -216,8 +215,9 @@ func (f *FinalizeTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.T
 
 func (f *FinalizeTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(f.max),
-		Name: tasknames.Finalize,
+		Max:       taskhelp.Max(f.max),
+		Name:      tasknames.Finalize,
+		MayFollow: []string{tasknames.PoRep},
 		Cost: resources.Resources{
 			Cpu: 0,
 			Gpu: 0,

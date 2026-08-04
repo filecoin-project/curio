@@ -146,6 +146,7 @@ var runCmd = &cli.Command{
 		if err != nil {
 			return xerrors.Errorf("starting tasks: %w", err)
 		}
+		dependencies.TaskEngine = taskEngine
 		if taskEngine != nil {
 			defer taskEngine.GracefullyTerminate()
 		}

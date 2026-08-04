@@ -233,6 +233,7 @@ var marketAddOfflineURLCmd = &cli.Command{
 			return err
 		}
 
+		storageingest.WakeAllDealPollers(ctx, dep.DB)
 		return nil
 	},
 }
@@ -497,6 +498,7 @@ var ddoCmd = &cli.Command{
 		}
 
 		fmt.Println("Direct deals inserted successfully:", id)
+		storageingest.WakeAllDealPollers(ctx, dep.DB)
 		return nil
 	},
 }

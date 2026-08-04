@@ -20,6 +20,7 @@ import (
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 var log = logging.Logger("unseal")
@@ -43,8 +44,7 @@ func NewTaskUnsealDecode(sc *ffi.SealCalls, db *harmonydb.DB, max int, api Unsea
 	}
 }
 
-func (t *TaskUnsealDecode) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (t *TaskUnsealDecode) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	var sectorParamsArr []struct {
 		SpID         int64 `db:"sp_id"`
@@ -164,8 +164,9 @@ func (t *TaskUnsealDecode) TypeDetails() harmonytask.TaskTypeDetails {
 	}
 
 	res := harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(t.max),
-		Name: "UnsealDecode",
+		Max:       taskhelp.Max(t.max),
+		Name:      tasknames.UnsealDecode,
+		MayFollow: []string{tasknames.SDRKeyRegen},
 		Cost: resources.Resources{
 			Cpu:     4, // todo multicore sdr
 			Gpu:     0,

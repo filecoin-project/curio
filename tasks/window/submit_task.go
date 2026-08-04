@@ -21,6 +21,7 @@ import (
 	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/tasks/message"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/types"
@@ -72,7 +73,7 @@ func NewWdPostSubmitTask(pcs *chainsched.CurioChainSched, send *message.Sender, 
 	return res, nil
 }
 
-func (w *WdPostSubmitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
+func (w *WdPostSubmitTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	log.Debugw("WdPostSubmitTask.Do", "taskID", taskID)
 
 	var spID uint64
@@ -82,8 +83,7 @@ func (w *WdPostSubmitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 	var earlyParamBytes []byte
 	var dbTask uint64
 
-	err = w.db.QueryRow(
-		context.Background(), `SELECT sp_id, proving_period_start, deadline, partition, submit_at_epoch, submit_by_epoch, proof_params, submit_task_id
+	err = w.db.QueryRow(ctx, `SELECT sp_id, proving_period_start, deadline, partition, submit_at_epoch, submit_by_epoch, proof_params, submit_task_id
 		FROM wdpost_proofs WHERE submit_task_id = $1`, taskID,
 	).Scan(&spID, &pps, &deadline, &partition, &submitAtEpoch, &submitByEpoch, &earlyParamBytes, &dbTask)
 	if err != nil {
@@ -94,7 +94,7 @@ func (w *WdPostSubmitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 		return false, xerrors.Errorf("taskID mismatch: %d != %d", dbTask, taskID)
 	}
 
-	head, err := w.api.ChainHead(context.Background())
+	head, err := w.api.ChainHead(ctx)
 	if err != nil {
 		return false, xerrors.Errorf("getting chain head: %w", err)
 	}
@@ -119,7 +119,7 @@ func (w *WdPostSubmitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 
 	commEpoch := dlInfo.Challenge
 
-	commRand, err := w.api.StateGetRandomnessFromTickets(context.Background(), crypto.DomainSeparationTag_PoStChainCommit, commEpoch, nil, head.Key())
+	commRand, err := w.api.StateGetRandomnessFromTickets(ctx, crypto.DomainSeparationTag_PoStChainCommit, commEpoch, nil, head.Key())
 	if err != nil {
 		err = xerrors.Errorf("failed to get chain randomness from tickets for windowPost (epoch=%d): %w", commEpoch, err)
 		log.Errorf("submitPoStMessage failed: %+v", err)
@@ -152,7 +152,6 @@ func (w *WdPostSubmitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 		return false, xerrors.Errorf("preparing proof message: %w", err)
 	}
 
-	ctx := context.Background()
 	smsg, err := w.sender.Send(ctx, msg, mss, "wdpost")
 	if err != nil {
 		return false, xerrors.Errorf("sending proof message: %w", err)
@@ -189,8 +188,9 @@ func (w *WdPostSubmitTask) CanAccept(ids []harmonytask.TaskID, engine *harmonyta
 
 func (w *WdPostSubmitTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(128),
-		Name: "WdPostSubmit",
+		Max:       taskhelp.Max(128),
+		Name:      tasknames.WdPostSubmit,
+		MayFollow: []string{tasknames.WdPost},
 		Cost: resources.Resources{
 			Cpu: 0,
 			Gpu: 0,

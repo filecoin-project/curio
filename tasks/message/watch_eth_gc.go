@@ -34,9 +34,7 @@ func NewMessageWaitsEthGCTask(db *harmonydb.DB, eth ethMsgWaitsGC) *EthMessageWa
 	}
 }
 
-func (t *EthMessageWaitsGCTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
-
+func (t *EthMessageWaitsGCTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	head, err := t.eth.BlockNumber(ctx)
 	if err != nil {
 		return false, xerrors.Errorf("getting latest eth head: %w", err)
