@@ -163,7 +163,7 @@ func TestAlertTaskSendsQueuedEventsAndConditions(t *testing.T) {
 	require.NoError(t, err)
 
 	at := alertmanager.NewAlertTask(nil, db, config.CurioAlertingConfig{})
-	done, err := at.Do(123, func() bool { return true })
+	done, err := at.Do(ctx, 123, func() bool { return true })
 	require.NoError(t, err)
 	require.True(t, done)
 
