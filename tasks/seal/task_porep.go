@@ -57,8 +57,7 @@ func NewPoRepTask(db *harmonydb.DB, api PoRepAPI, sp *SealPoller, sc *ffi.SealCa
 	}
 }
 
-func (p *PoRepTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (p *PoRepTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	var sectorParamsArr []struct {
 		SpID         int64                   `db:"sp_id"`
@@ -82,6 +81,7 @@ func (p *PoRepTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		return false, xerrors.Errorf("expected 1 sector params, got %d", len(sectorParamsArr))
 	}
 	sectorParams := sectorParamsArr[0]
+	harmonytask.SetMeta(ctx, PoRepPipelineKey, [2]int64{sectorParams.SpID, sectorParams.SectorNumber})
 
 	sealed, err := cid.Parse(sectorParams.SealedCID)
 	if err != nil {
@@ -207,6 +207,8 @@ func (p *PoRepTask) TypeDetails() harmonytask.TaskTypeDetails {
 	res := harmonytask.TaskTypeDetails{
 		Max:  maxLimiter,
 		Name: tasknames.PoRep,
+		// PreCommit on-chain + message delivery (message_waits) gates seed_epoch; poller enqueues PoRep.
+		MayFollow: []string{tasknames.PreCommitBatch, tasknames.SendMessage},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Gpu: gpu,

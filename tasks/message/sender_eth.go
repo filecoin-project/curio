@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/big"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ethereum/go-ethereum"
@@ -22,6 +23,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/lib/promise"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 
 	"github.com/filecoin-project/lotus/build/buildconstants"
 )
@@ -32,6 +34,10 @@ type SenderETH struct {
 	sendTask *SendTaskETH
 
 	db *harmonydb.DB
+
+	feeFloorLk sync.Mutex
+	feeFloor   *big.Int
+	feeFloorAt time.Time
 }
 
 type SendTaskETH struct {
@@ -42,8 +48,7 @@ type SendTaskETH struct {
 	db *harmonydb.DB
 }
 
-func (s *SendTaskETH) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (s *SendTaskETH) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	// Get transaction from the database
 	var dbTx struct {
@@ -310,14 +315,13 @@ func (s *SendTaskETH) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Ta
 func (s *SendTaskETH) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:  taskhelp.Max(1024),
-		Name: "SendTransaction",
+		Name: tasknames.SendTransaction,
 		Cost: resources.Resources{
 			Cpu: 0,
 			Gpu: 0,
 			Ram: 1 << 20,
 		},
 		MaxFailures: 1000,
-		Follows:     nil,
 	}
 }
 
@@ -340,6 +344,40 @@ func NewSenderETH(client ethchain.EthClient, db *harmonydb.DB) (*SenderETH, *Sen
 		db:       db,
 		sendTask: st,
 	}, st
+}
+
+const baseFeeFloorTTL = time.Minute
+const baseFeeFloorTimeout = 5 * time.Second
+
+func (s *SenderETH) baseFeeFloor(ctx context.Context) *big.Int {
+	s.feeFloorLk.Lock()
+	defer s.feeFloorLk.Unlock()
+
+	if s.feeFloor != nil && time.Since(s.feeFloorAt) < baseFeeFloorTTL {
+		return new(big.Int).Set(s.feeFloor)
+	}
+
+	fhCtx, cancel := context.WithTimeout(ctx, baseFeeFloorTimeout)
+	defer cancel()
+
+	feeHist, err := s.client.FeeHistory(fhCtx, 120, nil, nil)
+	if err != nil {
+		if s.feeFloor == nil {
+			return nil
+		}
+		return new(big.Int).Set(s.feeFloor)
+	}
+
+	floor := new(big.Int)
+	for _, histFee := range feeHist.BaseFee {
+		if histFee != nil && histFee.Cmp(floor) > 0 {
+			floor.Set(histFee)
+		}
+	}
+
+	s.feeFloor = floor
+	s.feeFloorAt = time.Now()
+	return new(big.Int).Set(floor)
 }
 
 // Send sends an Ethereum transaction, coordinating nonce assignment, signing, and broadcasting.
@@ -395,6 +433,11 @@ func (s *SenderETH) send(ctx context.Context, fromAddress common.Address, tx *ty
 			return common.Hash{}, fmt.Errorf("base fee not available; network might not support EIP-1559")
 		}
 
+		// Measure current basefee as the max over the last 120 epochs (1 hour), cached
+		if floor := s.baseFeeFloor(ctx); floor != nil && floor.Cmp(baseFee) > 0 {
+			baseFee = floor
+		}
+
 		// Set GasTipCap (maxPriorityFeePerGas)
 		gasTipCap, err := s.client.SuggestGasTipCap(ctx)
 		if err != nil {
@@ -402,7 +445,7 @@ func (s *SenderETH) send(ctx context.Context, fromAddress common.Address, tx *ty
 		}
 
 		// Calculate GasFeeCap (maxFeePerGas)
-		gasFeeCap := new(big.Int).Add(baseFee, gasTipCap)
+		gasFeeCap := new(big.Int).Add(new(big.Int).Mul(baseFee, big.NewInt(2)), gasTipCap)
 
 		chainID, err := s.client.NetworkID(ctx)
 		if err != nil {

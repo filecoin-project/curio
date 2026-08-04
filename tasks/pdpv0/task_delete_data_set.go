@@ -35,9 +35,7 @@ func NewDeleteDataSetTask(db *harmonydb.DB, ethClient ethchain.EthClient, sender
 	}
 }
 
-func (t *DeleteDataSetTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
-
+func (t *DeleteDataSetTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	var dataSetId int64
 	err = t.db.QueryRow(ctx, `SELECT id FROM pdp_delete_data_set WHERE delete_data_set_task_id = $1`, taskID).Scan(&dataSetId)
 	if err != nil {
@@ -150,8 +148,9 @@ func (t *DeleteDataSetTask) CanAccept(ids []harmonytask.TaskID, engine *harmonyt
 
 func (t *DeleteDataSetTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(15),
-		Name: tasknames.PDPv0_DelDataSet,
+		Name:      tasknames.PDPv0_DelDataSet,
+		MayFollow: []string{tasknames.PDPv0_Prove, tasknames.PDPv0_ProvPeriod},
+		Max:       taskhelp.Max(15),
 		Cost: resources.Resources{
 			Cpu: 0,
 			Gpu: 0,
@@ -165,12 +164,9 @@ func (t *DeleteDataSetTask) TypeDetails() harmonytask.TaskTypeDetails {
 }
 
 func (t *DeleteDataSetTask) schedule(ctx context.Context, addTaskFunc harmonytask.AddTaskFunc) error {
-	var stop bool
-
-	for !stop {
+	for {
+		stop := true
 		addTaskFunc(func(taskID harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-			stop = true
-
 			current, err := t.ethClient.BlockNumber(ctx)
 			if err != nil {
 				return false, xerrors.Errorf("failed to get current block number: %w", err)
@@ -213,8 +209,10 @@ func (t *DeleteDataSetTask) schedule(ctx context.Context, addTaskFunc harmonytas
 			stop = false
 			return true, nil
 		})
+		if stop {
+			return nil
+		}
 	}
-	return nil
 }
 
 func (t *DeleteDataSetTask) Adder(taskFunc harmonytask.AddTaskFunc) {}

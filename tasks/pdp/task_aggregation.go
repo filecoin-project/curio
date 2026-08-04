@@ -40,8 +40,7 @@ func NewAggregatePDPDealTask(db *harmonydb.DB, pio piecestore.PieceIO) *Aggregat
 	}
 }
 
-func (a *AggregatePDPDealTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (a *AggregatePDPDealTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	var pieces []struct {
 		PieceCidV2  string `db:"piece_cid_v2"`
@@ -321,8 +320,9 @@ func (a *AggregatePDPDealTask) CanAccept(ids []harmonytask.TaskID, engine *harmo
 
 func (a *AggregatePDPDealTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(50),
-		Name: tasknames.AggregatePDPDeal,
+		Max:       taskhelp.Max(50),
+		Name:      tasknames.AggregatePDPDeal,
+		MayFollow: []string{tasknames.PDPAddPiece},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 4 << 30,
@@ -335,11 +335,9 @@ func (a *AggregatePDPDealTask) TypeDetails() harmonytask.TaskTypeDetails {
 }
 
 func (a *AggregatePDPDealTask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFunc) error {
-	var stop bool
-	for !stop {
+	for {
+		stop := true
 		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-			stop = true // assume we're done until we find a task to schedule
-
 			var deals []struct {
 				ID    string `db:"id"`
 				Count int    `db:"count"`
@@ -382,10 +380,10 @@ func (a *AggregatePDPDealTask) schedule(ctx context.Context, taskFunc harmonytas
 
 			return n == deal.Count, nil
 		})
-
+		if stop {
+			return nil
+		}
 	}
-
-	return nil
 }
 
 func (a *AggregatePDPDealTask) Adder(taskFunc harmonytask.AddTaskFunc) {}

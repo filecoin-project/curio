@@ -40,9 +40,7 @@ func NewCleanupPiecesTask(db *harmonydb.DB, ethClient ethchain.EthClient, sender
 	}
 }
 
-func (t *CleanupPiecesTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
-
+func (t *CleanupPiecesTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	var dataSetID int64
 	err = t.db.QueryRow(ctx, `SELECT id FROM pdp_delete_data_set WHERE cleanup_pieces_task_id = $1`, taskID).Scan(&dataSetID)
 	if err != nil {
@@ -186,12 +184,9 @@ func (t *CleanupPiecesTask) sendCleanupPieces(ctx context.Context, sender common
 }
 
 func (t *CleanupPiecesTask) schedule(ctx context.Context, addTaskFunc harmonytask.AddTaskFunc) error {
-	var stop bool
-
-	for !stop {
+	for {
+		stop := true
 		addTaskFunc(func(taskID harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-			stop = true
-
 			n, err := tx.Exec(`WITH pending AS (
 					SELECT id
 					FROM pdp_delete_data_set
@@ -229,8 +224,10 @@ func (t *CleanupPiecesTask) schedule(ctx context.Context, addTaskFunc harmonytas
 			stop = false
 			return true, nil
 		})
+		if stop {
+			return nil
+		}
 	}
-	return nil
 }
 
 func (t *CleanupPiecesTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {

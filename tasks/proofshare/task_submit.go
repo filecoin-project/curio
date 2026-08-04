@@ -13,6 +13,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/lib/proofsvc"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/types"
@@ -39,12 +40,9 @@ func (t *TaskSubmit) Adder(addTask harmonytask.AddTaskFunc) {
 }
 
 func (t *TaskSubmit) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFunc) {
-	var stop bool
-
-	for !stop {
+	for {
+		stop := true
 		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-			stop = true
-
 			// 1) Find any rows that are ready to be scheduled for submission.
 			var rows []struct {
 				ServiceID int64 `db:"service_id"`
@@ -86,6 +84,9 @@ func (t *TaskSubmit) schedule(ctx context.Context, taskFunc harmonytask.AddTaskF
 			stop = false // keep going in our outer loop; maybe we can schedule more
 			return true, nil
 		})
+		if stop {
+			return
+		}
 	}
 }
 
@@ -93,8 +94,7 @@ func (t *TaskSubmit) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEngi
 	return ids, nil
 }
 
-func (t *TaskSubmit) Do(taskID harmonytask.TaskID, stillOwned func() bool) (bool, error) {
-	ctx := context.Background()
+func (t *TaskSubmit) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (bool, error) {
 
 	// 1) Look up the row assigned to this submit_task_id
 	var row struct {
@@ -201,7 +201,8 @@ func (t *TaskSubmit) Do(taskID harmonytask.TaskID, stillOwned func() bool) (bool
 
 func (t *TaskSubmit) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name: "PShareSubmit",
+		Name:      tasknames.PShareSubmit,
+		MayFollow: []string{tasknames.PSProve},
 		Cost: resources.Resources{
 			Cpu: 0,
 			Gpu: 0,

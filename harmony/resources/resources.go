@@ -56,13 +56,19 @@ var logger = logging.Logger("harmonytask")
 
 var lotusRE = regexp.MustCompile("lotus-worker|lotus-harmony|yugabyted|yb-master|yb-tserver")
 
+// Register probes this host via inspector and records capacity in harmony_machines.
 func Register(db *harmonydb.DB, hostnameAndPort string, inspector ResourceInspector) (*Reg, error) {
-	var reg Reg
-	var err error
-	reg.Resources, err = inspector.GetResources()
+	res, err := inspector.GetResources()
 	if err != nil {
 		return nil, err
 	}
+	return RegisterWithResources(db, hostnameAndPort, res)
+}
+
+// RegisterWithResources records the given capacity for hostnameAndPort (for tests or static sizing).
+func RegisterWithResources(db *harmonydb.DB, hostnameAndPort string, res Resources) (*Reg, error) {
+	var reg Reg
+	reg.Resources = res
 	if db.ReadOnly() {
 		reg.MachineID = -1
 		logger.Infow("readonly database mode: skipping harmony_machines registration", "host", hostnameAndPort)

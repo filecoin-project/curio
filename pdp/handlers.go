@@ -29,7 +29,6 @@ import (
 	ipni_provider "github.com/filecoin-project/curio/market/ipni/ipni-provider"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/tasks/indexing"
-	"github.com/filecoin-project/curio/tasks/message"
 
 	types2 "github.com/filecoin-project/lotus/chain/types"
 )
@@ -65,13 +64,19 @@ const (
 	MaxDeletePiecesBatchSize = contract.ConservativeEnqueuedRemovalsLimit
 )
 
+// ETHTxSender enqueues (and eventually sends) an Ethereum transaction.
+// *message.SenderETH implements this; tests may substitute an instant mock.
+type ETHTxSender interface {
+	Send(ctx context.Context, fromAddress common.Address, tx *types.Transaction, reason string) (common.Hash, error)
+}
+
 // PDPService represents the service for managing data sets and pieces
 type PDPService struct {
 	Auth
 	db      *harmonydb.DB
 	storage paths.StashStore
 
-	sender    *message.SenderETH
+	sender    ETHTxSender
 	ethClient ethchain.EthClient
 	filClient PDPServiceNodeApi
 
@@ -95,7 +100,7 @@ func NewPDPService(
 	stor paths.StashStore,
 	ec ethchain.EthClient,
 	fc PDPServiceNodeApi,
-	sn *message.SenderETH,
+	sn ETHTxSender,
 	alertTask *alertmanager.AlertTask,
 	ipp *ipni_provider.Provider) *PDPService {
 	auth := &NullAuth{}

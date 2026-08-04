@@ -18,8 +18,8 @@ func CheckIfIndexingNeeded(
 	ethClient ethchain.EthClient,
 	dataSetId uint64,
 ) (bool, error) {
-	// Get the PDPVerifier contract instance
-	pdpVerifier, err := contract.NewPDPVerifier(contract.ContractAddresses().PDPVerifier, ethClient)
+	// Get the PDPVerifier contract instance (read-only caller is sufficient)
+	pdpVerifier, err := contract.NewPDPVerifierCaller(contract.ContractAddresses().PDPVerifier, ethClient)
 	if err != nil {
 		log.Errorw("Failed to instantiate PDPVerifier contract", "error", err, "dataSetId", dataSetId)
 		return false, err
@@ -28,8 +28,9 @@ func CheckIfIndexingNeeded(
 	// Get the listener (record keeper) address for this data set
 	listenerAddr, err := pdpVerifier.GetDataSetListener(contract.EthCallOpts(ctx), new(big.Int).SetUint64(dataSetId))
 	if err != nil {
-		log.Errorw("Failed to get listener address for data set", "error", err, "dataSetId", dataSetId)
-		return false, err
+		// Soft-fail: indexing is optional; missing/unreadable listener must not block AddPieces.
+		log.Warnw("Failed to get listener address for data set, skipping indexing", "error", err, "dataSetId", dataSetId)
+		return false, nil
 	}
 
 	// Check if the withIPFSIndexing metadata exists

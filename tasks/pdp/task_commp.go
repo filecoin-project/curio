@@ -39,8 +39,7 @@ func NewPDPCommpTask(db *harmonydb.DB, pio piecestore.PieceIO, max int) *PDPComm
 	}
 }
 
-func (c *PDPCommpTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (c *PDPCommpTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	var pieces []struct {
 		Pcid string `db:"piece_cid_v2"`
@@ -189,8 +188,9 @@ func (c *PDPCommpTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.T
 
 func (c *PDPCommpTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(c.max),
-		Name: tasknames.PDPCommP,
+		Max:       taskhelp.Max(c.max),
+		Name:      tasknames.PDPCommP,
+		MayFollow: []string{tasknames.PDPAddDataSet},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 1 << 30,
@@ -203,11 +203,9 @@ func (c *PDPCommpTask) TypeDetails() harmonytask.TaskTypeDetails {
 }
 
 func (c *PDPCommpTask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFunc) error {
-	var stop bool
-	for !stop {
+	for {
+		stop := true
 		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-			stop = true // assume we're done until we find a task to schedule
-
 			n, err := tx.Exec(`WITH pending AS (
 					SELECT id, aggr_index
 					FROM pdp_pipeline
@@ -237,10 +235,10 @@ func (c *PDPCommpTask) schedule(ctx context.Context, taskFunc harmonytask.AddTas
 			stop = false // we found a task to schedule, keep going
 			return true, nil
 		})
-
+		if stop {
+			return nil
+		}
 	}
-
-	return nil
 }
 
 func (c *PDPCommpTask) Adder(taskFunc harmonytask.AddTaskFunc) {}

@@ -93,7 +93,7 @@ func buildPDPTasks(ctx context.Context, d *Deps, chainSched *chainsched.CurioCha
 		pdpv0.NewTaskChainSync(db, ethClient, senderEth),
 		pay.NewSettleTask(db, ethClient, senderEth, d.Al), // Move this to a common section once PDP v1 is live
 		pdpv0.NewTaskPDPSaveCache(db, d.CachedPieceReader, d.IndexStore),
-		pdpv0.NewPieceGCTask(&cfg.HTTP, db, d.IndexStore, cfg.Subsystems.PDPUnclaimedUploadKeepHours),
+		pdpv0.NewPieceGCTask(&cfg.HTTP, db, d.IndexStore, ethClient, cfg.Subsystems.PDPUnclaimedUploadKeepHours),
 		pdpv0.NewReorgCheckTask(db, ethClient, d.Chain),
 	)
 
@@ -139,7 +139,7 @@ func RegisterTasks(ctx context.Context, d *Deps) (*TaskResult, error) {
 		return nil, err
 	}
 
-	ht, err := harmonytask.New(d.DB, bundle.tasks, d.MachineHost, ffigpu.Inspector{})
+	ht, err := harmonytask.New(d.DB, bundle.tasks, d.MachineHost, nil, ffigpu.Inspector{})
 	if err != nil {
 		return nil, err
 	}

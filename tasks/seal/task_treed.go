@@ -76,8 +76,9 @@ func (t *TreeDTask) TypeDetails() harmonytask.TaskTypeDetails {
 	}
 
 	return harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(t.max),
-		Name: tasknames.TreeD,
+		Max:       taskhelp.Max(t.max),
+		Name:      tasknames.TreeD,
+		MayFollow: []string{tasknames.SDR},
 		Cost: resources.Resources{
 			Cpu:     1,
 			Ram:     1 << 30,
@@ -85,7 +86,6 @@ func (t *TreeDTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Storage: t.sc.Storage(t.taskToSector, storiface.FTNone, storiface.FTCache, ssize, storiface.PathSealing, 1.0),
 		},
 		MaxFailures: 3,
-		Follows:     nil,
 	}
 }
 
@@ -142,8 +142,7 @@ func NewTreeDTask(sp *SealPoller, db *harmonydb.DB, sc *ffi2.SealCalls, maxTrees
 	}
 }
 
-func (t *TreeDTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (t *TreeDTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	var sectorParamsArr []struct {
 		SpID         int64                   `db:"sp_id"`
@@ -163,6 +162,7 @@ func (t *TreeDTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		return false, xerrors.Errorf("expected 1 sector params, got %d", len(sectorParamsArr))
 	}
 	sectorParams := sectorParamsArr[0]
+	harmonytask.SetMeta(ctx, PoRepPipelineKey, [2]int64{sectorParams.SpID, sectorParams.SectorNumber})
 
 	sref := storiface.SectorRef{
 		ID: abi.SectorID{

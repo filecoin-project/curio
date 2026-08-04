@@ -27,8 +27,7 @@ type PDPTaskDeletePiece struct {
 	ethClient ethchain.EthClient
 }
 
-func (p *PDPTaskDeletePiece) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (p *PDPTaskDeletePiece) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	var rdeletes []struct {
 		ID        string  `db:"id"`
@@ -146,8 +145,9 @@ func (p *PDPTaskDeletePiece) CanAccept(ids []harmonytask.TaskID, engine *harmony
 
 func (p *PDPTaskDeletePiece) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(50),
-		Name: tasknames.PDPDeletePiece,
+		Max:       taskhelp.Max(50),
+		Name:      tasknames.PDPDeletePiece,
+		MayFollow: []string{tasknames.PDPAddPiece},
 		Cost: resources.Resources{
 			Cpu: 0,
 			Ram: 64 << 20,
@@ -160,11 +160,9 @@ func (p *PDPTaskDeletePiece) TypeDetails() harmonytask.TaskTypeDetails {
 }
 
 func (p *PDPTaskDeletePiece) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFunc) error {
-	var stop bool
-	for !stop {
+	for {
+		stop := true
 		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-			stop = true // assume we're done until we find a task to schedule
-
 			n, err := tx.Exec(`WITH pending AS (
 					SELECT id
 					FROM pdp_piece_delete
@@ -191,10 +189,10 @@ func (p *PDPTaskDeletePiece) schedule(ctx context.Context, taskFunc harmonytask.
 			stop = false // we found a task to schedule, keep going
 			return true, nil
 		})
-
+		if stop {
+			return nil
+		}
 	}
-
-	return nil
 }
 
 func (p *PDPTaskDeletePiece) Adder(taskFunc harmonytask.AddTaskFunc) {}

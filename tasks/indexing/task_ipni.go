@@ -31,10 +31,12 @@ import (
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/passcall"
+	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/lib/urlhelper"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/ipni/chunker"
 	"github.com/filecoin-project/curio/market/ipni/ipniculib"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 type IPNITask struct {
@@ -42,6 +44,11 @@ type IPNITask struct {
 	cfg *config.CurioConfig
 	max taskhelp.Limiter
 	idx *indexstore.IndexStore
+
+	// Stored by Adder() so Wake() can dispatch a schedule pass on demand
+	// (e.g. Indexing task completion) without waiting for the next IAmBored
+	// cycle.
+	adder promise.Promise[harmonytask.AddTaskFunc]
 }
 
 func NewIPNITask(db *harmonydb.DB, cfg *config.CurioConfig, max taskhelp.Limiter, idx *indexstore.IndexStore) *IPNITask {
@@ -53,8 +60,7 @@ func NewIPNITask(db *harmonydb.DB, cfg *config.CurioConfig, max taskhelp.Limiter
 	}
 }
 
-func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (I *IPNITask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	var tasks []struct {
 		SPID     int64                   `db:"sp_id"`
@@ -427,7 +433,8 @@ func (I *IPNITask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskE
 
 func (I *IPNITask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name: "IPNI",
+		Name:      tasknames.IPNI,
+		MayFollow: []string{tasknames.Indexing},
 		Cost: resources.Resources{
 			Cpu: 0,
 			Ram: 1 << 30,
@@ -449,14 +456,12 @@ func (I *IPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFun
 	}
 
 	// schedule submits
-	var stop bool
-	for !stop {
+	for {
+		stop := true
 		var markComplete *string
 		var mk20, isRM bool
 
 		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-			stop = true // assume we're done until we find a task to schedule
-
 			var pendings []itask
 
 			err := tx.Select(&pendings, `WITH unioned AS (
@@ -654,12 +659,33 @@ func (I *IPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFun
 				ilog.Errorf("store IPNI success: updated %d rows", n)
 			}
 		}
-	}
 
-	return nil
+		if stop {
+			return nil
+		}
+	}
 }
 
-func (I *IPNITask) Adder(taskFunc harmonytask.AddTaskFunc) {}
+func (I *IPNITask) Adder(taskFunc harmonytask.AddTaskFunc) {
+	I.adder.Set(taskFunc)
+}
+
+// Wake triggers an immediate schedule() pass without waiting for the next IAmBored
+// tick. It is safe to call from any goroutine; if the adder is not yet ready (e.g.
+// during startup) the call is a no-op and the periodic IAmBored cycle will pick up
+// the work as before.
+func (I *IPNITask) Wake() {
+	if I == nil || !I.adder.IsSet() {
+		return
+	}
+	taskFunc := I.adder.Val(context.Background())
+	if taskFunc == nil {
+		return
+	}
+	if err := I.schedule(context.Background(), taskFunc); err != nil {
+		ilog.Errorf("ipni wake schedule: %s", err)
+	}
+}
 
 func (I *IPNITask) GetSpid(db *harmonydb.DB, taskID int64) string {
 	var spid string

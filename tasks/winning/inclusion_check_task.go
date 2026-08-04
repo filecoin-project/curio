@@ -15,6 +15,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 
 	"github.com/filecoin-project/lotus/chain/types"
 )
@@ -36,8 +37,7 @@ func NewInclusionCheckTask(db *harmonydb.DB, api InclusionCheckNodeApi) *Inclusi
 	return &InclusionCheckTask{db: db, api: api}
 }
 
-func (i *InclusionCheckTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (i *InclusionCheckTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	var toCheck []struct {
 		SpID     uint64 `db:"sp_id"`
@@ -105,8 +105,9 @@ func (i *InclusionCheckTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.
 
 func (i *InclusionCheckTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(1),
-		Name: "WinInclCheck",
+		Max:       taskhelp.Max(1),
+		Name:      tasknames.WinInclCheck,
+		MayFollow: []string{tasknames.WinPost},
 		Cost: resources.Resources{
 			Cpu: 0,
 			Ram: 64 << 20,

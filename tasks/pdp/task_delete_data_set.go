@@ -37,8 +37,8 @@ func NewPDPTaskDeleteDataSet(db *harmonydb.DB, sender *message.SenderETH, ethCli
 	}
 }
 
-func (p *PDPTaskDeleteDataSet) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (p *PDPTaskDeleteDataSet) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
+
 	var pdeletes []struct {
 		SetID     int64  `db:"set_id"`
 		ExtraData []byte `db:"extra_data"`
@@ -148,8 +148,9 @@ func (p *PDPTaskDeleteDataSet) CanAccept(ids []harmonytask.TaskID, engine *harmo
 
 func (p *PDPTaskDeleteDataSet) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(50),
-		Name: tasknames.PDPDelDataSet,
+		Max:       taskhelp.Max(50),
+		Name:      tasknames.PDPDelDataSet,
+		MayFollow: []string{tasknames.PDPAddDataSet},
 		Cost: resources.Resources{
 			Cpu: 0,
 			Ram: 64 << 20,
@@ -162,11 +163,9 @@ func (p *PDPTaskDeleteDataSet) TypeDetails() harmonytask.TaskTypeDetails {
 }
 
 func (p *PDPTaskDeleteDataSet) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFunc) error {
-	var stop bool
-	for !stop {
+	for {
+		stop := true
 		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-			stop = true // assume we're done until we find a task to schedule
-
 			n, err := tx.Exec(`WITH pending AS (
 					SELECT id
 					FROM pdp_data_set_delete
@@ -193,10 +192,10 @@ func (p *PDPTaskDeleteDataSet) schedule(ctx context.Context, taskFunc harmonytas
 			stop = false // we found a task to schedule, keep going
 			return true, nil
 		})
-
+		if stop {
+			return nil
+		}
 	}
-
-	return nil
 }
 
 func (p *PDPTaskDeleteDataSet) Adder(taskFunc harmonytask.AddTaskFunc) {}

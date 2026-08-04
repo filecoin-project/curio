@@ -24,6 +24,7 @@ import (
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/mk20"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 type AggregateChunksTask struct {
@@ -40,8 +41,7 @@ func NewAggregateChunksTask(db *harmonydb.DB, remote *paths.Remote, sc *ffi.Seal
 	}
 }
 
-func (a *AggregateChunksTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (a *AggregateChunksTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	var chunks []struct {
 		ID    string `db:"id"`
@@ -364,8 +364,9 @@ func (a *AggregateChunksTask) CanAccept(ids []harmonytask.TaskID, engine *harmon
 
 func (a *AggregateChunksTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(50),
-		Name: "AggregateChunks",
+		Max:       taskhelp.Max(50),
+		Name:      tasknames.AggregateChunks,
+		MayFollow: []string{tasknames.ParkPiece, tasknames.StorePiece},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 4 << 30,
@@ -379,10 +380,9 @@ func (a *AggregateChunksTask) TypeDetails() harmonytask.TaskTypeDetails {
 
 func (a *AggregateChunksTask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFunc) error {
 	// schedule submits
-	var stop bool
-	for !stop {
+	for {
+		stop := true
 		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-			stop = true // assume we're done until we find a task to schedule
 			var mid string
 			var count int
 			err := tx.QueryRow(`SELECT id, COUNT(*) AS total_chunks
@@ -422,8 +422,10 @@ func (a *AggregateChunksTask) schedule(ctx context.Context, taskFunc harmonytask
 			stop = false
 			return true, nil
 		})
+		if stop {
+			return nil
+		}
 	}
-	return nil
 }
 
 func (a *AggregateChunksTask) Adder(taskFunc harmonytask.AddTaskFunc) {}
