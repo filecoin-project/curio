@@ -180,19 +180,6 @@ func ServiceRegistryAddress() (common.Address, error) {
 const USDFCAddressMainnet = "0x80B98d3aa09ffff255c3ba4A241111Ff1262F045"
 const USDFCAddressCalibnet = "0xb3042734b608a1B16e9e86B374A3f3e389B4cDf0"
 
-// SushiSwap V3 (Filecoin mainnet) addresses for USDFC → native FIL conversion.
-// SwapRouter: https://github.com/sushiswap/v3-periphery/blob/master/deployments/filecoin/SwapRouter.json
-// QuoterV2: https://github.com/sushiswap/v3-periphery/blob/master/deployments/filecoin/QuoterV2.json
-// Note: SushiSwap improved on Uniswap_V3's quoter, so we use the newer QuoteV2 for quoting.
-// The pool is USDFC/WFIL (V3 pools are ERC-20 only). The router multicalls unwrapWETH9
-// so the wallet receives native FIL; WFIL is never left in the PDP wallet.
-const (
-	WFILAddressMainnet                     = "0x60E1773636CF5E4A227D9AC24F20FECA034EE25A"
-	SushiSwapRouterAddressMainnet          = "0x0389879e0156033202C44BF784ac18fC02edeE4f"
-	SushiV3PeripheryQuoterV2AddressMainnet = "0x9B3fF703FA9C8B467F5886d7b61E61ba07a9b51c"
-	SushiUsdfcWfilPoolFeeMainnet           = 500 // 0.05% USDFC/WFIL pool
-)
-
 func USDFCAddress() (common.Address, error) {
 	if c := configured.Load(); c != nil {
 		if c.USDFC == (common.Address{}) {
@@ -215,18 +202,4 @@ func USDFCAddress() (common.Address, error) {
 	default:
 		return common.Address{}, xerrors.Errorf("USDFC address not set for this network %s", build.BuildTypeString()[1:])
 	}
-}
-
-// SushiUsdfcFilAddresses returns mainnet SushiSwap V3 addresses used to convert USDFC to FIL.
-// Calibnet/devnet are not supported.
-func SushiUsdfcFilAddresses() (wfil, router, quoter common.Address, fee uint32, err error) {
-	if build.BuildType != build.BuildMainnet {
-		return common.Address{}, common.Address{}, common.Address{}, 0,
-			xerrors.Errorf("USDFC→FIL SushiSwap conversion is only supported on mainnet (current network: %s)", build.BuildTypeString()[1:])
-	}
-	return common.HexToAddress(WFILAddressMainnet),
-		common.HexToAddress(SushiSwapRouterAddressMainnet),
-		common.HexToAddress(SushiV3PeripheryQuoterV2AddressMainnet),
-		SushiUsdfcWfilPoolFeeMainnet,
-		nil
 }
