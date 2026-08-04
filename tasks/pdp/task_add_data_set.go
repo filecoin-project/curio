@@ -156,11 +156,9 @@ func (p *PDPTaskAddDataSet) TypeDetails() harmonytask.TaskTypeDetails {
 }
 
 func (p *PDPTaskAddDataSet) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFunc) error {
-	var stop bool
-	for !stop {
+	for {
+		stop := true
 		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-			stop = true // assume we're done until we find a task to schedule
-
 			n, err := tx.Exec(`WITH pending AS (
 					SELECT id
 					FROM pdp_data_set_create
@@ -187,10 +185,10 @@ func (p *PDPTaskAddDataSet) schedule(ctx context.Context, taskFunc harmonytask.A
 			stop = false // we found a task to schedule, keep going
 			return true, nil
 		})
-
+		if stop {
+			return nil
+		}
 	}
-
-	return nil
 }
 
 // getSenderAddress retrieves the sender address from the database where role = 'pdp' limit 1

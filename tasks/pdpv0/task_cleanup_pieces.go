@@ -186,12 +186,9 @@ func (t *CleanupPiecesTask) sendCleanupPieces(ctx context.Context, sender common
 }
 
 func (t *CleanupPiecesTask) schedule(ctx context.Context, addTaskFunc harmonytask.AddTaskFunc) error {
-	var stop bool
-
-	for !stop {
+	for {
+		stop := true
 		addTaskFunc(func(taskID harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-			stop = true
-
 			n, err := tx.Exec(`WITH pending AS (
 					SELECT id
 					FROM pdp_delete_data_set
@@ -229,8 +226,10 @@ func (t *CleanupPiecesTask) schedule(ctx context.Context, addTaskFunc harmonytas
 			stop = false
 			return true, nil
 		})
+		if stop {
+			return nil
+		}
 	}
-	return nil
 }
 
 func (t *CleanupPiecesTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {

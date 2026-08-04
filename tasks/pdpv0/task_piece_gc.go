@@ -33,23 +33,30 @@ type PieceGCTask struct {
 	cfg       *config.HTTPConfig
 	db        *harmonydb.DB
 	idx       IndexCleaner
+	eth       ethchain.EthClient
 	keepHours *config.Dynamic[int]
 }
 
-func NewPieceGCTask(cfg *config.HTTPConfig, db *harmonydb.DB, idx IndexCleaner, keepHours *config.Dynamic[int]) *PieceGCTask {
+func NewPieceGCTask(cfg *config.HTTPConfig, db *harmonydb.DB, idx IndexCleaner, eth ethchain.EthClient, keepHours *config.Dynamic[int]) *PieceGCTask {
 	return &PieceGCTask{
 		cfg:       cfg,
 		db:        db,
 		idx:       idx,
+		eth:       eth,
 		keepHours: keepHours,
 	}
 }
 
 func (t *PieceGCTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
+	ctx := context.Background()
+	err = processPendingCleanup(ctx, t.db, t.eth)
+	if err != nil {
+		return false, err
+	}
 	if !stillOwned() {
 		return false, nil
 	}
-	if err := processIndexingAndIPNICleanup(context.Background(), t.db, t.cfg, t.idx, t.keepHours); err != nil {
+	if err = processIndexingAndIPNICleanup(context.Background(), t.db, t.cfg, t.idx, t.keepHours); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -78,8 +85,7 @@ func (t *PieceGCTask) Adder(taskFunc harmonytask.AddTaskFunc) {}
 var _ = harmonytask.Reg(&PieceGCTask{})
 var _ harmonytask.TaskInterface = &PieceGCTask{}
 
-//nolint:unused // TODO: reinstate after debugging
-func _processPendingCleanup(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient) error {
+func processPendingCleanup(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient) error {
 	var pieces []struct {
 		DataSetID int64  `db:"data_set"`
 		PieceID   int64  `db:"piece_id"`

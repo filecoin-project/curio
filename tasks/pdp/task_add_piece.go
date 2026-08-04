@@ -184,11 +184,9 @@ func (p *PDPTaskAddPiece) TypeDetails() harmonytask.TaskTypeDetails {
 }
 
 func (p *PDPTaskAddPiece) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFunc) error {
-	var stop bool
-	for !stop {
+	for {
+		stop := true
 		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-			stop = true // assume we're done until we find a task to schedule
-
 			n, err := tx.Exec(`WITH pending AS (
 					SELECT id, aggr_index
 					FROM pdp_pipeline
@@ -220,10 +218,10 @@ func (p *PDPTaskAddPiece) schedule(ctx context.Context, taskFunc harmonytask.Add
 			stop = false // we found a task to schedule, keep going
 			return true, nil
 		})
-
+		if stop {
+			return nil
+		}
 	}
-
-	return nil
 }
 
 func (p *PDPTaskAddPiece) Adder(taskFunc harmonytask.AddTaskFunc) {}
