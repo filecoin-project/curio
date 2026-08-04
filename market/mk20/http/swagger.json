@@ -839,6 +839,27 @@
         }
     },
     "definitions": {
+        "address.Address": {
+            "type": "object"
+        },
+        "github_com_filecoin-project_go-state-types_builtin_v16_verifreg.AllocationId": {
+            "type": "integer",
+            "enum": [
+                0
+            ],
+            "x-enum-varnames": [
+                "NoAllocationID"
+            ]
+        },
+        "http.Header": {
+            "type": "object",
+            "additionalProperties": {
+                "type": "array",
+                "items": {
+                    "type": "string"
+                }
+            }
+        },
         "mk20.AggregateType": {
             "type": "integer",
             "enum": [
@@ -850,11 +871,172 @@
                 "AggregateTypeV1"
             ]
         },
+        "mk20.DDOV1": {
+            "type": "object",
+            "properties": {
+                "allocation_id": {
+                    "description": "AllocationId represents an allocation identifier for the deal.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_filecoin-project_go-state-types_builtin_v16_verifreg.AllocationId"
+                        }
+                    ]
+                },
+                "duration": {
+                    "description": "Duration represents the deal duration in epochs. This value is ignored for the deal with allocationID.\nIt must be at least 518400",
+                    "type": "integer"
+                },
+                "market_address": {
+                    "description": "MarketAddress specifies the address of the market governing the deal",
+                    "type": "string"
+                },
+                "market_deal_id": {
+                    "description": "MarketDealID specifies the deal ID for the market actor at MarketAddress",
+                    "type": "integer"
+                },
+                "notification_address": {
+                    "description": "NotificationAddress specifies the address to which notifications will be relayed to when sector is activated",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/address.Address"
+                        }
+                    ]
+                },
+                "notification_payload": {
+                    "description": "NotificationPayload holds the notification data, typically in a serialized byte array format.",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "provider": {
+                    "description": "Provider specifies the address of the provider",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/address.Address"
+                        }
+                    ]
+                },
+                "start_epoch": {
+                    "description": "StartEpoch optionally specifies the epoch by which a deal should be active on the chain",
+                    "type": "integer"
+                }
+            }
+        },
         "mk20.DataSource": {
+            "type": "object",
+            "properties": {
+                "format": {
+                    "description": "Format defines the format of the piece data, which can include CAR, Aggregate, or Raw formats.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/mk20.PieceDataFormat"
+                        }
+                    ]
+                },
+                "piece_cid": {
+                    "description": "PieceCID represents the unique identifier (pieceCID V2) for a piece of data, stored as a CID object.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "example": {
+                        "/": "bafkzcibfxx3meais3xzh6qn56y6hiasmrufhegoweu3o5ccofs74nfdfr4yn76pqz4pq"
+                    }
+                },
+                "source_aggregate": {
+                    "description": "SourceAggregate represents an aggregated source, comprising multiple data sources as pieces.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/mk20.DataSourceAggregate"
+                        }
+                    ]
+                },
+                "source_http": {
+                    "description": "SourceHTTP represents the HTTP-based source of piece data within a deal, including raw size and URLs for retrieval.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/mk20.DataSourceHTTP"
+                        }
+                    ]
+                },
+                "source_http_put": {
+                    "description": "SourceHttpPut allow clients to push piece data after deal is accepted",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/mk20.DataSourceHttpPut"
+                        }
+                    ]
+                },
+                "source_offline": {
+                    "description": "SourceOffline defines the data source for offline pieces, including raw size information.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/mk20.DataSourceOffline"
+                        }
+                    ]
+                }
+            }
+        },
+        "mk20.DataSourceAggregate": {
+            "type": "object",
+            "properties": {
+                "pieces": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/mk20.DataSource"
+                    }
+                }
+            }
+        },
+        "mk20.DataSourceHTTP": {
+            "type": "object",
+            "properties": {
+                "urls": {
+                    "description": "URLs lists the HTTP endpoints where the piece data can be fetched.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/mk20.HttpUrl"
+                    }
+                }
+            }
+        },
+        "mk20.DataSourceHttpPut": {
+            "type": "object"
+        },
+        "mk20.DataSourceOffline": {
             "type": "object"
         },
         "mk20.Deal": {
-            "type": "object"
+            "type": "object",
+            "properties": {
+                "client": {
+                    "description": "Client wallet string for the deal",
+                    "type": "string"
+                },
+                "data": {
+                    "description": "Data represents the source of piece data and associated metadata.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/mk20.DataSource"
+                        }
+                    ]
+                },
+                "identifier": {
+                    "description": "Identifier represents a unique identifier for the deal in ULID format.",
+                    "type": "string",
+                    "format": "ulid",
+                    "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+                },
+                "products": {
+                    "description": "Products represents a collection of product-specific information associated with a deal",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/mk20.Products"
+                        }
+                    ]
+                }
+            }
         },
         "mk20.DealCode": {
             "type": "integer",
@@ -978,6 +1160,74 @@
         "mk20.FormatCar": {
             "type": "object"
         },
+        "mk20.HttpUrl": {
+            "type": "object",
+            "properties": {
+                "fallback": {
+                    "description": "Fallback indicates whether this URL serves as a fallback option when other URLs fail.",
+                    "type": "boolean"
+                },
+                "headers": {
+                    "description": "HTTPHeaders represents the HTTP headers associated with the URL.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/http.Header"
+                        }
+                    ]
+                },
+                "priority": {
+                    "description": "Priority indicates the order preference for using the URL in requests, with lower values having higher priority.",
+                    "type": "integer"
+                },
+                "url": {
+                    "description": "URL specifies the HTTP endpoint where the piece data can be fetched.",
+                    "type": "string"
+                }
+            }
+        },
+        "mk20.PDPV1": {
+            "type": "object",
+            "properties": {
+                "add_piece": {
+                    "description": "AddPiece indicated that this deal is meant to add Piece to a given DataSet. DataSetID must be defined.",
+                    "type": "boolean"
+                },
+                "create_data_set": {
+                    "description": "CreateDataSet indicated that this deal is meant to create a new DataSet for the client by storage provider.",
+                    "type": "boolean"
+                },
+                "data_set_id": {
+                    "description": "DataSetID is PDP verified contract dataset ID. It must be defined for all deals except when CreateDataSet is true.",
+                    "type": "integer"
+                },
+                "delete_data_set": {
+                    "description": "DeleteDataSet indicated that this deal is meant to delete an existing DataSet created by SP for the client.\nDataSetID must be defined.",
+                    "type": "boolean"
+                },
+                "delete_piece": {
+                    "description": "DeletePiece indicates whether the Piece of the data should be deleted. DataSetID must be defined.",
+                    "type": "boolean"
+                },
+                "extra_data": {
+                    "description": "ExtraData can be used to send additional information to service contract when Verifier action like AddPiece, DeletePiece, etc. are performed.",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "piece_ids": {
+                    "description": "PieceIDs is a list of Piece ids in a proof set.",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "record_keeper": {
+                    "description": "RecordKeeper specifies the record keeper contract address for the new PDP dataset.",
+                    "type": "string"
+                }
+            }
+        },
         "mk20.PieceDataFormat": {
             "type": "object",
             "properties": {
@@ -1004,6 +1254,52 @@
                             "$ref": "#/definitions/mk20.FormatBytes"
                         }
                     ]
+                }
+            }
+        },
+        "mk20.Products": {
+            "type": "object",
+            "properties": {
+                "ddo_v1": {
+                    "description": "DDOV1 represents a product v1 configuration for Direct Data Onboarding (DDO)",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/mk20.DDOV1"
+                        }
+                    ]
+                },
+                "pdp_v1": {
+                    "description": "PDPV1 represents product-specific configuration for PDP version 1 deals.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/mk20.PDPV1"
+                        }
+                    ]
+                },
+                "retrieval_v1": {
+                    "description": "RetrievalV1 represents configuration for retrieval settings in the system, including indexing and announcement flags.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/mk20.RetrievalV1"
+                        }
+                    ]
+                }
+            }
+        },
+        "mk20.RetrievalV1": {
+            "type": "object",
+            "properties": {
+                "announce_payload": {
+                    "description": "AnnouncePayload indicates whether the payload should be announced to IPNI.",
+                    "type": "boolean"
+                },
+                "announce_piece": {
+                    "description": "AnnouncePiece indicates whether the piece information should be announced to IPNI.",
+                    "type": "boolean"
+                },
+                "indexing": {
+                    "description": "Indexing indicates if the deal is to be indexed in the provider's system to support CIDs based retrieval",
+                    "type": "boolean"
                 }
             }
         },

@@ -14,13 +14,14 @@ import (
 	"golang.org/x/xerrors"
 
 	commcid "github.com/filecoin-project/go-fil-commcid"
-	"github.com/filecoin-project/lotus/build/buildconstants"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/pdp"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/pdp/contract/FWSS"
+
+	"github.com/filecoin-project/lotus/build/buildconstants"
 )
 
 // OutstandingReceipt is a pending CreateDataset and/or AddPiece wait for a dataset.
