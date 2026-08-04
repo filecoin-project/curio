@@ -336,11 +336,9 @@ func (P *PDPV0IPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTa
 	}
 
 	// schedule submits
-	var stop bool
-	for !stop {
+	for {
+		stop := true
 		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-			stop = true // assume we're done until we find a task to schedule
-
 			var pendings []struct {
 				ID int64 `db:"id"`
 			}
@@ -378,9 +376,10 @@ func (P *PDPV0IPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTa
 			stop = false
 			return true, nil
 		})
+		if stop {
+			return nil
+		}
 	}
-
-	return nil
 }
 
 func (P *PDPV0IPNITask) Adder(taskFunc harmonytask.AddTaskFunc) {}
