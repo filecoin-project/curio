@@ -103,8 +103,8 @@ func NewNextProvingPeriodTask(db *harmonydb.DB, ethClient ethchain.EthClient, fi
 	return n
 }
 
-func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (n *NextProvingPeriodTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
+
 	// Select the data set where challenge_request_task_id = taskID
 	var dataSetId int64
 
@@ -281,6 +281,7 @@ func (n *NextProvingPeriodTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Name:          tasknames.PDPv0_ProvPeriod,
 		TimeSensitive: true,
+		MayFollow:     []string{tasknames.PDPv0_Prove},
 		Cost: resources.Resources{
 			Cpu: 0,
 			Gpu: 0,

@@ -39,8 +39,7 @@ func NewPDPCommpTask(db *harmonydb.DB, pio piecestore.PieceIO, max int) *PDPComm
 	}
 }
 
-func (c *PDPCommpTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (c *PDPCommpTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	var pieces []struct {
 		Pcid string `db:"piece_cid_v2"`
@@ -189,8 +188,9 @@ func (c *PDPCommpTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.T
 
 func (c *PDPCommpTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(c.max),
-		Name: tasknames.PDPCommP,
+		Max:       taskhelp.Max(c.max),
+		Name:      tasknames.PDPCommP,
+		MayFollow: []string{tasknames.PDPAddDataSet},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 1 << 30,

@@ -33,6 +33,7 @@ import (
 	"github.com/filecoin-project/curio/market/ipni/chunker"
 	"github.com/filecoin-project/curio/market/ipni/ipniculib"
 	"github.com/filecoin-project/curio/market/ipni/types"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 const PDP_v1_SP_ID = -1
@@ -53,8 +54,7 @@ func NewPDPIPNITask(db *harmonydb.DB, cfg *config.CurioConfig, max taskhelp.Limi
 	}
 }
 
-func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (P *PDPIPNITask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	var tasks []struct {
 		ID       string `db:"id"`
@@ -435,7 +435,8 @@ func (P *PDPIPNITask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Ta
 
 func (P *PDPIPNITask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name: "PDPIpni",
+		Name:      tasknames.PDPIpni,
+		MayFollow: []string{tasknames.PDPIndexing},
 		Cost: resources.Resources{
 			Cpu: 0,
 			Ram: 1 << 30,

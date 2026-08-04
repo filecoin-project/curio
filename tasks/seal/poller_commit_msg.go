@@ -83,6 +83,11 @@ func (s *SealPoller) pollStartBatchCommitMsg(ctx context.Context) {
 	maxBatch := s.cfg.commit.MaxCommitBatch
 	currentHeight := int64(ts.Height())
 
+	// earliestDeadline is the soonest moment at which a not-yet-fired batch will
+	// become timeout-eligible; we use it to schedule a wakePollAt so the next
+	// poll runs exactly when the deadline elapses.
+	var earliestDeadline time.Time
+
 	s.pollers[pollerCommitMsg].Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
 		var rows []BatchRow
 		err := tx.Select(&rows, `
@@ -127,42 +132,63 @@ func (s *SealPoller) pollStartBatchCommitMsg(ctx context.Context) {
 		}
 
 		now := time.Now()
-		for _, batch := range GroupBatchRows(rows) {
-			result := EvalBatchTimeout(batch.EarliestReady, timeout, batch.MinStartEpoch, slackEpochs, currentHeight, now, len(batch.SectorNums), maxBatch)
-			if !result.ShouldFire {
+		var firing *BatchCandidate
+		var firingResult BatchEvalResult
+		batches := GroupBatchRows(rows)
+		for i := range batches {
+			b := &batches[i]
+			result := EvalBatchTimeout(b.EarliestReady, timeout, b.MinStartEpoch, slackEpochs, currentHeight, now, len(b.SectorNums), maxBatch)
+			if result.ShouldFire {
+				if firing == nil {
+					firing = b
+					firingResult = result
+				}
 				continue
 			}
-
-			n, err := tx.Exec(`
-				UPDATE sectors_sdr_pipeline
-				SET task_id_commit_msg = $1
-				WHERE sp_id = $2
-					AND reg_seal_proof = $3
-					AND sector_number = ANY($4::bigint[])
-					AND after_porep = TRUE
-					AND task_id_commit_msg IS NULL
-					AND after_commit_msg = FALSE`,
-				id, batch.SpID, batch.RegSealProof, batch.SectorNums)
-			if err != nil {
-				return false, xerrors.Errorf("assigning commit batch: %w", err)
-			}
-
-			if n > 0 {
-				log.Infow("Assigned commit batch", "task_id", id, "sectors", n, "reason", result.Reason)
-				return true, nil
+			deadline := b.EarliestReady.Add(timeout)
+			if earliestDeadline.IsZero() || deadline.Before(earliestDeadline) {
+				earliestDeadline = deadline
 			}
 		}
 
+		if firing == nil {
+			return false, nil
+		}
+
+		n, err := tx.Exec(`
+			UPDATE sectors_sdr_pipeline
+			SET task_id_commit_msg = $1
+			WHERE sp_id = $2
+				AND reg_seal_proof = $3
+				AND sector_number = ANY($4::bigint[])
+				AND after_porep = TRUE
+				AND task_id_commit_msg IS NULL
+				AND after_commit_msg = FALSE`,
+			id, firing.SpID, firing.RegSealProof, firing.SectorNums)
+		if err != nil {
+			return false, xerrors.Errorf("assigning commit batch: %w", err)
+		}
+
+		if n > 0 {
+			log.Infow("Assigned commit batch", "task_id", id, "sectors", n, "reason", firingResult.Reason)
+			return true, nil
+		}
 		return false, nil
 	})
+
+	s.wakePollAt(earliestDeadline)
 }
 
 func (s *SealPoller) pollCommitMsgLanded(ctx context.Context, task pollTask) error {
 	if task.AfterCommitMsg && !task.AfterCommitMsgSuccess && s.pollers[pollerCommitMsg].IsSet() {
 
 		var execResult []dbExecResult
+		// dealsSealed counts how many deal-pipeline rows we flipped to
+		// sealed=TRUE in this transaction; used to drive notifySealed() below.
+		var dealsSealed int
 
 		comm, err := s.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+			dealsSealed = 0
 			err = tx.Select(&execResult, `SELECT spipeline.precommit_msg_cid, spipeline.commit_msg_cid, executed_tsk_cid, executed_tsk_epoch, executed_msg_cid, executed_rcpt_exitcode, executed_rcpt_gas_used
 					FROM sectors_sdr_pipeline spipeline
 					JOIN message_waits ON spipeline.commit_msg_cid = message_waits.signed_message_cid
@@ -206,12 +232,14 @@ func (s *SealPoller) pollCommitMsgLanded(ctx context.Context, task pollTask) err
 						return false, xerrors.Errorf("update market_mk12_deal_pipeline: %w", err)
 					}
 					log.Debugw("marked mk12 deals as sealed", "sp", task.SpID, "sector", task.SectorNumber, "count", n)
+					dealsSealed += n
 
 					n, err = tx.Exec(`UPDATE market_mk20_pipeline SET sealed = TRUE WHERE sp_id = $1 AND sector = $2 AND sealed = FALSE`, task.SpID, task.SectorNumber)
 					if err != nil {
 						return false, xerrors.Errorf("update market_mk20_pipeline: %w", err)
 					}
 					log.Debugw("marked mk20 deals as sealed", "sp", task.SpID, "sector", task.SectorNumber, "count", n)
+					dealsSealed += n
 
 					return true, nil
 				}
@@ -225,6 +253,12 @@ func (s *SealPoller) pollCommitMsgLanded(ctx context.Context, task pollTask) err
 			if !comm {
 				return xerrors.Errorf("failed to commit transaction")
 			}
+		}
+		// Notify hooks (e.g. IndexingTask.Wake) once the sealed=TRUE update has
+		// landed, so downstream stages don't have to wait for the next IAmBored
+		// cycle (~30s) to discover the newly-eligible deals.
+		if comm && dealsSealed > 0 {
+			s.notifySealed()
 		}
 	}
 

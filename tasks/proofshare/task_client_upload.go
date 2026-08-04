@@ -18,6 +18,7 @@ import (
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/proofsvc"
 	"github.com/filecoin-project/curio/lib/proofsvc/common"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 
 	"github.com/filecoin-project/lotus/chain/types"
 )
@@ -46,9 +47,8 @@ func (t *TaskClientUpload) CanAccept(ids []harmonytask.TaskID, engine *harmonyta
 }
 
 // Do implements harmonytask.TaskInterface.
-func (t *TaskClientUpload) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
+func (t *TaskClientUpload) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
-	ctx := context.Background()
 	var clientRequest ClientRequest
 	err = t.db.QueryRow(ctx, `
 		SELECT sp_id, sector_num, request_cid, request_uploaded, payment_wallet, payment_nonce, request_sent, response_data, done, request_partition_cost, request_type
@@ -132,8 +132,9 @@ func (t *TaskClientUpload) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 // TypeDetails implements harmonytask.TaskInterface.
 func (t *TaskClientUpload) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(t.max),
-		Name: "PSPutVanilla",
+		Max:       taskhelp.Max(t.max),
+		Name:      tasknames.PSPutVanilla,
+		MayFollow: []string{tasknames.PoRep},
 		Cost: resources.Resources{
 			Cpu: 0,
 			Ram: 128 << 20,

@@ -33,7 +33,8 @@ var (
 type PaymentsRailInfo struct {
 	RailId       *big.Int
 	IsTerminated bool
-	EndEpoch     *big.Int
+
+	EndEpoch *big.Int
 }
 
 // PaymentsRailView is an auto generated low-level Go binding around an user-defined struct.

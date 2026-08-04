@@ -47,8 +47,7 @@ func NewPieceGCTask(cfg *config.HTTPConfig, db *harmonydb.DB, idx IndexCleaner, 
 	}
 }
 
-func (t *PieceGCTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (t *PieceGCTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	err = processPendingCleanup(ctx, t.db, t.eth)
 	if err != nil {
 		return false, err
@@ -56,7 +55,7 @@ func (t *PieceGCTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 	if !stillOwned() {
 		return false, nil
 	}
-	if err = processIndexingAndIPNICleanup(context.Background(), t.db, t.cfg, t.idx, t.keepHours); err != nil {
+	if err = processIndexingAndIPNICleanup(ctx, t.db, t.cfg, t.idx, t.keepHours); err != nil {
 		return false, err
 	}
 	return true, nil

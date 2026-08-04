@@ -88,8 +88,7 @@ func (s *SubmitPrecommitTask) GetSectorID(db *harmonydb.DB, taskID int64) (*abi.
 
 var _ = harmonytask.Reg(&SubmitPrecommitTask{})
 
-func (s *SubmitPrecommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (s *SubmitPrecommitTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	// 1. Load sector info
 
@@ -363,8 +362,9 @@ func (s *SubmitPrecommitTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask
 
 func (s *SubmitPrecommitTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(1024),
-		Name: tasknames.PreCommitBatch,
+		Max:       taskhelp.Max(1024),
+		Name:      tasknames.PreCommitBatch,
+		MayFollow: []string{tasknames.SyntheticProofs},
 		Cost: resources.Resources{
 			Cpu: 0,
 			Gpu: 0,

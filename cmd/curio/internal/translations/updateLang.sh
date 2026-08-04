@@ -37,7 +37,9 @@ if [ "$(find ../../* -newer catalog.go 2>/dev/null)" ]; then
   
   # Step 4: Run gotext on the lightweight toy package only (fast!)
   # Use "." so gotext only loads this directory; GOMOD/GOWORK prevent using parent Curio.
-  GOWORK=off GOMOD="$WORKDIR_ABS/go.mod" gotext -srclang=en update -out=catalog.go -lang=en,zh,ko .
+  # Use go run so `make gen` works without a global gotext install (CI installs gotext; devs often do not).
+  # Keep the module version aligned with golang.org/x/text in the repo root go.mod.
+  GOWORK=off GOMOD="$WORKDIR_ABS/go.mod" go run golang.org/x/text/cmd/gotext@v0.36.0 -srclang=en update -out=catalog.go -lang=en,zh,ko .
   cd "$SCRIPT_DIR" || exit 1
   
   # Step 5: Copy results back to translations directory
