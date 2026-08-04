@@ -182,12 +182,9 @@ func (p *ProveTask) TypeDetails() harmonytask.TaskTypeDetails {
 }
 
 func (p *ProveTask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFunc) error {
-	var stop bool
-
-	for !stop {
+	for {
+		stop := true
 		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-			stop = true // assume we're done until we find a task to schedule
-
 			var tasks []struct {
 				SpID         int64 `db:"sp_id"`
 				SectorNumber int64 `db:"sector_number"`
@@ -213,9 +210,10 @@ func (p *ProveTask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFu
 			stop = false // we found a task to schedule, keep going
 			return true, nil
 		})
+		if stop {
+			return nil
+		}
 	}
-
-	return nil
 }
 
 func (p *ProveTask) Adder(taskFunc harmonytask.AddTaskFunc) {

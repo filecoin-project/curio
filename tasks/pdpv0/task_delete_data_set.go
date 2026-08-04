@@ -164,12 +164,9 @@ func (t *DeleteDataSetTask) TypeDetails() harmonytask.TaskTypeDetails {
 }
 
 func (t *DeleteDataSetTask) schedule(ctx context.Context, addTaskFunc harmonytask.AddTaskFunc) error {
-	var stop bool
-
-	for !stop {
+	for {
+		stop := true
 		addTaskFunc(func(taskID harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-			stop = true
-
 			current, err := t.ethClient.BlockNumber(ctx)
 			if err != nil {
 				return false, xerrors.Errorf("failed to get current block number: %w", err)
@@ -212,8 +209,10 @@ func (t *DeleteDataSetTask) schedule(ctx context.Context, addTaskFunc harmonytas
 			stop = false
 			return true, nil
 		})
+		if stop {
+			return nil
+		}
 	}
-	return nil
 }
 
 func (t *DeleteDataSetTask) Adder(taskFunc harmonytask.AddTaskFunc) {}

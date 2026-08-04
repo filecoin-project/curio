@@ -559,9 +559,9 @@ func (s *SubmitTask) TypeDetails() harmonytask.TaskTypeDetails {
 }
 
 func (s *SubmitTask) schedule(ctx context.Context, addTaskFunc harmonytask.AddTaskFunc) error {
-	var done bool
+	for {
+		done := true
 
-	for !done {
 		addTaskFunc(func(taskID harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
 			//----------------------------------
 			// 1) Gather candidate tasks to schedule
@@ -604,8 +604,7 @@ func (s *SubmitTask) schedule(ctx context.Context, addTaskFunc harmonytask.AddTa
 			}
 
 			if len(rawRows) == 0 {
-				// No tasks left to schedule => set done=true and do not commit
-				done = true
+				// No tasks left to schedule => do not commit
 				return false, nil
 			}
 
@@ -720,16 +719,19 @@ func (s *SubmitTask) schedule(ctx context.Context, addTaskFunc harmonytask.AddTa
 						scheduled += n
 					}
 
+					done = false // we scheduled something, there may be more work
 					// We scheduled this group => commit & exit the transaction callback
 					return scheduled > 0, nil
 				}
 			}
 
 			// If we got here, we didn't find *any* group meeting conditions => no scheduling
-			// So let's set done = true to avoid indefinite looping.
-			done = true
 			return false, nil
 		})
+
+		if done {
+			break
+		}
 	}
 
 	// dealsSealed totals the deal-pipeline rows updateLanded flipped to

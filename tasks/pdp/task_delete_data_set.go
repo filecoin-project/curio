@@ -163,11 +163,9 @@ func (p *PDPTaskDeleteDataSet) TypeDetails() harmonytask.TaskTypeDetails {
 }
 
 func (p *PDPTaskDeleteDataSet) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFunc) error {
-	var stop bool
-	for !stop {
+	for {
+		stop := true
 		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-			stop = true // assume we're done until we find a task to schedule
-
 			n, err := tx.Exec(`WITH pending AS (
 					SELECT id
 					FROM pdp_data_set_delete
@@ -194,10 +192,10 @@ func (p *PDPTaskDeleteDataSet) schedule(ctx context.Context, taskFunc harmonytas
 			stop = false // we found a task to schedule, keep going
 			return true, nil
 		})
-
+		if stop {
+			return nil
+		}
 	}
-
-	return nil
 }
 
 func (p *PDPTaskDeleteDataSet) Adder(taskFunc harmonytask.AddTaskFunc) {}

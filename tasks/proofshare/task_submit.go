@@ -40,12 +40,9 @@ func (t *TaskSubmit) Adder(addTask harmonytask.AddTaskFunc) {
 }
 
 func (t *TaskSubmit) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFunc) {
-	var stop bool
-
-	for !stop {
+	for {
+		stop := true
 		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-			stop = true
-
 			// 1) Find any rows that are ready to be scheduled for submission.
 			var rows []struct {
 				ServiceID int64 `db:"service_id"`
@@ -87,6 +84,9 @@ func (t *TaskSubmit) schedule(ctx context.Context, taskFunc harmonytask.AddTaskF
 			stop = false // keep going in our outer loop; maybe we can schedule more
 			return true, nil
 		})
+		if stop {
+			return
+		}
 	}
 }
 

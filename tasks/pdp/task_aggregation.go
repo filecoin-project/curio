@@ -335,11 +335,9 @@ func (a *AggregatePDPDealTask) TypeDetails() harmonytask.TaskTypeDetails {
 }
 
 func (a *AggregatePDPDealTask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFunc) error {
-	var stop bool
-	for !stop {
+	for {
+		stop := true
 		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-			stop = true // assume we're done until we find a task to schedule
-
 			var deals []struct {
 				ID    string `db:"id"`
 				Count int    `db:"count"`
@@ -382,10 +380,10 @@ func (a *AggregatePDPDealTask) schedule(ctx context.Context, taskFunc harmonytas
 
 			return n == deal.Count, nil
 		})
-
+		if stop {
+			return nil
+		}
 	}
-
-	return nil
 }
 
 func (a *AggregatePDPDealTask) Adder(taskFunc harmonytask.AddTaskFunc) {}

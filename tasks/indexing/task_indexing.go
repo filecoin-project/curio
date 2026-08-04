@@ -510,11 +510,9 @@ func (i *IndexingTask) TypeDetails() harmonytask.TaskTypeDetails {
 
 func (i *IndexingTask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFunc) error {
 	// schedule submits
-	var stop bool
-	for !stop {
+	for {
+		stop := true
 		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-			stop = true // assume we're done until we find a task to schedule
-
 			// Indexing job must be created for every deal to make sure piece details are inserted in DB
 			// even if we don't want to index it. If piece is not supposed to be indexed then it will handled
 			// by the Do()
@@ -577,9 +575,10 @@ func (i *IndexingTask) schedule(ctx context.Context, taskFunc harmonytask.AddTas
 			stop = false
 			return true, nil
 		})
+		if stop {
+			return nil
+		}
 	}
-
-	return nil
 }
 
 func (i *IndexingTask) Adder(taskFunc harmonytask.AddTaskFunc) {

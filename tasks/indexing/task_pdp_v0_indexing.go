@@ -214,11 +214,9 @@ func (P *PDPIndexingV0Task) TypeDetails() harmonytask.TaskTypeDetails {
 
 func (P *PDPIndexingV0Task) schedule(_ context.Context, taskFunc harmonytask.AddTaskFunc) error {
 	// schedule submits
-	var stop bool
-	for !stop {
+	for {
+		stop := true
 		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-			stop = true // assume we're done until we find a task to schedule
-
 			n, err := tx.Exec(`WITH pending AS (
 					SELECT id
 					FROM pdp_piecerefs
@@ -247,9 +245,10 @@ func (P *PDPIndexingV0Task) schedule(_ context.Context, taskFunc harmonytask.Add
 			stop = false
 			return true, nil
 		})
+		if stop {
+			return nil
+		}
 	}
-
-	return nil
 }
 
 func (P *PDPIndexingV0Task) Adder(taskFunc harmonytask.AddTaskFunc) {}

@@ -295,11 +295,9 @@ func (e *EncodeTask) Adder(taskFunc harmonytask.AddTaskFunc) {
 }
 
 func (e *EncodeTask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFunc) error {
-	var stop bool
-	for !stop {
+	for {
+		stop := true
 		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-			stop = true // assume we're done until we find a task to schedule
-
 			var tasks []struct {
 				SpID         int64 `db:"sp_id"`
 				SectorNumber int64 `db:"sector_number"`
@@ -325,10 +323,10 @@ func (e *EncodeTask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskF
 			stop = false // we found a task to schedule, keep going
 			return true, nil
 		})
-
+		if stop {
+			return nil
+		}
 	}
-
-	return nil
 }
 
 func (e *EncodeTask) taskToSector(id harmonytask.TaskID) (ffi.SectorRef, error) {

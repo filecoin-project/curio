@@ -135,11 +135,9 @@ func (t *PDPNotifyTask) TypeDetails() harmonytask.TaskTypeDetails {
 }
 
 func (t *PDPNotifyTask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFunc) error {
-	var stop bool
-	for !stop {
+	for {
+		stop := true
 		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-			stop = true // Assume we're done unless we find more tasks to schedule
-
 			n, err := tx.Exec(`
 				WITH pending AS (
 					SELECT pu.id
@@ -170,8 +168,10 @@ func (t *PDPNotifyTask) schedule(ctx context.Context, taskFunc harmonytask.AddTa
 			stop = false     // Continue scheduling as there might be more tasks
 			return true, nil // Commit the transaction
 		})
+		if stop {
+			return nil
+		}
 	}
-	return nil
 }
 
 func (t *PDPNotifyTask) Adder(taskFunc harmonytask.AddTaskFunc) {
