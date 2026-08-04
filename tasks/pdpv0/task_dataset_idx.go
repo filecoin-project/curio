@@ -30,8 +30,7 @@ func NewDatasetIdxTask(db *harmonydb.DB, ethClient ethchain.EthClient) *DatasetI
 	return &DatasetIdxTask{db: db, ethClient: ethClient}
 }
 
-func (t *DatasetIdxTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (t *DatasetIdxTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	if !stillOwned() {
 		return false, nil
 	}
