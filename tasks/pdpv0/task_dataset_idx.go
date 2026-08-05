@@ -78,7 +78,7 @@ func (t *DatasetIdxTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.Task
 
 func (t *DatasetIdxTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name: tasknames.PDPv0_Dataset_Idx,
+		Name: tasknames.PDPv0_DatasetIdx,
 		Max:  taskhelp.Max(1),
 		Cost: resources.Resources{
 			Cpu: 0,
