@@ -123,8 +123,9 @@ func (mw *MessageWatcherEth) update() {
 		return
 	}
 
-	log.Infow("Processing pending transactions", "count", len(pendingTxs), "machineID", machineID)
-
+	if n := len(pendingTxs); n > 0 {
+		log.Infow("Processing pending transactions", "count", n, "machineID", machineID)
+	}
 	// Track statistics
 	var processed, stillPending, waitingConfirmations, confirmed, errorCount int
 
