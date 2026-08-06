@@ -15,6 +15,7 @@ import (
 	"github.com/filecoin-project/go-address"
 	cborutil "github.com/filecoin-project/go-cbor-util"
 
+	"github.com/filecoin-project/curio/cuhttp/clientip"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/market/mk12"
@@ -209,5 +210,5 @@ func (mdh *MK12DealHandler) mk12status(w http.ResponseWriter, r *http.Request) {
 }
 
 func dealRateLimitMiddleware() func(http.Handler) http.Handler {
-	return httprate.LimitByIP(50, 1*time.Second)
+	return httprate.LimitBy(50, 1*time.Second, clientip.RateLimitKey)
 }

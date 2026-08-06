@@ -3,12 +3,11 @@ package pdp
 import (
 	"context"
 	"fmt"
-	"net"
 	"net/http"
 	"sync"
 	"time"
 
-	"github.com/go-chi/httprate"
+	"github.com/filecoin-project/curio/cuhttp/clientip"
 )
 
 // OffenseBadDataSetAdd is recorded when addPieces targets a missing or
@@ -122,15 +121,8 @@ func defaultIPOffensePolicies() map[string]IPOffensePolicy {
 }
 
 func clientIPFromRequest(r *http.Request) string {
-	ip, err := httprate.KeyByRealIP(r)
-	if err == nil && ip != "" {
-		return ip
-	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
+	ip, _ := clientip.RateLimitKey(r)
+	return ip
 }
 
 // Middleware rejects requests from IPs that are temporarily blocked for any

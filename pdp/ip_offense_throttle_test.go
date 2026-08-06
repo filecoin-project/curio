@@ -1,6 +1,7 @@
 package pdp
 
 import (
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
@@ -51,6 +52,23 @@ func TestIPOffenseThrottleDoesNotBlockOtherIPs(t *testing.T) {
 	blocked, _, _ := throttle.longestBlock(other)
 	if blocked {
 		t.Fatal("expected other IP to remain unblocked")
+	}
+}
+
+func TestIPOffenseThrottleIgnoresUntrustedForwardingHeaders(t *testing.T) {
+	throttle := testIPOffenseThrottle()
+	req := &http.Request{RemoteAddr: "203.0.113.10:1234"}
+
+	for i := 0; i < 3; i++ {
+		req.Header = http.Header{
+			"X-Forwarded-For": []string{fmt.Sprintf("198.51.100.%d", i+1)},
+			"X-Real-Ip":       []string{fmt.Sprintf("192.0.2.%d", i+1)},
+			"True-Client-Ip":  []string{fmt.Sprintf("203.0.113.%d", i+20)},
+		}
+		blocked, _, _ := throttle.Record(req, "test_offense")
+		if blocked != (i == 2) {
+			t.Fatalf("hit %d blocked = %v, want %v", i+1, blocked, i == 2)
+		}
 	}
 }
 
