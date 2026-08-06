@@ -290,8 +290,8 @@ func (t *RepairMissingPiecesTask) repairPiece(ctx context.Context, dataSetID int
 			"dataSetId", dataSetID, "pieceId", pieceID, "parkedPieceId", loc[0].ParkedPieceID, "error", err)
 	}
 
+	pieceRefID := loc[0].PieceRefID
 	comm, err := t.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
-		pieceRefID := loc[0].PieceRefID
 		// The chain CID describes the whole piece, so the piece is its own only
 		// sub-piece: offset 0, size the full padded size.
 		n, err := tx.Exec(`
