@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -26,7 +25,6 @@ import (
 
 	proofparams "github.com/filecoin-project/lotus/build/proof-params"
 	cliutil "github.com/filecoin-project/lotus/cli/util"
-	"github.com/filecoin-project/lotus/lib/tracing"
 )
 
 var log = logging.Logger("main")
@@ -82,21 +80,9 @@ func main() {
 		batchCmd,
 	}
 
-	jaeger := tracing.SetupJaegerTracing("curio")
-	defer func() {
-		if jaeger != nil {
-			_ = jaeger.ForceFlush(context.Background())
-		}
-	}()
-
 	for _, cmd := range local {
 		originBefore := cmd.Before
 		cmd.Before = func(cctx *cli.Context) error {
-			if jaeger != nil {
-				_ = jaeger.Shutdown(cctx.Context)
-			}
-			jaeger = tracing.SetupJaegerTracing("curio/" + cmd.Name)
-
 			if cctx.IsSet("color") {
 				color.NoColor = !cctx.Bool("color")
 			}
