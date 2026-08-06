@@ -13,7 +13,6 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-padreader"
-	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
@@ -31,17 +30,9 @@ import (
 // rebuilds pdp_data_set_pieces rows for pieces the contract reports as live but
 // which Curio has no local record of.
 //
-// # Why this exists
+// Resolves bad state reported in https://github.com/filecoin-project/curio/issues/1359
 //
-// A piece could land on chain without its pdp_data_set_pieces row ever being
-// written (filecoin-project/curio#1359). Two things then go wrong. Proving
-// fails with "no subpiece found" whenever a challenge lands inside that piece,
-// because provePiece resolves the challenged leaf through that table. And
-// pdp_piecerefs.data_set_refcount, which is maintained by an insert trigger on
-// that same table, stays at 0, so the piece GC is free to drop the pieceref and
-// eventually the bytes.
-//
-// # Scope
+// TODO: this task can be removed once all bad state is fixed.
 //
 // The add-piece path is fixed in the release that carries this task, so only
 // data sets that predate the upgrade can be damaged. The work queue,
@@ -49,21 +40,9 @@ import (
 // pdp_data_sets rows present at that moment. Nothing enqueues a data set later.
 // Once every seeded row is complete the task goes permanently idle.
 //
-// # What a repair writes
-//
-// PDPVerifier knows the piece id and the PieceCID v2. Everything else in the
-// row follows from treating the piece as its own single sub-piece: sub_piece is
-// the piece, sub_piece_offset is 0, and sub_piece_size is the piece's padded
-// size derived from the v2 CID. There is no add message to reference, so
-// add_message_hash gets a sentinel and add_message_index gets 0.
-//
-// # When data is gone
-//
-// Before writing a row the task confirms the bytes are actually reachable: a
-// complete long-term parked_pieces row for the CID, which the piece store can
-// still open. If either check fails the piece is unrecoverable by repair, and
-// it is logged and recorded in lost_data rather than papered over with a row
-// that would make proving fail later at challenge time.
+// Before writing a row the task confirms the bytes are actually reachable.
+// If this check fails the piece is unrecoverable by repair, and
+// it is logged and recorded in the lost_data table
 type RepairMissingPiecesTask struct {
 	db  *harmonydb.DB
 	eth ethchain.EthClient
@@ -76,10 +55,7 @@ const (
 	// piece id directly instead of walking the set from the start each page.
 	activePiecePageSize = 1000
 
-	// repairAddMessageHash marks rows this task reconstructed. There is no add
-	// message to point at; the row is derived from contract state, not from a
-	// receipt. add_message_hash lost its foreign key to message_waits_eth in
-	// 20260706-drop-message-waits-eth-fks.sql, so a sentinel is safe here.
+	// repairAddMessageHash marks rows this task reconstructed.
 	repairAddMessageHash = "REPAIRED"
 
 	// repairScheduleBatch caps how many data sets are queued per scheduler
@@ -204,6 +180,10 @@ type repairStats struct {
 func (t *RepairMissingPiecesTask) reconcilePage(ctx context.Context, dataSetID int64, service string, pieceIDs []*big.Int, pieceCids []contract.CidsCid) (repairStats, error) {
 	var stats repairStats
 
+	if len(pieceIDs) != len(pieceCids) {
+		return stats, xerrors.Errorf("PDPVerifier returned %d piece CIDs for %d piece ids on data set %d", len(pieceCids), len(pieceIDs), dataSetID)
+	}
+
 	ids := make([]int64, 0, len(pieceIDs))
 	for _, id := range pieceIDs {
 		if !id.IsInt64() {
@@ -311,31 +291,8 @@ func (t *RepairMissingPiecesTask) repairPiece(ctx context.Context, dataSetID int
 			"dataSetId", dataSetID, "pieceId", pieceID, "parkedPieceId", loc[0].ParkedPieceID, "error", err)
 	}
 
-	needsSaveCache := padreader.PaddedSize(info.RawSize).Padded() >= abi.PaddedPieceSize(MinSizeForCache)
-
 	comm, err := t.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
 		pieceRefID := loc[0].PieceRefID
-		if pieceRefID == 0 {
-			var refID int64
-			err := tx.QueryRow(`
-				INSERT INTO parked_piece_refs (piece_id, long_term)
-				VALUES ($1, TRUE)
-				RETURNING ref_id
-			`, loc[0].ParkedPieceID).Scan(&refID)
-			if err != nil {
-				return false, xerrors.Errorf("failed to insert parked_piece_refs for parked piece %d: %w", loc[0].ParkedPieceID, err)
-			}
-
-			err = tx.QueryRow(`
-				INSERT INTO pdp_piecerefs (service, piece_cid, piece_ref, created_at, needs_save_cache)
-				VALUES ($1, $2, $3, NOW(), $4)
-				RETURNING id
-			`, service, pieceCidV1, refID, needsSaveCache).Scan(&pieceRefID)
-			if err != nil {
-				return false, xerrors.Errorf("failed to insert pdp_piecerefs for %s: %w", pieceCidV1, err)
-			}
-		}
-
 		// The chain CID describes the whole piece, so the piece is its own only
 		// sub-piece: offset 0, size the full padded size.
 		n, err := tx.Exec(`
@@ -521,7 +478,7 @@ func (t *RepairMissingPiecesTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Ram: 64 << 20,
 		},
 		MaxFailures: 3,
-		IAmBored: passcall.Every(time.Minute, func(taskFunc harmonytask.AddTaskFunc) error {
+		IAmBored: passcall.Every(time.Hour, func(taskFunc harmonytask.AddTaskFunc) error {
 			return t.schedule(context.Background(), taskFunc)
 		}),
 	}
