@@ -20,6 +20,7 @@ import (
 	httpSwagger "github.com/swaggo/http-swagger/v2"
 	"github.com/yugabyte/pgx/v5"
 
+	"github.com/filecoin-project/curio/cuhttp/clientip"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/market/mk20"
@@ -50,7 +51,7 @@ func NewMK20DealHandler(db *harmonydb.DB, cfg *config.CurioConfig, dm *storage_m
 }
 
 func dealRateLimitMiddleware(requestLimit int) func(http.Handler) http.Handler {
-	return httprate.LimitByIP(requestLimit, 1*time.Second)
+	return httprate.LimitBy(requestLimit, 1*time.Second, clientip.RateLimitKey)
 }
 
 func registerRateLimitedRoute(mux chi.Router, authMiddleware func(http.Handler) http.Handler, requestLimit int, method, pattern string, handler http.Handler) {

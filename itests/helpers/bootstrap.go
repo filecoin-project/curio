@@ -26,6 +26,7 @@ import (
 func BootstrapNetwork(t *testing.T, ctx context.Context, opts ...any) (*kit.TestFullNode, *kit.TestMiner, *kit.Ensemble, string) {
 
 	finalOpts := append([]any{
+		kit.RealProofs(),
 		kit.LatestActorsAt(-1),
 		kit.PresealSectors(32),
 		kit.ThroughRPC(),

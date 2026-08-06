@@ -9,11 +9,11 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/gorilla/handlers"
 	logging "github.com/ipfs/go-log/v2"
 	"golang.org/x/crypto/acme/autocert"
 
 	"github.com/filecoin-project/curio/build"
+	"github.com/filecoin-project/curio/cuhttp/clientip"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 )
@@ -34,9 +34,8 @@ type RouterConfig struct {
 func NewRouter(cfg RouterConfig) *chi.Mux {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
-	r.Use(middleware.RealIP)
+	r.Use(clientip.Middleware)
 	r.Use(middleware.Recoverer)
-	r.Use(handlers.ProxyHeaders)
 	if cfg.CSP != "" {
 		r.Use(SecureHeaders(cfg.CSP))
 	}

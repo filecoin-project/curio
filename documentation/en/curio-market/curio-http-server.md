@@ -168,6 +168,8 @@ Use this when you already run Nginx/Caddy/Traefik or cannot (or do not want to) 
 In this mode:
 - Curio serves **plain HTTP** internally.
 - Your reverse proxy handles TLS + Let’s Encrypt.
+- When the proxy connects over loopback, Curio treats the rightmost `X-Forwarded-For` entry as the client IP for rate limiting and abuse controls.
+- The proxy must overwrite or append `X-Forwarded-For` on every request. Forwarding headers from non-loopback peers are ignored.
 
 Minimal Nginx example:
 
