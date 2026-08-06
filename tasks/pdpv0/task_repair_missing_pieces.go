@@ -31,7 +31,6 @@ import (
 // which Curio has no local record of.
 //
 // Resolves bad state reported in https://github.com/filecoin-project/curio/issues/1359
-//
 // TODO: this task can be removed once all bad state is fixed.
 //
 // The add-piece path is fixed in the release that carries this task, so only
