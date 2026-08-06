@@ -2,9 +2,18 @@
 <html lang="en">
 <head>
     <title>PDP Overview - Curio</title>
-    <script src="https://unpkg.com/htmx.org@1.9.5"
-        integrity="sha384-xcuj3WpfgjlKF+FXhSQFQ0ZNr39ln+hwjN3npfM9VBnUskLolQAcN80McRIVOPuO"
-        crossorigin="anonymous"></script>
+    <!-- Critical FOUC paint: dark canvas until CSS loads and clears visibility:hidden -->
+    <style>
+        html {
+            background: #0d1117;
+            color-scheme: dark;
+        }
+        body {
+            margin: 0;
+            min-height: 100vh;
+            background: #0d1117;
+        }
+    </style>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script type="module" src="pdp-overview-boot.mjs"></script>
 </head>

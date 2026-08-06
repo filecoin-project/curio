@@ -1,6 +1,6 @@
 import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js'
 import RPCCall from '/lib/jsonrpc.mjs'
-import { timeSince } from '/lib/dateutil.mjs'
+import { relativePhrase } from '/lib/dateutil.mjs'
 import { loadingBlock, loadingCssText } from '/lib/loading.mjs'
 
 function formatBytes(bytes) {
@@ -28,6 +28,19 @@ function statusTone(status) {
     default:
       return 'muted'
   }
+}
+
+const SEARCH_HINT = 'Search by dataset ID, payer wallet (0x…), PieceCID (baf…), or create tx hash.'
+
+function classifySearch(q) {
+  const s = (q || '').trim()
+  if (!s) return { kind: 'empty' }
+  if (/^\d+$/.test(s)) return { kind: 'dataset_id', value: s }
+  if (/^0x[0-9a-fA-F]{64}$/.test(s)) return { kind: 'tx_hash', value: s }
+  if (/^0x[0-9a-fA-F]{40}$/.test(s)) return { kind: 'wallet', value: s }
+  // PieceCID / CIDv1 (bafk…, baga…, bafy…, etc.)
+  if (/^b[a-z2-7]{10,}$/i.test(s)) return { kind: 'piece_cid', value: s }
+  return { kind: 'unknown', value: s }
 }
 
 customElements.define('pdp-datasets-list', class PdpDatasetsList extends LitElement {
@@ -59,8 +72,7 @@ customElements.define('pdp-datasets-list', class PdpDatasetsList extends LitElem
 
     const params = new URLSearchParams(window.location.search)
     if (params.get('q')) {
-      this.filter = params.get('q')
-      this.filterInput = this.filter
+      this.filterInput = params.get('q')
     }
     const sort = params.get('sort')
     if (sort === 'object_count' || sort === 'size_bytes' || sort === 'first_upload_at' || sort === 'id') {
@@ -71,7 +83,18 @@ customElements.define('pdp-datasets-list', class PdpDatasetsList extends LitElem
     } else if (params.get('asc') === '0') {
       this.sortAsc = false
     }
-    this.loadData()
+
+    // Deep-linked q= only stays as a list filter for wallets; other intents navigate away.
+    const intent = classifySearch(this.filterInput)
+    if (intent.kind === 'wallet') {
+      this.filter = intent.value
+      this.loadData()
+    } else if (intent.kind === 'empty') {
+      this.loadData()
+    } else {
+      // Reuse submit routing (dataset id / piece / tx / unknown).
+      this.applySearch()
+    }
   }
 
   createRenderRoot() {
@@ -118,18 +141,63 @@ customElements.define('pdp-datasets-list', class PdpDatasetsList extends LitElem
     }
   }
 
-  applySearch(e) {
+  async applySearch(e) {
     e?.preventDefault?.()
-    this.filter = (this.filterInput || '').trim()
-    this.offset = 0
-    this.syncUrl()
-    this.loadData()
+    const q = (this.filterInput || '').trim()
+    const intent = classifySearch(q)
+
+    this.loadError = null
+
+    switch (intent.kind) {
+      case 'empty':
+        this.filter = ''
+        this.offset = 0
+        this.syncUrl()
+        this.loadData()
+        return
+      case 'dataset_id':
+        window.location.href = `/pages/dataset/?id=${encodeURIComponent(intent.value)}`
+        return
+      case 'piece_cid':
+        window.location.href = `/pages/piece/?id=${encodeURIComponent(intent.value)}`
+        return
+      case 'tx_hash': {
+        this.loading = true
+        this.requestUpdate()
+        try {
+          const id = await RPCCall('PDPDataSetFindByTxHash', [intent.value])
+          window.location.href = `/pages/dataset/?id=${encodeURIComponent(String(id))}`
+        } catch (err) {
+          console.error('Tx hash lookup failed:', err)
+          this.loadError = err.message || String(err)
+          this.items = []
+          this.total = 0
+          this.loading = false
+          this.requestUpdate()
+        }
+        return
+      }
+      case 'wallet':
+        this.filter = intent.value
+        this.offset = 0
+        this.syncUrl()
+        this.loadData()
+        return
+      default:
+        this.filter = ''
+        this.items = []
+        this.total = 0
+        this.loadError = SEARCH_HINT
+        this.syncUrl()
+        this.requestUpdate()
+    }
   }
 
   clearSearch() {
     this.filterInput = ''
     this.filter = ''
     this.offset = 0
+    this.loadError = null
     this.syncUrl()
     this.loadData()
   }
@@ -197,25 +265,25 @@ customElements.define('pdp-datasets-list', class PdpDatasetsList extends LitElem
         .sort-indicator { margin-left: 4px; font-size: 11px; }
       </style>
 
-      <p class="hint">Search by dataset ID or payer wallet (0x…).</p>
+      <p class="hint">${SEARCH_HINT}</p>
 
       <form class="datasets-search" @submit=${(e) => this.applySearch(e)}>
         <input
           type="search"
-          placeholder="Dataset ID or wallet address"
+          placeholder="Dataset ID, wallet, PieceCID, or create tx"
           .value=${this.filterInput}
           @input=${(e) => { this.filterInput = e.target.value }}
         />
         <button type="submit" class="btn btn-primary btn-sm">Search</button>
-        ${this.filter ? html`<button type="button" class="btn btn-secondary btn-sm" @click=${() => this.clearSearch()}>Clear</button>` : ''}
+        ${this.filter || this.filterInput ? html`<button type="button" class="btn btn-secondary btn-sm" @click=${() => this.clearSearch()}>Clear</button>` : ''}
       </form>
 
       ${this.loadError ? html`<p class="load-error">${this.loadError}</p>` : ''}
       ${this.loading ? loadingBlock('Loading datasets…') : ''}
 
-      ${!this.loading && this.items.length === 0
+      ${!this.loading && !this.loadError && this.items.length === 0
         ? html`<p class="hint">No datasets found.</p>`
-        : html`
+        : !this.loading && this.items.length > 0 ? html`
           <table class="table table-dark table-striped table-sm">
             <thead>
               <tr>
@@ -241,7 +309,7 @@ customElements.define('pdp-datasets-list', class PdpDatasetsList extends LitElem
                   <td class="mono">${ds.objectCount ?? 0}</td>
                   <td class="mono">${formatBytes(ds.sizeBytes)}</td>
                   <td class="status-${statusTone(ds.provingStatus)}">${ds.provingStatus || '—'}</td>
-                  <td>${ds.firstUploadAt ? timeSince(new Date(ds.firstUploadAt)) + ' ago' : '—'}</td>
+                  <td>${ds.firstUploadAt ? relativePhrase(new Date(ds.firstUploadAt)) : '—'}</td>
                 </tr>
               `)}
             </tbody>
@@ -251,7 +319,7 @@ customElements.define('pdp-datasets-list', class PdpDatasetsList extends LitElem
             <span class="hint" style="margin:0">${from}–${to} of ${this.total}</span>
             <button class="btn btn-secondary btn-sm" ?disabled=${this.offset + this.limit >= this.total} @click=${() => this.nextPage()}>Next</button>
           </div>
-        `}
+        ` : ''}
     `
   }
 })

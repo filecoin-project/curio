@@ -83,3 +83,19 @@
 .table-dark .row-error > td {
     color: var(--color-danger-fg);
 }
+
+/* Bootstrap .table-striped>tbody>tr:nth-of-type(odd)>* sets
+   --bs-table-striped-color on every odd cell, which beats a single
+   status class (.err, .ok, …). Match that specificity (plus .table-dark)
+   so semantic colors still win on striped rows. */
+.table-dark.table-striped > tbody > tr:nth-of-type(odd) > .err,
+.table-dark.table-striped > tbody > tr:nth-of-type(odd) > .error,
+.table-dark.table-striped > tbody > tr:nth-of-type(odd) > .health-error,
+.table-dark.table-striped > tbody > tr.row-error:nth-of-type(odd) > * {
+    color: var(--color-danger-fg);
+}
+
+.table-dark.table-striped > tbody > tr:nth-of-type(odd) > .ok,
+.table-dark.table-striped > tbody > tr:nth-of-type(odd) > .health-ok {
+    color: var(--color-success-fg);
+}

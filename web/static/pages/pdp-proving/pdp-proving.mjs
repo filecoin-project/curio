@@ -410,7 +410,7 @@ customElements.define('pdp-proving', class PdpProving extends LitElement {
 
       <div class="failures-panel">
         <h2 class="panel-title">Proving failures</h2>
-        <p class="hint">Investigate these first — link through to the dataset or failed task to see what needs fixing.</p>
+        <p class="hint">Unrecoverable failures from the last 30 days and prove-task errors from the last 7 days — link through to the dataset or failed task to investigate.</p>
         ${this.renderFailures()}
       </div>
     `
@@ -419,7 +419,7 @@ customElements.define('pdp-proving', class PdpProving extends LitElement {
   renderFailures() {
     const failures = this.failures ?? []
     if (failures.length === 0) {
-      return html`<p class="hint" style="margin:0">No recent prove failures or unhealthy datasets.</p>`
+      return html`<p class="hint" style="margin:0">No unrecoverable failures in the last 30 days or prove-task errors in the last 7 days.</p>`
     }
     return html`
       <table class="table table-dark table-striped table-sm">

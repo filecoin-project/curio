@@ -91,14 +91,14 @@ customElements.define('message-queue-summary', class MessageQueueSummary extends
       <h3>FIL messages waiting for receipt</h3>
       ${this.renderTable(d?.filPending, [
         { label: 'CID', mono: true, render: (r) => r.messageCid },
-        { label: 'Queued', render: (r) => timeSince(r.addedAt) },
+        { label: 'Queued', render: (r) => timeSince(new Date(r.addedAt)) },
       ])}
 
       <h3>ETH transactions pending confirmation</h3>
       ${this.renderTable(d?.ethPending, [
         { label: 'Tx hash', mono: true, render: (r) => r.txHash },
         { label: 'Reason', render: (r) => r.sendReason || '—' },
-        { label: 'Sent', render: (r) => r.sendTime ? timeSince(r.sendTime) : '—' },
+        { label: 'Sent', render: (r) => r.sendTime ? timeSince(new Date(r.sendTime)) : '—' },
       ])}
     `
   }

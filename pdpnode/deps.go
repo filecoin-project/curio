@@ -56,6 +56,7 @@ type Deps struct {
 	ServeChunker      *chunker.ServeChunker
 	EthClient         *lazy.Lazy[ethchain.EthClient]
 	Sender            *message.Sender
+	EthSender         *message.SenderETH
 	Al                *curioalerting.AlertingSystem
 	Alert             *alertmanager.AlertNow
 	MachineHost       string

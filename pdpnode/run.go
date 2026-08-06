@@ -25,16 +25,17 @@ func Run(cctx *cli.Context) error {
 	}
 	defer d.Close()
 
-	if _, err := StartAdmin(ctx, d); err != nil {
-		return xerrors.Errorf("admin http: %w", err)
-	}
-
 	taskRes, err := RegisterTasks(ctx, d)
 	if err != nil {
 		return xerrors.Errorf("register tasks: %w", err)
 	}
 	if taskRes.Engine != nil {
 		defer taskRes.Engine.GracefullyTerminate()
+	}
+	d.EthSender = taskRes.EthSender
+
+	if _, err := StartAdmin(ctx, d); err != nil {
+		return xerrors.Errorf("admin http: %w", err)
 	}
 
 	if err := StartPublic(ctx, d, taskRes); err != nil {

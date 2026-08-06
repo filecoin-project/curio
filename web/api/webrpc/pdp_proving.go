@@ -12,6 +12,8 @@ import (
 
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/go-state-types/builtin"
+
 	"github.com/filecoin-project/curio/build"
 )
 
@@ -193,13 +195,17 @@ func (a *WebRPC) PDPProvingFailures(ctx context.Context) ([]PDPProvingFailure, e
 		ProveAtEpoch              sql.NullInt64 `db:"prove_at_epoch"`
 		ChallengeWindow           sql.NullInt64 `db:"challenge_window"`
 	}
+	cutoff := int64(0)
+	if headEpoch > 0 {
+		cutoff = headEpoch - int64(builtin.EpochsInDay*30)
+	}
 	var unhealthy []dsRow
 	err := a.Deps.DB.Select(ctx, &unhealthy, `
 		SELECT id, unrecoverable_proving_failure_epoch, prove_at_epoch, challenge_window
 		FROM pdp_data_sets
-		WHERE unrecoverable_proving_failure_epoch IS NOT NULL
-		ORDER BY id ASC
-		LIMIT 200`)
+		WHERE  unrecoverable_proving_failure_epoch > $1
+		ORDER BY unrecoverable_proving_failure_epoch DESC
+		LIMIT 201`, cutoff)
 	if err != nil {
 		return nil, xerrors.Errorf("unhealthy datasets: %w", err)
 	}
