@@ -2,6 +2,7 @@ package config
 
 import (
 	"context"
+	"database/sql"
 	"reflect"
 	"slices"
 	"strings"
@@ -134,7 +135,7 @@ type minerLookUpApi interface {
 func GetAddressesFromConfig(ctx context.Context, db *harmonydb.DB, api minerLookUpApi) ([]address.Address, []address.Address, error) {
 	// MachineDetails represents the structure of data received from the SQL query.
 	type machineDetail struct {
-		Layers string
+		Layers sql.NullString
 	}
 	var machineDetails []machineDetail
 
@@ -155,7 +156,7 @@ func GetAddressesFromConfig(ctx context.Context, db *harmonydb.DB, api minerLook
 	// Get unique layers in use
 	for _, machine := range machineDetails {
 		// Split the Layers field into individual layers
-		layers := strings.SplitSeq(machine.Layers, ",")
+		layers := strings.SplitSeq(machine.Layers.String, ",")
 		for layer := range layers {
 			layer = strings.TrimSpace(layer)
 			if _, exists := layerMap[layer]; !exists && layer != "" {
