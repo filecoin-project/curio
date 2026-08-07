@@ -155,6 +155,9 @@ func GetAddressesFromConfig(ctx context.Context, db *harmonydb.DB, api minerLook
 
 	// Get unique layers in use
 	for _, machine := range machineDetails {
+		if !machine.Layers.Valid {
+			continue
+		}
 		// Split the Layers field into individual layers
 		layers := strings.SplitSeq(machine.Layers.String, ",")
 		for layer := range layers {
