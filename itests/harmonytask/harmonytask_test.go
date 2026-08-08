@@ -51,6 +51,7 @@ type testTask struct {
 	doneCh        chan harmonytask.TaskID
 	doFunc        func(context.Context, harmonytask.TaskID, func() bool) (bool, error)
 	canAcceptFunc func([]harmonytask.TaskID, *harmonytask.TaskEngine) ([]harmonytask.TaskID, error)
+	iAmBored      func(harmonytask.AddTaskFunc) error
 	stopCh        chan struct{}
 
 	mu        sync.Mutex
@@ -107,6 +108,7 @@ func (t *testTask) TypeDetails() harmonytask.TaskTypeDetails {
 		MaxFailures:   t.maxFail,
 		RetryWait:     t.retryWait,
 		TimeSensitive: t.timeSensitive,
+		IAmBored:      t.iAmBored,
 	}
 	if t.maxN > 0 {
 		ttd.Max = taskhelp.Max(t.maxN)
@@ -272,6 +274,7 @@ func getDB(t *testing.T) *harmonydb.DB {
 	_, _ = db.Exec(ctx, `DELETE FROM harmony_task_follow`)
 	_, _ = db.Exec(ctx, `DELETE FROM harmony_task_impl`)
 	_, _ = db.Exec(ctx, `DELETE FROM harmony_task_singletons`)
+	_, _ = db.Exec(ctx, `DELETE FROM harmony_task_singleton_disabled`)
 	_, _ = db.Exec(ctx, `DELETE FROM harmony_task`)
 	_, _ = db.Exec(ctx, `DELETE FROM harmony_machine_details`)
 	_, _ = db.Exec(ctx, `DELETE FROM harmony_machines`)

@@ -198,10 +198,12 @@ func (a *WebRPC) HarmonyTaskHistoryById(ctx context.Context, taskID int64) ([]*H
 }
 
 type SingletonInfo struct {
-	TaskName      string     `db:"task_name" json:"TaskName"`
-	TaskID        NullInt64  `db:"task_id" json:"TaskID"`
-	LastRunTime   *time.Time `db:"last_run_time" json:"LastRunTime"`
-	RunNowRequest bool       `db:"run_now_request" json:"RunNowRequest"`
+	TaskName       string     `db:"task_name" json:"TaskName"`
+	TaskID         NullInt64  `db:"task_id" json:"TaskID"`
+	LastRunTime    *time.Time `db:"last_run_time" json:"LastRunTime"`
+	RunNowRequest  bool       `db:"run_now_request" json:"RunNowRequest"`
+	Disabled       bool       `json:"Disabled"`
+	DisabledReason *string    `json:"DisabledReason"`
 }
 
 func (a *WebRPC) SingletonTaskInfo(ctx context.Context, taskName string) (*SingletonInfo, error) {
@@ -211,10 +213,28 @@ func (a *WebRPC) SingletonTaskInfo(ctx context.Context, taskName string) (*Singl
 	if err != nil {
 		return nil, err
 	}
-	if len(info) == 0 {
+
+	var disabled []struct {
+		Reason *string `db:"reason"`
+	}
+	err = a.Deps.DB.Select(ctx, &disabled,
+		`SELECT reason FROM harmony_task_singleton_disabled WHERE task_name = $1`, taskName)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(info) == 0 && len(disabled) == 0 {
 		return nil, nil
 	}
-	return &info[0], nil
+
+	out := firstOrZero(info)
+	out.TaskName = taskName
+	if len(disabled) > 0 {
+		out.Disabled = true
+		out.DisabledReason = disabled[0].Reason
+	}
+
+	return &out, nil
 }
 
 func (a *WebRPC) SingletonRunNow(ctx context.Context, taskName string) error {
@@ -225,6 +245,29 @@ func (a *WebRPC) SingletonRunNow(ctx context.Context, taskName string) error {
 	}
 	if n == 0 {
 		return xerrors.Errorf("task %q is not a registered singleton", taskName)
+	}
+	return nil
+}
+
+func (a *WebRPC) SingletonTaskDisable(ctx context.Context, taskName string, reason string) error {
+	var r *string
+	if reason != "" {
+		r = &reason
+	}
+	_, err := a.Deps.DB.Exec(ctx,
+		`INSERT INTO harmony_task_singleton_disabled (task_name, reason) VALUES ($1, $2)
+		 ON CONFLICT (task_name) DO UPDATE SET reason = $2, disabled_at = CURRENT_TIMESTAMP`, taskName, r)
+	if err != nil {
+		return xerrors.Errorf("disabling singleton task: %w", err)
+	}
+	return nil
+}
+
+func (a *WebRPC) SingletonTaskEnable(ctx context.Context, taskName string) error {
+	_, err := a.Deps.DB.Exec(ctx,
+		`DELETE FROM harmony_task_singleton_disabled WHERE task_name = $1`, taskName)
+	if err != nil {
+		return xerrors.Errorf("enabling singleton task: %w", err)
 	}
 	return nil
 }
