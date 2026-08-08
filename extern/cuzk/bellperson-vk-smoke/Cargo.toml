@@ -1,0 +1,13 @@
+[package]
+name = "bellperson-vk-smoke"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+description = "Compile/link gate: bellperson with vulkan-cuzk + patched deps (curio workspace)."
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+bellperson = { workspace = true, default-features = false, features = ["groth16", "vulkan-cuzk"] }
