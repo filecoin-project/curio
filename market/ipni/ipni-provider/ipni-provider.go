@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -13,6 +14,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -74,7 +76,15 @@ type peerInfo struct {
 	// Curio HTTP URL(in multiaddr)+IPNIRoutePath(/ipni-provider/)+peerID
 	httpServerAddresses multiaddr.Multiaddr // map[peerID String]Multiaddr
 	providerType        string
-	lastPublishTime     *time.Time
+
+	// Highest ipni.order_number announced as head / confirmed indexed, and when.
+	// announcedAt is nil if seeded from an existing head rather than observed.
+	announcedOrderNumber int64
+	announcedAt          *time.Time
+	// Indexers process a provider's ad chain in order, so confirming the head
+	// implies every earlier ad is also indexed - only the head needs checking.
+	syncedOrderNumber int64
+	syncedAt          *time.Time
 }
 
 // Provider represents a provider for IPNI.
@@ -92,6 +102,11 @@ type Provider struct {
 	announceURLs   []*url.URL
 	httpServerBase *url.URL
 	startLock      sync.Once
+
+	serviceURLs []*url.URL
+	httpClient  *http.Client
+	// checkingSyncStatus prevents overlapping checkSyncStatus runs.
+	checkingSyncStatus atomic.Bool
 }
 
 // NewProvider initializes a new Provider using the provided dependencies.
@@ -119,6 +134,16 @@ func NewProvider(d *deps.Deps) (*Provider, error) {
 	}
 	baseURL.Path = path.Join(baseURL.Path, IPNIRoutePath)
 
+	serviceURLStrs := d.Cfg.Market.StorageMarketConfig.IPNI.ServiceURL
+	serviceURLs := make([]*url.URL, len(serviceURLStrs))
+	for i, us := range serviceURLStrs {
+		u, err := url.Parse(us)
+		if err != nil {
+			return nil, xerrors.Errorf("parsing IPNI service URL %q: %w", us, err)
+		}
+		serviceURLs[i] = u
+	}
+
 	p := &Provider{
 		full:           d.Chain,
 		db:             d.DB,
@@ -129,6 +154,8 @@ func NewProvider(d *deps.Deps) (*Provider, error) {
 		announceURLs:   announceURLs,
 		httpServerBase: baseURL,
 		latest:         make(map[string]cid.Cid),
+		serviceURLs:    serviceURLs,
+		httpClient:     &http.Client{Timeout: 10 * time.Second},
 	}
 
 	if err := p.refreshProviders(ctx); err != nil {
@@ -460,8 +487,6 @@ func (p *Provider) handleGet(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			log.Errorw("failed to write HTTP response", "err", err)
 		}
-		// Log advertisement fetch for indexing status tracking
-		go p.logPDPFetch(providerID, b.String())
 		return
 	case ipnisync.CidSchemaEntryChunk:
 		content = "entry"
@@ -522,23 +547,7 @@ func (p *Provider) handleGet(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			log.Errorw("failed to write HTTP response", "err", err)
 		}
-		// Log advertisement fetch for indexing status tracking
-		go p.logPDPFetch(providerID, b.String())
 		return
-	}
-}
-
-func (p *Provider) logPDPFetch(peer, b string) {
-	p.mu.RLock()
-	info, ok := p.providerInfos[peer]
-	p.mu.RUnlock()
-	if !ok || info.SPID > 0 {
-		return
-	}
-	logCtx := context.Background()
-	_, err := p.db.Exec(logCtx, `INSERT INTO ipni_ad_fetches (ad_cid, fetched_at) VALUES ($1, NOW())`, b)
-	if err != nil {
-		log.Warnw("failed to log ad fetch", "ad_cid", b, "err", err)
 	}
 }
 
@@ -597,12 +606,24 @@ func (p *Provider) startPublishing(ctx context.Context) {
 	}
 	p.mu.RUnlock()
 	for _, provider := range peers {
-		c, err := p.getHeadCID(ctx, provider)
+		c, orderNumber, err := p.getHeadOrdered(ctx, provider)
 		if err != nil {
 			log.Errorw("failed to get head CID", "provider", provider, "error", err)
 			continue
 		}
 		p.latest[provider] = c
+		if c == cid.Undef {
+			continue
+		}
+
+		// Assume the persisted head was announced before restart so status polling
+		// can resume. This may overstate advertised status if shutdown occurred
+		// before the announce completed.
+		p.mu.Lock()
+		if info, ok := p.providerInfos[provider]; ok {
+			info.announcedOrderNumber = orderNumber
+		}
+		p.mu.Unlock()
 	}
 
 	ticker := time.NewTicker(PublishInterval)
@@ -616,6 +637,7 @@ func (p *Provider) startPublishing(ctx context.Context) {
 			// Call the function to publish head for each provider
 			p.publishHead(ctx)
 			p.maybeUpdateSparkContract(ctx)
+			go p.checkSyncStatus(ctx) // must not block publishHead on a slow service
 		case <-ctx.Done():
 			ticker.Stop()
 			return
@@ -623,27 +645,31 @@ func (p *Provider) startPublishing(ctx context.Context) {
 	}
 }
 
-// getHeadCID queries the database to retrieve the head CID for a specific provider.
-// If the head CID is not found or an error occurs, it returns cid.Undef and the error respectively.
-func (p *Provider) getHeadCID(ctx context.Context, provider string) (cid.Cid, error) {
+// getHeadOrdered returns cid.Undef, 0 if the provider has no head yet.
+func (p *Provider) getHeadOrdered(ctx context.Context, provider string) (cid.Cid, int64, error) {
 	var headStr string
-	err := p.db.QueryRow(ctx, `SELECT head FROM ipni_head WHERE provider = $1`, provider).Scan(&headStr)
+	var orderNumber int64
+	err := p.db.QueryRow(ctx, `
+		SELECT h.head, i.order_number
+		FROM ipni_head h JOIN ipni i ON i.ad_cid = h.head
+		WHERE h.provider = $1`, provider).Scan(&headStr, &orderNumber)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return cid.Undef, nil
+			return cid.Undef, 0, nil
 		}
-		return cid.Undef, xerrors.Errorf("querying previous head: %w", err)
+		return cid.Undef, 0, xerrors.Errorf("querying previous head: %w", err)
 	}
 
 	if headStr == "" {
-		return cid.Undef, chunker.ErrNotFound
+		return cid.Undef, 0, chunker.ErrNotFound
 	}
 
-	return cid.Parse(headStr)
+	c, err := cid.Parse(headStr)
+	return c, orderNumber, err
 }
 
 // publishHead iterates over each provider's keys and publishes the head CID for that provider.
-// It calls the getHeadCID method to retrieve the head CID for each provider. If an error occurs, it logs the error and continues to the next provider.
+// It calls the getHeadOrdered method to retrieve the head CID for each provider. If an error occurs, it logs the error and continues to the next provider.
 // It then calls the publishhttp method to publish the head CID via HTTP. If an error occurs, it logs the error.
 // The function is intended to be run as a goroutine with a ticker to schedule its execution at regular intervals.
 func (p *Provider) publishHead(ctx context.Context) {
@@ -659,7 +685,7 @@ func (p *Provider) publishHead(ctx context.Context) {
 		if i > 0 {
 			time.Sleep(time.Second)
 		}
-		c, err := p.getHeadCID(ctx, provider)
+		c, orderNumber, err := p.getHeadOrdered(ctx, provider)
 		if err != nil {
 			log.Errorw("failed to get head CID", "provider", provider, "error", err)
 			continue
@@ -669,7 +695,10 @@ func (p *Provider) publishHead(ctx context.Context) {
 			continue
 		}
 
-		if _, ok := p.latest[provider]; ok && p.latest[provider] == c {
+		p.mu.RLock()
+		latestC, latestOk := p.latest[provider]
+		p.mu.RUnlock()
+		if latestOk && latestC == c {
 			log.Debugw("Skipping duplicate announce for provider", "provider", provider, "cid", c.String())
 			continue
 		}
@@ -681,13 +710,14 @@ func (p *Provider) publishHead(ctx context.Context) {
 			log.Errorw("failed to publish head for provide", "provider", provider, "error", err)
 		} else {
 			recordAnnounceAttempt(provider, "success")
-			p.latest[provider] = c
 			p.mu.Lock()
+			p.latest[provider] = c
 			info, ok := p.providerInfos[provider]
 			if !ok {
 				log.Warnw("cannot update provider announce times", "provider", provider, "error", "provider not found")
 			} else {
-				info.lastPublishTime = new(time.Now())
+				info.announcedOrderNumber = orderNumber
+				info.announcedAt = new(time.Now())
 			}
 			p.mu.Unlock()
 		}
@@ -762,12 +792,142 @@ func (lrt *loggingRoundTripper) RoundTrip(req *http.Request) (*http.Response, er
 	return res, nil
 }
 
-func (p *Provider) LastPublishTime(providerPeerID string) *time.Time {
+func (p *Provider) AnnouncedOrderNumber(providerPeerID string) (int64, *time.Time) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	info, ok := p.providerInfos[providerPeerID]
 	if !ok {
-		return nil
+		return 0, nil
 	}
-	return info.lastPublishTime
+	return info.announcedOrderNumber, info.announcedAt
+}
+
+func (p *Provider) SyncedOrderNumber(providerPeerID string) (int64, *time.Time) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	info, ok := p.providerInfos[providerPeerID]
+	if !ok {
+		return 0, nil
+	}
+	return info.syncedOrderNumber, info.syncedAt
+}
+
+// adSyncStatus mirrors storetheindex's GET /sync/status/ad/{adCid} response
+// (ipni/storetheindex#2861).
+type adSyncStatus struct {
+	Ad      string
+	Indexed bool
+}
+
+func (p *Provider) checkSyncStatus(ctx context.Context) {
+	if !p.checkingSyncStatus.CompareAndSwap(false, true) {
+		log.Debugw("skipping sync status check, previous run still in flight")
+		return
+	}
+	defer p.checkingSyncStatus.Store(false)
+
+	type pending struct {
+		provider    string
+		adCid       cid.Cid
+		orderNumber int64
+		announcedAt *time.Time // nil for a seeded, not observed, announce
+	}
+
+	p.mu.RLock()
+	var todo []pending
+	for provider, info := range p.providerInfos {
+		if info.announcedOrderNumber <= info.syncedOrderNumber {
+			continue
+		}
+		adCid, ok := p.latest[provider]
+		if !ok || adCid == cid.Undef {
+			continue
+		}
+		todo = append(todo, pending{
+			provider:    provider,
+			adCid:       adCid,
+			orderNumber: info.announcedOrderNumber,
+			announcedAt: info.announcedAt,
+		})
+	}
+	p.mu.RUnlock()
+
+	for _, item := range todo {
+		confirmedBy, indexed := p.queryAdIndexed(ctx, item.adCid)
+		if !indexed {
+			continue
+		}
+
+		now := time.Now()
+		var advanced bool
+		var providerType string
+		p.mu.Lock()
+		if info, ok := p.providerInfos[item.provider]; ok {
+			providerType = info.providerType
+			if item.orderNumber > info.syncedOrderNumber {
+				info.syncedOrderNumber = item.orderNumber
+				info.syncedAt = &now
+				advanced = true
+			}
+		}
+		p.mu.Unlock()
+		if !advanced {
+			continue
+		}
+
+		if item.announcedAt == nil {
+			continue // unknown announce time: no latency sample to report
+		}
+
+		latency := now.Sub(*item.announcedAt)
+		log.Infow("IPNI advertisement confirmed indexed", "provider", item.provider, "ad_cid", item.adCid.String(), "service", confirmedBy, "announced_at", item.announcedAt, "confirmed_at", now, "latency", latency)
+		observeIndexedLatency(item.provider, providerType, confirmedBy, latency)
+	}
+}
+
+// queryAdIndexed returns the first service reporting adCid as indexed, or
+// ("", false). A 404 means the service doesn't support this endpoint and is
+// skipped, not treated as unconfirmed.
+func (p *Provider) queryAdIndexed(ctx context.Context, adCid cid.Cid) (string, bool) {
+	for _, svc := range p.serviceURLs {
+		u := *svc
+		u.Path = path.Join(u.Path, "sync", "status", "ad", adCid.String())
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+		if err != nil {
+			log.Warnw("failed to build ad sync status request", "service", svc.String(), "ad_cid", adCid.String(), "err", err)
+			continue
+		}
+
+		resp, err := p.httpClient.Do(req)
+		if err != nil {
+			log.Debugw("failed to query ad sync status", "service", svc.String(), "ad_cid", adCid.String(), "err", err)
+			continue
+		}
+
+		if resp.StatusCode == http.StatusNotFound {
+			log.Debugw("indexer service does not support ad sync status endpoint, skipping", "service", svc.String())
+			_ = resp.Body.Close()
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			log.Debugw("unexpected ad sync status response", "service", svc.String(), "ad_cid", adCid.String(), "status", resp.StatusCode)
+			_ = resp.Body.Close()
+			continue
+		}
+
+		var status adSyncStatus
+		err = json.NewDecoder(resp.Body).Decode(&status)
+		_ = resp.Body.Close()
+		if err != nil {
+			log.Warnw("failed to decode ad sync status response", "service", svc.String(), "ad_cid", adCid.String(), "err", err)
+			continue
+		}
+
+		if status.Indexed {
+			return svc.String(), true
+		}
+	}
+	return "", false
 }

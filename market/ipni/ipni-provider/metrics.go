@@ -39,13 +39,16 @@ func (w *metricResponseWriter) Status() int {
 }
 
 var (
-	ipniProviderHTTPRequestBuckets = []float64{1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000}
-	ipniAnnounceRoundTripBuckets   = []float64{10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000, 60000}
+	ipniProviderHTTPRequestBuckets      = []float64{1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000}
+	ipniAnnounceRoundTripBuckets        = []float64{10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000, 60000}
+	ipniAnnounceToIndexedLatencyBuckets = []float64{5000, 10000, 15000, 30000, 45000, 60000, 120000, 300000, 420000, 600000, 900000, 1800000, 3600000}
 
-	providerTag, _ = tag.NewKey("provider")
-	contentTag, _  = tag.NewKey("content")
-	statusTag, _   = tag.NewKey("status")
-	resultTag, _   = tag.NewKey("result")
+	providerTag, _     = tag.NewKey("provider")
+	providerTypeTag, _ = tag.NewKey("provider_type")
+	serviceTag, _      = tag.NewKey("service")
+	contentTag, _      = tag.NewKey("content")
+	statusTag, _       = tag.NewKey("status")
+	resultTag, _       = tag.NewKey("result")
 
 	ipniProviderHTTPRequests = stats.Int64(
 		"ipni_provider_http_requests_total",
@@ -65,6 +68,11 @@ var (
 	ipniAnnounceHTTPRoundTripDuration = stats.Float64(
 		"ipni_announce_http_roundtrip_milliseconds",
 		"Duration of outbound IPNI announce HTTP round trips in milliseconds.",
+		stats.UnitMilliseconds,
+	)
+	ipniAnnounceToIndexedLatency = stats.Float64(
+		"ipni_announce_to_indexed_latency_milliseconds",
+		"Duration from a successful head announce to confirmed indexing by an indexer service.",
 		stats.UnitMilliseconds,
 	)
 )
@@ -90,6 +98,11 @@ func init() {
 			Measure:     ipniAnnounceHTTPRoundTripDuration,
 			Aggregation: view.Distribution(ipniAnnounceRoundTripBuckets...),
 			TagKeys:     []tag.Key{providerTag, statusTag},
+		},
+		&view.View{
+			Measure:     ipniAnnounceToIndexedLatency,
+			Aggregation: view.Distribution(ipniAnnounceToIndexedLatencyBuckets...),
+			TagKeys:     []tag.Key{providerTag, providerTypeTag, serviceTag},
 		},
 	)
 	if err != nil {
@@ -121,4 +134,12 @@ func observeAnnounceHTTPRoundTrip(provider, status string, took time.Duration) {
 		tag.Upsert(providerTag, provider),
 		tag.Upsert(statusTag, status),
 	}, ipniAnnounceHTTPRoundTripDuration.M(float64(took)/float64(time.Millisecond)))
+}
+
+func observeIndexedLatency(provider, providerType, service string, took time.Duration) {
+	_ = stats.RecordWithTags(context.Background(), []tag.Mutator{
+		tag.Upsert(providerTag, provider),
+		tag.Upsert(providerTypeTag, providerType),
+		tag.Upsert(serviceTag, service),
+	}, ipniAnnounceToIndexedLatency.M(float64(took)/float64(time.Millisecond)))
 }
