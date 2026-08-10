@@ -87,6 +87,7 @@ func (t *DatasetIdxTask) TypeDetails() harmonytask.TaskTypeDetails {
 		},
 		MaxFailures: 3,
 		IAmBored:    harmonytask.SingletonTaskAdder(datasetIdxInterval, t),
+		CanDisable:  true,
 	}
 }
 
