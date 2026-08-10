@@ -98,10 +98,11 @@ type TaskTypeDetails struct {
 	// preemption power, set Uninterruptible instead.
 	TimeSensitive bool
 
-	// Uninterruptible tasks are never selected as preemption victims. Unlike
-	// TimeSensitive, this does not grant scheduling priority, skip bundling,
-	// the ability to preempt others, or shutdown blocking. Use for high-Max
-	// work that must finish a critical section (e.g. chain+DB send sync).
+	// Uninterruptible tasks are never selected as preemption victims and block
+	// GracefullyTerminate until they finish. Unlike TimeSensitive, this does
+	// not grant scheduling priority, skip bundling, or the ability to preempt
+	// others. Use for high-Max work that must finish a critical section
+	// (e.g. chain+DB send sync).
 	Uninterruptible bool
 
 	// May Follow is a list of task names whose completion may trigger this task to be scheduled.
@@ -408,7 +409,7 @@ func (e *TaskEngine) GracefullyTerminate() {
 	for {
 		var waited bool
 		for _, h := range e.handlers {
-			if h.TimeSensitive && h.Max.Active() > 0 {
+			if (h.TimeSensitive || h.Uninterruptible) && h.Max.Active() > 0 {
 				log.Infof("node shutdown deferred due to running %s task", h.Name)
 				time.Sleep(time.Second * 3)
 				waited = true
