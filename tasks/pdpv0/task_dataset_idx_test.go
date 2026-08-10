@@ -7,11 +7,13 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/lib/ethchain"
+	"github.com/filecoin-project/curio/pdp/contract"
 )
 
 type revertingEthClient struct {
@@ -29,6 +31,10 @@ func runDatasetIdxTask(ctx context.Context, db *harmonydb.DB, client ethchain.Et
 }
 
 func TestIntegration_DatasetIdxTask_TerminalChainErrorsResolveToFalse(t *testing.T) {
+	contract.SetAddresses(contract.Addresses{
+		PDPVerifier: common.HexToAddress("0x3333333333333333333333333333333333333333"),
+	})
+
 	tests := []struct {
 		name string
 		err  error
