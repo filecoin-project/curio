@@ -7,6 +7,8 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
+
+	"github.com/filecoin-project/curio/harmony/harmonytask"
 )
 
 type HarmonyTaskStats struct {
@@ -204,6 +206,7 @@ type SingletonInfo struct {
 	RunNowRequest  bool       `db:"run_now_request" json:"RunNowRequest"`
 	Disabled       bool       `json:"Disabled"`
 	DisabledReason *string    `json:"DisabledReason"`
+	CanDisable     bool       `json:"CanDisable"`
 }
 
 func (a *WebRPC) SingletonTaskInfo(ctx context.Context, taskName string) (*SingletonInfo, error) {
@@ -233,6 +236,9 @@ func (a *WebRPC) SingletonTaskInfo(ctx context.Context, taskName string) (*Singl
 		out.Disabled = true
 		out.DisabledReason = disabled[0].Reason
 	}
+	if task, ok := harmonytask.Registry[taskName]; ok {
+		out.CanDisable = task.TypeDetails().CanDisable
+	}
 
 	return &out, nil
 }
@@ -250,6 +256,11 @@ func (a *WebRPC) SingletonRunNow(ctx context.Context, taskName string) error {
 }
 
 func (a *WebRPC) SingletonTaskDisable(ctx context.Context, taskName string, reason string) error {
+	task, ok := harmonytask.Registry[taskName]
+	if !ok || !task.TypeDetails().CanDisable {
+		return xerrors.Errorf("task %q may not be disabled", taskName)
+	}
+
 	var r *string
 	if reason != "" {
 		r = &reason

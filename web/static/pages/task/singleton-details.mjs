@@ -154,7 +154,9 @@ class SingletonTaskDetails extends LitElement {
                 </button>
                 ${isDisabled
                     ? html`<button class="btn btn-outline-success btn-sm run-btn" @click=${() => this.enable()}>Enable</button>`
-                    : html`<button class="btn btn-outline-danger btn-sm run-btn" @click=${() => this.disable()}>Disable</button>`}
+                    : this.info.CanDisable
+                        ? html`<button class="btn btn-outline-danger btn-sm run-btn" @click=${() => this.disable()}>Disable</button>`
+                        : ''}
             </div>
         `;
     }

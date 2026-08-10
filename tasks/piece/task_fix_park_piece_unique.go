@@ -220,7 +220,8 @@ func (f *FixParkPieceTask) TypeDetails() harmonytask.TaskTypeDetails {
 			// Use math.Pow for exponential backoff
 			return min(time.Duration(float64(baseWait)*math.Pow(factor, float64(retries))), maxWait)
 		},
-		IAmBored: harmonytask.SingletonTaskAdder(time.Hour, f),
+		IAmBored:   harmonytask.SingletonTaskAdder(time.Hour, f),
+		CanDisable: true,
 	}
 }
 
