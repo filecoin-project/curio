@@ -129,7 +129,7 @@ func processPendingCleanup(ctx context.Context, db *harmonydb.DB, ethClient ethc
 
 func processIndexingAndIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *config.HTTPConfig, idx IndexCleaner, keepHours *config.Dynamic[int]) error {
 
-	hours := min(1, keepHours.Get())
+	hours := max(2, keepHours.Get())
 
 	var pieces []struct {
 		ID        int64  `db:"id"`
