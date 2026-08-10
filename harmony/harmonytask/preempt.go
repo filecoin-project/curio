@@ -24,8 +24,9 @@ type preemptionPlan struct {
 	candidates []preemptCandidate
 }
 
-// computePreemptionPlan finds the minimum-cost set of non-time-sensitive running
+// computePreemptionPlan finds the minimum-cost set of preemptable running
 // tasks to kill in order to free enough resources for `needed`.
+// TimeSensitive and Uninterruptible handlers are never candidates.
 //
 // Algorithm:
 //  1. Sort candidates youngest-first (shortest runtime = cheapest).
@@ -46,7 +47,7 @@ func (e *TaskEngine) computePreemptionPlan(needed resources.Resources) *preempti
 	var allCandidates []preemptCandidate
 	now := time.Now()
 	for _, h := range e.handlers {
-		if h.TimeSensitive {
+		if h.TimeSensitive || h.Uninterruptible {
 			continue
 		}
 		for _, entry := range h.running.Snapshot() {

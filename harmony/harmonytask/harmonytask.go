@@ -90,8 +90,19 @@ type TaskTypeDetails struct {
 	// other machines.
 	SchedulingOverrides map[string]bool
 
-	// Should block shutdown until completion..
+	// TimeSensitive tasks skip event bundling, can preempt other work when
+	// capacity is exhausted, run first in the scheduling waterfall, and block
+	// GracefullyTerminate until they finish. They are also not preemptable.
+	// Use for deadline-driven work (e.g. WindowPost/WinningPost). For tasks that
+	// must not be cancelled mid-flight but should not get that priority or
+	// preemption power, set Uninterruptible instead.
 	TimeSensitive bool
+
+	// Uninterruptible tasks are never selected as preemption victims. Unlike
+	// TimeSensitive, this does not grant scheduling priority, skip bundling,
+	// the ability to preempt others, or shutdown blocking. Use for high-Max
+	// work that must finish a critical section (e.g. chain+DB send sync).
+	Uninterruptible bool
 
 	// May Follow is a list of task names whose completion may trigger this task to be scheduled.
 	// This does not cause triggering, instead it reduces pipeline latency.
