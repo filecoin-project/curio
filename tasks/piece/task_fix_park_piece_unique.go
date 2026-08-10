@@ -49,7 +49,10 @@ func (f *FixParkPieceTask) Do(ctx context.Context, taskID harmonytask.TaskID, st
 	}
 
 	if exists {
-		log.Infow("parked_pieces_active_piece_key already exists", "task_id", taskID)
+		if err := harmonytask.DisableSingleton(ctx, f.db, tasknames.FixParkPiece, "parked_pieces_active_piece_key index already exists"); err != nil {
+			return false, xerrors.Errorf("disabling completed repair task: %w", err)
+		}
+		log.Infow("parked_pieces_active_piece_key already exists; disabling FixParkPiece", "task_id", taskID)
 		return true, nil
 	}
 
@@ -197,6 +200,10 @@ func (f *FixParkPieceTask) Do(ctx context.Context, taskID harmonytask.TaskID, st
 			return true, nil
 		}
 		return false, xerrors.Errorf("creating index: %w", err)
+	}
+
+	if err := harmonytask.DisableSingleton(ctx, f.db, tasknames.FixParkPiece, "parked_pieces_active_piece_key index created"); err != nil {
+		return false, xerrors.Errorf("disabling completed repair task: %w", err)
 	}
 
 	return true, nil
