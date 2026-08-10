@@ -22,6 +22,10 @@ type ReplacerConfig struct {
 	DB         *harmonydb.DB
 	ChainSched *chainsched.CurioChainSched
 
+	// Enabled gates the whole replacer. Default off via Fees.ReplaceByFee until
+	// clients understand confirmedTxHash / original wait-key semantics.
+	Enabled bool
+
 	Filecoin *FilecoinReplacerConfig
 	Eth      *EthReplacerConfig
 }
@@ -41,13 +45,10 @@ type replaceTrigger struct {
 	Key       *types.TipSetKey
 }
 
-// Removal tracked in https://github.com/filecoin-project/curio/issues/1386 complete
-// Message replacement only safe to enable once synapse sdk caller can be made aware of
-// replacement flow with small curio api redesign.
-const replaceByFeeEnabled = false
-
+// Enabled when Fees.ReplaceByFee is true. Safe once Synapse (and other clients)
+// treat Location hashes as wait keys and read confirmedTxHash from PDP status.
 func NewMessageReplacer(ctx context.Context, cfg ReplacerConfig) error {
-	if !replaceByFeeEnabled {
+	if !cfg.Enabled {
 		return nil
 	}
 
@@ -72,6 +73,10 @@ func NewMessageReplacer(ctx context.Context, cfg ReplacerConfig) error {
 			client:           cfg.Eth.Client,
 			stuckForDuration: stuckForDuration,
 		}
+	}
+
+	if t.mr == nil && t.emr == nil {
+		return nil
 	}
 
 	if err := cfg.ChainSched.AddWatcher(t.processHeadChange); err != nil {

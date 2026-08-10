@@ -161,6 +161,7 @@ func RegisterTasks(ctx context.Context, d *Deps) (*TaskResult, error) {
 	err = message.NewMessageReplacer(ctx, message.ReplacerConfig{
 		DB:         d.DB,
 		ChainSched: chainSched,
+		Enabled:    d.Cfg.Fees.ReplaceByFee,
 		Eth: &message.EthReplacerConfig{
 			Client: ethClient,
 		},

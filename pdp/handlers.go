@@ -547,6 +547,9 @@ func (p *PDPService) handleGetDataSetCreationStatus(w http.ResponseWriter, r *ht
 		TxStatus          string  `json:"txStatus"`
 		OK                *bool   `json:"ok"`
 		DataSetId         *uint64 `json:"dataSetId,omitempty"`
+		// ConfirmedTxHash is the hash that landed on chain. It differs from
+		// createMessageHash when Curio replaced the original send by fee.
+		ConfirmedTxHash string `json:"confirmedTxHash,omitempty"`
 	}{
 		CreateMessageHash: dataSetCreate.CreateMessageHash,
 		DataSetCreated:    dataSetCreate.DataSetCreated,
@@ -554,13 +557,16 @@ func (p *PDPService) handleGetDataSetCreationStatus(w http.ResponseWriter, r *ht
 		OK:                dataSetCreate.OK,
 	}
 
-	// Now get the tx_status from message_waits_eth
+	// Now get the tx_status (and confirmed hash, if any) from message_waits_eth.
+	// Wait rows stay keyed by the original Location hash; confirmed_tx_hash is
+	// the included transaction after optional replace-by-fee.
 	var txStatus string
+	var confirmedTxHash sql.NullString
 	err = p.db.QueryRow(ctx, `
-        SELECT tx_status
+        SELECT tx_status, confirmed_tx_hash
         FROM message_waits_eth
         WHERE signed_tx_hash = $1
-    `, txHash).Scan(&txStatus)
+    `, txHash).Scan(&txStatus, &confirmedTxHash)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			// This should not happen as per foreign key constraints
@@ -572,6 +578,9 @@ func (p *PDPService) handleGetDataSetCreationStatus(w http.ResponseWriter, r *ht
 	}
 
 	response.TxStatus = txStatus
+	if confirmedTxHash.Valid {
+		response.ConfirmedTxHash = confirmedTxHash.String
+	}
 
 	if dataSetCreate.DataSetCreated {
 		// The data set has been created, get the dataSetId from pdp_data_sets
@@ -596,6 +605,7 @@ func (p *PDPService) handleGetDataSetCreationStatus(w http.ResponseWriter, r *ht
 	log.Debugw("GetDataSetCreationStatus response",
 		"txHash", txHash,
 		"txStatus", response.TxStatus,
+		"confirmedTxHash", response.ConfirmedTxHash,
 		"dataSetCreated", response.DataSetCreated,
 		"ok", response.OK,
 		"dataSetId", response.DataSetId)
@@ -882,11 +892,14 @@ func (p *PDPService) handleGetPieceAdditionStatus(w http.ResponseWriter, r *http
 		return
 	}
 
-	// Step 5: Get transaction status from message_waits_eth
+	// Step 5: Get transaction status from message_waits_eth.
+	// Wait rows stay keyed by the original Location hash; confirmed_tx_hash is
+	// the included transaction after optional replace-by-fee.
 	var txStatus string
+	var confirmedTxHash sql.NullString
 	err = p.db.QueryRow(ctx, `
-		SELECT tx_status FROM message_waits_eth WHERE signed_tx_hash = $1
-	`, txHash).Scan(&txStatus)
+		SELECT tx_status, confirmed_tx_hash FROM message_waits_eth WHERE signed_tx_hash = $1
+	`, txHash).Scan(&txStatus, &confirmedTxHash)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			http.Error(w, "Transaction status not found", http.StatusNotFound)
@@ -951,6 +964,9 @@ func (p *PDPService) handleGetPieceAdditionStatus(w http.ResponseWriter, r *http
 		AddMessageOK      *bool    `json:"addMessageOk"`
 		PiecesAdded       bool     `json:"piecesAdded"`
 		ConfirmedPieceIds []uint64 `json:"confirmedPieceIds,omitempty"`
+		// ConfirmedTxHash is the hash that landed on chain. It differs from
+		// txHash when Curio replaced the original send by fee.
+		ConfirmedTxHash string `json:"confirmedTxHash,omitempty"`
 	}{
 		TxHash:            txHash,
 		TxStatus:          txStatus,
@@ -959,6 +975,9 @@ func (p *PDPService) handleGetPieceAdditionStatus(w http.ResponseWriter, r *http
 		AddMessageOK:      pieceAdds[0].AddMessageOK,
 		PiecesAdded:       allPiecesProcessed,
 		ConfirmedPieceIds: confirmedPieceIds,
+	}
+	if confirmedTxHash.Valid {
+		response.ConfirmedTxHash = confirmedTxHash.String
 	}
 
 	w.Header().Set("Content-Type", "application/json")

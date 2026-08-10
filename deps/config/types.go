@@ -499,6 +499,11 @@ type CurioFees struct {
 	// This generally doesn't increase message cost, but in highly congested network messages
 	// are much less likely to get stuck in mempool. (Default: true)
 	MaximizeFeeCap bool
+
+	// ReplaceByFee enables automatic fee-bumping of stuck Filecoin and Ethereum sends.
+	// Keep disabled until clients (e.g. Synapse) treat Location/wait hashes as durable wait
+	// keys and consume confirmedTxHash from PDP status APIs. (Default: false)
+	ReplaceByFee bool
 }
 
 type CurioAddresses struct {

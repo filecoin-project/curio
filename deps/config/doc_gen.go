@@ -361,6 +361,14 @@ Accepts a decimal string (e.g., "123.45") with optional "fil" or "attofil" suffi
 This generally doesn't increase message cost, but in highly congested network messages
 are much less likely to get stuck in mempool. (Default: true)`,
 		},
+		{
+			Name: "ReplaceByFee",
+			Type: "bool",
+
+			Comment: `ReplaceByFee enables automatic fee-bumping of stuck Filecoin and Ethereum sends.
+Keep disabled until clients (e.g. Synapse) treat Location/wait hashes as durable wait
+keys and consume confirmedTxHash from PDP status APIs. (Default: false)`,
+		},
 	},
 	"CurioIngestConfig": {
 		{
