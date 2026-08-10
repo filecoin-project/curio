@@ -591,7 +591,15 @@ func (d *CurioStorageDealMarket) processMk12Deal(ctx context.Context, deal MK12P
 
 	// If on chain deal ID is present, we should add the deal to a sector
 	if deal.AfterFindDeal && !deal.Sector.Valid {
-		err := d.ingestDeal(ctx, deal)
+		expired, err := checkExpiry(ctx, d.db, d.api, deal.UUID, d.pin.GetExpectedSealDuration())
+		if err != nil {
+			return xerrors.Errorf("checking deal expiry: %w", err)
+		}
+		if expired {
+			return nil
+		}
+
+		err = d.ingestDeal(ctx, deal)
 		if err != nil {
 			return xerrors.Errorf("ingest deal: %w", err)
 		}
