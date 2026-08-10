@@ -14,7 +14,7 @@ func TestSingletonTaskDisabled(t *testing.T) {
 	db := getDB(t)
 	ctx := context.Background()
 
-	tk := newTestTask("SingletonDisabledTest", 5)
+	tk := newTestTask("SingDisableTest", 5)
 	tk.iAmBored = harmonytask.SingletonTaskAdder(300*time.Millisecond, tk)
 	t.Cleanup(cleanupTasks(tk))
 
