@@ -258,7 +258,7 @@ func (a *WebRPC) SingletonRunNow(ctx context.Context, taskName string) error {
 func (a *WebRPC) SingletonTaskDisable(ctx context.Context, taskName string, reason string) error {
 	task, ok := harmonytask.Registry[taskName]
 	if !ok || !task.TypeDetails().CanDisable {
-		return xerrors.Errorf("task %q may not be disabled", taskName)
+		return xerrors.Errorf("task %q cannot be disabled", taskName)
 	}
 
 	var r *string
