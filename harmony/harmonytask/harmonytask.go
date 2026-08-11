@@ -99,10 +99,11 @@ type TaskTypeDetails struct {
 	TimeSensitive bool
 
 	// Uninterruptible tasks are never selected as preemption victims and block
-	// GracefullyTerminate until they finish. Unlike TimeSensitive, this does
-	// not grant scheduling priority, skip bundling, or the ability to preempt
-	// others. Use for high-Max work that must finish a critical section
-	// (e.g. chain+DB send sync).
+	// GracefullyTerminate until Active reaches zero. During drain, stillOwned()
+	// returns false so they can exit before irreversible work (e.g. before
+	// taking a send lock); once past that checkpoint they are allowed to
+	// finish. Unlike TimeSensitive, this does not grant scheduling priority,
+	// skip bundling, or the ability to preempt others.
 	Uninterruptible bool
 
 	// May Follow is a list of task names whose completion may trigger this task to be scheduled.
@@ -230,6 +231,12 @@ type taskEngineAtomics struct {
 	// Checked by pollerTryAllWork and task goroutines to skip new work or
 	// yield in-progress background tasks.
 	yieldBackground atomic.Bool
+
+	// draining is set true when GracefullyTerminate begins. Uninterruptible
+	// tasks treat stillOwned() as false so they can release before taking a
+	// send lock; tasks already past that checkpoint finish their critical
+	// section while shutdown waits on Active().
+	draining atomic.Bool
 
 	lastCleanup atomic.Value
 
@@ -399,10 +406,13 @@ func NewWithReg(
 	return e, nil
 }
 
-// GracefullyTerminate hangs until all present tasks have completed.
-// Call this to cleanly exit the process. As some processes are long-running,
-// passing a deadline will ignore those still running (to be picked-up later).
+// GracefullyTerminate hangs until time-sensitive and uninterruptible work has
+// drained, then returns so the process can exit. It cancels the engine context
+// (no new claims) and sets draining so Uninterruptible tasks fail stillOwned()
+// before their next checkpoint (e.g. send lock acquire). Tasks already past
+// that checkpoint are not cancelled; shutdown waits for their Active count.
 func (e *TaskEngine) GracefullyTerminate() {
+	e.atomics.draining.Store(true)
 	e.cfg.grace()
 	e.cfg.reg.Shutdown()
 
