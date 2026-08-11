@@ -33,6 +33,17 @@ func TestMiddlewareTrustModel(t *testing.T) {
 			wantIP:     "::1",
 		},
 		{
+			name:       "private-network proxy uses rightmost forwarded address",
+			remoteAddr: "10.0.0.5:1234",
+			xff:        "198.51.100.20, 192.0.2.30",
+			wantIP:     "192.0.2.30",
+		},
+		{
+			name:       "private-network proxy without header falls back to peer",
+			remoteAddr: "192.168.1.5:1234",
+			wantIP:     "192.168.1.5",
+		},
+		{
 			name:       "loopback proxy with malformed header falls back to peer",
 			remoteAddr: "127.0.0.1:1234",
 			xff:        "198.51.100.20, invalid",

@@ -9,18 +9,18 @@ import (
 	"github.com/go-chi/httprate"
 )
 
-// Middleware resolves the client IP from the TCP peer by default. A loopback
-// peer is treated as one trusted reverse-proxy hop, matching Curio's documented
-// same-host proxy setup. The proxy must overwrite or append X-Forwarded-For.
+// Middleware resolves the client IP from the TCP peer. A loopback or
+// private-network peer is trusted for one hop of X-Forwarded-For; the
+// proxy must overwrite or append that header.
 func Middleware(next http.Handler) http.Handler {
 	direct := middleware.ClientIPFromRemoteAddr(next)
-	loopbackProxy := middleware.ClientIPFromRemoteAddr(
+	trustedProxy := middleware.ClientIPFromRemoteAddr(
 		middleware.ClientIPFromXFFTrustedProxies(1)(next),
 	)
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if ip, ok := remoteIP(r.RemoteAddr); ok && ip.IsLoopback() {
-			loopbackProxy.ServeHTTP(w, r)
+		if ip, ok := remoteIP(r.RemoteAddr); ok && (ip.IsLoopback() || ip.IsPrivate()) {
+			trustedProxy.ServeHTTP(w, r)
 			return
 		}
 		direct.ServeHTTP(w, r)
