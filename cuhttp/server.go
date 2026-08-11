@@ -58,7 +58,7 @@ type ServiceDeps struct {
 func StartHTTPServer(ctx context.Context, d *deps.Deps, sd *ServiceDeps) error {
 	cfg := d.Cfg.HTTP
 
-	chiRouter := NewRouter(RouterConfig{CSP: cfg.CSP, DomainName: cfg.DomainName})
+	chiRouter := NewRouter(RouterConfig{CSP: cfg.CSP})
 
 	compressionMw, err := Compression(&cfg.CompressionLevels)
 	if err != nil {

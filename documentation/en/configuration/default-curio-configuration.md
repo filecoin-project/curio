@@ -251,6 +251,14 @@ description: The default curio configuration
   # type: string
   #GuiAddress = "0.0.0.0:4701"
 
+  # GuiCORS specifies the allowed origins for CORS requests to the web GUI (GuiAddress). If empty, CORS is disabled.
+  # If not empty, only the specified origins will be allowed for CORS requests.
+  # This is required for third-party UI servers.
+  # "*" allows everyone, it's best to specify the UI servers' hostname.
+  #
+  # type: []string
+  #GuiCORS = []
+
   # UseSyntheticPoRep enables the synthetic PoRep for all new sectors. When set to true, will reduce the amount of
   # cache data held on disk after the completion of TreeRC task to 11GiB. (Default: false)
   #
@@ -603,14 +611,6 @@ description: The default curio configuration
   #
   # type: time.Duration
   #ReadHeaderTimeout = "5s"
-
-  # CORSOrigins specifies the allowed origins for CORS requests to the Curio admin UI. If empty, CORS is disabled.
-  # If not empty, only the specified origins will be allowed for CORS requests.
-  # This is required for third-party UI servers.
-  # "*" allows everyone, it's best to specify the UI servers' hostname.
-  #
-  # type: []string
-  #CORSOrigins = []
 
   # CSP sets the Content Security Policy for content served via the /piece/ retrieval endpoint.
   # Valid values: "off", "self", "inline" (Default: "inline")

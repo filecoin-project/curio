@@ -859,6 +859,15 @@ only need to be run on a single machine in the cluster. (Default: false)`,
 			Comment: `The address that should listen for Web GUI requests. It should be in form "x.x.x.x:1234" (Default: 0.0.0.0:4701)`,
 		},
 		{
+			Name: "GuiCORS",
+			Type: "[]string",
+
+			Comment: `GuiCORS specifies the allowed origins for CORS requests to the web GUI (GuiAddress). If empty, CORS is disabled.
+If not empty, only the specified origins will be allowed for CORS requests.
+This is required for third-party UI servers.
+"*" allows everyone, it's best to specify the UI servers' hostname.`,
+		},
+		{
 			Name: "UseSyntheticPoRep",
 			Type: "bool",
 
@@ -1065,15 +1074,6 @@ Time duration string (e.g., "1h2m3s") in TOML format. (Default: "30m0s")`,
 
 			Comment: `ReadHeaderTimeout is amount of time allowed to read request headers
 Time duration string (e.g., "1h2m3s") in TOML format. (Default: "0m5s")`,
-		},
-		{
-			Name: "CORSOrigins",
-			Type: "[]string",
-
-			Comment: `CORSOrigins specifies the allowed origins for CORS requests to the Curio admin UI. If empty, CORS is disabled.
-If not empty, only the specified origins will be allowed for CORS requests.
-This is required for third-party UI servers.
-"*" allows everyone, it's best to specify the UI servers' hostname.`,
 		},
 		{
 			Name: "CSP",

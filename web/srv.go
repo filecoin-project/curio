@@ -45,7 +45,7 @@ func GetSrv(ctx context.Context, deps *deps.Deps, devMode bool) (*http.Server, e
 	// Single CORS middleware that handles all CORS logic
 	// Wrap the entire router to ensure middleware runs for all requests including unmatched routes
 	corsHandler := func(next http.Handler) http.Handler {
-		for _, ao := range deps.Cfg.HTTP.CORSOrigins {
+		for _, ao := range deps.Cfg.Subsystems.GuiCORS {
 			if ao == "*" {
 				log.Infof("This CORS configuration allows any website to call irreversable APIs on the Curio node: %s", ao)
 			}
@@ -53,13 +53,13 @@ func GetSrv(ctx context.Context, deps *deps.Deps, devMode bool) (*http.Server, e
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Handle OPTIONS preflight requests - always return 204, even if CORS not configured
 			if r.Method == http.MethodOptions {
-				if len(deps.Cfg.HTTP.CORSOrigins) > 0 {
+				if len(deps.Cfg.Subsystems.GuiCORS) > 0 {
 					origin := r.Header.Get("Origin")
 					var allowedOrigin string
 					allowed := false
 
 					// Check if origin is allowed
-					for _, ao := range deps.Cfg.HTTP.CORSOrigins {
+					for _, ao := range deps.Cfg.Subsystems.GuiCORS {
 						if ao == "*" || ao == origin {
 							allowedOrigin = ao
 							allowed = true
@@ -89,10 +89,10 @@ func GetSrv(ctx context.Context, deps *deps.Deps, devMode bool) (*http.Server, e
 			}
 
 			// Set CORS headers for non-OPTIONS requests if CORS is configured
-			if len(deps.Cfg.HTTP.CORSOrigins) > 0 {
+			if len(deps.Cfg.Subsystems.GuiCORS) > 0 {
 				origin := r.Header.Get("Origin")
 				if origin != "" {
-					for _, ao := range deps.Cfg.HTTP.CORSOrigins {
+					for _, ao := range deps.Cfg.Subsystems.GuiCORS {
 						if ao == "*" || ao == origin {
 							if ao == "*" {
 								w.Header().Set("Access-Control-Allow-Origin", "*")

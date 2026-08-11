@@ -14,6 +14,7 @@ func DefaultCurioConfig() *CurioConfig {
 	return &CurioConfig{
 		Subsystems: CurioSubsystemsConfig{
 			GuiAddress:                     "0.0.0.0:4701",
+			GuiCORS:                        []string{},
 			RequireActivationSuccess:       true,
 			RequireNotificationSuccess:     true,
 			PDPPullPieceMaxTasks:           20,
@@ -141,7 +142,6 @@ func DefaultCurioConfig() *CurioConfig {
 			ReadTimeout:       time.Minute * 30,
 			IdleTimeout:       time.Minute * 30,
 			ReadHeaderTimeout: time.Second * 5,
-			CORSOrigins:       []string{},
 			CSP:               "inline",
 			CompressionLevels: CompressionConfig{
 				GzipLevel:    6,
@@ -393,6 +393,12 @@ type CurioSubsystemsConfig struct {
 
 	// The address that should listen for Web GUI requests. It should be in form "x.x.x.x:1234" (Default: 0.0.0.0:4701)
 	GuiAddress string
+
+	// GuiCORS specifies the allowed origins for CORS requests to the web GUI (GuiAddress). If empty, CORS is disabled.
+	// If not empty, only the specified origins will be allowed for CORS requests.
+	// This is required for third-party UI servers.
+	// "*" allows everyone, it's best to specify the UI servers' hostname.
+	GuiCORS []string
 
 	// UseSyntheticPoRep enables the synthetic PoRep for all new sectors. When set to true, will reduce the amount of
 	// cache data held on disk after the completion of TreeRC task to 11GiB. (Default: false)
@@ -987,11 +993,10 @@ type HTTPConfig struct {
 	// Time duration string (e.g., "1h2m3s") in TOML format. (Default: "0m5s")
 	ReadHeaderTimeout time.Duration
 
-	// CORSOrigins specifies the allowed origins for CORS requests to the Curio admin UI. If empty, CORS is disabled.
-	// If not empty, only the specified origins will be allowed for CORS requests.
-	// This is required for third-party UI servers.
-	// "*" allows everyone, it's best to specify the UI servers' hostname.
-	CORSOrigins []string
+	// CORSOrigins is DEPRECATED, moved to Subsystems.GuiCORS: this setting configures CORS for the
+	// web GUI server (Subsystems.GuiAddress), not this HTTP server, so it never belonged in this section.
+	// This HTTP server's endpoints are public/content-addressed and always send Access-Control-Allow-Origin: *.
+	CORSOrigins []string `moved:"Subsystems.GuiCORS"`
 
 	// CSP sets the Content Security Policy for content served via the /piece/ retrieval endpoint.
 	// Valid values: "off", "self", "inline" (Default: "inline")

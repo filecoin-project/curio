@@ -30,7 +30,7 @@ The Curio HTTP Server is a secure, flexible, and high-performance HTTP server de
 
 * **Compression**: Utilizes the `httpcompression` package to support GZIP, Brotli, and Deflate, optimizing bandwidth usage based on configurable compression levels.
 * **Logging**: Logs every incoming request with details such as request method, path, and duration, aiding in easier debugging and monitoring.
-* **CORS Support**: Conditional CORS support based on configuration for handling cross-origin requests securely.
+* **CORS Support**: Every response sets `Access-Control-Allow-Origin: *`, allowing requests from any origin.
 
 ### 5. **WebSocket and LibP2P Support**
 
@@ -114,8 +114,6 @@ The list below is aligned with the actual `HTTPConfig` struct in `deps/config/ty
   Default: `1h`.
 * **ReadHeaderTimeout**: Max time to read headers.
   Default: `5s`.
-* **CORSOrigins**: Allowed origins; empty disables CORS.
-  Default: `[]`.
 * **CSP**: Content Security Policy mode for `/piece/` content. Values: `off`, `self`, `inline`.
   Default: `inline`.
 * **CompressionLevels**: Response compression tuning.
