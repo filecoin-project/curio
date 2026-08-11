@@ -993,11 +993,6 @@ type HTTPConfig struct {
 	// Time duration string (e.g., "1h2m3s") in TOML format. (Default: "0m5s")
 	ReadHeaderTimeout time.Duration
 
-	// CORSOrigins is DEPRECATED, moved to Subsystems.GuiCORS: this setting configures CORS for the
-	// web GUI server (Subsystems.GuiAddress), not this HTTP server, so it never belonged in this section.
-	// This HTTP server's endpoints are public/content-addressed and always send Access-Control-Allow-Origin: *.
-	CORSOrigins []string `moved:"Subsystems.GuiCORS"`
-
 	// CSP sets the Content Security Policy for content served via the /piece/ retrieval endpoint.
 	// Valid values: "off", "self", "inline" (Default: "inline")
 	//
