@@ -3,7 +3,6 @@ package cuhttp
 import (
 	"context"
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/CAFxX/httpcompression"
@@ -11,42 +10,22 @@ import (
 	"github.com/filecoin-project/curio/deps/config"
 )
 
-// AllowedCORSOrigins returns the public API CORS allowlist.
-// DEV_CURIO_EXTERNAL_URL overrides the default https://{domainName} origin for local dev.
-func AllowedCORSOrigins(domainName string) []string {
-	if devURL := os.Getenv("DEV_CURIO_EXTERNAL_URL"); devURL != "" {
-		return []string{devURL}
-	}
-	return []string{"https://" + domainName}
-}
-
-// CORS allows cross-origin API calls from AllowedCORSOrigins (e.g. market and PDP piece uploads).
+// CORS allows any origin on the public HTTP API (market, PDP, retrieval).
+// Admin UI CORS remains restricted via HTTP.CORSOrigins on the GUI port.
 // Exposes the Location header so clients can read redirect targets after upload.
-func CORS(allowedOrigins []string) func(http.Handler) http.Handler {
-	allowed := make(map[string]struct{}, len(allowedOrigins))
-	for _, origin := range allowedOrigins {
-		allowed[origin] = struct{}{}
-	}
+func CORS(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept, Accept-Encoding")
+		w.Header().Set("Access-Control-Expose-Headers", "Location")
 
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			origin := r.Header.Get("Origin")
-			if origin != "" {
-				if _, ok := allowed[origin]; ok {
-					w.Header().Set("Access-Control-Allow-Origin", origin)
-					w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, POST, PUT, DELETE, OPTIONS")
-					w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept, Accept-Encoding")
-					w.Header().Set("Access-Control-Expose-Headers", "Location")
-				}
-			}
-
-			if r.Method == http.MethodOptions {
-				w.WriteHeader(http.StatusNoContent)
-				return
-			}
-			next.ServeHTTP(w, r)
-		})
-	}
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // SecureHeaders adds standard browser security headers.
