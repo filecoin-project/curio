@@ -30,12 +30,14 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/apiconn"
 	"github.com/filecoin-project/curio/lib/lists"
+	pdpwallet "github.com/filecoin-project/curio/pdp/wallet"
 	"github.com/filecoin-project/curio/tasks/tasknames"
 
 	"github.com/filecoin-project/lotus/blockstore"
 	"github.com/filecoin-project/lotus/chain/actors/adt"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/types"
+	"github.com/filecoin-project/lotus/chain/types/ethtypes"
 )
 
 type AlertNow struct {
@@ -1137,5 +1139,40 @@ func pdpKeyConfiguredCheck(al *alerts) {
 	}
 	if !exists {
 		al.alertMap[Name].alertString = "PDP wallet not configured. Create or assign a key on the PDP page."
+	}
+}
+
+func pdpBalanceCheck(al *alerts) {
+	Name := Name_PDPBalanceCheck
+	al.alertMap[Name] = &alertOut{}
+
+	status, err := pdpwallet.PDPKeyStatus(al.ctx, al.db)
+	if err != nil {
+		al.alertMap[Name].err = xerrors.Errorf("checking PDP wallet: %w", err)
+		return
+	}
+	if !status.Configured {
+		return
+	}
+
+	ea, err := ethtypes.ParseEthAddress(status.Address)
+	if err != nil {
+		al.alertMap[Name].err = xerrors.Errorf("parsing PDP wallet address %s: %w", status.Address, err)
+		return
+	}
+	filAddr, err := ea.ToFilecoinAddress()
+	if err != nil {
+		al.alertMap[Name].err = xerrors.Errorf("deriving fil address for PDP wallet %s: %w", status.Address, err)
+		return
+	}
+
+	balance, err := al.api.WalletBalance(al.ctx, filAddr)
+	if err != nil {
+		al.alertMap[Name].err = xerrors.Errorf("getting PDP wallet balance: %w", err)
+		return
+	}
+
+	if abi.TokenAmount(al.cfg.PDPMinimumWalletBalance).GreaterThanEqual(balance) {
+		al.alertMap[Name].alertString = fmt.Sprintf("Balance for PDP wallet %s (%s) is below %s.", status.Address, filAddr, al.cfg.PDPMinimumWalletBalance.Short())
 	}
 }

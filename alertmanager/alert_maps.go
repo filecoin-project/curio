@@ -24,6 +24,7 @@ func commonAlertFuncs() map[AlertName]AlertFunc {
 		Name_PendingMessages:       pendingMessagesCheck,
 		Name_IPNISync:              ipniSyncCheck,
 		Name_PDPKeyConfigured:      pdpKeyConfiguredCheck,
+		Name_PDPBalanceCheck:       pdpBalanceCheck,
 	}
 }
 
@@ -37,5 +38,6 @@ func buildPingHealthFuncs() map[AlertName]AlertFunc {
 		Name_PDPTaskFailures:       af[Name_PDPTaskFailures],
 		Name_IPNISync:              af[Name_IPNISync],
 		Name_PDPKeyConfigured:      af[Name_PDPKeyConfigured],
+		Name_PDPBalanceCheck:       af[Name_PDPBalanceCheck],
 	}
 }

@@ -1037,6 +1037,13 @@ description: The default curio configuration
   # type: types.FIL
   #MinimumWalletBalance = "5 FIL"
 
+  # PDPMinimumWalletBalance is the minimum balance of the PDP wallet (used to pay gas for PDP on-chain
+  # transactions). If the balance is below this value, an alert will be triggered.
+  # Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "1 FIL")
+  #
+  # type: types.FIL
+  #PDPMinimumWalletBalance = "1 FIL"
+
   # PagerDutyConfig is the configuration for the PagerDuty alerting integration.
   #
   # type: PagerDutyConfig
