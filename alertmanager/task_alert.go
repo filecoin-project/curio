@@ -200,28 +200,29 @@ func (a *AlertTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwne
 		al(altrs)
 	}
 
+	problme := false
 	// Update the ping-relevant subset for the /ping health endpoint.
-	for name := range maps.Keys(PingHealthFuncs) {
+	for name := range PingHealthFuncs {
 		out, ok := altrs.alertMap[name]
-		if !ok || out == nil || out.err == nil || out.alertString == "" {
+		if !ok || out == nil || (out.err == nil && out.alertString == "") {
 			continue
 		}
 		// Only say unhealthy if PDP IPNI sync is failing, PoRep provider should not fail health check
 		if name == Name_IPNISync {
 			if strings.Contains(out.alertString, "PDP") {
 				log.Warnf("Ping health check problem: %s %s %s", name, out.err, out.alertString)
-				a.pingMu.Lock()
-				a.pingProblems = true
-				a.pingMu.Unlock()
+				problme = true
 			}
 		} else {
 			log.Warnf("Ping health check problem: %s %s %s", name, out.err, out.alertString)
-			a.pingMu.Lock()
-			a.pingProblems = true
-			a.pingMu.Unlock()
+			problme = true
 		}
 		break
 	}
+	a.pingMu.Lock()
+	a.pingProblems = problme
+	a.pingMu.Unlock()
+
 	if isPingHealthOnly(now) {
 		return true, nil
 	}

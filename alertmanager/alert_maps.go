@@ -32,7 +32,6 @@ func commonAlertFuncs() map[AlertName]AlertFunc {
 func buildPingHealthFuncs() map[AlertName]AlertFunc {
 	af := buildAlertFuncs()
 	return map[AlertName]AlertFunc{
-		Name_BalanceCheck:          af[Name_BalanceCheck],
 		Name_ChainSync:             af[Name_ChainSync],
 		Name_PermanentStorageSpace: af[Name_PermanentStorageSpace],
 		Name_PDPTaskFailures:       af[Name_PDPTaskFailures],
