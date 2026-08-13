@@ -41,7 +41,7 @@ func (w *metricResponseWriter) Status() int {
 var (
 	ipniProviderHTTPRequestBuckets      = []float64{1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000}
 	ipniAnnounceRoundTripBuckets        = []float64{10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000, 60000}
-	ipniAnnounceToIndexedLatencyBuckets = []float64{5000, 10000, 15000, 30000, 45000, 60000, 120000, 300000, 420000, 600000, 900000, 1800000, 3600000}
+	ipniAnnounceToIndexedLatencyBuckets = []float64{5, 10, 15, 30, 45, 60, 120, 300, 420, 600, 900, 1800, 3600}
 
 	providerTag, _     = tag.NewKey("provider")
 	providerTypeTag, _ = tag.NewKey("provider_type")
@@ -71,9 +71,9 @@ var (
 		stats.UnitMilliseconds,
 	)
 	ipniAnnounceToIndexedLatency = stats.Float64(
-		"ipni_announce_to_indexed_latency_milliseconds",
+		"ipni_announce_to_indexed_latency_seconds",
 		"Duration from a successful head announce to confirmed indexing by an indexer service.",
-		stats.UnitMilliseconds,
+		stats.UnitSeconds,
 	)
 )
 
@@ -141,5 +141,5 @@ func observeIndexedLatency(provider, providerType, service string, took time.Dur
 		tag.Upsert(providerTag, provider),
 		tag.Upsert(providerTypeTag, providerType),
 		tag.Upsert(serviceTag, service),
-	}, ipniAnnounceToIndexedLatency.M(float64(took)/float64(time.Millisecond)))
+	}, ipniAnnounceToIndexedLatency.M(took.Seconds()))
 }
