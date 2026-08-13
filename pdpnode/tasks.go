@@ -12,6 +12,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/resources/ffigpu"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/chainsched"
+	"github.com/filecoin-project/curio/tasks/dbmaint"
 	"github.com/filecoin-project/curio/tasks/gc"
 	"github.com/filecoin-project/curio/tasks/indexing"
 	"github.com/filecoin-project/curio/tasks/message"
@@ -113,6 +114,9 @@ func buildPDPTasks(ctx context.Context, d *Deps, chainSched *chainsched.CurioCha
 	if pdponly {
 		amTask := alertmanager.NewAlertTask(d.Chain, db, cfg.Alerting)
 		tasks = append(tasks, amTask, gc.NewPieceCleanupTask(db, d.IndexStore))
+		if cfg.Subsystems.EnableDBAnalyze {
+			tasks = append(tasks, dbmaint.NewDBAnalyzeTask(db))
+		}
 		return &pdpTaskBundle{
 			tasks:     tasks,
 			amTask:    amTask,

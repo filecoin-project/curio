@@ -365,6 +365,14 @@ description: The default curio configuration
   # type: bool
   #EnableWalletExporter = false
 
+  # EnableDBAnalyze enables the cluster-wide DBAnalyze singleton task to speed up SQL queries.
+  # It periodically runs ANALYZE on tables whose write churn (pg_stat_user_tables) has grown
+  # by 10% since the last analyze.
+  # Disable this if you manage table statistics outside Curio. (Default: true)
+  #
+  # type: bool
+  #EnableDBAnalyze = true
+
 
 # Fees holds the fee-related configuration parameters for various operations in the Curio node.
 #

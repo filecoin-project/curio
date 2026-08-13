@@ -44,6 +44,7 @@ import (
 	"github.com/filecoin-project/curio/market/libp2p"
 	"github.com/filecoin-project/curio/pdpnode"
 	"github.com/filecoin-project/curio/tasks/balancemgr"
+	"github.com/filecoin-project/curio/tasks/dbmaint"
 	"github.com/filecoin-project/curio/tasks/expmgr"
 	"github.com/filecoin-project/curio/tasks/f3"
 	"github.com/filecoin-project/curio/tasks/gc"
@@ -130,6 +131,9 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 	balanceMgrTask := balancemgr.NewBalanceMgrTask(db, full, chainSched, sender)
 	expmgrTask := expmgr.NewExpMgrTask(db, full, chainSched, sender)
 	activeTasks = append(activeTasks, sendTask, balanceMgrTask, expmgrTask)
+	if cfg.Subsystems.EnableDBAnalyze {
+		activeTasks = append(activeTasks, dbmaint.NewDBAnalyzeTask(db))
+	}
 	dependencies.Sender = sender
 
 	// paramfetch

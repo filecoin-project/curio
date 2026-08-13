@@ -21,6 +21,7 @@ func DefaultCurioConfig() *CurioConfig {
 			IndexingMaxTasks:               8,
 			RemoteProofMaxUploads:          15,
 			ParkPieceMinFreeStoragePercent: 5,
+			EnableDBAnalyze:                true,
 		},
 		Fees: CurioFees{
 			MaxPreCommitBatchGasFee: BatchFeeConfig{
@@ -471,6 +472,12 @@ type CurioSubsystemsConfig struct {
 	// EnableWalletExporter enables the wallet exporter on the node. This will export wallet stats to prometheus.
 	// NOTE: THIS MUST BE ENABLED ONLY ON A SINGLE NODE IN THE CLUSTER TO BE USEFUL (Default: false)
 	EnableWalletExporter bool
+
+	// EnableDBAnalyze enables the cluster-wide DBAnalyze singleton task to speed up SQL queries.
+	// It periodically runs ANALYZE on tables whose write churn (pg_stat_user_tables) has grown
+	// by 10% since the last analyze.
+	// Disable this if you manage table statistics outside Curio. (Default: true)
+	EnableDBAnalyze bool
 }
 type CurioFees struct {
 	// maxBatchFee = maxBase + maxPerSector * nSectors

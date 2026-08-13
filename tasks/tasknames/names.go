@@ -58,6 +58,7 @@ const (
 	StorageGCMark  = "StorageGCMark"
 	PipelineGC     = "PipelineGC"
 	PieceCleanup   = "PieceCleanup"
+	DBAnalyze      = "DBAnalyze"
 
 	// Misc bookkeeping
 	SectorMetadata = "SectorMetadata"
