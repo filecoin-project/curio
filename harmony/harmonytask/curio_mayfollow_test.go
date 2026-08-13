@@ -18,6 +18,7 @@ import (
 	// Side-effect imports: harmonytask.Reg in each package fills Registry for these tests.
 	_ "github.com/filecoin-project/curio/alertmanager"
 	_ "github.com/filecoin-project/curio/tasks/balancemgr"
+	_ "github.com/filecoin-project/curio/tasks/dbmaint"
 	_ "github.com/filecoin-project/curio/tasks/expmgr"
 	_ "github.com/filecoin-project/curio/tasks/f3"
 	_ "github.com/filecoin-project/curio/tasks/gc"
