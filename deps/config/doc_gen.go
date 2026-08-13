@@ -990,6 +990,15 @@ via Client Settings on the Proofshare webui page. Buy delay can also be set in t
 			Comment: `EnableWalletExporter enables the wallet exporter on the node. This will export wallet stats to prometheus.
 NOTE: THIS MUST BE ENABLED ONLY ON A SINGLE NODE IN THE CLUSTER TO BE USEFUL (Default: false)`,
 		},
+		{
+			Name: "EnableDBAnalyze",
+			Type: "bool",
+
+			Comment: `EnableDBAnalyze enables the cluster-wide DBAnalyze singleton task to speed up SQL queries.
+It periodically runs ANALYZE on tables whose write churn (pg_stat_user_tables) has grown
+by 10% since the last analyze.
+Disable this if you manage table statistics outside Curio. (Default: true)`,
+		},
 	},
 	"CuzkConfig": {
 		{
