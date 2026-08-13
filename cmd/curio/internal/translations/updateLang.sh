@@ -5,6 +5,8 @@
 # down gotext when scanning cmd/curio directly.
 #
 # ~8 seconds instead of ~3 minutes!
+#
+# English-only: non-English locale support has been removed.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CURIO_ROOT="$SCRIPT_DIR/../../../.."
@@ -39,7 +41,7 @@ if [ "$(find ../../* -newer catalog.go 2>/dev/null)" ]; then
   # Use "." so gotext only loads this directory; GOMOD/GOWORK prevent using parent Curio.
   # Use go run so `make gen` works without a global gotext install (CI installs gotext; devs often do not).
   # Keep the module version aligned with golang.org/x/text in the repo root go.mod.
-  GOWORK=off GOMOD="$WORKDIR_ABS/go.mod" go run golang.org/x/text/cmd/gotext@v0.36.0 -srclang=en update -out=catalog.go -lang=en,zh,ko .
+  GOWORK=off GOMOD="$WORKDIR_ABS/go.mod" go run golang.org/x/text/cmd/gotext@v0.36.0 -srclang=en update -out=catalog.go -lang=en .
   cd "$SCRIPT_DIR" || exit 1
   
   # Step 5: Copy results back to translations directory
@@ -54,30 +56,9 @@ if [ "$(find ../../* -newer catalog.go 2>/dev/null)" ]; then
   # Step 6: Cleanup temp directory
   rm -rf "$WORKDIR"
   
-  # Step 7: Process known translations
-  go run knowns/main.go ./locales/zh ./locales/ko
-  
-  # Step 8: Report missing translations
   echo ""
   echo "=== Translation Status ==="
-  for lang in zh ko; do
-    # out.gotext.json contains strings that NEED translation
-    missing=$(jq '.messages | length' "$SCRIPT_DIR/locales/$lang/out.gotext.json" 2>/dev/null || echo "?")
-    if [ "$missing" = "0" ]; then
-      echo "  $lang: All strings translated ✓"
-    else
-      echo "  $lang: $missing strings need translation"
-      echo "       See locales/$lang/out.gotext.json for details"
-    fi
-  done
+  echo "  en: English-only catalog"
   echo ""
-  if [ "$(jq '.messages | length' "$SCRIPT_DIR/locales/zh/out.gotext.json" 2>/dev/null)" != "0" ] || \
-     [ "$(jq '.messages | length' "$SCRIPT_DIR/locales/ko/out.gotext.json" 2>/dev/null)" != "0" ]; then
-    echo "To add translations:"
-    echo "  1. Check locales/{lang}/out.gotext.json for strings needing translation"
-    echo "  2. Add translations to locales/{lang}/messages.gotext.json"
-    echo "  3. Run 'make gen' to compile translations into catalog.go"
-    echo ""
-  fi
   echo "Translation extraction complete"
 fi

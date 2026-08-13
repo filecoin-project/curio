@@ -91,7 +91,6 @@ Run this checklist for every release. It is written for a stable release, which 
   - [ ] Set `BuildVersionRC` in `build/version.go` to `0`.
   - [ ] Run `make gen` and include any generated changes.
   - [ ] Update `documentation/en/versions.md`.
-  - [ ] Update `documentation/zh/versions.md` if the translated version matrix is being maintained for this release.
 - [ ] Confirm CI passes, or confirm maintainers accept any known failures.
 - [ ] Merge the version upgrade PR.
 - [ ] Create release notes with the stable-release template (see [Release Notes](#release-notes)).
@@ -131,7 +130,6 @@ The version upgrade PR makes exactly these changes:
 - Run `make gen` after updating the version and include any generated changes in the PR.
 - For stable releases, also update:
   - `documentation/en/versions.md`
-  - `documentation/zh/versions.md` if the translated version matrix is being maintained for that release
 - For RC releases, a version upgrade PR is still required, but the docs version page does not need to be updated.
 
 Before merging the version upgrade PR, verify:
