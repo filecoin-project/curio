@@ -41,7 +41,7 @@ func BuildTypeString() string {
 }
 
 // Intent: Major.Network.Patch
-var BuildVersionArray = [3]int{1, 28, 3}
+var BuildVersionArray = [3]int{1, 28, 4}
 
 // RC
 var BuildVersionRC = 0
