@@ -33,7 +33,12 @@ type Dynamic[T any] struct {
 
 func NewDynamic[T any](value T) *Dynamic[T] {
 	d := &Dynamic[T]{value: value}
+	// The notifier map is read concurrently by changeNotifier.Unlock and
+	// written by OnChange (both under cdmx); an unguarded write here races
+	// with them whenever a Dynamic is created after change detection starts.
+	dynamicLocker.cdmx.Lock()
 	dynamicLocker.notifier[reflect.ValueOf(d).Pointer()] = nil
+	dynamicLocker.cdmx.Unlock()
 	return d
 }
 
