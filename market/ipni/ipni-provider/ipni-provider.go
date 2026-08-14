@@ -825,6 +825,7 @@ func (p *Provider) checkSyncStatus(ctx context.Context) {
 		return
 	}
 	defer p.checkingSyncStatus.Store(false)
+	checkStart := time.Now()
 
 	type pending struct {
 		provider    string
@@ -880,7 +881,7 @@ func (p *Provider) checkSyncStatus(ctx context.Context) {
 		}
 
 		latency := now.Sub(*item.announcedAt)
-		log.Infow("IPNI advertisement confirmed indexed", "provider", item.provider, "ad_cid", item.adCid.String(), "service", confirmedBy, "announced_at", item.announcedAt, "confirmed_at", now, "latency", latency)
+		log.Infow("IPNI advertisement confirmed indexed", "provider", item.provider, "ad_cid", item.adCid.String(), "service", confirmedBy, "announced_at", item.announcedAt, "confirmed_at", now, "latency", latency, "check_took", time.Since(checkStart))
 		observeIndexedLatency(item.provider, providerType, confirmedBy, latency)
 	}
 }
