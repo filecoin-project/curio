@@ -402,13 +402,6 @@ description: The default curio configuration
   # type: bool
   #MaximizeFeeCap = true
 
-  # ReplaceByFee enables automatic fee-bumping of stuck Filecoin and Ethereum sends.
-  # Keep disabled until clients (e.g. Synapse) treat Location/wait hashes as durable wait
-  # keys and consume confirmedTxHash from PDP status APIs. (Default: false)
-  #
-  # type: bool
-  #ReplaceByFee = false
-
   # maxBatchFee = maxBase + maxPerSector * nSectors
   # (Default: #Base = "0 FIL" and #PerSector = "0.02 FIL")
   #

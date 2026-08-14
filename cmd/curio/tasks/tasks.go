@@ -522,7 +522,6 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 	replacerCfg := message.ReplacerConfig{
 		DB:         db,
 		ChainSched: chainSched,
-		Enabled:    cfg.Fees.ReplaceByFee,
 		Filecoin: &message.FilecoinReplacerConfig{
 			API:    full,
 			Signer: full,

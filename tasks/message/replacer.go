@@ -22,10 +22,6 @@ type ReplacerConfig struct {
 	DB         *harmonydb.DB
 	ChainSched *chainsched.CurioChainSched
 
-	// Enabled gates the whole replacer. Default off via Fees.ReplaceByFee until
-	// clients understand confirmedTxHash / original wait-key semantics.
-	Enabled bool
-
 	Filecoin *FilecoinReplacerConfig
 	Eth      *EthReplacerConfig
 }
@@ -45,13 +41,7 @@ type replaceTrigger struct {
 	Key       *types.TipSetKey
 }
 
-// Enabled when Fees.ReplaceByFee is true. Safe once Synapse (and other clients)
-// treat Location hashes as wait keys and read confirmedTxHash from PDP status.
 func NewMessageReplacer(ctx context.Context, cfg ReplacerConfig) error {
-	if !cfg.Enabled {
-		return nil
-	}
-
 	stuckForDuration := time.Duration(ReplaceStuckEpochs) * time.Duration(build.BlockDelaySecs) * time.Second
 
 	t := &Replacer{
