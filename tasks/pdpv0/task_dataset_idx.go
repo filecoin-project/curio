@@ -59,6 +59,16 @@ func (t *DatasetIdxTask) Do(ctx context.Context, taskID harmonytask.TaskID, stil
 		}
 		mustIndex, err := pdp.ResolveDatasetIPFSIndexing(ctx, t.db, t.ethClient, row.ID)
 		if err != nil {
+			if IsUnrecoverableError(err) || IsPDPVerifierDataSetNotFound(err) {
+				// Data set is gone on-chain; stop retrying it, value doesn't matter.
+				if persistErr := pdp.PersistDatasetIPFSIndexing(ctx, t.db, row.ID, false); persistErr != nil {
+					log.Warnw("failed to persist IPFS indexing intent for terminated data set", "dataSetId", row.ID, "error", persistErr)
+					resolveErrs++
+				} else {
+					log.Infow("data set no longer live on-chain, resolved IPFS indexing intent to false", "dataSetId", row.ID, "error", err)
+				}
+				continue
+			}
 			log.Warnw("failed to resolve IPFS indexing intent", "dataSetId", row.ID, "error", err)
 			resolveErrs++
 			continue

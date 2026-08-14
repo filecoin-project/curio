@@ -90,8 +90,21 @@ type TaskTypeDetails struct {
 	// other machines.
 	SchedulingOverrides map[string]bool
 
-	// Should block shutdown until completion..
+	// TimeSensitive tasks skip event bundling, can preempt other work when
+	// capacity is exhausted, run first in the scheduling waterfall, and block
+	// GracefullyTerminate until they finish. They are also not preemptable.
+	// Use for deadline-driven work (e.g. WindowPost/WinningPost). For tasks that
+	// must not be cancelled mid-flight but should not get that priority or
+	// preemption power, set Uninterruptible instead.
 	TimeSensitive bool
+
+	// Uninterruptible tasks are never selected as preemption victims and block
+	// GracefullyTerminate until Active reaches zero. During drain, stillOwned()
+	// returns false so they can exit before irreversible work (e.g. before
+	// taking a send lock); once past that checkpoint they are allowed to
+	// finish. Unlike TimeSensitive, this does not grant scheduling priority,
+	// skip bundling, or the ability to preempt others.
+	Uninterruptible bool
 
 	// May Follow is a list of task names whose completion may trigger this task to be scheduled.
 	// This does not cause triggering, instead it reduces pipeline latency.
@@ -218,6 +231,12 @@ type taskEngineAtomics struct {
 	// Checked by pollerTryAllWork and task goroutines to skip new work or
 	// yield in-progress background tasks.
 	yieldBackground atomic.Bool
+
+	// draining is set true when GracefullyTerminate begins. Uninterruptible
+	// tasks treat stillOwned() as false so they can release before taking a
+	// send lock; tasks already past that checkpoint finish their critical
+	// section while shutdown waits on Active().
+	draining atomic.Bool
 
 	lastCleanup atomic.Value
 
@@ -387,17 +406,20 @@ func NewWithReg(
 	return e, nil
 }
 
-// GracefullyTerminate hangs until all present tasks have completed.
-// Call this to cleanly exit the process. As some processes are long-running,
-// passing a deadline will ignore those still running (to be picked-up later).
+// GracefullyTerminate hangs until time-sensitive and uninterruptible work has
+// drained, then returns so the process can exit. It cancels the engine context
+// (no new claims) and sets draining so Uninterruptible tasks fail stillOwned()
+// before their next checkpoint (e.g. send lock acquire). Tasks already past
+// that checkpoint are not cancelled; shutdown waits for their Active count.
 func (e *TaskEngine) GracefullyTerminate() {
+	e.atomics.draining.Store(true)
 	e.cfg.grace()
 	e.cfg.reg.Shutdown()
 
 	for {
 		var waited bool
 		for _, h := range e.handlers {
-			if h.TimeSensitive && h.Max.Active() > 0 {
+			if (h.TimeSensitive || h.Uninterruptible) && h.Max.Active() > 0 {
 				log.Infof("node shutdown deferred due to running %s task", h.Name)
 				time.Sleep(time.Second * 3)
 				waited = true

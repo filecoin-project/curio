@@ -331,6 +331,15 @@ func (h *taskTypeHandler) considerWork(from string, tasks []task, eventEmitter e
 						return false
 					}
 				}
+				// Uninterruptible work (e.g. Send*) calls stillOwned before
+				// taking a per-sender lock. During shutdown drain, fail that
+				// check so hundreds of waiters can exit without starting a new
+				// critical section; in-flight holders do not call stillOwned
+				// and are waited on via Active() in GracefullyTerminate.
+				if h.Uninterruptible && h.TaskEngine.atomics.draining.Load() {
+					log.Infow("yielding uninterruptible task during shutdown drain", "name", h.Name, "id", tID)
+					return false
+				}
 
 				var owner int
 				err := h.TaskEngine.cfg.db.QueryRow(taskCtx,

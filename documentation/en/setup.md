@@ -77,7 +77,7 @@ You can adjust the `--advertise_address`, `--rpc_bind_addresses` and `--tserver_
 
 ## Migrating from Lotus-miner to Curio&#x20;
 
-Curio provides a utility to users onboard quickly. Please run the below command on your `lotus-miner` node and follow the on-screen instructions. It communicates in English (en), Chinese (zh), and Korean (ko).
+Curio provides a utility to users onboard quickly. Please run the below command on your `lotus-miner` node and follow the on-screen instructions.
 
 ```shell
 curio guided-setup
@@ -136,7 +136,7 @@ lotus send <WALLET 2> 5
 
 ### Creating new miner ID&#x20;
 
-Curio provides a utility for users to onboard quickly. Please run the below command on your new Curio node, choose `Create a new miner` option and follow the on-screen instructions. It communicates in English (en), Chinese (zh), and Korean (ko).
+Curio provides a utility for users to onboard quickly. Please run the below command on your new Curio node, choose `Create a new miner` option and follow the on-screen instructions.
 
 1.  Start the guided setup.<br>
 

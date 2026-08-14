@@ -22,7 +22,7 @@ func StartPublic(ctx context.Context, d *Deps, sd *TaskResult) error {
 		return nil
 	}
 
-	chiRouter := cuhttp.NewRouter(cuhttp.RouterConfig{CSP: cfg.CSP, DomainName: cfg.DomainName})
+	chiRouter := cuhttp.NewRouter(cuhttp.RouterConfig{CSP: cfg.CSP})
 	cuhttp.MountStandardRoutes(chiRouter)
 
 	if err := MountPublicRoutes(ctx, chiRouter, d, &sd.ServiceDeps); err != nil {

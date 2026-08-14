@@ -26,8 +26,6 @@ type startTime string
 type RouterConfig struct {
 	// CSP enables secure response headers when non-empty (market server only).
 	CSP string
-	// DomainName is used to derive the default allowed CORS origin (https://{DomainName}).
-	DomainName string
 }
 
 // NewRouter builds a chi router with the standard public-server middleware.
@@ -39,7 +37,7 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 	if cfg.CSP != "" {
 		r.Use(SecureHeaders(cfg.CSP))
 	}
-	r.Use(CORS(AllowedCORSOrigins(cfg.DomainName)))
+	r.Use(CORS)
 	return r
 }
 

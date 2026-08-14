@@ -90,19 +90,16 @@ func (s *SendTaskETH) Do(ctx context.Context, taskID harmonytask.TaskID, stillOw
 			return false, xerrors.Errorf("lost ownership of task")
 		}
 
-		// Try to acquire lock
-		cn, err := s.db.Exec(ctx,
-			`INSERT INTO message_send_eth_locks (from_address, task_id, claimed_at)
-             VALUES ($1, $2, CURRENT_TIMESTAMP)
-             ON CONFLICT (from_address) DO UPDATE
-             SET task_id = EXCLUDED.task_id, claimed_at = CURRENT_TIMESTAMP
-             WHERE message_send_eth_locks.task_id = $2`, dbTx.FromAddress, taskID)
+		cn, err := s.db.Exec(ctx, `
+			INSERT INTO message_send_eth_locks (from_address, task_id, claimed_at)
+			VALUES ($1, $2, CURRENT_TIMESTAMP)
+			ON CONFLICT (from_address) DO UPDATE
+			SET task_id = EXCLUDED.task_id, claimed_at = CURRENT_TIMESTAMP
+			WHERE message_send_eth_locks.task_id = $2`, dbTx.FromAddress, taskID)
 		if err != nil {
 			return false, xerrors.Errorf("acquiring send lock: %w", err)
 		}
-
 		if cn == 1 {
-			// Acquired the lock
 			break
 		}
 
@@ -111,16 +108,41 @@ func (s *SendTaskETH) Do(ctx context.Context, taskID harmonytask.TaskID, stillOw
 		time.Sleep(SendLockedWait)
 	}
 
+	var sendSuccess, recordResults bool
+	var sendError string
+
 	// Defer release of the lock
 	defer func() {
-		_, err2 := s.db.Exec(ctx,
-			`DELETE FROM message_send_eth_locks WHERE from_address = $1 AND task_id = $2`, dbTx.FromAddress, taskID)
-		if err2 != nil {
-			log.Errorw("releasing send lock", "task_id", taskID, "from", dbTx.FromAddress, "error", err2)
+		comm, rerr := s.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+			if recordResults {
+				n, err1 := tx.Exec(`UPDATE message_sends_eth SET
+							 send_success = $1,
+							 send_error = $2,
+							 send_time = CURRENT_TIMESTAMP
+                         WHERE send_task_id = $3`, sendSuccess, sendError, taskID)
+				if err1 != nil {
+					return false, xerrors.Errorf("recording send results: %w", err1)
+				}
+				if n != 1 {
+					return false, xerrors.Errorf("expected to modify 1 record but modified %d", n)
+				}
+			}
 
-			// Ensure the task is retried
+			_, err2 := tx.Exec(`
+				DELETE FROM message_send_eth_locks
+				WHERE from_address = $1 AND task_id = $2`, dbTx.FromAddress, taskID)
+			if err2 != nil {
+				return false, xerrors.Errorf("releasing send lock for task_id %d, from %s: %w", taskID, dbTx.FromAddress, err2)
+			}
+			return true, nil
+		}, harmonydb.OptionRetry())
+		if rerr != nil {
 			done = false
-			err = multierr.Append(err, xerrors.Errorf("releasing send lock: %w", err2))
+			err = xerrors.Errorf("recording task status and releasing locks for taskId %d: %w", taskID, rerr)
+		}
+		if !comm {
+			done = false
+			err = xerrors.Errorf("recording task status and releasing locks for taskId %d: failed to commit the database transaction", taskID)
 		}
 	}()
 
@@ -235,19 +257,12 @@ func (s *SendTaskETH) Do(ctx context.Context, taskID harmonytask.TaskID, stillOw
 		}
 	}
 
-	sendSuccess := sendResult == ethSendAccepted
-	sendError := ""
+	sendSuccess = sendResult == ethSendAccepted
 	if sendResult == ethSendDefinitiveError {
 		sendError = sendErr.Error()
 	}
 
-	_, err = s.db.Exec(ctx,
-		`UPDATE message_sends_eth
-         SET send_success = $1, send_error = $2, send_time = CURRENT_TIMESTAMP
-         WHERE send_task_id = $3`, sendSuccess, sendError, taskID)
-	if err != nil {
-		return false, xerrors.Errorf("updating db record: %w", err)
-	}
+	recordResults = true
 
 	return true, nil
 }
@@ -321,7 +336,8 @@ func (s *SendTaskETH) TypeDetails() harmonytask.TaskTypeDetails {
 			Gpu: 0,
 			Ram: 1 << 20,
 		},
-		MaxFailures: 1000,
+		Uninterruptible: true,
+		MaxFailures:     1000,
 	}
 }
 
