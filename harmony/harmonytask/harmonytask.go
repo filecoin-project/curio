@@ -198,8 +198,8 @@ type TaskEngine struct {
 	// All event sources (local adds, peer messages, task completions, DB polls)
 	// write events here. The buffered channel (cap 100) absorbs bursts; the
 	// scheduler drains it as fast as possible with no blocking I/O. The
-	// channel value itself is replaced in one place (New) before startScheduler
-	// is called, so concurrent access to the channel is safe.
+	// channel value itself is replaced in one place (New) before startPeering
+	// and startScheduler are called, so concurrent access to the channel is safe.
 	schedulerChannel chan schedulerEvent
 
 	completionMu        sync.RWMutex
@@ -266,7 +266,9 @@ type TaskID int
 // Startup sequence:
 //  1. Register this machine's resources in the DB.
 //  2. Build handler registry and validate task names.
-//  3. Start peering (connect to known cluster nodes for event propagation).
+//  3. Size schedulerChannel for resurrection, then start peering (connect to
+//     known cluster nodes for event propagation). Peering must not start
+//     before the channel reaches its final value: inbound peers send into it.
 //  4. Resurrect any tasks this machine owned before a restart — these are
 //     re-fed to considerWork so in-progress pipelines resume immediately
 //     without waiting for a DB poll cycle.
@@ -316,7 +318,6 @@ func NewWithReg(
 	}
 	e.atomics.pollDuration.Store(pollRarely)
 	e.atomics.lastCleanup.Store(time.Now())
-	e.peering = startPeering(e, peerConnector)
 
 	mayFollows := make(map[string][]string)
 
@@ -375,6 +376,14 @@ func NewWithReg(
 		if len(taskRet)*emitTypes > cap(e.schedulerChannel) {
 			e.schedulerChannel = make(chan schedulerEvent, len(taskRet)*3)
 		}
+
+		// Start peering only after schedulerChannel reaches its final value.
+		// Inbound peer connections can arrive as soon as SetOnConnect is
+		// registered inside startPeering, and their receive loops send into
+		// e.schedulerChannel; starting peering before the resize above would
+		// race the reassignment (and could strand events on the old channel).
+		e.peering = startPeering(e, peerConnector)
+
 		for _, w := range taskRet {
 			h := e.taskMap[w.Name]
 			if h == nil || !h.considerWork(workSourceRecover, []task{{ID: TaskID(w.ID), UpdateTime: w.UpdateTime, PostedTime: w.PostedTime, Retries: w.Retries}}, eventEmitter{schedulerChannel: e.schedulerChannel}) {
