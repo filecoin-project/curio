@@ -191,14 +191,6 @@ alerts will be triggered for the wallet
 Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "5 FIL")`,
 		},
 		{
-			Name: "PDPMinimumWalletBalance",
-			Type: "types.FIL",
-
-			Comment: `PDPMinimumWalletBalance is the minimum balance of the PDP wallet (used to pay gas for PDP on-chain
-transactions). If the balance is below this value, an alert will be triggered.
-Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "1 FIL")`,
-		},
-		{
 			Name: "PagerDuty",
 			Type: "PagerDutyConfig",
 

@@ -146,8 +146,46 @@ func balanceCheck(al *alerts) {
 			fmt.Fprintf(&ret, "Balance for wallet %s (%s) is below %s. ", addr, keyAddr, al.cfg.MinimumWalletBalance.Short())
 		}
 	}
+
+	appendPDPWalletBalance(al, &ret)
+
 	if ret.String() != "" {
 		al.alertMap[Name].alertString = ret.String()
+	}
+}
+
+// appendPDPWalletBalance checks the PDP wallet (used to pay gas for PDP on-chain
+// transactions) against the same MinimumWalletBalance threshold as the other
+// wallets.
+func appendPDPWalletBalance(al *alerts, ret *strings.Builder) {
+	status, err := pdpwallet.PDPKeyStatus(al.ctx, al.db)
+	if err != nil {
+		fmt.Fprintf(ret, "Could not check PDP wallet: %s. ", err)
+		return
+	}
+	if !status.Configured {
+		return
+	}
+
+	ea, err := ethtypes.ParseEthAddress(status.Address)
+	if err != nil {
+		fmt.Fprintf(ret, "Could not parse PDP wallet address %s: %s. ", status.Address, err)
+		return
+	}
+	filAddr, err := ea.ToFilecoinAddress()
+	if err != nil {
+		fmt.Fprintf(ret, "Could not derive fil address for PDP wallet %s: %s. ", status.Address, err)
+		return
+	}
+
+	balance, err := al.api.WalletBalance(al.ctx, filAddr)
+	if err != nil {
+		fmt.Fprintf(ret, "Could not get balance for PDP wallet %s: %s. ", filAddr, err)
+		return
+	}
+
+	if abi.TokenAmount(al.cfg.MinimumWalletBalance).GreaterThanEqual(balance) {
+		fmt.Fprintf(ret, "Balance for PDP wallet %s (%s) is below %s. ", status.Address, filAddr, al.cfg.MinimumWalletBalance.Short())
 	}
 }
 
@@ -1139,40 +1177,5 @@ func pdpKeyConfiguredCheck(al *alerts) {
 	}
 	if !exists {
 		al.alertMap[Name].alertString = "PDP wallet not configured. Create or assign a key on the PDP page."
-	}
-}
-
-func pdpBalanceCheck(al *alerts) {
-	Name := Name_PDPBalanceCheck
-	al.alertMap[Name] = &alertOut{}
-
-	status, err := pdpwallet.PDPKeyStatus(al.ctx, al.db)
-	if err != nil {
-		al.alertMap[Name].err = xerrors.Errorf("checking PDP wallet: %w", err)
-		return
-	}
-	if !status.Configured {
-		return
-	}
-
-	ea, err := ethtypes.ParseEthAddress(status.Address)
-	if err != nil {
-		al.alertMap[Name].err = xerrors.Errorf("parsing PDP wallet address %s: %w", status.Address, err)
-		return
-	}
-	filAddr, err := ea.ToFilecoinAddress()
-	if err != nil {
-		al.alertMap[Name].err = xerrors.Errorf("deriving fil address for PDP wallet %s: %w", status.Address, err)
-		return
-	}
-
-	balance, err := al.api.WalletBalance(al.ctx, filAddr)
-	if err != nil {
-		al.alertMap[Name].err = xerrors.Errorf("getting PDP wallet balance: %w", err)
-		return
-	}
-
-	if abi.TokenAmount(al.cfg.PDPMinimumWalletBalance).GreaterThanEqual(balance) {
-		al.alertMap[Name].alertString = fmt.Sprintf("Balance for PDP wallet %s (%s) is below %s.", status.Address, filAddr, al.cfg.PDPMinimumWalletBalance.Short())
 	}
 }

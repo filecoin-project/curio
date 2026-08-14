@@ -125,7 +125,6 @@ const (
 	Name_PendingMessages       AlertName = "PendingMessages"
 	Name_IPNISync              AlertName = "IPNISync"
 	Name_PDPKeyConfigured      AlertName = "PDPKeyConfigured"
-	Name_PDPBalanceCheck       AlertName = "PDPBalanceCheck"
 )
 
 var AlertNames = []string{
@@ -141,7 +140,6 @@ var AlertNames = []string{
 	string(Name_PendingMessages),
 	string(Name_IPNISync),
 	string(Name_PDPKeyConfigured),
-	string(Name_PDPBalanceCheck),
 }
 
 func init() {

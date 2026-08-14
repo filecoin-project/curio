@@ -24,7 +24,6 @@ func commonAlertFuncs() map[AlertName]AlertFunc {
 		Name_PendingMessages:       pendingMessagesCheck,
 		Name_IPNISync:              ipniSyncCheck,
 		Name_PDPKeyConfigured:      pdpKeyConfiguredCheck,
-		Name_PDPBalanceCheck:       pdpBalanceCheck,
 	}
 }
 
@@ -32,11 +31,11 @@ func commonAlertFuncs() map[AlertName]AlertFunc {
 func buildPingHealthFuncs() map[AlertName]AlertFunc {
 	af := buildAlertFuncs()
 	return map[AlertName]AlertFunc{
+		Name_BalanceCheck:          af[Name_BalanceCheck],
 		Name_ChainSync:             af[Name_ChainSync],
 		Name_PermanentStorageSpace: af[Name_PermanentStorageSpace],
 		Name_PDPTaskFailures:       af[Name_PDPTaskFailures],
 		Name_IPNISync:              af[Name_IPNISync],
 		Name_PDPKeyConfigured:      af[Name_PDPKeyConfigured],
-		Name_PDPBalanceCheck:       af[Name_PDPBalanceCheck],
 	}
 }
