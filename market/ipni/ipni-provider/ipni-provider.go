@@ -77,7 +77,7 @@ type peerInfo struct {
 	httpServerAddresses multiaddr.Multiaddr // map[peerID String]Multiaddr
 	providerType        string
 
-	// Highest ipni.order_number announced as head / confirmed indexed, and when.
+	// Highest ipni_head.head_order_number announced as head / confirmed indexed, and when.
 	// announcedAt is nil if seeded from an existing head rather than observed.
 	announcedOrderNumber int64
 	announcedAt          *time.Time
@@ -650,9 +650,9 @@ func (p *Provider) getHeadOrdered(ctx context.Context, provider string) (cid.Cid
 	var headStr string
 	var orderNumber int64
 	err := p.db.QueryRow(ctx, `
-		SELECT h.head, i.order_number
-		FROM ipni_head h JOIN ipni i ON i.ad_cid = h.head
-		WHERE h.provider = $1`, provider).Scan(&headStr, &orderNumber)
+		SELECT head, head_order_number
+		FROM ipni_head
+		WHERE provider = $1`, provider).Scan(&headStr, &orderNumber)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return cid.Undef, 0, nil
@@ -927,6 +927,11 @@ func (p *Provider) queryAdIndexed(ctx context.Context, adCid cid.Cid) (string, b
 		}
 
 		if status.Indexed {
+			respAd, err := cid.Parse(status.Ad)
+			if err != nil || !respAd.Equals(adCid) {
+				log.Warnw("ad sync status response ad mismatch, ignoring", "service", svc.String(), "requested", adCid.String(), "got", status.Ad)
+				continue
+			}
 			return svc.String(), true
 		}
 	}

@@ -280,7 +280,8 @@ func (p *PDPService) handleGetPieceStatus(w http.ResponseWriter, r *http.Request
 		AdCID                  sql.NullString `db:"ad_cid"`
 		Status                 string         `db:"status"`
 		Provider               sql.NullString `db:"provider"`
-		OrderNumber            sql.NullInt64  `db:"order_number"`
+		OrderNumber            sql.NullInt64  `db:"provider_order_number"`
+		ProviderHead           sql.NullString `db:"provider_head"`
 	}
 
 	err = p.db.Select(ctx, &results, `
@@ -307,20 +308,27 @@ func (p *PDPService) handleGetPieceStatus(w http.ResponseWriter, r *http.Request
 			END as status,
 
 			ia.provider,
-			ia.order_number
+			ia.provider_order_number,
+			ih.head as provider_head
 
 		FROM pdp_piecerefs pr
 		JOIN parked_piece_refs pprf ON pprf.ref_id = pr.piece_ref
 		JOIN parked_pieces pp ON pp.id = pprf.piece_id
 		LEFT JOIN LATERAL (
-			SELECT i.ad_cid, i.provider, i.order_number
+			SELECT i.ad_cid, i.provider, i.provider_order_number
 			FROM ipni i
+			LEFT JOIN ipni_head h ON h.provider = i.provider
 			WHERE i.piece_cid = pr.piece_cid
 				AND i.provider = (SELECT peer_id FROM ipni_peerid WHERE sp_id = $3)
 				AND i.is_rm = FALSE
-			ORDER BY i.order_number DESC
+			-- provider_order_number is reliable and reflects true chain order; prefer it
+			-- over order_number so a stale re-add can't outrank the real latest ad.
+			-- Among candidates that predate it (all NULL), prefer the current head over
+			-- the order_number-based guess, then fall back to order_number as a last resort.
+			ORDER BY i.provider_order_number DESC NULLS LAST, (i.ad_cid = h.head) DESC, i.order_number DESC
 			LIMIT 1
 		) ia ON true
+		LEFT JOIN ipni_head ih ON ih.provider = ia.provider
 		WHERE pr.piece_cid = $1 AND pr.service = $2
 		LIMIT 1
 	`, pieceCidV1Str, serviceLabel, indexing.PDP_v0_SP_ID)
@@ -374,20 +382,39 @@ func (p *PDPService) handleGetPieceStatus(w http.ResponseWriter, r *http.Request
 		response.AdCreatedAt = &result.AdvertisementCreatedAt.Time
 	}
 
-	// Advertised/Synced compare this ad's order_number against the provider's
-	// announce/sync watermarks (OrderNumber is only valid when an ad row exists).
-	if p.ipp != nil && result.Provider.Valid && result.OrderNumber.Valid {
-		pieceOrderNumber := result.OrderNumber.Int64
+	// Advertised/Synced compare this ad's provider_order_number against the provider's
+	// announce/sync watermarks. Ads predating provider_order_number (OrderNumber invalid)
+	// fall back to a coarser check: IPNI is pull-based, so once a later ad for this
+	// provider has been announced/synced, everything before it - including this ad,
+	// as long as it's no longer the current head - is reachable/synced too.
+	if p.ipp != nil && result.Provider.Valid && result.AdCID.Valid {
+		announcedOrderNumber, announcedAt := p.ipp.AnnouncedOrderNumber(result.Provider.String)
+		syncedOrderNumber, syncedAt := p.ipp.SyncedOrderNumber(result.Provider.String)
 
-		if announcedOrderNumber, announcedAt := p.ipp.AnnouncedOrderNumber(result.Provider.String); announcedOrderNumber >= pieceOrderNumber {
-			response.Advertised = true
-			response.AdvertisedAt = announcedAt
-		}
+		if result.OrderNumber.Valid {
+			pieceOrderNumber := result.OrderNumber.Int64
 
-		if syncedOrderNumber, syncedAt := p.ipp.SyncedOrderNumber(result.Provider.String); syncedOrderNumber >= pieceOrderNumber {
-			response.Status = "synced"
-			response.Synced = true
-			response.SyncedAt = syncedAt
+			if announcedOrderNumber >= pieceOrderNumber {
+				response.Advertised = true
+				response.AdvertisedAt = announcedAt
+			}
+
+			if syncedOrderNumber >= pieceOrderNumber {
+				response.Status = "synced"
+				response.Synced = true
+				response.SyncedAt = syncedAt
+			}
+		} else {
+			isCurrentHead := result.ProviderHead.Valid && result.ProviderHead.String == result.AdCID.String
+
+			if announcedOrderNumber > 0 || isCurrentHead {
+				response.Advertised = true
+			}
+
+			if syncedOrderNumber > 0 {
+				response.Status = "synced"
+				response.Synced = true
+			}
 		}
 	}
 
