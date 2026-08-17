@@ -279,10 +279,43 @@ Before publishing:
 
 After publishing:
 
+- Confirm the **Docker Curio-PDP** Actions workflow succeeded (mainnet + calibnet tags on Docker Hub; see [Docker Hub images](#docker-hub-images-curio-pdp)).
 - Monitor GitHub issues.
 - Monitor Curio support Slack.
 - Monitor installation, packaging, migration, and upgrade failures.
 - Do not shorten release cadence for non-urgent follow-up releases.
+
+## Docker Hub images (Curio-PDP)
+
+Publishing a GitHub release triggers `.github/workflows/docker-curio-pdp.yml`, which builds `docker/skiff/Dockerfile` and pushes:
+
+| Image tag | Build target | When |
+| :--- | :--- | :--- |
+| `curiostorage/curio-pdp:<version>` | `skiff` (mainnet) | Every published release |
+| `curiostorage/curio-pdp:latest` | `skiff` | Stable releases only |
+| `curiostorage/curio-pdp:<version>-calibnet` | `calibnet-skiff` | Every published release |
+| `curiostorage/curio-pdp:calibnet` | `calibnet-skiff` | Stable releases only |
+
+### GitHub Actions secrets
+
+Repository secrets (already configured for this workflow):
+
+- `DOCKERHUB_USERNAME` — Docker Hub username for the account that owns the access token
+- `DOCKERHUB_TOKEN` — Docker Hub access token with **Read & Write** (not the account password)
+
+No other GitHub secrets are required for Curio-PDP image publish.
+
+### Docker Hub side (still required)
+
+Before the first release publish can succeed:
+
+1. Ensure the Docker Hub org/user **`curiostorage`** exists and your token account can push to it.
+2. Create the repository **`curiostorage/curio-pdp`** (or allow create-on-first-push for that org).
+3. Confirm the access token is not expired and has push rights to that repo.
+
+After each published release, open the **Docker Curio-PDP** Actions run and confirm both mainnet and calibnet pushes succeeded, then spot-check Hub tags.
+
+Operators pull these images via `docker/skiff/docker-compose.yaml` (`SKIFF_IMAGE`). Local development continues to use `make docker/curio-pdp` → `curiostorage/curio-pdp:dev`.
 
 ## Common Release Mistakes
 
@@ -297,3 +330,4 @@ After publishing:
 - Shipping rapid back-to-back releases without accounting for PoRep operator upgrade cost.
 - Publishing a release without announcing it, leaving operators to infer the current version from the tag list.
 - Announcing a stable release without noting that a preceding RC is superseded.
+- Docker Hub login succeeds but push fails because `curiostorage/curio-pdp` does not exist or the token lacks write access to the `curiostorage` org.

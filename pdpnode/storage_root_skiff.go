@@ -8,6 +8,8 @@ import (
 	"github.com/filecoin-project/curio/deps/config"
 )
 
-func skiffStorageRoot(cctx *cli.Context, cfg *config.CurioConfig, _ string) string {
-	return resolveSkiffDataPath(cctx, cfg)
+// skiffStorageRoot is the repo path used for storage.json persistence.
+// Candidate folders for attach live under resolveSkiffDataPath (/data by default).
+func skiffStorageRoot(_ *cli.Context, _ *config.CurioConfig, repoPath string) string {
+	return repoPath
 }
