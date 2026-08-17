@@ -1023,6 +1023,13 @@ type HTTPConfig struct {
 	// will receive HTTP 503. (Default: ["https://badbits.dwebops.pub/denylist.json"])
 	// Updates will affect running instances.
 	DenylistServers *Dynamic[[]string]
+
+	// EnableGatedRetrieval turns on opt-in permissioning for PDP piece retrieval (/piece/{cid}).
+	// When true, a request for a piece whose every containing data set is marked private (via the
+	// on-chain "withRetrievalACL" data-set metadata flag) must present a valid, dataset-scoped,
+	// payer-signed retrieval credential; pieces in any public data set stay publicly retrievable.
+	// When false (default), all retrieval is public — the historical behaviour. (Default: false)
+	EnableGatedRetrieval bool
 }
 
 // CompressionConfig holds the compression levels for supported types
