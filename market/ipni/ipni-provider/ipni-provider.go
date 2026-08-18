@@ -53,7 +53,9 @@ const IPNIRoutePath = "/ipni-provider/"
 // IPNIPath is a constant that represents the path for IPNI API requests.
 const IPNIPath = "/ipni/v1/ad/"
 
-const PublishInterval = 5 * time.Second
+// cid.contact has a limit of 60 post head requests per minute.
+// The rate limit may be shut down when the pressure is low.
+const PublishInterval = 1 * time.Second
 
 const (
 	PDPv0ProviderType = "PDP_v0"
