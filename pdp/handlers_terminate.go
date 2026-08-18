@@ -112,6 +112,10 @@ func (p *PDPService) handleTerminateDataSet(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	if p.refuseUnallowlistedAuthorizer(w, ctx, dataSetID) {
+		return
+	}
+
 	terminationEpoch, terminated, err := p.getFWSSServiceTerminationEpoch(ctx, dataSetID)
 	if err != nil {
 		httpServerError(w, http.StatusInternalServerError, "Failed to check FWSS termination state", err)
@@ -152,6 +156,26 @@ func (p *PDPService) handleTerminateDataSet(w http.ResponseWriter, r *http.Reque
 	}
 	if !supported {
 		http.Error(w, "FWSS contract does not support client-requested termination", http.StatusServiceUnavailable)
+		return
+	}
+
+	fwssABI, err := FWSS.FilecoinWarmStorageServiceMetaData.GetAbi()
+	if err != nil {
+		httpServerError(w, http.StatusInternalServerError, "Failed to get FWSS ABI", err)
+		return
+	}
+	calldata, err := fwssABI.Pack("terminateService0", new(big.Int).SetUint64(dataSetID), extraDataBytes)
+	if err != nil {
+		httpServerError(w, http.StatusInternalServerError, "Failed to pack terminateService", err)
+		return
+	}
+	fromAddress, err := p.getSenderAddress(ctx)
+	if err != nil {
+		httpServerError(w, http.StatusInternalServerError, "Failed to get sender address", err)
+		return
+	}
+	if err := p.preflightAuthorizerCall(ctx, fromAddress, fwssAddr, calldata, nil); err != nil {
+		httpServerError(w, http.StatusBadRequest, "termination extraData validation failed: "+err.Error(), err)
 		return
 	}
 

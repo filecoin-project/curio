@@ -9,7 +9,6 @@ import (
 	"math/big"
 	"net/http"
 
-	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 
@@ -59,14 +58,29 @@ type EthCallValidator struct {
 	ethClient  ethchain.EthClient
 	db         *harmonydb.DB
 	senderAddr common.Address // cached, lazily loaded
+
+	// authorizerPolicy gates which IDataSetAuthorizer contracts the SP will spend gas relaying for.
+	// May be nil (treated as opt-out).
+	authorizerPolicy *AuthorizerAllowlist
 }
 
-// NewEthCallValidator creates a validator that uses eth_call
-func NewEthCallValidator(ethClient ethchain.EthClient, db *harmonydb.DB) *EthCallValidator {
-	return &EthCallValidator{ethClient: ethClient, db: db}
+// NewEthCallValidator creates a validator that uses eth_call. authorizerPolicy may be nil, which
+// disables the authorizer allowlist check (opt-out).
+func NewEthCallValidator(ethClient ethchain.EthClient, db *harmonydb.DB, authorizerPolicy *AuthorizerAllowlist) *EthCallValidator {
+	return &EthCallValidator{ethClient: ethClient, db: db, authorizerPolicy: authorizerPolicy}
 }
 
 func (v *EthCallValidator) ValidateAddPieces(ctx context.Context, params *AddPiecesValidatorParams) error {
+	if params.DataSetId == nil {
+		return fmt.Errorf("dataSetId is required")
+	}
+
+	// Allowlist before the addPieces eth_call: that simulation executes isAuthorized once #536 is
+	// live, so an unapproved authorizer must not reach it.
+	if err := v.checkAuthorizerAllowed(ctx, params.DataSetId.Uint64(), params.RecordKeeper); err != nil {
+		return err
+	}
+
 	// Lazily load sender address if not cached
 	if v.senderAddr == (common.Address{}) && v.db != nil {
 		addr, err := getPDPSenderAddress(ctx, v.db)
@@ -95,7 +109,8 @@ func (v *EthCallValidator) ValidateAddPieces(ctx context.Context, params *AddPie
 		return fmt.Errorf("failed to pack addPieces call: %w", err)
 	}
 
-	// eth_call to validate — match tx value used for dataset creation
+	// eth_call to validate — match tx value used for dataset creation. Gas-capped so isAuthorized
+	// cannot spin past MaxAuthorizerGas (default 150M).
 	value := big.NewInt(0)
 	if isCreateNew {
 		value, err = contract.FilCleanupDeposit(ctx, v.ethClient)
@@ -103,15 +118,7 @@ func (v *EthCallValidator) ValidateAddPieces(ctx context.Context, params *AddPie
 			return fmt.Errorf("reading FIL cleanup deposit: %w", err)
 		}
 	}
-	msg := ethereum.CallMsg{
-		From:  v.senderAddr,
-		To:    new(contract.ContractAddresses().PDPVerifier),
-		Data:  data,
-		Value: value,
-	}
-
-	_, err = v.ethClient.CallContract(ctx, msg, nil)
-	if err != nil {
+	if err := v.callWithAuthorizerGas(ctx, v.senderAddr, contract.ContractAddresses().PDPVerifier, data, value); err != nil {
 		return fmt.Errorf("addPieces validation failed: %w", err)
 	}
 
@@ -404,6 +411,10 @@ func (h *PullHandler) HandlePull(w http.ResponseWriter, r *http.Request) {
 		ExtraData:    extraDataBytes,
 	}
 	if err := h.validator.ValidateAddPieces(ctx, validatorParams); err != nil {
+		if errors.Is(err, ErrAuthorizerNotAllowlisted) {
+			http.Error(w, err.Error(), http.StatusForbidden)
+			return
+		}
 		httpServerError(w, http.StatusBadRequest, "extraData validation failed: "+err.Error(), err)
 		return
 	}
