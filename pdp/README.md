@@ -408,17 +408,19 @@ When you initiate an upload with the `notify` field specified, the PDP Service w
   "service": "<service-name>",
   "txStatus": "<transaction-status>",
   "ok": <null-or-boolean>,
-  "dataSetId": <data-set-id-or-omitted>
+  "dataSetId": <data-set-id-or-omitted>,
+  "confirmedTxHash": "<included-transaction-hash-or-omitted>"
 }
 ```
 
 - **Fields:**
-    - `createMessageHash`: The transaction hash used to create the data set.
+    - `createMessageHash`: The original transaction hash used to create the data set (Location / wait key). May differ from the hash that lands on chain if Curio replaces the send by fee.
     - `dataSetCreated`: Whether the data set has been created (`true` or `false`).
     - `service`: The service name.
     - `txStatus`: The transaction status (`"pending"`, `"confirmed"`, etc.).
     - `ok`: `true` if the transaction was successful, `false` if it failed, or `null` if pending.
     - `dataSetId`: The ID of the created data set (only present when `dataSetCreated` is `true`).
+    - `confirmedTxHash`: The hash included on chain (present once confirmed). Equals `createMessageHash` unless replace-by-fee produced a different transaction. For explorers and receipt lookups use `confirmedTxHash ?? createMessageHash`.
 
 #### Errors
 
@@ -536,12 +538,14 @@ When you initiate an upload with the `notify` field specified, the PDP Service w
 ```json
 {
   "terminationTxHash": "<transaction-hash-or-empty-string>",
+  "confirmedTxHash": "<included-transaction-hash-or-omitted>",
   "fwssTerminated": <true-or-omitted>,
   "serviceTerminationEpoch": <epoch-number-or-omitted>
 }
 ```
 - **Fields:** 
-  - `terminationTxHash`: termination transaction hash.  Empty if unsent.
+  - `terminationTxHash`: original termination transaction hash (wait key). Empty if unsent. May differ from the hash that lands on chain if Curio replaces the send by fee.
+  - `confirmedTxHash`: The hash included on chain (present once confirmed). Equals `terminationTxHash` unless replace-by-fee produced a different transaction. For explorers and receipt lookups use `confirmedTxHash ?? terminationTxHash`.
   - `fwssTerminated`: true when service termination complete, otherwise omitted
   - `serviceTerminationEpoch`: epoch of termination if termination complete, otherwise omitted
 
@@ -637,18 +641,20 @@ When you initiate an upload with the `notify` field specified, the PDP Service w
   "pieceCount": <number-of-unique-pieces>,
   "addMessageOk": <null-or-boolean>,
   "piecesAdded": <boolean>,
-  "confirmedPieceIds": [<pieceId>, ...]
+  "confirmedPieceIds": [<pieceId>, ...],
+  "confirmedTxHash": "<included-transaction-hash-or-omitted>"
 }
 ```
 
 - **Fields:**
-    - `txHash`: The transaction hash.
+    - `txHash`: The original transaction hash (Location / wait key). May differ from the hash that lands on chain if Curio replaces the send by fee.
     - `txStatus`: The transaction status (`"pending"`, `"confirmed"`, etc.).
     - `dataSetId`: The ID of the data set.
     - `pieceCount`: Number of unique pieces in this transaction.
     - `addMessageOk`: `true` if on-chain transaction succeeded, `false` if failed, `null` if pending.
     - `piecesAdded`: Whether the pieces have been fully processed and recorded.
     - `confirmedPieceIds`: Array of assigned piece IDs (only present when confirmed and successful).
+    - `confirmedTxHash`: The hash included on chain (present once confirmed). Equals `txHash` unless replace-by-fee produced a different transaction. For explorers and receipt lookups use `confirmedTxHash ?? txHash`.
 
 #### Errors
 
