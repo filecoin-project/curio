@@ -177,6 +177,8 @@ func TestDefaultCurioConfigMarshal(t *testing.T) {
 	data, err := TransparentMarshal(cfg)
 	assert.NoError(t, err, "Should be able to marshal DefaultCurioConfig to TOML")
 	assert.NotEmpty(t, data)
+	assert.Contains(t, string(data), "PDPUnclaimedUploadKeepHours = 2")
+	assert.NotContains(t, string(data), "[Subsystems.PDPUnclaimedUploadKeepHours]")
 	t.Logf("Successfully marshaled config to %d bytes of TOML", len(data))
 }
 

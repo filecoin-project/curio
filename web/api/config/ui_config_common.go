@@ -20,14 +20,18 @@ func configToJSONMap(v any) (map[string]any, error) {
 func tomlToJSONMap(layerToml string) (map[string]any, error) {
 	configStruct := map[string]any{}
 	if layerToml != "" {
-		if _, err := toml.Decode(layerToml, &configStruct); err != nil {
+		sanitized, err := depsconfig.StripEmptyDynamicTables(layerToml, depsconfig.DefaultCurioConfig())
+		if err != nil {
+			return nil, err
+		}
+		if _, err := toml.Decode(sanitized, &configStruct); err != nil {
 			return nil, err
 		}
 	}
 	return configStruct, nil
 }
 
-func prepareCurioLayerSave(layer string, configStruct map[string]any) (string, error) {
+func prepareCurioLayerSave(_ string, configStruct map[string]any) (string, error) {
 	var tomlData bytes.Buffer
 	if err := toml.NewEncoder(&tomlData).Encode(configStruct); err != nil {
 		return "", err
@@ -38,27 +42,22 @@ func prepareCurioLayerSave(layer string, configStruct map[string]any) (string, e
 		return "", err
 	}
 
-	return formatLayerTOML(layer, curioCfg)
+	return formatLayerTOML(curioCfg)
 }
 
-func formatLayerTOML(layer string, curioCfg *depsconfig.CurioConfig) (string, error) {
+func formatLayerTOML(curioCfg *depsconfig.CurioConfig) (string, error) {
 	cb, err := depsconfig.ConfigUpdate(curioCfg, depsconfig.DefaultCurioConfig(), depsconfig.Commented(true), depsconfig.DefaultKeepUncommented(), depsconfig.NoEnv())
 	if err != nil {
 		return "", err
 	}
-
-	configStr := mustEncodeTOML(curioCfg)
-	if layer == "base" {
-		configStr = string(cb)
-	}
-	return configStr, nil
+	return string(cb), nil
 }
 
 // mustEncodeTOML serialises v to TOML or panics.
 func mustEncodeTOML(v any) string {
-	var buf bytes.Buffer
-	if err := toml.NewEncoder(&buf).Encode(v); err != nil {
+	data, err := depsconfig.TransparentMarshal(v)
+	if err != nil {
 		panic(err)
 	}
-	return buf.String()
+	return string(data)
 }
