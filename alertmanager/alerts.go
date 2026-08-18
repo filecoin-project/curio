@@ -147,17 +147,17 @@ func balanceCheck(al *alerts) {
 		}
 	}
 
-	appendPDPWalletBalance(al, &ret)
+	pdpBalanceCheck(al, &ret)
 
 	if ret.String() != "" {
 		al.alertMap[Name].alertString = ret.String()
 	}
 }
 
-// appendPDPWalletBalance checks the PDP wallet (used to pay gas for PDP on-chain
+// pdpBalanceCheck checks the PDP wallet (used to pay gas for PDP on-chain
 // transactions) against the same MinimumWalletBalance threshold as the other
 // wallets.
-func appendPDPWalletBalance(al *alerts, ret *strings.Builder) {
+func pdpBalanceCheck(al *alerts, ret *strings.Builder) {
 	status, err := pdpwallet.PDPKeyStatus(al.ctx, al.db)
 	if err != nil {
 		fmt.Fprintf(ret, "Could not check PDP wallet: %s. ", err)
