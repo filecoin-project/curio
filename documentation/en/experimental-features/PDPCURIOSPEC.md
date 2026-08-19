@@ -143,7 +143,7 @@ Harmony tasks are created through three trigger mechanisms:
 
 - **Chain handlers** — Registered via `chainsched.AddHandler`, these callbacks fire on every chain head change. They inspect on-chain state (e.g. transaction receipts, epoch thresholds) and call `AddTask` to insert work into the harmony_task queue when conditions are met. The proving-cycle tasks (InitPP, ProvPeriod, Prove) use this mechanism so they respond immediately to new tipsets.
 - **IAmBored** — An optional callback in `TaskTypeDetails` that the task engine invokes when a machine has spare capacity and no queued work exists for that task type. A `passcall.Every(duration, ...)` wrapper rate-limits invocations. Tasks like TerminateFWSS (1 min), DeleteDataSet (1 hour), and Settle (12 hours) use IAmBored because they generate work opportunistically rather than in response to chain events.
-- **Polling** — Some tasks use a dedicated poller goroutine that periodically queries the database for pending work and calls `AddTask`. The Notify (2s) and PullPiece (10s) tasks use this pattern because their triggers are purely database-driven (new uploads or pull requests) with no chain dependency.
+- **Polling** — Some tasks use a dedicated poller goroutine that periodically queries the database for pending work and calls `AddTask`. PullPiece uses this pattern because its trigger is a database-backed pull request rather than a chain event.
 
 All three mechanisms funnel through `harmonytask.AddTask()`, which atomically inserts a task record. The main poller loop (every 3s) then discovers unowned tasks and assigns them to machines with available resources.
 
@@ -154,7 +154,6 @@ All three mechanisms funnel through `harmonytask.AddTask()`, which atomically in
 | `PDPv0_InitPP` | `InitProvingPeriodTask` | `tasks/pdpv0/task_init_pp.go` | Chain handler |
 | `PDPv0_ProvPeriod` | `NextProvingPeriodTask` | `tasks/pdpv0/task_next_pp.go` | Chain handler |
 | `PDPv0_Prove` | `ProveTask` | `tasks/pdpv0/task_prove.go` | Chain handler |
-| `PDPv0_Notify` | `PDPNotifyTask` | `tasks/pdpv0/notify_task.go` | Polling (2s) |
 | `PDPv0_PullPiece` | `PDPPullPieceTask` | `tasks/pdpv0/task_pull_piece.go` | Polling (10s) |
 | `PDPv0_Indexing` | `PDPIndexingTask` | `tasks/indexing/task_pdp_v0_indexing.go` | IAmBored (3s) |
 | `PDPv0_IPNI` | `PDPIPNITask` | `tasks/indexing/task_pdp_v0_ipni.go` | IAmBored (30s) |
@@ -182,9 +181,10 @@ The sections below describe how tasks and watchers connect to form the PDP lifec
 
 There are two paths for getting pieces into the system:
 
-**Direct upload path:**
-1. Client uploads piece data via HTTP. The data is written to `parked_pieces`.
-2. When the upload completes (`parked_pieces.complete = TRUE`), **PDPv0_Notify** picks it up, sends an HTTP callback to `notify_url` if configured, and moves the reference from `pdp_piece_uploads` to `pdp_piecerefs`.
+**Known-CID direct upload path:**
+1. The client posts the PieceCID. If a complete long-term copy already exists, the handler creates its `parked_piece_refs` and `pdp_piecerefs` rows immediately.
+2. Otherwise, the client PUTs the bytes to the returned upload URL. The handler claims a `parked_pieces` row, writes the request body once directly to final piece storage while computing CommP, and validates the declared size and PieceCID.
+3. After the write succeeds, one database transaction marks the parked piece complete, creates `pdp_piecerefs`, and deletes the upload row. The legacy `notify` request field is accepted for compatibility but this path does not call the URL or schedule a notify task.
 
 **Pull path:**
 1. Client submits a pull request via HTTP, creating a row in `pdp_piece_pull_items`.

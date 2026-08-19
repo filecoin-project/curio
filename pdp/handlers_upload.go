@@ -1,9 +1,8 @@
 package pdp
 
 import (
-	"bytes"
+	"context"
 	"database/sql"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -29,6 +28,7 @@ import (
 	"github.com/filecoin-project/curio/lib/dealdata"
 	"github.com/filecoin-project/curio/lib/parkpiece"
 	"github.com/filecoin-project/curio/lib/proof"
+	"github.com/filecoin-project/curio/lib/storiface"
 )
 
 var log = logging.Logger("pdpv0")
@@ -43,7 +43,307 @@ var (
 	ErrPieceTooSmall       = fmt.Errorf("piece data is below the minimum allowed size (%d bytes)", PieceSizeMinLimit)
 	ErrPieceTooLarge       = fmt.Errorf("piece data exceeds the maximum allowed size (%d bytes)", PieceSizeMaxLimit)
 	ErrExceedsDeclaredSize = fmt.Errorf("piece data exceeds the declared piece size")
+	errPieceTooShort       = errors.New("piece data is shorter than the declared piece size")
+	errUploadInProgress    = errors.New("another upload is already writing this piece")
+	errUploadClaimed       = errors.New("upload UUID has already been claimed")
 )
+
+const minPaddedPieceSizeForCache = int64(32 * 1024 * 1024)
+
+type exactSizeReader struct {
+	r         io.Reader
+	remaining int64
+}
+
+func (r *exactSizeReader) Read(p []byte) (int, error) {
+	if r.remaining == 0 {
+		return 0, io.EOF
+	}
+	if int64(len(p)) > r.remaining {
+		p = p[:r.remaining]
+	}
+
+	n, err := r.r.Read(p)
+	r.remaining -= int64(n)
+	if errors.Is(err, io.EOF) && r.remaining > 0 {
+		return n, errPieceTooShort
+	}
+	return n, err
+}
+
+func readHasExtraByte(r io.Reader) (bool, error) {
+	var buf [1]byte
+	for {
+		n, err := r.Read(buf[:])
+		if n > 0 {
+			return true, nil
+		}
+		if err != nil {
+			// TimeoutLimitReader reports an over-limit byte as an error rather
+			// than returning it. It still proves that the body exceeded the
+			// exact size declared by PieceCIDv2.
+			if errors.Is(err, ErrPieceTooLarge) {
+				return true, nil
+			}
+			if errors.Is(err, io.EOF) {
+				return false, nil
+			}
+			return false, err
+		}
+	}
+}
+
+func needsSaveCache(rawSize int64) bool {
+	return PadPieceSize(rawSize) >= minPaddedPieceSizeForCache
+}
+
+func insertPDPReference(tx *harmonydb.Tx, service, pieceCID string, pieceRef, rawSize int64) error {
+	n, err := tx.Exec(`
+		INSERT INTO pdp_piecerefs (service, piece_cid, piece_ref, created_at, needs_save_cache)
+		VALUES ($1, $2, $3, NOW(), $4)
+	`, service, pieceCID, pieceRef, needsSaveCache(rawSize))
+	if err != nil {
+		return fmt.Errorf("failed to insert pdp_piecerefs: %w", err)
+	}
+	if n != 1 {
+		return fmt.Errorf("failed to insert pdp_piecerefs: expected 1 row, got %d", n)
+	}
+	return nil
+}
+
+func deleteClaimedUpload(tx *harmonydb.Tx, uploadID string, pieceRef int64) error {
+	n, err := tx.Exec(`DELETE FROM pdp_piece_uploads WHERE id = $1 AND piece_ref = $2`, uploadID, pieceRef)
+	if err != nil {
+		return fmt.Errorf("failed to delete pdp_piece_uploads row: %w", err)
+	}
+	if n != 1 {
+		return fmt.Errorf("failed to delete pdp_piece_uploads row: expected 1 row, got %d", n)
+	}
+	return nil
+}
+
+type directUploadClaim struct {
+	parkedPieceID int64
+	pieceRefID    int64
+	created       bool
+	complete      bool
+}
+
+// claimDirectUpload atomically claims an unclaimed upload intent. For a new
+// piece, it binds the intent to a skip=true parked-piece ref so this handler
+// owns the direct write. If the piece became complete after POST, it publishes
+// the PDP ref and consumes the intent without reading the request body.
+func (p *PDPService) claimDirectUpload(ctx context.Context, uploadID, service, pieceCID string, rawSize, paddedSize int64) (directUploadClaim, error) {
+	var claim directUploadClaim
+	committed, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		var err error
+		claim = directUploadClaim{}
+		claim.parkedPieceID, claim.created, err = parkpiece.UpsertSkipWithInserted(tx, pieceCID, paddedSize, rawSize, true, true)
+		if err != nil {
+			return false, fmt.Errorf("failed to claim parked piece: %w", err)
+		}
+
+		if !claim.created {
+			err = tx.QueryRow(`SELECT complete FROM parked_pieces WHERE id = $1`, claim.parkedPieceID).Scan(&claim.complete)
+			if err != nil {
+				return false, fmt.Errorf("failed to inspect existing parked piece: %w", err)
+			}
+			if !claim.complete {
+				return false, errUploadInProgress
+			}
+		}
+
+		err = tx.QueryRow(`
+			INSERT INTO parked_piece_refs (piece_id, long_term)
+			VALUES ($1, TRUE)
+			RETURNING ref_id
+		`, claim.parkedPieceID).Scan(&claim.pieceRefID)
+		if err != nil {
+			return false, fmt.Errorf("failed to create parked piece ref: %w", err)
+		}
+
+		if claim.complete {
+			n, err := tx.Exec(`DELETE FROM pdp_piece_uploads WHERE id = $1 AND piece_ref IS NULL`, uploadID)
+			if err != nil {
+				return false, fmt.Errorf("failed to consume upload UUID: %w", err)
+			}
+			if n != 1 {
+				return false, errUploadClaimed
+			}
+			if err := insertPDPReference(tx, service, pieceCID, claim.pieceRefID, rawSize); err != nil {
+				return false, err
+			}
+			return true, nil
+		}
+
+		n, err := tx.Exec(`
+			UPDATE pdp_piece_uploads
+			SET piece_ref = $1, piece_cid = $2, created_at = NOW()
+			WHERE id = $3 AND piece_ref IS NULL
+		`, claim.pieceRefID, pieceCID, uploadID)
+		if err != nil {
+			return false, fmt.Errorf("failed to claim upload UUID: %w", err)
+		}
+		if n != 1 {
+			return false, errUploadClaimed
+		}
+
+		return true, nil
+	}, harmonydb.OptionRetry())
+	if err != nil {
+		return directUploadClaim{}, err
+	}
+	if !committed {
+		return directUploadClaim{}, errors.New("failed to commit direct upload claim")
+	}
+	return claim, nil
+}
+
+func (p *PDPService) finalizeDirectUpload(ctx context.Context, uploadID, service, pieceCID string, claim directUploadClaim, rawSize int64) error {
+	committed, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		n, err := tx.Exec(`
+			UPDATE parked_pieces
+			SET complete = TRUE
+			WHERE id = $1 AND complete = FALSE AND skip = TRUE AND cleanup_task_id IS NULL
+		`, claim.parkedPieceID)
+		if err != nil {
+			return false, fmt.Errorf("failed to mark parked piece complete: %w", err)
+		}
+		if n != 1 {
+			return false, fmt.Errorf("failed to mark parked piece complete: expected 1 row, got %d", n)
+		}
+
+		if err := insertPDPReference(tx, service, pieceCID, claim.pieceRefID, rawSize); err != nil {
+			return false, err
+		}
+		if err := deleteClaimedUpload(tx, uploadID, claim.pieceRefID); err != nil {
+			return false, err
+		}
+		return true, nil
+	}, harmonydb.OptionRetry())
+	if err != nil {
+		return err
+	}
+	if !committed {
+		return errors.New("failed to commit direct upload completion")
+	}
+	return nil
+}
+
+// releaseDirectUploadClaim makes a failed or expired upload retryable. It only
+// removes the parked row when no other subsystem attached a ref to it.
+func (p *PDPService) releaseDirectUploadClaim(ctx context.Context, uploadID string, pieceRefID, parkedPieceID int64) error {
+	removePiece := false
+	committed, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		removePiece = false
+		n, err := tx.Exec(`
+			UPDATE pdp_piece_uploads
+			SET piece_ref = NULL, created_at = NOW()
+			WHERE id = $1 AND piece_ref = $2
+		`, uploadID, pieceRefID)
+		if err != nil {
+			return false, fmt.Errorf("failed to release upload claim: %w", err)
+		}
+		if n == 0 {
+			var finalized bool
+			err = tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM pdp_piecerefs WHERE piece_ref = $1)`, pieceRefID).Scan(&finalized)
+			if err != nil {
+				return false, fmt.Errorf("failed to check direct upload finalization: %w", err)
+			}
+			if finalized {
+				return true, nil
+			}
+		}
+		if n > 1 {
+			return false, fmt.Errorf("failed to release upload claim: expected 1 row, got %d", n)
+		}
+
+		_, err = tx.Exec(`DELETE FROM parked_piece_refs WHERE ref_id = $1 AND piece_id = $2`, pieceRefID, parkedPieceID)
+		if err != nil {
+			return false, fmt.Errorf("failed to delete direct upload ref: %w", err)
+		}
+
+		n, err = tx.Exec(`
+			DELETE FROM parked_pieces pp
+			WHERE pp.id = $1
+			  AND pp.complete = FALSE
+			  AND pp.skip = TRUE
+			  AND NOT EXISTS (
+				  SELECT 1 FROM parked_piece_refs ppr WHERE ppr.piece_id = pp.id
+			  )
+		`, parkedPieceID)
+		if err != nil {
+			return false, fmt.Errorf("failed to delete abandoned parked piece: %w", err)
+		}
+		removePiece = n == 1
+
+		// Pull or another subsystem may have attached a usable source while the
+		// direct upload was running. Let StorePiece take over in that case.
+		if !removePiece {
+			_, err = tx.Exec(`
+			UPDATE parked_pieces pp
+			SET skip = FALSE
+			WHERE pp.id = $1
+			  AND pp.complete = FALSE
+			  AND pp.skip = TRUE
+			  AND EXISTS (
+				  SELECT 1 FROM parked_piece_refs ppr
+				  WHERE ppr.piece_id = pp.id AND ppr.data_url IS NOT NULL
+			  )
+			`, parkedPieceID)
+			if err != nil {
+				return false, fmt.Errorf("failed to release parked piece to StorePiece: %w", err)
+			}
+		}
+		return true, nil
+	}, harmonydb.OptionRetry())
+	if err != nil {
+		return err
+	}
+	if !committed {
+		return errors.New("failed to commit direct upload claim release")
+	}
+	if removePiece {
+		if err := p.pieceIO.RemovePiece(ctx, storiface.PieceNumber(parkedPieceID)); err != nil {
+			return fmt.Errorf("failed to remove abandoned piece %d: %w", parkedPieceID, err)
+		}
+	}
+	return nil
+}
+
+func (p *PDPService) cleanupExpiredDirectUploadClaims(ctx context.Context) error {
+	var claims []struct {
+		UploadID      string `db:"upload_id"`
+		PieceRefID    int64  `db:"piece_ref_id"`
+		ParkedPieceID int64  `db:"parked_piece_id"`
+	}
+	err := p.db.Select(ctx, &claims, `
+		SELECT pu.id::TEXT AS upload_id,
+		       pu.piece_ref AS piece_ref_id,
+		       pp.id AS parked_piece_id
+		FROM pdp_piece_uploads pu
+		JOIN parked_piece_refs ppr ON ppr.ref_id = pu.piece_ref
+		JOIN parked_pieces pp ON pp.id = ppr.piece_id
+		WHERE pu.piece_ref IS NOT NULL
+		  AND pu.created_at <= NOW() - INTERVAL '1 hour'
+		  AND ppr.data_url IS NULL
+		  AND pp.complete = FALSE
+		  AND pp.skip = TRUE
+		ORDER BY pu.created_at, pu.id
+		LIMIT 256
+	`)
+	if err != nil {
+		return fmt.Errorf("select expired direct upload claims: %w", err)
+	}
+
+	var cleanupErr error
+	for _, claim := range claims {
+		if err := p.releaseDirectUploadClaim(ctx, claim.UploadID, claim.PieceRefID, claim.ParkedPieceID); err != nil {
+			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("release expired upload %s: %w", claim.UploadID, err))
+		}
+	}
+	return cleanupErr
+}
 
 func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 	// Verify that the request is authorized using ECDSA JWT
@@ -116,16 +416,10 @@ func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 			}
 			log.Debugw("[handlePiecePost] -- new parked piece ref", "parkedPieceRefID", parkedPieceRefID, "pieceCidV1", pieceCidV1)
 
-			// Create a new 'pdp_piece_uploads' entry pointing to the 'parked_piece_refs' entry
-			uploadUUID = uuid.New()
-			_, err = tx.Exec(`
-                INSERT INTO pdp_piece_uploads (id, service, piece_cid, notify_url, piece_ref, check_hash_codec, check_hash, check_size)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-            `, uploadUUID.String(), serviceID, pieceCidV1.String(), req.Notify, parkedPieceRefID, multicodec.Sha2_256Trunc254Padded.String(), dmh.Digest, size)
-			if err != nil {
-				return false, fmt.Errorf("failed to insert into pdp_piece_uploads: %w", err)
+			if err := insertPDPReference(tx, serviceID, pieceCidV1.String(), parkedPieceRefID, int64(size)); err != nil {
+				return false, err
 			}
-			log.Debugw("[handlePiecePost] -- new pdp_piece_uploads", "uploadUUID", uploadUUID, "pieceCidV1", pieceCidV1)
+			log.Debugw("[handlePiecePost] -- new pdp_piecerefs", "parkedPieceRefID", parkedPieceRefID, "pieceCidV1", pieceCidV1)
 
 			responseStatus = http.StatusOK
 			return true, nil // Commit the transaction
@@ -189,15 +483,16 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 	log.Debugw("[handlePieceUpload] -- upload started", "uploadUUID", uploadUUID)
 	ctx := r.Context()
 
-	// Lookup the expected pieceCID, notify_url, and piece_ref from the database using uploadUUID
-	var pieceCIDStr *string
-	var notifyURL string
+	// Lookup the expected piece and current claim from the database.
+	var serviceID string
+	var pieceCIDStr string
 	var checkSize int64
-
 	var pieceRef sql.NullInt64
 	err = p.db.QueryRow(ctx, `
-        SELECT piece_cid, notify_url, piece_ref, check_size FROM pdp_piece_uploads WHERE id = $1
-    `, uploadUUID.String()).Scan(&pieceCIDStr, &notifyURL, &pieceRef, &checkSize)
+		SELECT service, piece_cid, piece_ref, check_size
+		FROM pdp_piece_uploads
+		WHERE id = $1
+	`, uploadUUID.String()).Scan(&serviceID, &pieceCIDStr, &pieceRef, &checkSize)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			httpServerError(w, http.StatusNotFound, "Upload UUID not found", err)
@@ -207,156 +502,100 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Debugw("[handlePieceUpload] -- upload lookup done", "uploadUUID", uploadUUID)
-	// Check that piece_ref is null; non-null means data was already uploaded
+	// A non-null ref is an active direct-write claim (or a completed legacy upload).
 	if pieceRef.Valid {
 		httpServerError(w, http.StatusConflict, "Data has already been uploaded", err)
 		return
 	}
 
-	pieceCidV1, err := cid.Parse(*pieceCIDStr)
+	pieceCidV1, err := cid.Parse(pieceCIDStr)
 	if err != nil {
 		httpServerError(w, http.StatusInternalServerError, "Failed to convert piece CID (v1): "+err.Error(), err)
 		return
 	}
-	dmh, err := multihash.Decode(pieceCidV1.Hash())
+	paddedSize := PadPieceSize(checkSize)
+	claim, err := p.claimDirectUpload(ctx, uploadUUID.String(), serviceID, pieceCidV1.String(), checkSize, paddedSize)
 	if err != nil {
-		httpServerError(w, http.StatusInternalServerError, "Failed to decode piece CID: "+err.Error(), err)
+		switch {
+		case errors.Is(err, errUploadInProgress):
+			httpServerError(w, http.StatusConflict, "This piece is already being uploaded", err)
+		case errors.Is(err, errUploadClaimed):
+			httpServerError(w, http.StatusConflict, "Data has already been uploaded", err)
+		default:
+			httpServerError(w, http.StatusInternalServerError, "Failed to claim piece upload", err)
+		}
+		return
+	}
+	if claim.complete {
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 
-	declaredPieceSize := checkSize
-
-	// Create a commp.Calc instance for calculating commP
-	cp := &commp.Calc{}
-	defer cp.Reset()
-	readSize := int64(0)
-
-	// Function to write data into StashStore and calculate commP
-	writeFunc := func(f *os.File) error {
-		limitedReader := io.LimitReader(r.Body, declaredPieceSize+1) // +1 to detect exceeding the limit
-		multiWriter := io.MultiWriter(cp, f)
-
-		// Copy data from limitedReader to multiWriter
-		n, err := io.Copy(multiWriter, limitedReader)
-		if err != nil {
-			return fmt.Errorf("failed to read and write piece data: %w", err)
-		}
-
-		if n > declaredPieceSize {
-			return fmt.Errorf("read %d bytes, declared %d: %w", n, declaredPieceSize, ErrExceedsDeclaredSize)
-		}
-
-		readSize = n
-
-		return nil
-	}
-	// Upload into StashStore
-	stashID, err := p.storage.StashCreate(ctx, declaredPieceSize, writeFunc)
-	if err != nil {
-		if errors.Is(err, ErrExceedsDeclaredSize) {
-			msg := fmt.Sprintf("piece data exceeds the size declared in pieceCid (%d bytes)", declaredPieceSize)
-			httpServerError(w, http.StatusBadRequest, msg, err)
+	cleanupClaim := true
+	defer func() {
+		if !cleanupClaim {
 			return
+		}
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		if err := p.releaseDirectUploadClaim(cleanupCtx, uploadUUID.String(), claim.pieceRefID, claim.parkedPieceID); err != nil {
+			log.Errorw("failed to release direct upload claim", "uploadUUID", uploadUUID, "piece", claim.parkedPieceID, "error", err)
+		}
+	}()
+
+	bodyReader := NewTimeoutLimitReader(r.Body, 5*time.Second)
+	exactReader := &exactSizeReader{r: bodyReader, remaining: checkSize}
+	pieceInfo, readSize, err := p.pieceIO.WriteUploadPiece(
+		ctx,
+		storiface.PieceNumber(claim.parkedPieceID),
+		checkSize,
+		exactReader,
+		storiface.PathStorage,
+		true,
+	)
+	if err != nil {
+		if errors.Is(err, errPieceTooShort) {
+			httpServerError(w, http.StatusBadRequest, "Piece size does not match the expected size", err)
 		} else {
-			log.Errorw("Failed to store piece data in StashStore", "error", err)
+			log.Errorw("failed to write uploaded piece directly to storage", "uploadUUID", uploadUUID, "error", err)
 			httpServerError(w, http.StatusInternalServerError, "Failed to store piece data", err)
-			return
 		}
+		return
 	}
-	log.Debugw("[handlePieceUpload] -- uploaded into StashStore", "uploadUUID", uploadUUID)
+	if readSize != uint64(checkSize) {
+		httpServerError(w, http.StatusBadRequest, "Piece size does not match the expected size", nil)
+		return
+	}
 
-	// Finalize the commP calculation
-	digest, paddedPieceSize, err := cp.Digest()
+	hasExtra, err := readHasExtraByte(bodyReader)
 	if err != nil {
-		// Remove the stash file as the data is invalid
-		_ = p.storage.StashRemove(ctx, stashID)
-		httpServerError(w, http.StatusInternalServerError, "Failed to finalize commP calculation", err)
+		httpServerError(w, http.StatusInternalServerError, "Failed to verify uploaded piece size", err)
+		return
+	}
+	if hasExtra {
+		msg := fmt.Sprintf("piece data exceeds the size declared in pieceCid (%d bytes)", checkSize)
+		httpServerError(w, http.StatusBadRequest, msg, ErrExceedsDeclaredSize)
+		return
+	}
+	if !pieceInfo.PieceCID.Equals(pieceCidV1) {
+		log.Warnw("computed piece CID does not match expected piece CID", "computed", pieceInfo.PieceCID, "expected", pieceCidV1, "uploadUUID", uploadUUID)
+		httpServerError(w, http.StatusBadRequest, "Computed piece CID does not match expected piece CID", nil)
+		return
+	}
+	if pieceInfo.Size != abi.PaddedPieceSize(paddedSize) {
+		httpServerError(w, http.StatusBadRequest, "Computed padded piece size does not match expected piece size", nil)
 		return
 	}
 
-	if readSize != checkSize {
-		log.Debugw("[handlePieceUpload] -- piece size does not match the expected size removing from stash store", "uploadUUID", uploadUUID)
-		_ = p.storage.StashRemove(ctx, stashID)
-		httpServerError(w, http.StatusBadRequest, "Piece size does not match the expected size", err)
+	finalizeCtx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	if err := p.finalizeDirectUpload(finalizeCtx, uploadUUID.String(), serviceID, pieceCidV1.String(), claim, checkSize); err != nil {
+		httpServerError(w, http.StatusInternalServerError, "Failed to finalize piece upload", err)
 		return
 	}
-
-	outHash := digest
-
-	if !bytes.Equal(outHash, dmh.Digest) {
-		log.Debugw("[handlePieceUpload] -- computed hash does not match expected hash removing from stash store", "uploadUUID", uploadUUID)
-		// Remove the stash file as the data is invalid
-		_ = p.storage.StashRemove(ctx, stashID)
-		log.Warnw("Computed hash does not match expected hash", "computed", hex.EncodeToString(outHash), "expected", hex.EncodeToString(dmh.Digest), "pieceCid", pieceCidV1.String())
-		httpServerError(w, http.StatusBadRequest, "Computed hash does not match expected hash", err)
-		return
-	}
-
-	// Convert commP digest into a piece CID
-	pieceCIDComputed, err := commcid.DataCommitmentV1ToCID(digest)
-	if err != nil {
-		// Remove the stash file as the data is invalid
-		_ = p.storage.StashRemove(ctx, stashID)
-		httpServerError(w, http.StatusInternalServerError, "Failed to convert commP to CID", err)
-		return
-	}
-
-	// Compare the computed piece CID with the expected one from the database
-	if pieceCIDStr != nil && pieceCIDComputed.String() != *pieceCIDStr {
-		log.Debugw("[handlePieceUpload] -- computed piece CID does not match expected piece CID removing from stash store", "uploadUUID", uploadUUID)
-		// Remove the stash file as the data is invalid
-		_ = p.storage.StashRemove(ctx, stashID)
-		httpServerError(w, http.StatusBadRequest, "Computed piece CID does not match expected piece CID", err)
-		return
-	}
-
-	didCommit, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
-		// 1. Create a long-term parked piece entry
-		parkedPieceID, err := parkpiece.Upsert(tx, pieceCIDComputed.String(), int64(paddedPieceSize), readSize, true)
-		if err != nil {
-			return false, fmt.Errorf("failed to create parked_pieces entry: %w", err)
-		}
-		log.Debugw("[handlePieceUpload] -- parked pieces entry created", "uploadUUID", uploadUUID)
-		// 2. Create a piece ref with data_url being "stashstore://<stash-url>"
-		// Get StashURL
-		stashURL, err := p.storage.StashURL(stashID)
-		if err != nil {
-			return false, fmt.Errorf("failed to get stash URL: %w", err)
-		}
-
-		// Change scheme to "custore"
-		stashURL.Scheme = dealdata.CustoreScheme
-		dataURL := stashURL.String()
-
-		var pieceRefID int64
-		err = tx.QueryRow(`
-            INSERT INTO parked_piece_refs (piece_id, data_url, long_term)
-            VALUES ($1, $2, TRUE) RETURNING ref_id
-        `, parkedPieceID, dataURL).Scan(&pieceRefID)
-		if err != nil {
-			return false, fmt.Errorf("failed to create parked_piece_refs entry: %w", err)
-		}
-		log.Debugw("[handlePieceUpload] -- parked piece ref created", "uploadUUID", uploadUUID)
-		// 3. Update the pdp_piece_uploads entry to contain the created piece_ref
-		_, err = tx.Exec(`
-            UPDATE pdp_piece_uploads SET piece_ref = $1, piece_cid = $2 WHERE id = $3
-        `, pieceRefID, pieceCIDComputed.String(), uploadUUID.String())
-		if err != nil {
-			return false, fmt.Errorf("failed to update pdp_piece_uploads: %w", err)
-		}
-		log.Debugw("[handlePieceUpload] -- pdp_piece_uploads entry updated", "uploadUUID", uploadUUID)
-		return true, nil // Commit the transaction
-	}, harmonydb.OptionRetry())
-
-	if err != nil || !didCommit {
-		// Remove the stash file as the transaction failed
-		_ = p.storage.StashRemove(ctx, stashID)
-		httpServerError(w, http.StatusInternalServerError, "Failed to process piece upload", err)
-		return
-	}
+	cleanupClaim = false
 
 	log.Debugw("[handlePieceUpload] -- piece upload done, writing response", "uploadUUID", uploadUUID)
-	// Respond with 204 No Content
 	w.WriteHeader(http.StatusNoContent)
 }
 

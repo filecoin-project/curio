@@ -14,6 +14,7 @@ import (
 
 	"github.com/filecoin-project/curio/cuhttp/servicedeps"
 	"github.com/filecoin-project/curio/deps"
+	"github.com/filecoin-project/curio/lib/piecestore"
 	mhttp "github.com/filecoin-project/curio/market/http"
 	"github.com/filecoin-project/curio/market/libp2p"
 	"github.com/filecoin-project/curio/pdp"
@@ -99,6 +100,7 @@ func attachRouters(ctx context.Context, r *chi.Mux, d *deps.Deps, sd *ServiceDep
 		if err := pdp.MountRoutes(ctx, r, pdp.MountDeps{
 			DB:         d.DB,
 			LocalStore: d.LocalStore,
+			PieceIO:    piecestore.New(d.Stor, d.LocalStore, d.Si),
 			EthClient:  must.One(d.EthClient.Get()),
 			Chain:      d.Chain,
 			EthSender:  sd.EthSender,
