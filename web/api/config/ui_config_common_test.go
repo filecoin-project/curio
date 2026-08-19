@@ -65,7 +65,7 @@ func TestMustEncodeTOMLUnwrapsDynamics(t *testing.T) {
 func TestPrepareCurioLayerSaveRepairsEmptyDynamicTables(t *testing.T) {
 	submitted := map[string]any{
 		"Subsystems": map[string]any{
-			"EnablePDP":                     true,
+			"EnablePDP":                   true,
 			"PDPUnclaimedUploadKeepHours": map[string]any{},
 		},
 	}
