@@ -6,6 +6,16 @@ description: Curio command-line interface
 
 Curio ships with 2 binaries called `curio` and `sptool` by default.
 
+## Storage Provider Address (`SP_ADDRESS`)
+
+Most `sptool` commands require a miner actor address and will not run without one. Set `SP_ADDRESS` in your environment so you do not have to pass `--actor` on every command:
+
+```bash
+export SP_ADDRESS=f01234
+```
+
+You can still override the address for a single command with `--actor`. Without `SP_ADDRESS` or `--actor`, `sptool` refuses to run.
+
 ## Curio Binary
 
 The command line interface (CLI) for Curio operates slightly differently from typical software. Some commands, such as those related to storage, make API calls in the backend, while others interact directly with the database to perform the required actions.
@@ -23,5 +33,7 @@ The `curio` CLI references can be found [here](curio.md).
 ## Sptool Binary
 
 Certain administrative and monitoring operations require updating or fetching information about the minerID from the chain. These operations do not need access to the database and therefore are not included in the Curio binary. Instead, these commands are hosted under the `sptool` binary. The `sptool` binary provides an interface with the Filecoin blockchain for operations required by a storage provider.
+
+`sptool` requires a miner actor on every command. Set [`SP_ADDRESS`](#storage-provider-address-sp_address) (or pass `--actor`) before using it.
 
 The `sptool` CLI references can be found [here](sptool.md).<br>
