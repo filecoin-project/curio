@@ -8,6 +8,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/core/types"
+	logging "github.com/ipfs/go-log/v2"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
@@ -23,6 +24,8 @@ import (
 
 	chainTypes "github.com/filecoin-project/lotus/chain/types"
 )
+
+var log = logging.Logger("pdp")
 
 type InitProvingPeriodTask struct {
 	db        *harmonydb.DB

@@ -26,6 +26,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/lib/paths"
+	"github.com/filecoin-project/curio/lib/piecestore"
 	ipni_provider "github.com/filecoin-project/curio/market/ipni/ipni-provider"
 	"github.com/filecoin-project/curio/pdp/contract"
 	pdpwallet "github.com/filecoin-project/curio/pdp/wallet"
@@ -76,6 +77,7 @@ type PDPService struct {
 	Auth
 	db      *harmonydb.DB
 	storage paths.StashStore
+	pieceIO piecestore.PieceIO
 
 	sender    ETHTxSender
 	ethClient ethchain.EthClient
@@ -99,6 +101,7 @@ func NewPDPService(
 	ctx context.Context,
 	db *harmonydb.DB,
 	stor paths.StashStore,
+	pieceIO piecestore.PieceIO,
 	ec ethchain.EthClient,
 	fc PDPServiceNodeApi,
 	sn ETHTxSender,
@@ -112,6 +115,7 @@ func NewPDPService(
 		Auth:    auth,
 		db:      db,
 		storage: stor,
+		pieceIO: pieceIO,
 
 		sender:    sn,
 		ethClient: ec,
@@ -1345,6 +1349,10 @@ func (p *PDPService) handleGetDataSetPiece(w http.ResponseWriter, r *http.Reques
 
 func (p *PDPService) cleanup(ctx context.Context) {
 	rm := func(ctx context.Context, db *harmonydb.DB) {
+		if err := p.cleanupExpiredDirectUploadClaims(ctx); err != nil {
+			log.Errorw("failed to clean up expired direct upload claims", "error", err)
+		}
+
 		var RefIDs []int64
 
 		err := db.QueryRow(ctx, `SELECT COALESCE(array_agg(piece_ref), '{}') AS ref_ids
