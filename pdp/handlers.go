@@ -1114,6 +1114,43 @@ func (p *PDPService) handleDeleteDataSetPiece(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	// Removals can only be drained once the data set has a proving schedule: the
+	// drain waits for the challenge window to close, and there is no window
+	// without one. Accepting a removal before then would build a queue that can
+	// never be drained, while blocking initProvingPeriod from ever succeeding.
+	var proveAtEpoch sql.NullInt64
+	err = p.db.QueryRow(ctx, `SELECT prove_at_epoch FROM pdp_data_sets WHERE id = $1`, dataSetId).Scan(&proveAtEpoch)
+	if err != nil {
+		httpServerError(w, http.StatusInternalServerError, "Failed to read data set proving schedule", err)
+		return
+	}
+	if !proveAtEpoch.Valid {
+		http.Error(w, fmt.Sprintf("data set %d has not started proving yet; retry once its first proving period is initialized", dataSetId),
+			http.StatusTooManyRequests)
+		return
+	}
+
+	// A drain transaction in flight means the queue is mid-processing. Adding to
+	// it now re-fills what is being drained and pushes the proving-period
+	// rollover further out, so refuse until the drain settles.
+	//
+	// Keyed on an in-flight message rather than the mere presence of a drain
+	// row: the migration seeds a row for every data set, so row existence would
+	// refuse every deletion until that sweep completed.
+	var draining bool
+	err = p.db.QueryRow(ctx, `
+		SELECT EXISTS (SELECT 1 FROM pdpv0_deletion_drain WHERE data_set = $1 AND msg_hash IS NOT NULL)
+	`, dataSetId).Scan(&draining)
+	if err != nil {
+		httpServerError(w, http.StatusInternalServerError, "Failed to read removal drain state", err)
+		return
+	}
+	if draining {
+		http.Error(w, fmt.Sprintf("data set %d is draining previously scheduled removals; retry once they are processed", dataSetId),
+			http.StatusTooManyRequests)
+		return
+	}
+
 	// Soft gate: refuse if the data set's on-chain removal queue is already at our
 	// conservative ceiling. This keeps us well clear of the on-chain MAX_ENQUEUED_REMOVALS.
 	pdpVerifier, err := contract.NewPDPVerifier(contract.ContractAddresses().PDPVerifier, p.ethClient)
@@ -1127,7 +1164,7 @@ func (p *PDPService) handleDeleteDataSetPiece(w http.ResponseWriter, r *http.Req
 		return
 	}
 	if len(queued) >= contract.ConservativeEnqueuedRemovalsLimit {
-		http.Error(w, fmt.Sprintf("data set %d already has %d scheduled removals queued (limit %d); retry after the next proving period flushes the queue",
+		http.Error(w, fmt.Sprintf("data set %d already has %d scheduled removals queued (limit %d); retry once they have been processed",
 			dataSetId, len(queued), contract.ConservativeEnqueuedRemovalsLimit), http.StatusTooManyRequests)
 		return
 	}
@@ -1206,6 +1243,19 @@ func (p *PDPService) handleDeleteDataSetPiece(w http.ResponseWriter, r *http.Req
 			log.Errorw("Failed to update rm_message_hash in pdp_data_set_pieces", "dataSetId", dataSetId, "pieceIDs", pieceIDsI64, "error", err)
 			return false, err
 		}
+
+		// PDPVerifier no longer applies scheduled removals inside
+		// nextProvingPeriod, so the data set needs an explicit drain before it
+		// can roll over. Enqueue it in the same transaction as the send.
+		_, err = tx.Exec(`
+			INSERT INTO pdpv0_deletion_drain (data_set)
+			VALUES ($1)
+			ON CONFLICT (data_set) DO UPDATE SET blocked_at = NULL`, dataSetId)
+		if err != nil {
+			log.Errorw("Failed to enqueue removal drain", "dataSetId", dataSetId, "error", err)
+			return false, err
+		}
+
 		log.Infow("scheduled user requested deletion", "dataSetId", dataSetId, "pieceIDs", pieceIDsI64, "txHash", txHashLower)
 
 		return true, nil

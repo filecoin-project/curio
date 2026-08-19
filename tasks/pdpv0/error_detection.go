@@ -31,6 +31,15 @@ var (
 	ErrPDPVerifierDataSetNotLive             abi.Error
 	ErrPDPVerifierInsufficientChallengeDelay abi.Error
 
+	// Removal-queue errors from FilOzone/pdp#297. These resolve against the
+	// hand-maintained ABI fragment in pdp/contract/removals.go until the
+	// generated PDPVerifier bindings carry them.
+	ErrPDPVerifierPendingPieceDeletions     abi.Error
+	ErrPDPVerifierInvalidPieceDeletionBatch abi.Error
+	ErrPDPVerifierEmptyRemovalBatch         abi.Error
+	ErrPDPVerifierOnlyStorageProvider       abi.Error
+	ErrPDPVerifierNoPiecesToProve           abi.Error
+
 	// Unexpected proving invariant errors. Curio should not produce these in
 	// normal PDPv0 initPP/nextPP/prove flow; classify them explicitly so they
 	// alert and require investigation instead of entering recovery/backoff paths.
@@ -75,6 +84,33 @@ func init() {
 	ErrPDPVerifierExcessiveChallengeDelay, ok = parsedPDPVerifier.Errors["ExcessiveChallengeDelay"]
 	if !ok {
 		panic("PDPVerifier ABI missing ExcessiveChallengeDelay error")
+	}
+
+	removalQueue := contract.RemovalQueueABI()
+
+	ErrPDPVerifierPendingPieceDeletions, ok = removalQueue.Errors["PendingPieceDeletions"]
+	if !ok {
+		panic("PDPVerifier removal ABI missing PendingPieceDeletions error")
+	}
+
+	ErrPDPVerifierInvalidPieceDeletionBatch, ok = removalQueue.Errors["InvalidPieceDeletionBatch"]
+	if !ok {
+		panic("PDPVerifier removal ABI missing InvalidPieceDeletionBatch error")
+	}
+
+	ErrPDPVerifierEmptyRemovalBatch, ok = removalQueue.Errors["EmptyRemovalBatch"]
+	if !ok {
+		panic("PDPVerifier removal ABI missing EmptyRemovalBatch error")
+	}
+
+	ErrPDPVerifierOnlyStorageProvider, ok = removalQueue.Errors["OnlyStorageProvider"]
+	if !ok {
+		panic("PDPVerifier removal ABI missing OnlyStorageProvider error")
+	}
+
+	ErrPDPVerifierNoPiecesToProve, ok = removalQueue.Errors["NoPiecesToProve"]
+	if !ok {
+		panic("PDPVerifier removal ABI missing NoPiecesToProve error")
 	}
 
 	parsedFWSS, err := FWSS.FilecoinWarmStorageServiceMetaData.GetAbi()
@@ -214,11 +250,63 @@ func IsProvingPeriodNotInitializedError(err error) bool {
 
 // IsNextProvingPeriodEmptyDatasetError returns true when PDPVerifier refuses to
 // start the next proving period because the current proving set has no leaves.
+//
+// Both encodings are matched because one Curio build spans two contract
+// versions: the condition is a string revert before FilOzone/pdp#297 and the
+// NoPiecesToProve custom error afterwards. The underlying requirement --
+// dataSetLeafCount > 0 -- is the same, so neither form can be dropped until no
+// deployment runs the older contract.
 func IsNextProvingPeriodEmptyDatasetError(err error) bool {
 	if err == nil {
 		return false
 	}
-	return strings.Contains(strings.ToLower(err.Error()), strings.ToLower(provingRevertNoLeavesForProvingPeriod))
+	errStr := strings.ToLower(err.Error())
+	return strings.Contains(errStr, strings.ToLower(provingRevertNoLeavesForProvingPeriod)) ||
+		strings.Contains(errStr, contractErrorSelector(ErrPDPVerifierNoPiecesToProve))
+}
+
+// IsPendingPieceDeletionsError returns true when nextProvingPeriod (or initPP)
+// refuses to roll over because the data set still has scheduled removals
+// queued. This is recoverable: the drain task processes the queue and the
+// proving-period task retries.
+func IsPendingPieceDeletionsError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), contractErrorSelector(ErrPDPVerifierPendingPieceDeletions))
+}
+
+// IsStaleRemovalQueueViewError returns true when processPieceDeletions rejects
+// the requested batch because Curio's view of the queue is out of date -- the
+// queue shrank, or emptied, between the read and the send. Re-reading the queue
+// and retrying is the correct response.
+func IsStaleRemovalQueueViewError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := strings.ToLower(err.Error())
+	return strings.Contains(errStr, contractErrorSelector(ErrPDPVerifierInvalidPieceDeletionBatch)) ||
+		strings.Contains(errStr, contractErrorSelector(ErrPDPVerifierEmptyRemovalBatch))
+}
+
+// IsOnlyStorageProviderError returns true when PDPVerifier rejects a removal
+// call because the sender is not the data set's storage provider. This needs
+// operator attention rather than a retry.
+func IsOnlyStorageProviderError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), contractErrorSelector(ErrPDPVerifierOnlyStorageProvider))
+}
+
+// IsPDPVerifierDataSetNotLive returns true when PDPVerifier reports that a data
+// set is no longer live. In the removal pipeline this means the data set is
+// being deleted or cleaned up, so its removal queue no longer matters.
+func IsPDPVerifierDataSetNotLive(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), contractErrorSelector(ErrPDPVerifierDataSetNotLive))
 }
 
 // IsRefreshProvingStateError returns true when initPP/nextPP selected a

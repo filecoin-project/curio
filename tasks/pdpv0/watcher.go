@@ -24,6 +24,7 @@ const (
 	WatcherOrderPaymentSettle
 	WatcherOrderDelete
 	WatcherOrderCleanupPieces
+	WatcherOrderProcessDeletions
 	WatcherOrderProving
 )
 
@@ -34,6 +35,7 @@ var watcherOrders = []WatcherOrder{
 	WatcherOrderPaymentSettle,
 	WatcherOrderDelete,
 	WatcherOrderCleanupPieces,
+	WatcherOrderProcessDeletions,
 	WatcherOrderProving,
 }
 

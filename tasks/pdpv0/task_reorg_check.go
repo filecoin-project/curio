@@ -51,6 +51,9 @@ const (
 	reasonPDPTerminateDataSet = "pdp-terminate-data-set"
 )
 
+// reasonPDPProcessDeletions is declared in task_process_deletions.go alongside
+// the task that sends it.
+
 var pdpv0SendReasons = []string{
 	reasonPDPMkDataset,
 	reasonPDPCreateAndAdd,
@@ -61,6 +64,7 @@ var pdpv0SendReasons = []string{
 	reasonPDPProve,
 	reasonPDPTerminateSvc,
 	reasonPDPTerminateDataSet,
+	reasonPDPProcessDeletions,
 }
 
 // ReorgCheckFilAPI is the minimal Filecoin API needed for finality depth.
@@ -446,6 +450,8 @@ func (t *ReorgCheckTask) rollbackByReasonTx(ctx context.Context, tx *harmonydb.T
 		return t.rollbackAddPiecesTx(ctx, tx, txHash)
 	case reasonPDPDeletePiece:
 		return t.rollbackDeletePieceTx(ctx, tx, txHash)
+	case reasonPDPProcessDeletions:
+		return t.rollbackProcessDeletionsTx(ctx, tx, txHash)
 	case reasonPDPProvingInit, reasonPDPProvingPeriod:
 		return t.rollbackProvingPeriodTx(ctx, tx, txHash)
 	case reasonPDPProve:
@@ -549,6 +555,61 @@ func (t *ReorgCheckTask) rollbackDeletePieceTx(ctx context.Context, tx *harmonyd
 			"tx", txHash, "lost_piecerefs", lostRefs)
 	}
 	return fmt.Sprintf("deletePiece rollback log-only would_unmark_rows=%d piecerefs_already_missing=%d", n, lostRefs), nil
+}
+
+// rollbackProcessDeletionsTx handles a reorged-out processPieceDeletions send.
+//
+// The removals did not apply, so the pieces are live and re-queued on-chain and
+// any local removed=TRUE for them is wrong. Clearing the drain row's msg_hash is
+// safe and sufficient to resume: the drain task re-reads the on-chain queue and
+// will process whatever is actually there.
+//
+// Unmarking pieces is deliberately log-only, matching rollbackDeletePieceTx.
+// That is also where the real hazard is: piece GC keys off removed=TRUE and
+// deletes the underlying data, so if it has already run the local state cannot
+// be repaired regardless of what this does.
+func (t *ReorgCheckTask) rollbackProcessDeletionsTx(ctx context.Context, tx *harmonydb.Tx, txHash string) (string, error) {
+	var dataSets []struct {
+		DataSet int64 `db:"data_set"`
+	}
+	err := tx.Select(&dataSets, `SELECT data_set FROM pdpv0_deletion_drain WHERE LOWER(msg_hash) = $1`, txHash)
+	if err != nil {
+		return "", err
+	}
+
+	n, err := tx.Exec(`
+		UPDATE pdpv0_deletion_drain
+		SET msg_hash = NULL, blocked_at = NULL
+		WHERE LOWER(msg_hash) = $1`, txHash)
+	if err != nil {
+		return "", err
+	}
+
+	lostRefs := 0
+	for _, ds := range dataSets {
+		var cnt int
+		err = tx.QueryRow(`
+			SELECT COUNT(*) FROM pdp_data_set_pieces p
+			WHERE p.data_set = $1
+			  AND p.removed = TRUE
+			  AND NOT EXISTS (SELECT 1 FROM pdp_piecerefs r WHERE r.id = p.pdp_pieceref)`, ds.DataSet).Scan(&cnt)
+		if err != nil {
+			return "", err
+		}
+		lostRefs += cnt
+	}
+
+	if err := t.markWaitReorged(ctx, tx, txHash); err != nil {
+		return "", err
+	}
+
+	logReorgCheck.Warnw("reorg processPieceDeletions rollback cleared drain message",
+		"tx", txHash, "drain_rows_reset", n, "data_sets", len(dataSets))
+	if lostRefs > 0 {
+		logReorgCheck.Errorw("reorg processPieceDeletions rollback found removed pieces whose pieceref data is already cleaned up — possible DATA LOSS",
+			"tx", txHash, "lost_piecerefs", lostRefs)
+	}
+	return fmt.Sprintf("processPieceDeletions rollback drain_rows_reset=%d piecerefs_already_missing=%d", n, lostRefs), nil
 }
 
 func (t *ReorgCheckTask) rollbackProvingPeriodTx(ctx context.Context, tx *harmonydb.Tx, txHash string) (string, error) {

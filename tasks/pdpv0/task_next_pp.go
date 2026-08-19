@@ -128,6 +128,20 @@ func (n *NextProvingPeriodTask) Do(ctx context.Context, taskID harmonytask.TaskI
 		}
 	}()
 
+	// PDPVerifier reverts nextProvingPeriod while scheduled removals remain, so
+	// there is no point sending one while a drain is in flight. The drain
+	// watcher runs in an earlier phase; complete here and let the next tipset
+	// re-schedule this task. A queue with no drain in flight is handled by the
+	// PendingPieceDeletions revert instead.
+	draining, err := hasDrainInFlight(ctx, n.db, dataSetId)
+	if err != nil {
+		return false, err
+	}
+	if draining {
+		log.Debugw("deferring nextProvingPeriod until scheduled removals are drained", "dataSetId", dataSetId)
+		return true, nil
+	}
+
 	// Get the listener address for this data set from the PDPVerifier contract
 	pdpVerifier, err := contract.NewPDPVerifier(contract.ContractAddresses().PDPVerifier, n.ethClient)
 	if err != nil {
@@ -440,6 +454,17 @@ func (n *NextProvingPeriodTask) handleNextProvingPeriodPreflightError(ctx contex
 
 func handleNextProvingPeriodSendError(ctx context.Context, tx *harmonydb.Tx, provingSchedule *contract.IPDPProvingSchedule, al curioalerting.AlertingInterface, alertSubsystem string, dataSetId int64, currentHeight int64, sendErr error) error {
 	switch {
+	case IsPendingPieceDeletionsError(sendErr):
+		// PDPVerifier will not roll over while scheduled removals remain. This
+		// is recoverable and expected whenever a drain has not finished: make
+		// sure the data set is queued for draining and retry the task. It must
+		// not reach disableProvingForEmptyDataset or any terminal path.
+		if err := enqueueDeletionDrain(tx, dataSetId); err != nil {
+			return err
+		}
+		log.Warnw("Proving period scheduling blocked by pending piece deletions; draining first",
+			"dataSetId", dataSetId, "subsystem", alertSubsystem, "height", currentHeight, "error", sendErr)
+		return sendErr
 	case IsInsufficientChallengeDelayError(sendErr):
 		// The challenge epoch was too close to the current block. Retry the
 		// task so it recomputes challenge state and calldata instead of
