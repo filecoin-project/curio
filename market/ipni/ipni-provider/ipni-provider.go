@@ -87,6 +87,11 @@ type peerInfo struct {
 	// implies every earlier ad is also indexed - only the head needs checking.
 	syncedOrderNumber int64
 	syncedAt          *time.Time
+
+	// syncTarget* pin the ad checkSyncStatus is waiting to see confirmed.
+	syncTargetOrderNumber int64
+	syncTargetAdCid       cid.Cid
+	syncTargetAnnouncedAt *time.Time
 }
 
 // Provider represents a provider for IPNI.
@@ -836,24 +841,30 @@ func (p *Provider) checkSyncStatus(ctx context.Context) {
 		announcedAt *time.Time // nil for a seeded, not observed, announce
 	}
 
-	p.mu.RLock()
+	p.mu.Lock()
 	var todo []pending
 	for provider, info := range p.providerInfos {
-		if info.announcedOrderNumber <= info.syncedOrderNumber {
-			continue
-		}
-		adCid, ok := p.latest[provider]
-		if !ok || adCid == cid.Undef {
-			continue
+		// Pin a fresh checkpoint only once the previous one is confirmed.
+		if info.syncTargetOrderNumber <= info.syncedOrderNumber {
+			if info.announcedOrderNumber <= info.syncedOrderNumber {
+				continue
+			}
+			adCid, ok := p.latest[provider]
+			if !ok || adCid == cid.Undef {
+				continue
+			}
+			info.syncTargetOrderNumber = info.announcedOrderNumber
+			info.syncTargetAdCid = adCid
+			info.syncTargetAnnouncedAt = info.announcedAt
 		}
 		todo = append(todo, pending{
 			provider:    provider,
-			adCid:       adCid,
-			orderNumber: info.announcedOrderNumber,
-			announcedAt: info.announcedAt,
+			adCid:       info.syncTargetAdCid,
+			orderNumber: info.syncTargetOrderNumber,
+			announcedAt: info.syncTargetAnnouncedAt,
 		})
 	}
-	p.mu.RUnlock()
+	p.mu.Unlock()
 
 	for _, item := range todo {
 		confirmedBy, indexed := p.queryAdIndexed(ctx, item.adCid)
