@@ -588,7 +588,7 @@ func TestEthMessageReplacerReplacesFeeStuckEthMessage(t *testing.T) {
 	replacement := h.client.sentTxs[0]
 	require.Equal(t, nonce, replacement.Nonce())
 	require.Equal(t, uint64(21000), replacement.Gas())
-	require.Equal(t, 0, replacement.GasFeeCap().Cmp(mathbig.NewInt(170)))
+	require.Equal(t, 0, replacement.GasFeeCap().Cmp(mathbig.NewInt(320)))
 	require.Equal(t, 0, replacement.GasTipCap().Cmp(mathbig.NewInt(20)))
 	require.NotEqual(t, original.Hash(), replacement.Hash())
 
@@ -731,7 +731,7 @@ func TestEthMessageReplacerDeletesNotFeeStuckClaim(t *testing.T) {
 	h.client.nonce = nonce
 	h.insertKey(t, from, gethcrypto.FromECDSA(privateKey))
 
-	original, originalData := signedDynamicTx(t, privateKey, to, nonce, 300, 30)
+	original, originalData := signedDynamicTx(t, privateKey, to, nonce, 700, 30)
 	h.insertEthMessageSend(t, from, to, original, originalData, h.oldSendTime())
 
 	h.run(t)
@@ -860,6 +860,10 @@ func (m *replaceEthClient) SuggestGasTipCap(ctx context.Context) (*mathbig.Int, 
 		return nil, m.tipCapErr
 	}
 	return new(mathbig.Int).Set(m.gasTipCap), nil
+}
+
+func (m *replaceEthClient) FeeHistory(ctx context.Context, blockCount uint64, lastBlock *mathbig.Int, rewardPercentiles []float64) (*ethereum.FeeHistory, error) {
+	return &ethereum.FeeHistory{}, nil
 }
 
 func (m *replaceEthClient) SendTransaction(ctx context.Context, tx *gethtypes.Transaction) error {

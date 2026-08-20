@@ -19,7 +19,7 @@ const EthCallTimeout = 10 * time.Second
 // below the on-chain MAX_ENQUEUED_REMOVALS (2000) to keep comfortable headroom: once a
 // data set's live removal queue reaches this many entries, we stop enqueuing new
 // removals for it until the next proving period flushes the queue.
-const ConservativeEnqueuedRemovalsLimit = 200
+const ConservativeEnqueuedRemovalsLimit = 35
 
 // EthCallOpts returns bind.CallOpts with a timeout-bounded context derived from
 // ctx.
