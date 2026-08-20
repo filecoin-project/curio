@@ -338,31 +338,91 @@ func wrapDynamics(shadow, target any) error {
 }
 
 // StripEmptyDynamicTables drops empty tables left by raw toml.Encode of Dynamic[T].
+// Prefer this for in-memory decode paths; use RepairEmptyDynamicTablesText when
+// persisting a cleaned layer so comments and surrounding formatting are kept.
 func StripEmptyDynamicTables(text string, sample any) (string, error) {
+	fixed, _, err := RepairEmptyDynamicTablesText(text, sample)
+	return fixed, err
+}
+
+// RepairEmptyDynamicTablesText removes empty Dynamic[T] wrapper tables from TOML
+// while preserving comments and non-corrupt content. changed is true when any
+// empty wrapper table header was dropped.
+func RepairEmptyDynamicTablesText(text string, sample any) (string, bool, error) {
 	if strings.TrimSpace(text) == "" || sample == nil {
-		return text, nil
+		return text, false, nil
 	}
 
 	var raw map[string]any
 	if err := toml.Unmarshal([]byte(text), &raw); err != nil {
-		return text, nil
+		// Leave unloadable TOML alone for callers that handle decode errors.
+		return text, false, nil
 	}
 
-	changed := false
+	var empty [][]string
 	for _, path := range collectDynamicTOMLPaths(reflect.TypeOf(sample), nil) {
-		if deleteEmptyMapAtPath(raw, path) {
-			changed = true
+		if emptyMapAtPath(raw, path) {
+			empty = append(empty, path)
 		}
 	}
-	if !changed {
-		return text, nil
+	if len(empty) == 0 {
+		return text, false, nil
 	}
 
-	var buf bytes.Buffer
-	if err := toml.NewEncoder(&buf).Encode(raw); err != nil {
-		return "", err
+	fixed := removeTOMLTableHeaders(text, empty)
+	if fixed == text {
+		// Header lines were not found (unusual encoding); fall back to re-encode.
+		for _, path := range empty {
+			_ = deleteEmptyMapAtPath(raw, path)
+		}
+		var buf bytes.Buffer
+		if err := toml.NewEncoder(&buf).Encode(raw); err != nil {
+			return "", false, err
+		}
+		return buf.String(), true, nil
 	}
-	return buf.String(), nil
+	return fixed, true, nil
+}
+
+func emptyMapAtPath(m map[string]any, path []string) bool {
+	if len(path) == 0 || m == nil {
+		return false
+	}
+	_, val, ok := mapLookupCI(m, path[0])
+	if !ok {
+		return false
+	}
+	child, isMap := val.(map[string]any)
+	if !isMap {
+		return false
+	}
+	if len(path) > 1 {
+		return emptyMapAtPath(child, path[1:])
+	}
+	return len(child) == 0
+}
+
+// removeTOMLTableHeaders drops plain table header lines whose dotted names match
+// paths (case-insensitive). Array tables ([[...]]) are left untouched.
+func removeTOMLTableHeaders(text string, paths [][]string) string {
+	want := make(map[string]struct{}, len(paths))
+	for _, path := range paths {
+		want[strings.ToLower(strings.Join(path, "."))] = struct{}{}
+	}
+
+	lines := strings.Split(text, "\n")
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") && !strings.HasPrefix(trimmed, "[[") {
+			inner := strings.TrimSpace(trimmed[1 : len(trimmed)-1])
+			if _, ok := want[strings.ToLower(inner)]; ok {
+				continue
+			}
+		}
+		out = append(out, line)
+	}
+	return strings.Join(out, "\n")
 }
 
 func collectDynamicTOMLPaths(t reflect.Type, prefix []string) [][]string {
