@@ -185,9 +185,9 @@ All endpoints are rooted at `/pdp`.
     - `adCreated`: Whether an IPNI advertisement has been created for this piece.
     - `adCreatedAt`: Timestamp the advertisement was created (omitted if not yet created).
     - `advertised`: Whether the advertisement has been published (announced) to the IPNI network.
-    - `advertisedAt`: Timestamp of the publish. May be omitted even when `advertised` is `true`, if the publish was seen from a prior process run (e.g. right after a Curio restart) rather than observed directly - the fact of publication is still known, just not exactly when.
+    - `advertisedAt`: The provider's watermark time, not this ad's own publish time - can read later than when this ad actually went out. May be omitted even when `advertised` is `true`, if the watermark was seeded from a prior process run (e.g. right after a Curio restart) rather than observed directly.
     - `synced`: Whether at least one configured indexer service has confirmed it fully processed this advertisement (see `GET {ServiceURL}/sync/status/ad/{adCid}`).
-    - `syncedAt`: Timestamp of that confirmation (omitted if not yet confirmed).
+    - `syncedAt`: Same caveat as `advertisedAt` - the provider's watermark time, not this ad's own confirmation time. Omitted if not yet confirmed.
     - Pieces advertised before this tracking was added don't have a precise position to compare against a watermark. `advertised`/`synced` fall back to a coarser signal for them: true once a later ad for the same provider has itself been advertised/synced (IPNI is pull-based, so that also covers everything before it), or - for `advertised` only - if the ad is still the provider's current head. `advertisedAt`/`syncedAt` are omitted in that case.
 
 #### Errors
