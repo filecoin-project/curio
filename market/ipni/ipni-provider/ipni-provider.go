@@ -822,8 +822,12 @@ func (p *Provider) SyncedOrderNumber(providerPeerID string) (int64, *time.Time) 
 // adSyncStatus mirrors storetheindex's GET /sync/status/ad/{adCid} response
 // (ipni/storetheindex#2861).
 type adSyncStatus struct {
-	Ad      string
-	Indexed bool
+	Ad         string
+	Indexed    bool
+	State      string
+	SkipReason string
+	Frozen     bool
+	Error      string
 }
 
 func (p *Provider) checkSyncStatus(ctx context.Context) {
@@ -867,8 +871,8 @@ func (p *Provider) checkSyncStatus(ctx context.Context) {
 	p.mu.Unlock()
 
 	for _, item := range todo {
-		confirmedBy, indexed := p.queryAdIndexed(ctx, item.adCid)
-		if !indexed {
+		confirmedBy, indexed, skipReason := p.queryAdIndexed(ctx, item.adCid)
+		if !indexed && skipReason == "" {
 			continue
 		}
 
@@ -889,6 +893,11 @@ func (p *Provider) checkSyncStatus(ctx context.Context) {
 			continue
 		}
 
+		if skipReason != "" {
+			log.Warnw("IPNI advertisement permanently skipped by indexer, watermark advanced past it", "provider", item.provider, "ad_cid", item.adCid.String(), "service", confirmedBy, "reason", skipReason)
+			continue
+		}
+
 		if item.announcedAt == nil {
 			continue // unknown announce time: no latency sample to report
 		}
@@ -899,10 +908,11 @@ func (p *Provider) checkSyncStatus(ctx context.Context) {
 	}
 }
 
-// queryAdIndexed returns the first service reporting adCid as indexed, or
-// ("", false). A 404 means the service doesn't support this endpoint and is
-// skipped, not treated as unconfirmed.
-func (p *Provider) queryAdIndexed(ctx context.Context, adCid cid.Cid) (string, bool) {
+// queryAdIndexed returns (service, indexed, skipReason). A 404 means the
+// service doesn't support this endpoint and is skipped, not treated as
+// unconfirmed. skipReason is non-empty when the ad was permanently skipped
+// (won't ever become indexed).
+func (p *Provider) queryAdIndexed(ctx context.Context, adCid cid.Cid) (string, bool, string) {
 	for _, svc := range p.serviceURLs {
 		u := *svc
 		u.Path = path.Join(u.Path, "sync", "status", "ad", adCid.String())
@@ -939,14 +949,23 @@ func (p *Provider) queryAdIndexed(ctx context.Context, adCid cid.Cid) (string, b
 			continue
 		}
 
-		if status.Indexed {
-			respAd, err := cid.Parse(status.Ad)
-			if err != nil || !respAd.Equals(adCid) {
-				log.Warnw("ad sync status response ad mismatch, ignoring", "service", svc.String(), "requested", adCid.String(), "got", status.Ad)
-				continue
+		if !status.Indexed && status.State != "skipped" {
+			if status.Frozen || status.Error != "" {
+				log.Warnw("ad not indexed", "service", svc.String(), "ad_cid", adCid.String(), "state", status.State, "frozen", status.Frozen, "error", status.Error)
 			}
-			return svc.String(), true
+			continue
 		}
+
+		respAd, err := cid.Parse(status.Ad)
+		if err != nil || !respAd.Equals(adCid) {
+			log.Warnw("ad sync status response ad mismatch, ignoring", "service", svc.String(), "requested", adCid.String(), "got", status.Ad)
+			continue
+		}
+
+		if status.Indexed {
+			return svc.String(), true, ""
+		}
+		return svc.String(), false, status.SkipReason
 	}
-	return "", false
+	return "", false, ""
 }

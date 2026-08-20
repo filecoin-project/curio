@@ -236,3 +236,24 @@ func TestCheckSyncStatus_PinsTargetUntilConfirmed(t *testing.T) {
 	p.checkSyncStatus(context.Background())
 	require.Equal(t, []string{oldCid.String(), oldCid.String(), oldCid.String(), newCid.String()}, requested)
 }
+
+func TestCheckSyncStatus_SkippedAdAdvancesWatermark(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(adSyncStatus{Ad: testAdCid, Indexed: false, State: "skipped", SkipReason: "malformed"})
+	}))
+	defer srv.Close()
+
+	adCid := mustParseTestCid(t)
+	announcedAt := time.Now()
+	peer := "peer1"
+	p := newTestProvider(t, []string{srv.URL}, map[string]*peerInfo{
+		peer: {announcedOrderNumber: 5, announcedAt: &announcedAt},
+	}, map[string]cid.Cid{peer: adCid})
+
+	p.checkSyncStatus(context.Background())
+
+	on, at := p.SyncedOrderNumber(peer)
+	require.Equal(t, int64(5), on, "watermark must advance past a permanently skipped ad, not wait forever")
+	require.NotNil(t, at)
+}
