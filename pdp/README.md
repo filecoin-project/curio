@@ -57,14 +57,12 @@ All endpoints are rooted at `/pdp`.
 
 ```json
 {
-  "pieceCid": "<CommP-v2-CID>",
-  "notify": "<optional-notification-URL>"
+  "pieceCid": "<CommP-v2-CID>"
 }
 ```
 
 - **Fields:**
     - `pieceCid`: The Piece CID in CommP **v2** format (CIDv1 with `fil-commitment-unsealed` codec and raw size encoded). This uniquely identifies the piece and encodes size information.
-    - `notify`: *(Optional)* A URL to be notified when the piece has been processed successfully.
 
 #### Responses
 
@@ -197,7 +195,7 @@ The streaming upload API provides a way to upload large pieces in a streaming fa
 2. Stream the data via `PUT`.
 3. Finalize the upload with the pieceCid to link and validate.
 
-> **Note:** Each streaming upload chunk is limited to **1 GiB** (unpadded). The server computes the CommP on-the-fly.
+> **Note:** Each streaming upload is limited to **1,065,353,216 raw bytes** (1 GiB padded). The server writes it once directly to piece storage while computing CommP on-the-fly.
 
 #### 3.1. Create Streaming Upload Session
 
@@ -236,6 +234,7 @@ The streaming upload API provides a way to upload large pieces in a streaming fa
 - `400 Bad Request`: Invalid UUID.
 - `401 Unauthorized`: Missing or invalid JWT token.
 - `404 Not Found`: Upload session not found.
+- `409 Conflict`: The upload session or calculated piece is already being written.
 - `413 Payload Too Large`: Data exceeds size limit.
 
 ---
@@ -251,8 +250,7 @@ The streaming upload API provides a way to upload large pieces in a streaming fa
 
 ```json
 {
-  "pieceCid": "<CommP-v2-CID>",
-  "notify": "<optional-notification-URL>"
+  "pieceCid": "<CommP-v2-CID>"
 }
 ```
 
@@ -265,50 +263,13 @@ The streaming upload API provides a way to upload large pieces in a streaming fa
 - `400 Bad Request`: Invalid pieceCid, size mismatch, or CID does not match the uploaded data.
 - `401 Unauthorized`: Missing or invalid JWT token.
 - `404 Not Found`: Upload session not found.
+- `409 Conflict`: The PUT has not completed final storage yet.
 
 ---
 
-### 4. Notifications
+### 4. Upload Completion
 
-When you initiate an upload with the `notify` field specified, the PDP Service will send a notification to the provided URL once the piece has been successfully processed and stored.
-
-#### 4.1. Notification Request
-
-- **Method:** `POST`
-- **URL:** The `notify` URL provided during the upload initiation (`POST /pdp/piece`).
-- **Headers:**
-    - `Content-Type`: `application/json`
-- **Request Body:**
-
-```json
-{
-  "id": "<upload-ID>",
-  "service": "<service-name>",
-  "pieceCID": "<piece-CID or null>",
-  "notify_url": "<original-notify-URL>",
-  "check_hash_codec": "<hash-function-name>",
-  "check_hash": "<byte-array-of-hash>"
-}
-```
-
-- **Fields:**
-    - `id`: The upload ID.
-    - `service`: The service name.
-    - `pieceCID`: The Piece CID of the stored piece (may be `null` if not applicable).
-    - `notify_url`: The original notification URL provided.
-    - `check_hash_codec`: The hash function used (e.g., `"sha2-256-trunc254-padded"`).
-    - `check_hash`: The byte array of the original hash provided in the upload initiation.
-
-#### 4.2. Expected Response from Your Server
-
-- **Status Code:** `200 OK` to acknowledge receipt.
-- **Response Body:** (Optional) Can be empty or contain a message.
-
-#### 4.3. Notes
-
-- The PDP Service may retry the notification if it fails.
-- Ensure that your server is accessible from the PDP Service and can handle incoming POST requests.
-- The notification does not include the piece data; it confirms that the piece has been successfully stored.
+Uploads complete synchronously. A `204 No Content` response from the known-CID PUT means the piece is stored and registered for PDP. For streaming uploads, the PUT stores the piece and a `200 OK` response from finalize registers it for PDP. The service does not send upload callback requests.
 
 ---
 
@@ -1014,8 +975,7 @@ Error responses typically include an error message in the response body.
    Content-Type: application/json
 
    {
-     "pieceCid": "<CommP-v2-CID>",
-     "notify": "https://example.com/notify"
+     "pieceCid": "<CommP-v2-CID>"
    }
    ```
 
@@ -1056,31 +1016,6 @@ Error responses typically include an error message in the response body.
 
    ```http
    HTTP/1.1 204 No Content
-   ```
-
-3. **Receive Notification (if `notify` was provided):**
-
-   **Server's Notification Request:**
-
-   ```http
-   POST /notify HTTP/1.1
-   Host: example.com
-   Content-Type: application/json
-
-   {
-     "id": "<upload-ID>",
-     "service": "<service-name>",
-     "pieceCID": "<piece-CID>",
-     "notify_url": "https://example.com/notify",
-     "check_hash_codec": "sha2-256-trunc254-padded",
-     "check_hash": "<b64-byte-array-of-hash>"
-   }
-   ```
-
-   **Your Response:**
-
-   ```http
-   HTTP/1.1 200 OK
    ```
 
 ### Uploading a Piece (Streaming)
