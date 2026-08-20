@@ -162,9 +162,13 @@ All endpoints are rooted at `/pdp`.
   "pieceCid": "<piece-CID-v2>",
   "status": "<status>",
   "indexed": <boolean>,
+  "indexedAt": "<RFC3339-timestamp-or-omitted>",
+  "adCreated": <boolean>,
+  "adCreatedAt": "<RFC3339-timestamp-or-omitted>",
   "advertised": <boolean>,
-  "retrieved": <boolean>,
-  "retrievedAt": "<RFC3339-timestamp-or-omitted>"
+  "advertisedAt": "<RFC3339-timestamp-or-omitted>",
+  "synced": <boolean>,
+  "syncedAt": "<RFC3339-timestamp-or-omitted>"
 }
 ```
 
@@ -174,12 +178,17 @@ All endpoints are rooted at `/pdp`.
         - `"pending"` – Not yet indexed.
         - `"indexing"` – CAR indexing task is in progress.
         - `"creating_ad"` – IPNI advertisement is being created.
-        - `"announced"` – Advertisement published to IPNI network.
-        - `"retrieved"` – Piece has been retrieved by a client.
+        - `"announced"` – IPNI advertisement has been created; not yet confirmed indexed. Note this only means the advertisement row exists - it does not by itself mean the HTTP broadcast to indexer services has completed. Check `advertised`/`advertisedAt` for that.
+        - `"synced"` – The indexer (e.g. cid.contact) has confirmed it fully processed the advertisement; safe to query the indexer for this content.
     - `indexed`: Whether the piece has been indexed and is ready for IPNI.
-    - `advertised`: Whether an IPNI advertisement has been published.
-    - `retrieved`: Whether the piece has been retrieved by a client.
-    - `retrievedAt`: Timestamp of last retrieval (omitted if never retrieved).
+    - `indexedAt`: Timestamp CAR indexing completed (omitted if not yet indexed).
+    - `adCreated`: Whether an IPNI advertisement has been created for this piece.
+    - `adCreatedAt`: Timestamp the advertisement was created (omitted if not yet created).
+    - `advertised`: Whether the advertisement has been published (announced) to the IPNI network.
+    - `advertisedAt`: The provider's watermark time, not this ad's own publish time - can read later than when this ad actually went out. May be omitted even when `advertised` is `true`, if the watermark was seeded from a prior process run (e.g. right after a Curio restart) rather than observed directly.
+    - `synced`: Whether at least one configured indexer service has confirmed it fully processed this advertisement (see `GET {ServiceURL}/sync/status/ad/{adCid}`).
+    - `syncedAt`: Same caveat as `advertisedAt` - the provider's watermark time, not this ad's own confirmation time. Omitted if not yet confirmed.
+    - Pieces advertised before this tracking was added don't have a precise position to compare against a watermark. `advertised`/`synced` fall back to a coarser signal for them: true once a later ad for the same provider has itself been advertised/synced (IPNI is pull-based, so that also covers everything before it), or - for `advertised` only - if the ad is still the provider's current head. `advertisedAt`/`syncedAt` are omitted in that case.
 
 #### Errors
 
