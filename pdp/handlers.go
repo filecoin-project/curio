@@ -25,7 +25,6 @@ import (
 	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/ethchain"
-	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/piecestore"
 	ipni_provider "github.com/filecoin-project/curio/market/ipni/ipni-provider"
 	"github.com/filecoin-project/curio/pdp/contract"
@@ -75,7 +74,6 @@ type ETHTxSender interface {
 type PDPService struct {
 	Auth
 	db      *harmonydb.DB
-	storage paths.StashStore
 	pieceIO piecestore.PieceIO
 
 	sender    ETHTxSender
@@ -99,7 +97,6 @@ type PDPServiceNodeApi interface {
 func NewPDPService(
 	ctx context.Context,
 	db *harmonydb.DB,
-	stor paths.StashStore,
 	pieceIO piecestore.PieceIO,
 	ec ethchain.EthClient,
 	fc PDPServiceNodeApi,
@@ -113,7 +110,6 @@ func NewPDPService(
 	p := &PDPService{
 		Auth:    auth,
 		db:      db,
-		storage: stor,
 		pieceIO: pieceIO,
 
 		sender:    sn,
@@ -1319,22 +1315,29 @@ func (p *PDPService) cleanup(ctx context.Context) {
 		if err := p.cleanupExpiredDirectUploadClaims(ctx); err != nil {
 			log.Errorw("failed to clean up expired direct upload claims", "error", err)
 		}
-
-		var RefIDs []int64
-
-		err := db.QueryRow(ctx, `SELECT COALESCE(array_agg(piece_ref), '{}') AS ref_ids
-												FROM pdp_piece_streaming_uploads
-												WHERE complete = TRUE
-												  AND completed_at <= TIMEZONE('UTC', NOW()) - INTERVAL '60 minutes';`).Scan(&RefIDs)
-		if err != nil {
-			log.Errorw("failed to get non-finalized uploads", "error", err)
+		if err := p.cleanupExpiredStreamingUploadClaims(ctx); err != nil {
+			log.Errorw("failed to clean up expired streaming upload claims", "error", err)
 		}
 
-		if len(RefIDs) > 0 {
-			_, err := db.Exec(ctx, `DELETE FROM parked_piece_refs WHERE ref_id = ANY($1);`, RefIDs)
-			if err != nil {
-				log.Errorw("failed to delete non-finalized uploads", "error", err)
-			}
+		_, err := db.Exec(ctx, `
+			WITH expired AS (
+				DELETE FROM pdp_piece_streaming_uploads su
+				WHERE su.complete = TRUE
+				  AND su.completed_at <= NOW() - INTERVAL '60 minutes'
+				  AND NOT EXISTS (
+					  SELECT 1 FROM pdp_piecerefs pr WHERE pr.piece_ref = su.piece_ref
+				  )
+				RETURNING su.piece_ref
+			)
+			DELETE FROM parked_piece_refs ppr
+			USING expired
+			WHERE ppr.ref_id = expired.piece_ref
+			  AND NOT EXISTS (
+				  SELECT 1 FROM pdp_piecerefs pr WHERE pr.piece_ref = ppr.ref_id
+			  )
+		`)
+		if err != nil {
+			log.Errorw("failed to delete non-finalized uploads", "error", err)
 		}
 
 		// Clean up old piece pull records (older than 5 days). Pull items only

@@ -20,7 +20,6 @@ TODO: the pdp datasets table etc
 ## Managing Pieces
 TODO: add, upload, delete, pull, info
 TODO: the pdp pieceref table etc
-TODO: "finalization" notify task
 
 # Storage
 
@@ -179,12 +178,17 @@ The sections below describe how tasks and watchers connect to form the PDP lifec
 
 ## Piece Ingestion
 
-There are two paths for getting pieces into the system:
+There are three paths for getting pieces into the system:
 
 **Known-CID direct upload path:**
 1. The client posts the PieceCID. If a complete long-term copy already exists, the handler creates its `parked_piece_refs` and `pdp_piecerefs` rows immediately.
 2. Otherwise, the client PUTs the bytes to the returned upload URL. The handler claims a `parked_pieces` row, writes the request body once directly to final piece storage while computing CommP, and validates the declared size and PieceCID.
 3. After the write succeeds, one database transaction marks the parked piece complete, creates `pdp_piecerefs`, and deletes the upload row. The legacy `notify` request field is accepted for compatibility but this path does not call the URL or schedule a notify task.
+
+**Streaming upload path:**
+1. The client creates an upload session and PUTs bytes without declaring a PieceCID. The handler claims a provisional `parked_pieces` identity for that session, then streams the request once directly into final piece storage while calculating CommP and the raw size.
+2. After the PieceCID is known, one transaction promotes the provisional row to the calculated identity. If a matching complete piece already exists, the session is pointed at that piece and the unreferenced provisional copy is left for normal parked-piece cleanup.
+3. The client finalizes with the calculated PieceCID. The handler validates it, creates `pdp_piecerefs`, and deletes the streaming session in one transaction. It does not use scratch space, create an intermediate `pdp_piece_uploads` row, or schedule a notify task.
 
 **Pull path:**
 1. Client submits a pull request via HTTP, creating a row in `pdp_piece_pull_items`.

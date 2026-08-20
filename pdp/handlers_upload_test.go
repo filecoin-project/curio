@@ -25,12 +25,14 @@ import (
 )
 
 type uploadTestPieceIO struct {
-	writes       int
-	removes      int
-	declaredSize int64
-	verifySize   bool
-	storageType  storiface.PathType
-	pieceID      storiface.PieceNumber
+	writes           int
+	removes          int
+	declaredSize     int64
+	verifySize       bool
+	storageType      storiface.PathType
+	pieceID          storiface.PieceNumber
+	writtenPieceData []byte
+	writeUploadErr   error
 }
 
 func (m *uploadTestPieceIO) WritePiece(context.Context, *harmonytask.TaskID, storiface.PieceNumber, int64, io.Reader, storiface.PathType) error {
@@ -47,6 +49,10 @@ func (m *uploadTestPieceIO) WriteUploadPiece(_ context.Context, pieceID storifac
 	body, err := io.ReadAll(data)
 	if err != nil {
 		return abi.PieceInfo{}, 0, err
+	}
+	m.writtenPieceData = append([]byte(nil), body...)
+	if m.writeUploadErr != nil {
+		return abi.PieceInfo{}, 0, m.writeUploadErr
 	}
 	calc := &commp.Calc{}
 	defer calc.Reset()
@@ -105,6 +111,35 @@ func putClassicUpload(service *PDPService, uploadID string, body []byte) *httpte
 	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, routeCtx))
 	rec := httptest.NewRecorder()
 	service.handlePieceUpload(rec, req)
+	return rec
+}
+
+func createStreamingUpload(t *testing.T, service *PDPService) string {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/pdp/piece/uploads", nil)
+	rec := httptest.NewRecorder()
+	service.handleStreamingUploadURL(rec, req)
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	return path.Base(rec.Header().Get("Location"))
+}
+
+func putStreamingUpload(service *PDPService, uploadID string, body []byte) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodPut, "/pdp/piece/uploads/"+uploadID, bytes.NewReader(body))
+	routeCtx := chi.NewRouteContext()
+	routeCtx.URLParams.Add("uploadUUID", uploadID)
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, routeCtx))
+	rec := httptest.NewRecorder()
+	service.handleStreamingUpload(rec, req)
+	return rec
+}
+
+func finalizeStreamingUpload(service *PDPService, uploadID, pieceCIDV2 string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodPost, "/pdp/piece/uploads/"+uploadID, bytes.NewBufferString(`{"pieceCid":"`+pieceCIDV2+`"}`))
+	routeCtx := chi.NewRouteContext()
+	routeCtx.URLParams.Add("uploadUUID", uploadID)
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, routeCtx))
+	rec := httptest.NewRecorder()
+	service.handleFinalizeStreamingUpload(rec, req)
 	return rec
 }
 
@@ -190,6 +225,217 @@ func TestHandlePieceUploadWritesDirectlyAndPublishes(t *testing.T) {
 	var uploadExists bool
 	require.NoError(t, db.QueryRow(t.Context(), `SELECT EXISTS(SELECT 1 FROM pdp_piece_uploads WHERE id = $1)`, uploadID).Scan(&uploadExists))
 	require.False(t, uploadExists)
+}
+
+func TestStreamingUploadWritesDirectlyAndPublishesOnFinalize(t *testing.T) {
+	db, err := harmonydb.NewFromConfigWithITestID(t)
+	require.NoError(t, err)
+
+	body := bytes.Repeat([]byte{0x6a}, 1024)
+	pieceCIDV1, pieceCIDV2, paddedSize := testPieceCIDs(t, body)
+	pio := &uploadTestPieceIO{}
+	service := &PDPService{Auth: &NullAuth{}, db: db, pieceIO: pio}
+	uploadID := createStreamingUpload(t, service)
+
+	earlyFinalize := finalizeStreamingUpload(service, uploadID, pieceCIDV2)
+	require.Equal(t, http.StatusConflict, earlyFinalize.Code, earlyFinalize.Body.String())
+
+	put := putStreamingUpload(service, uploadID, body)
+	require.Equal(t, http.StatusNoContent, put.Code, put.Body.String())
+	require.Equal(t, 1, pio.writes)
+	require.Equal(t, int64(PieceSizeMaxLimit), pio.declaredSize)
+	require.False(t, pio.verifySize)
+	require.Equal(t, storiface.PathStorage, pio.storageType)
+	require.Equal(t, body, pio.writtenPieceData)
+
+	var parkedPieceID, pieceRefID int64
+	var streamingComplete, parkedComplete, skip bool
+	var dataURL sql.NullString
+	err = db.QueryRow(t.Context(), `
+		SELECT pp.id, ppr.ref_id, su.complete, pp.complete, pp.skip, ppr.data_url
+		FROM pdp_piece_streaming_uploads su
+		JOIN parked_piece_refs ppr ON ppr.ref_id = su.piece_ref
+		JOIN parked_pieces pp ON pp.id = ppr.piece_id
+		WHERE su.id = $1 AND su.service = 'public'
+	`, uploadID).Scan(&parkedPieceID, &pieceRefID, &streamingComplete, &parkedComplete, &skip, &dataURL)
+	require.NoError(t, err)
+	require.Equal(t, int64(pio.pieceID), parkedPieceID)
+	require.True(t, streamingComplete)
+	require.True(t, parkedComplete)
+	require.True(t, skip)
+	require.False(t, dataURL.Valid)
+
+	var storedPaddedSize int64
+	require.NoError(t, db.QueryRow(t.Context(), `SELECT piece_padded_size FROM parked_pieces WHERE id = $1`, parkedPieceID).Scan(&storedPaddedSize))
+	require.Equal(t, paddedSize, storedPaddedSize)
+
+	var refs int64
+	require.NoError(t, db.QueryRow(t.Context(), `SELECT COUNT(*) FROM pdp_piecerefs WHERE piece_ref = $1`, pieceRefID).Scan(&refs))
+	require.Zero(t, refs)
+
+	finalize := finalizeStreamingUpload(service, uploadID, pieceCIDV2)
+	require.Equal(t, http.StatusOK, finalize.Code, finalize.Body.String())
+
+	var serviceID, storedPieceCID string
+	var cache bool
+	require.NoError(t, db.QueryRow(t.Context(), `
+		SELECT service, piece_cid, needs_save_cache
+		FROM pdp_piecerefs
+		WHERE piece_ref = $1
+	`, pieceRefID).Scan(&serviceID, &storedPieceCID, &cache))
+	require.Equal(t, "public", serviceID)
+	require.Equal(t, pieceCIDV1, storedPieceCID)
+	require.False(t, cache)
+
+	var streamingExists, legacyUploadExists bool
+	require.NoError(t, db.QueryRow(t.Context(), `SELECT EXISTS(SELECT 1 FROM pdp_piece_streaming_uploads WHERE id = $1)`, uploadID).Scan(&streamingExists))
+	require.NoError(t, db.QueryRow(t.Context(), `SELECT EXISTS(SELECT 1 FROM pdp_piece_uploads WHERE id = $1)`, uploadID).Scan(&legacyUploadExists))
+	require.False(t, streamingExists)
+	require.False(t, legacyUploadExists)
+}
+
+func TestStreamingUploadWriteFailureReleasesClaimForRetry(t *testing.T) {
+	db, err := harmonydb.NewFromConfigWithITestID(t)
+	require.NoError(t, err)
+
+	body := bytes.Repeat([]byte{0x7b}, 1024)
+	pieceCIDV1, pieceCIDV2, _ := testPieceCIDs(t, body)
+	pio := &uploadTestPieceIO{writeUploadErr: errors.New("injected write failure")}
+	service := &PDPService{Auth: &NullAuth{}, db: db, pieceIO: pio}
+	uploadID := createStreamingUpload(t, service)
+
+	failed := putStreamingUpload(service, uploadID, body)
+	require.Equal(t, http.StatusInternalServerError, failed.Code, failed.Body.String())
+	require.Equal(t, 1, pio.writes)
+	require.Equal(t, int64(PieceSizeMaxLimit), pio.declaredSize)
+	require.False(t, pio.verifySize)
+	require.Equal(t, storiface.PathStorage, pio.storageType)
+	require.Equal(t, body, pio.writtenPieceData)
+	require.Zero(t, pio.removes)
+	failedPieceID := pio.pieceID
+
+	var pieceRef sql.NullInt64
+	require.NoError(t, db.QueryRow(t.Context(), `SELECT piece_ref FROM pdp_piece_streaming_uploads WHERE id = $1`, uploadID).Scan(&pieceRef))
+	require.False(t, pieceRef.Valid)
+
+	var parkedExists, parkedComplete bool
+	var refCount int
+	require.NoError(t, db.QueryRow(t.Context(), `
+		SELECT EXISTS(SELECT 1 FROM parked_pieces WHERE id = $1),
+		       COALESCE((SELECT complete FROM parked_pieces WHERE id = $1), FALSE),
+		       COALESCE((SELECT ref_count FROM parked_pieces WHERE id = $1), -1)
+	`, int64(failedPieceID)).Scan(&parkedExists, &parkedComplete, &refCount))
+	require.True(t, parkedExists)
+	require.False(t, parkedComplete)
+	require.Zero(t, refCount)
+
+	pio.writeUploadErr = nil
+	retry := putStreamingUpload(service, uploadID, body)
+	require.Equal(t, http.StatusNoContent, retry.Code, retry.Body.String())
+	require.Equal(t, 2, pio.writes)
+	require.Zero(t, pio.removes)
+	require.NotEqual(t, failedPieceID, pio.pieceID)
+
+	finalize := finalizeStreamingUpload(service, uploadID, pieceCIDV2)
+	require.Equal(t, http.StatusOK, finalize.Code, finalize.Body.String())
+
+	var refs int64
+	require.NoError(t, db.QueryRow(t.Context(), `SELECT COUNT(*) FROM pdp_piecerefs WHERE piece_cid = $1`, pieceCIDV1).Scan(&refs))
+	require.Equal(t, int64(1), refs)
+}
+
+func TestStreamingUploadReusesCompletedPiece(t *testing.T) {
+	db, err := harmonydb.NewFromConfigWithITestID(t)
+	require.NoError(t, err)
+
+	body := bytes.Repeat([]byte{0x8c}, 1024)
+	pieceCIDV1, pieceCIDV2, paddedSize := testPieceCIDs(t, body)
+	var parkedPieceID int64
+	err = db.QueryRow(t.Context(), `
+		INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, complete, long_term)
+		VALUES ($1, $2, $3, TRUE, TRUE)
+		RETURNING id
+	`, pieceCIDV1, paddedSize, len(body)).Scan(&parkedPieceID)
+	require.NoError(t, err)
+
+	pio := &uploadTestPieceIO{}
+	service := &PDPService{Auth: &NullAuth{}, db: db, pieceIO: pio}
+	uploadID := createStreamingUpload(t, service)
+
+	put := putStreamingUpload(service, uploadID, body)
+	require.Equal(t, http.StatusNoContent, put.Code, put.Body.String())
+	require.Equal(t, 1, pio.writes)
+	require.Equal(t, int64(PieceSizeMaxLimit), pio.declaredSize)
+	require.False(t, pio.verifySize)
+	require.Equal(t, storiface.PathStorage, pio.storageType)
+	require.Equal(t, body, pio.writtenPieceData)
+	require.Zero(t, pio.removes)
+	require.NotEqual(t, storiface.PieceNumber(parkedPieceID), pio.pieceID)
+
+	var claimedParkedPieceID, pieceRefID int64
+	var complete bool
+	require.NoError(t, db.QueryRow(t.Context(), `
+		SELECT ppr.piece_id, su.piece_ref, su.complete
+		FROM pdp_piece_streaming_uploads su
+		JOIN parked_piece_refs ppr ON ppr.ref_id = su.piece_ref
+		WHERE su.id = $1
+	`, uploadID).Scan(&claimedParkedPieceID, &pieceRefID, &complete))
+	require.Equal(t, parkedPieceID, claimedParkedPieceID)
+	require.True(t, complete)
+
+	finalize := finalizeStreamingUpload(service, uploadID, pieceCIDV2)
+	require.Equal(t, http.StatusOK, finalize.Code, finalize.Body.String())
+
+	var publishedPieceRefID int64
+	require.NoError(t, db.QueryRow(t.Context(), `
+		SELECT piece_ref FROM pdp_piecerefs
+		WHERE service = 'public' AND piece_cid = $1
+	`, pieceCIDV1).Scan(&publishedPieceRefID))
+	require.Equal(t, pieceRefID, publishedPieceRefID)
+}
+
+func TestCleanupExpiredStreamingUploadClaims(t *testing.T) {
+	db, err := harmonydb.NewFromConfigWithITestID(t)
+	require.NoError(t, err)
+
+	body := bytes.Repeat([]byte{0x9d}, 1024)
+	_, pieceCIDV2, _ := testPieceCIDs(t, body)
+	pio := &uploadTestPieceIO{}
+	service := &PDPService{Auth: &NullAuth{}, db: db, pieceIO: pio}
+	uploadID := createStreamingUpload(t, service)
+
+	claim, err := service.claimStreamingUpload(t.Context(), uploadID, "public")
+	require.NoError(t, err)
+	require.True(t, claim.created)
+	_, err = db.Exec(t.Context(), `UPDATE pdp_piece_streaming_uploads SET created_at = NOW() - INTERVAL '2 hours' WHERE id = $1`, uploadID)
+	require.NoError(t, err)
+
+	require.NoError(t, service.cleanupExpiredStreamingUploadClaims(t.Context()))
+	require.Zero(t, pio.removes)
+
+	var pieceRef sql.NullInt64
+	require.NoError(t, db.QueryRow(t.Context(), `SELECT piece_ref FROM pdp_piece_streaming_uploads WHERE id = $1`, uploadID).Scan(&pieceRef))
+	require.False(t, pieceRef.Valid)
+
+	var refExists, parkedExists bool
+	var refCount int
+	require.NoError(t, db.QueryRow(t.Context(), `SELECT EXISTS(SELECT 1 FROM parked_piece_refs WHERE ref_id = $1)`, claim.pieceRefID).Scan(&refExists))
+	require.NoError(t, db.QueryRow(t.Context(), `
+		SELECT EXISTS(SELECT 1 FROM parked_pieces WHERE id = $1),
+		       COALESCE((SELECT ref_count FROM parked_pieces WHERE id = $1), -1)
+	`, claim.parkedPieceID).Scan(&parkedExists, &refCount))
+	require.False(t, refExists)
+	require.True(t, parkedExists)
+	require.Zero(t, refCount)
+
+	retry := putStreamingUpload(service, uploadID, body)
+	require.Equal(t, http.StatusNoContent, retry.Code, retry.Body.String())
+	require.Equal(t, 1, pio.writes)
+	require.Equal(t, int64(PieceSizeMaxLimit), pio.declaredSize)
+	require.False(t, pio.verifySize)
+	require.Equal(t, storiface.PathStorage, pio.storageType)
+	finalize := finalizeStreamingUpload(service, uploadID, pieceCIDV2)
+	require.Equal(t, http.StatusOK, finalize.Code, finalize.Body.String())
 }
 
 func TestHandlePieceUploadRejectsInvalidLengthsAndReleasesClaim(t *testing.T) {
