@@ -124,11 +124,10 @@ func TestSkiffCreateAddRetrieveLifecycle(t *testing.T) {
 	svcCtx, svcCancel := context.WithCancel(ctx)
 	t.Cleanup(svcCancel)
 	require.NoError(t, pdp.MountRoutes(svcCtx, mux, pdp.MountDeps{
-		DB:         db,
-		LocalStore: localStore,
-		PieceIO:    piecestore.New(remote, localStore, index),
-		EthClient:  stubEthClient{},
-		EthSender:  mockSender,
+		DB:        db,
+		PieceIO:   piecestore.New(remote, localStore, index),
+		EthClient: stubEthClient{},
+		EthSender: mockSender,
 	}, nil))
 
 	srv := httptest.NewServer(mux)

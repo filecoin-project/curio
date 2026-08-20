@@ -1,6 +1,7 @@
 package pdp
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -8,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"path"
 	"time"
 
@@ -19,14 +19,15 @@ import (
 	"github.com/multiformats/go-multicodec"
 	"github.com/multiformats/go-multihash"
 	"github.com/yugabyte/pgx/v5"
+	"github.com/yugabyte/pgx/v5/pgconn"
 
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	commp "github.com/filecoin-project/go-fil-commp-hashhash"
 	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/curio/lib/dealdata"
 	"github.com/filecoin-project/curio/lib/parkpiece"
+	"github.com/filecoin-project/curio/lib/piecestore"
 	"github.com/filecoin-project/curio/lib/proof"
 	"github.com/filecoin-project/curio/lib/storiface"
 )
@@ -122,44 +123,58 @@ func deleteClaimedUpload(tx *harmonydb.Tx, uploadID string, pieceRef int64) erro
 	return nil
 }
 
-type directUploadClaim struct {
+type parkedPieceClaim struct {
 	parkedPieceID int64
 	pieceRefID    int64
 	created       bool
 	complete      bool
 }
 
+// claimParkedPiece returns a per-upload ref to the active long-term parked
+// piece. A newly inserted skip=true row is owned by the caller and may be
+// written directly. Existing incomplete rows remain owned by their current
+// writer; existing complete rows can be reused without writing any bytes.
+func claimParkedPiece(tx *harmonydb.Tx, pieceCID string, rawSize, paddedSize int64) (parkedPieceClaim, error) {
+	var claim parkedPieceClaim
+	var err error
+	claim.parkedPieceID, claim.created, err = parkpiece.UpsertSkipWithInserted(tx, pieceCID, paddedSize, rawSize, true, true)
+	if err != nil {
+		return parkedPieceClaim{}, fmt.Errorf("failed to claim parked piece: %w", err)
+	}
+
+	if !claim.created {
+		err = tx.QueryRow(`SELECT complete FROM parked_pieces WHERE id = $1`, claim.parkedPieceID).Scan(&claim.complete)
+		if err != nil {
+			return parkedPieceClaim{}, fmt.Errorf("failed to inspect existing parked piece: %w", err)
+		}
+		if !claim.complete {
+			return parkedPieceClaim{}, errUploadInProgress
+		}
+	}
+
+	err = tx.QueryRow(`
+		INSERT INTO parked_piece_refs (piece_id, long_term)
+		VALUES ($1, TRUE)
+		RETURNING ref_id
+	`, claim.parkedPieceID).Scan(&claim.pieceRefID)
+	if err != nil {
+		return parkedPieceClaim{}, fmt.Errorf("failed to create parked piece ref: %w", err)
+	}
+
+	return claim, nil
+}
+
 // claimDirectUpload atomically claims an unclaimed upload intent. For a new
 // piece, it binds the intent to a skip=true parked-piece ref so this handler
 // owns the direct write. If the piece became complete after POST, it publishes
 // the PDP ref and consumes the intent without reading the request body.
-func (p *PDPService) claimDirectUpload(ctx context.Context, uploadID, service, pieceCID string, rawSize, paddedSize int64) (directUploadClaim, error) {
-	var claim directUploadClaim
+func (p *PDPService) claimDirectUpload(ctx context.Context, uploadID, service, pieceCID string, rawSize, paddedSize int64) (parkedPieceClaim, error) {
+	var claim parkedPieceClaim
 	committed, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
 		var err error
-		claim = directUploadClaim{}
-		claim.parkedPieceID, claim.created, err = parkpiece.UpsertSkipWithInserted(tx, pieceCID, paddedSize, rawSize, true, true)
+		claim, err = claimParkedPiece(tx, pieceCID, rawSize, paddedSize)
 		if err != nil {
-			return false, fmt.Errorf("failed to claim parked piece: %w", err)
-		}
-
-		if !claim.created {
-			err = tx.QueryRow(`SELECT complete FROM parked_pieces WHERE id = $1`, claim.parkedPieceID).Scan(&claim.complete)
-			if err != nil {
-				return false, fmt.Errorf("failed to inspect existing parked piece: %w", err)
-			}
-			if !claim.complete {
-				return false, errUploadInProgress
-			}
-		}
-
-		err = tx.QueryRow(`
-			INSERT INTO parked_piece_refs (piece_id, long_term)
-			VALUES ($1, TRUE)
-			RETURNING ref_id
-		`, claim.parkedPieceID).Scan(&claim.pieceRefID)
-		if err != nil {
-			return false, fmt.Errorf("failed to create parked piece ref: %w", err)
+			return false, err
 		}
 
 		if claim.complete {
@@ -191,15 +206,159 @@ func (p *PDPService) claimDirectUpload(ctx context.Context, uploadID, service, p
 		return true, nil
 	}, harmonydb.OptionRetry())
 	if err != nil {
-		return directUploadClaim{}, err
+		return parkedPieceClaim{}, err
 	}
 	if !committed {
-		return directUploadClaim{}, errors.New("failed to commit direct upload claim")
+		return parkedPieceClaim{}, errors.New("failed to commit direct upload claim")
 	}
 	return claim, nil
 }
 
-func (p *PDPService) finalizeDirectUpload(ctx context.Context, uploadID, service, pieceCID string, claim directUploadClaim, rawSize int64) error {
+// claimStreamingUpload binds the session to an upload-owned provisional piece
+// before any request bytes are read. The provisional identity is replaced by
+// the computed PieceCID after the one-pass final-storage write.
+func (p *PDPService) claimStreamingUpload(ctx context.Context, uploadID, service string) (parkedPieceClaim, error) {
+	calc := &commp.Calc{}
+	defer calc.Reset()
+	temporaryRawSize, err := io.WriteString(calc, uploadID+":"+uuid.NewString())
+	if err != nil {
+		return parkedPieceClaim{}, fmt.Errorf("failed to generate provisional piece identity: %w", err)
+	}
+	temporaryDigest, temporaryPaddedSize, err := calc.Digest()
+	if err != nil {
+		return parkedPieceClaim{}, fmt.Errorf("failed to generate provisional piece identity: %w", err)
+	}
+	temporaryCID, err := commcid.DataCommitmentV1ToCID(temporaryDigest)
+	if err != nil {
+		return parkedPieceClaim{}, fmt.Errorf("failed to generate provisional piece CID: %w", err)
+	}
+
+	var claim parkedPieceClaim
+	committed, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		var err error
+		claim, err = claimParkedPiece(tx, temporaryCID.String(), int64(temporaryRawSize), int64(temporaryPaddedSize))
+		if err != nil {
+			return false, err
+		}
+		if !claim.created {
+			return false, errUploadInProgress
+		}
+
+		n, err := tx.Exec(`
+			UPDATE pdp_piece_streaming_uploads
+			SET piece_ref = $1,
+				created_at = NOW()
+			WHERE id = $2
+			  AND service = $3
+			  AND piece_ref IS NULL
+			  AND COALESCE(complete, FALSE) = FALSE
+		`, claim.pieceRefID, uploadID, service)
+		if err != nil {
+			return false, fmt.Errorf("failed to claim streaming upload UUID: %w", err)
+		}
+		if n != 1 {
+			return false, errUploadClaimed
+		}
+
+		return true, nil
+	}, harmonydb.OptionRetry())
+	if err != nil {
+		return parkedPieceClaim{}, err
+	}
+	if !committed {
+		return parkedPieceClaim{}, errors.New("failed to commit streaming upload claim")
+	}
+	return claim, nil
+}
+
+func (p *PDPService) completeStreamingUpload(ctx context.Context, uploadID, service string, claim parkedPieceClaim, pieceInfo abi.PieceInfo, rawSize int64) error {
+	committed, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		var existingPieceID int64
+		var existingRawSize int64
+		var existingComplete bool
+		err := tx.QueryRow(`
+			SELECT id, piece_raw_size, complete
+			FROM parked_pieces
+			WHERE piece_cid = $1
+			  AND piece_padded_size = $2
+			  AND long_term = TRUE
+			  AND cleanup_task_id IS NULL
+			  AND id != $3
+			ORDER BY id
+			LIMIT 1
+		`, pieceInfo.PieceCID.String(), int64(pieceInfo.Size), claim.parkedPieceID).Scan(&existingPieceID, &existingRawSize, &existingComplete)
+		switch {
+		case err == nil && (!existingComplete || existingRawSize != rawSize):
+			return false, errUploadInProgress
+		case err == nil:
+			n, err := tx.Exec(`
+				UPDATE parked_piece_refs
+				SET piece_id = $1
+				WHERE ref_id = $2 AND piece_id = $3
+			`, existingPieceID, claim.pieceRefID, claim.parkedPieceID)
+			if err != nil {
+				return false, fmt.Errorf("failed to reuse completed parked piece: %w", err)
+			}
+			if n != 1 {
+				return false, fmt.Errorf("failed to reuse completed parked piece: expected 1 row, got %d", n)
+			}
+		case errors.Is(err, pgx.ErrNoRows):
+			n, err := tx.Exec(`
+				UPDATE parked_pieces
+				SET piece_cid = $1,
+					piece_padded_size = $2,
+					piece_raw_size = $3,
+					complete = TRUE
+				WHERE id = $4
+				  AND complete = FALSE
+				  AND skip = TRUE
+				  AND cleanup_task_id IS NULL
+			`, pieceInfo.PieceCID.String(), int64(pieceInfo.Size), rawSize, claim.parkedPieceID)
+			if err != nil {
+				var pgErr *pgconn.PgError
+				if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+					return false, errUploadInProgress
+				}
+				return false, fmt.Errorf("failed to promote provisional parked piece: %w", err)
+			}
+			if n != 1 {
+				return false, fmt.Errorf("failed to promote provisional parked piece: expected 1 row, got %d", n)
+			}
+		default:
+			return false, fmt.Errorf("failed to inspect completed parked piece: %w", err)
+		}
+
+		n, err := tx.Exec(`
+			UPDATE pdp_piece_streaming_uploads
+			SET piece_cid = $1,
+				piece_size = $2,
+				raw_size = $3,
+				complete = TRUE,
+				completed_at = NOW()
+			WHERE id = $4
+			  AND service = $5
+			  AND piece_ref = $6
+			  AND COALESCE(complete, FALSE) = FALSE
+		`, pieceInfo.PieceCID.String(), int64(pieceInfo.Size), rawSize, uploadID, service, claim.pieceRefID)
+		if err != nil {
+			return false, fmt.Errorf("failed to mark streaming upload complete: %w", err)
+		}
+		if n != 1 {
+			return false, fmt.Errorf("failed to mark streaming upload complete: expected 1 row, got %d", n)
+		}
+
+		return true, nil
+	}, harmonydb.OptionRetry())
+	if err != nil {
+		return err
+	}
+	if !committed {
+		return errors.New("failed to commit streaming upload completion")
+	}
+	return nil
+}
+
+func (p *PDPService) finalizeDirectUpload(ctx context.Context, uploadID, service, pieceCID string, claim parkedPieceClaim, rawSize int64) error {
 	committed, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
 		n, err := tx.Exec(`
 			UPDATE parked_pieces
@@ -311,6 +470,64 @@ func (p *PDPService) releaseDirectUploadClaim(ctx context.Context, uploadID stri
 	return nil
 }
 
+// releaseStreamingUploadClaim resets a failed streaming session and drops its
+// ref. The zero-ref provisional parked piece is left for normal piece cleanup.
+func (p *PDPService) releaseStreamingUploadClaim(ctx context.Context, uploadID, service string, claim parkedPieceClaim) error {
+	committed, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		n, err := tx.Exec(`
+			UPDATE pdp_piece_streaming_uploads
+			SET piece_ref = NULL,
+				piece_cid = NULL,
+				piece_size = NULL,
+				raw_size = NULL,
+				complete = NULL,
+				completed_at = NULL
+			WHERE id = $1
+			  AND service = $2
+			  AND piece_ref = $3
+			  AND COALESCE(complete, FALSE) = FALSE
+		`, uploadID, service, claim.pieceRefID)
+		if err != nil {
+			return false, fmt.Errorf("failed to release streaming upload claim: %w", err)
+		}
+		if n == 0 {
+			var retained bool
+			err = tx.QueryRow(`
+				SELECT EXISTS(
+					SELECT 1
+					FROM pdp_piece_streaming_uploads
+					WHERE id = $1 AND service = $2 AND piece_ref = $3 AND complete = TRUE
+					UNION ALL
+					SELECT 1 FROM pdp_piecerefs WHERE piece_ref = $3
+				)
+			`, uploadID, service, claim.pieceRefID).Scan(&retained)
+			if err != nil {
+				return false, fmt.Errorf("failed to check streaming upload completion: %w", err)
+			}
+			if retained {
+				return true, nil
+			}
+		}
+		if n > 1 {
+			return false, fmt.Errorf("failed to release streaming upload claim: expected 1 row, got %d", n)
+		}
+
+		_, err = tx.Exec(`DELETE FROM parked_piece_refs WHERE ref_id = $1 AND piece_id = $2`, claim.pieceRefID, claim.parkedPieceID)
+		if err != nil {
+			return false, fmt.Errorf("failed to delete streaming upload ref: %w", err)
+		}
+
+		return true, nil
+	}, harmonydb.OptionRetry())
+	if err != nil {
+		return err
+	}
+	if !committed {
+		return errors.New("failed to commit streaming upload claim release")
+	}
+	return nil
+}
+
 func (p *PDPService) cleanupExpiredDirectUploadClaims(ctx context.Context) error {
 	var claims []struct {
 		UploadID      string `db:"upload_id"`
@@ -340,6 +557,48 @@ func (p *PDPService) cleanupExpiredDirectUploadClaims(ctx context.Context) error
 	for _, claim := range claims {
 		if err := p.releaseDirectUploadClaim(ctx, claim.UploadID, claim.PieceRefID, claim.ParkedPieceID); err != nil {
 			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("release expired upload %s: %w", claim.UploadID, err))
+		}
+	}
+	return cleanupErr
+}
+
+func (p *PDPService) cleanupExpiredStreamingUploadClaims(ctx context.Context) error {
+	var claims []struct {
+		UploadID      string `db:"upload_id"`
+		Service       string `db:"service"`
+		PieceRefID    int64  `db:"piece_ref_id"`
+		ParkedPieceID int64  `db:"parked_piece_id"`
+	}
+	err := p.db.Select(ctx, &claims, `
+		SELECT su.id::TEXT AS upload_id,
+		       su.service,
+		       su.piece_ref AS piece_ref_id,
+		       pp.id AS parked_piece_id
+		FROM pdp_piece_streaming_uploads su
+		JOIN parked_piece_refs ppr ON ppr.ref_id = su.piece_ref
+		JOIN parked_pieces pp ON pp.id = ppr.piece_id
+		WHERE su.piece_ref IS NOT NULL
+		  AND COALESCE(su.complete, FALSE) = FALSE
+		  AND su.created_at <= NOW() - INTERVAL '1 hour'
+		  AND ppr.data_url IS NULL
+		  AND pp.complete = FALSE
+		  AND pp.skip = TRUE
+		ORDER BY su.created_at, su.id
+		LIMIT 256
+	`)
+	if err != nil {
+		return fmt.Errorf("select expired streaming upload claims: %w", err)
+	}
+
+	var cleanupErr error
+	for _, stale := range claims {
+		claim := parkedPieceClaim{
+			parkedPieceID: stale.ParkedPieceID,
+			pieceRefID:    stale.PieceRefID,
+			created:       true,
+		}
+		if err := p.releaseStreamingUploadClaim(ctx, stale.UploadID, stale.Service, claim); err != nil {
+			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("release expired streaming upload %s: %w", stale.UploadID, err))
 		}
 	}
 	return cleanupErr
@@ -714,116 +973,73 @@ func (p *PDPService) handleStreamingUpload(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	reader := NewTimeoutLimitReader(r.Body, 5*time.Second)
-	cp := &commp.Calc{}
-	defer cp.Reset()
-	readSize := int64(0)
-
-	// Function to write data into StashStore and calculate commP
-	writeFunc := func(f *os.File) error {
-		multiWriter := io.MultiWriter(cp, f)
-
-		// Copy data from limitedReader to multiWriter
-		n, err := io.Copy(multiWriter, reader)
-		if err != nil {
-			return fmt.Errorf("failed to read and write piece data: %w", err)
+	bodyReader := NewTimeoutLimitReader(r.Body, 5*time.Second)
+	prefix := make([]byte, int(PieceSizeMinLimit))
+	if _, err := io.ReadFull(bodyReader, prefix); err != nil {
+		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+			httpServerError(w, http.StatusBadRequest, ErrPieceTooSmall.Error(), ErrPieceTooSmall)
+			return
 		}
-
-		// already limited the maximum read size in TimeoutLimitReader
-		if n < int64(PieceSizeMinLimit) {
-			return ErrPieceTooSmall
-		}
-
-		readSize = n
-
-		return nil
+		httpServerError(w, http.StatusInternalServerError, "Failed to read piece data", err)
+		return
 	}
 
-	// Upload into StashStore
-	stashID, err := p.storage.StashCreate(ctx, int64(PieceSizeMaxLimit), writeFunc)
+	claim, err := p.claimStreamingUpload(ctx, uploadUUID.String(), serviceID)
 	if err != nil {
-		if errors.Is(err, ErrPieceTooLarge) {
+		switch {
+		case errors.Is(err, errUploadInProgress):
+			httpServerError(w, http.StatusConflict, "This piece is already being uploaded", err)
+		case errors.Is(err, errUploadClaimed):
+			httpServerError(w, http.StatusConflict, "Data has already been uploaded", err)
+		default:
+			log.Errorw("Failed to claim streaming upload", "uploadUUID", uploadUUID, "error", err)
+			httpServerError(w, http.StatusInternalServerError, "Failed to claim streaming upload", err)
+		}
+		return
+	}
+
+	cleanupClaim := true
+	defer func() {
+		if !cleanupClaim {
+			return
+		}
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		if err := p.releaseStreamingUploadClaim(cleanupCtx, uploadUUID.String(), serviceID, claim); err != nil {
+			log.Errorw("failed to release streaming upload claim", "uploadUUID", uploadUUID, "piece", claim.parkedPieceID, "error", err)
+		}
+	}()
+
+	pieceInfo, readSize, err := p.pieceIO.WriteUploadPiece(
+		ctx,
+		storiface.PieceNumber(claim.parkedPieceID),
+		int64(PieceSizeMaxLimit),
+		io.MultiReader(bytes.NewReader(prefix), bodyReader),
+		storiface.PathStorage,
+		false,
+	)
+	if err != nil {
+		if errors.Is(err, ErrPieceTooLarge) || errors.Is(err, piecestore.ErrPieceTooLarge) {
 			httpServerError(w, http.StatusRequestEntityTooLarge, ErrPieceTooLarge.Error(), err)
 			return
-		} else if errors.Is(err, ErrPieceTooSmall) {
-			httpServerError(w, http.StatusBadRequest, ErrPieceTooSmall.Error(), err)
+		}
+		log.Errorw("Failed to write streaming upload directly to storage", "uploadUUID", uploadUUID, "error", err)
+		httpServerError(w, http.StatusInternalServerError, "Failed to store piece data", err)
+		return
+	}
+
+	completeCtx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	if err := p.completeStreamingUpload(completeCtx, uploadUUID.String(), serviceID, claim, pieceInfo, int64(readSize)); err != nil {
+		if errors.Is(err, errUploadInProgress) {
+			httpServerError(w, http.StatusConflict, "This piece is already being uploaded or conflicts with an existing piece", err)
 			return
-		} else {
-			log.Errorw("Failed to store piece data in StashStore", "error", err)
-			httpServerError(w, http.StatusInternalServerError, "Failed to store piece data", err)
-			return
 		}
-	}
-
-	// Finalize the commP calculation
-	digest, paddedPieceSize, err := cp.Digest()
-	if err != nil {
-		log.Errorw("Failed to finalize commP calculation", "error", err)
-		// Remove the stash file as the data is invalid
-		_ = p.storage.StashRemove(ctx, stashID)
-		httpServerError(w, http.StatusInternalServerError, "Failed to finalize commP calculation", err)
+		httpServerError(w, http.StatusInternalServerError, "Failed to complete streaming upload", err)
 		return
 	}
+	cleanupClaim = false
 
-	pcid, err := commcid.DataCommitmentV1ToCID(digest)
-	if err != nil {
-		log.Errorw("Failed to calculate PieceCIDV2", "error", err)
-		_ = p.storage.StashRemove(ctx, stashID)
-		httpServerError(w, http.StatusInternalServerError, "Failed to calculate PieceCIDV2", err)
-		return
-	}
-
-	didCommit, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
-		// 1. Create a long-term parked piece entry
-		parkedPieceID, err := parkpiece.Upsert(tx, pcid.String(), int64(paddedPieceSize), readSize, true)
-		if err != nil {
-			return false, fmt.Errorf("failed to create parked_pieces entry: %w", err)
-		}
-
-		// 2. Create a piece ref with data_url being "stashstore://<stash-url>"
-		// Get StashURL
-		stashURL, err := p.storage.StashURL(stashID)
-		if err != nil {
-			return false, fmt.Errorf("failed to get stash URL: %w", err)
-		}
-
-		// Change scheme to "custore"
-		stashURL.Scheme = dealdata.CustoreScheme
-		dataURL := stashURL.String()
-
-		var pieceRefID int64
-		err = tx.QueryRow(`
-            INSERT INTO parked_piece_refs (piece_id, data_url, long_term)
-            VALUES ($1, $2, TRUE) RETURNING ref_id
-        `, parkedPieceID, dataURL).Scan(&pieceRefID)
-		if err != nil {
-			return false, fmt.Errorf("failed to create parked_piece_refs entry: %w", err)
-		}
-
-		// 3. Update the pdp_piece_streaming_uploads entry
-		_, err = tx.Exec(`
-            UPDATE pdp_piece_streaming_uploads SET piece_ref = $1, piece_cid = $2, piece_size = $3, raw_size = $4, complete = TRUE, completed_at = NOW() AT TIME ZONE 'UTC' WHERE id = $5 and service = $6
-        `, pieceRefID, pcid.String(), paddedPieceSize, readSize, uploadUUID.String(), serviceID)
-		if err != nil {
-			return false, fmt.Errorf("failed to update pdp_piece_streaming_uploads: %w", err)
-		}
-
-		return true, nil // Commit the transaction
-	}, harmonydb.OptionRetry())
-
-	if err != nil || !didCommit {
-		// Remove the stash file as the transaction failed
-		if err != nil {
-			log.Errorw("Failed to process piece upload", "error", err)
-		} else {
-			log.Errorw("Failed to process piece upload", "error", "failed to commit transaction")
-		}
-		_ = p.storage.StashRemove(ctx, stashID)
-		httpServerError(w, http.StatusInternalServerError, "Failed to process piece upload", err)
-		return
-	}
-
-	// Respond with 204 No Content
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -879,20 +1095,26 @@ func (p *PDPService) handleFinalizeStreamingUpload(w http.ResponseWriter, r *htt
 	}
 	pieceCidV1 := pieceInfo.CidV1
 
-	// Get digest for insertion
-	digest, err := commcid.CIDToDataCommitmentV1(pieceCidV1)
-	if err != nil {
-		httpServerError(w, http.StatusBadRequest, "Invalid request body: invalid pieceCid", err)
-		return
-	}
-
 	// Query database for stored piece info
 	var dPcidStr string
 	var pref int64
 	var rawSize uint64
 
-	err = p.db.QueryRow(ctx, `SELECT piece_cid, piece_ref, raw_size FROM pdp_piece_streaming_uploads WHERE id = $1 AND service = $2 AND complete = TRUE`, uploadUUID.String(), serviceID).Scan(&dPcidStr, &pref, &rawSize)
+	err = p.db.QueryRow(ctx, `
+		SELECT su.piece_cid, su.piece_ref, su.raw_size
+		FROM pdp_piece_streaming_uploads su
+		JOIN parked_piece_refs ppr ON ppr.ref_id = su.piece_ref
+		JOIN parked_pieces pp ON pp.id = ppr.piece_id
+		WHERE su.id = $1
+		  AND su.service = $2
+		  AND su.complete = TRUE
+		  AND pp.complete = TRUE
+	`, uploadUUID.String(), serviceID).Scan(&dPcidStr, &pref, &rawSize)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			httpServerError(w, http.StatusConflict, "Streaming upload is not complete", err)
+			return
+		}
 		log.Errorw("Failed to query pdp_piece_streaming_uploads", "error", err)
 		httpServerError(w, http.StatusInternalServerError, "Database error", err)
 		return
@@ -920,19 +1142,33 @@ func (p *PDPService) handleFinalizeStreamingUpload(w http.ResponseWriter, r *htt
 
 	comm, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		n, err := tx.Exec(`
-       INSERT INTO pdp_piece_uploads (id, service, piece_cid, notify_url, check_hash_codec, check_hash, check_size, piece_ref)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-   `, uploadUUID.String(), serviceID, pieceCidV1.String(), req.Notify, multicodec.Sha2_256Trunc254Padded.String(), digest, pieceInfo.RawSize, pref)
+			INSERT INTO pdp_piecerefs (service, piece_cid, piece_ref, created_at, needs_save_cache)
+			SELECT su.service, su.piece_cid, su.piece_ref, NOW(), $4
+			FROM pdp_piece_streaming_uploads su
+			JOIN parked_piece_refs ppr ON ppr.ref_id = su.piece_ref
+			JOIN parked_pieces pp ON pp.id = ppr.piece_id
+			WHERE su.id = $1
+			  AND su.service = $2
+			  AND su.piece_ref = $3
+			  AND su.complete = TRUE
+			  AND pp.complete = TRUE
+		`, uploadUUID.String(), serviceID, pref, needsSaveCache(int64(rawSize)))
 		if err != nil {
-			return false, fmt.Errorf("failed to store upload request in database: %w", err)
+			return false, fmt.Errorf("failed to create PDP piece reference: %w", err)
 		}
 		if n != 1 {
-			return false, fmt.Errorf("failed to store upload request in database: expected 1 row but got %d", n)
+			return false, fmt.Errorf("failed to create PDP piece reference: expected 1 row but got %d", n)
 		}
 
-		_, err = tx.Exec(`DELETE FROM pdp_piece_streaming_uploads WHERE id = $1 AND service = $2 AND complete = TRUE`, uploadUUID.String(), serviceID)
+		n, err = tx.Exec(`
+			DELETE FROM pdp_piece_streaming_uploads
+			WHERE id = $1 AND service = $2 AND piece_ref = $3 AND complete = TRUE
+		`, uploadUUID.String(), serviceID, pref)
 		if err != nil {
 			return false, fmt.Errorf("failed to delete pdp_piece_streaming_uploads entry: %w", err)
+		}
+		if n != 1 {
+			return false, fmt.Errorf("failed to delete pdp_piece_streaming_uploads entry: expected 1 row but got %d", n)
 		}
 		return true, nil
 	}, harmonydb.OptionRetry())
