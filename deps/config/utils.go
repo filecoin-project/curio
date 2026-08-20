@@ -37,11 +37,16 @@ func forEachConfig[T any](confs map[string]string, cb func(name string, v T) err
 	for name, tomlStr := range confs {
 		var info T
 
-		if err := prepareCurioAddressesForDecode(tomlStr, &info); err != nil {
+		sanitized, err := StripEmptyDynamicTables(tomlStr, DefaultCurioConfig())
+		if err != nil {
+			return xerrors.Errorf("sanitizing layer %s: %w", name, err)
+		}
+
+		if err := prepareCurioAddressesForDecode(sanitized, &info); err != nil {
 			return xerrors.Errorf("preparing CurioAddresses for layer %s: %w", name, err)
 		}
 
-		if err := toml.Unmarshal([]byte(tomlStr), &info); err != nil {
+		if err := toml.Unmarshal([]byte(sanitized), &info); err != nil {
 			return xerrors.Errorf("unmarshaling %s config: %w", name, err)
 		}
 
@@ -51,6 +56,56 @@ func forEachConfig[T any](confs map[string]string, cb func(name string, v T) err
 	}
 
 	return nil
+}
+
+// RepairStoredEmptyDynamicTables finds layers whose TOML still contains empty
+// Dynamic[T] wrapper tables (from older GUI/raw encodes), removes those tables
+// while preserving comments, and writes the repaired text back. Prior text is
+// snapshotted to harmony_config_history. Returns the titles that were updated.
+func RepairStoredEmptyDynamicTables(ctx context.Context, db *harmonydb.DB) ([]string, error) {
+	if db == nil || db.ReadOnly() {
+		return nil, nil
+	}
+
+	confs, err := loadConfigs(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+
+	sample := DefaultCurioConfig()
+	var repaired []string
+	for title, text := range confs {
+		fixed, changed, err := RepairEmptyDynamicTablesText(text, sample)
+		if err != nil {
+			return repaired, xerrors.Errorf("repairing layer %s: %w", title, err)
+		}
+		if !changed {
+			continue
+		}
+
+		probe := DefaultCurioConfig()
+		if _, err := LoadConfigWithUpgrades(fixed, probe); err != nil {
+			return repaired, xerrors.Errorf("repaired layer %s still unloadable: %w", title, err)
+		}
+
+		_, err = db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+			if _, err := tx.Exec(`INSERT INTO harmony_config_history (title, config) VALUES ($1, $2)`, title, text); err != nil {
+				return false, xerrors.Errorf("history snapshot for %s: %w", title, err)
+			}
+			if _, err := tx.Exec(`UPDATE harmony_config SET config=$1 WHERE title=$2`, fixed, title); err != nil {
+				return false, xerrors.Errorf("updating layer %s: %w", title, err)
+			}
+			return true, nil
+		}, harmonydb.OptionRetry())
+		if err != nil {
+			return repaired, err
+		}
+
+		repaired = append(repaired, title)
+		logger.Infof("repaired empty Dynamic wrapper tables in config layer %q", title)
+	}
+
+	return repaired, nil
 }
 
 func prepareCurioAddressesForDecode[T any](tomlStr string, info *T) error {

@@ -757,6 +757,19 @@ func TestHelperFunctions(t *testing.T) {
 		assert.False(t, extracted.IsValid())
 	})
 
+	t.Run("DynamicInnerType", func(t *testing.T) {
+		inner, ok := DynamicInnerType(reflect.TypeFor[*Dynamic[int]]())
+		assert.True(t, ok)
+		assert.Equal(t, reflect.TypeFor[int](), inner)
+
+		inner, ok = DynamicInnerType(reflect.TypeFor[Dynamic[[]string]]())
+		assert.True(t, ok)
+		assert.Equal(t, reflect.TypeFor[[]string](), inner)
+
+		_, ok = DynamicInnerType(reflect.TypeFor[int]())
+		assert.False(t, ok)
+	})
+
 	t.Run("extractDynamicInnerType", func(t *testing.T) {
 		dynType := reflect.TypeFor[Dynamic[int]]()
 		innerType := extractDynamicInnerType(dynType)
