@@ -58,8 +58,8 @@ const (
 	// call to reject early rather than revert on-chain.
 	MaxAddPiecesBatchSize = 40
 
-	// MaxDeletePieceExtraDataSize defines the limit for extraData size in DeletePiece calls (256B).
-	MaxDeletePieceExtraDataSize = 256
+	// MaxDeletePieceExtraDataSize defines the limit for extraData size in DeletePiece calls (1KiB).
+	MaxDeletePieceExtraDataSize = 1024
 
 	MaxDeletePiecesBatchSize = contract.ConservativeEnqueuedRemovalsLimit
 )

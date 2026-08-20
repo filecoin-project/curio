@@ -45,8 +45,9 @@ func validateExtraData(extraDataHexStr string) error {
 	if err != nil {
 		return fmt.Errorf("failed to decode hex in extra-data: %w", err)
 	}
-	if len(decoded) > 2048 {
-		return fmt.Errorf("decoded extra-data exceeds maximum size of 2048 bytes (decoded length: %d)", len(decoded))
+	// 8192 bytes is the size of the largest extradata (for addPieces). Individual smaller limits are checked later
+	if len(decoded) > 8192 {
+		return fmt.Errorf("decoded extra-data exceeds maximum size of 8192 bytes (decoded length: %d)", len(decoded))
 	}
 	return nil
 }
