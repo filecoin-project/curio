@@ -8,6 +8,7 @@ import (
 
 	"github.com/filecoin-project/curio/alertmanager"
 	"github.com/filecoin-project/curio/api"
+	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/lib/paths"
@@ -22,6 +23,10 @@ type MountDeps struct {
 	Chain      api.Chain
 	EthSender  ETHTxSender
 	AlertTask  *alertmanager.AlertTask
+
+	// AuthorizerConfig is the SP-side authorizer allowlist policy (Subsystems.PDPAuthorizers). The
+	// zero value opts out (relays for any authorizer); real callers pass Cfg.Subsystems.PDPAuthorizers.
+	AuthorizerConfig config.PDPAuthorizerConfig
 }
 
 // MountRoutes registers PDP HTTP routes on an existing router.
@@ -30,7 +35,12 @@ func MountRoutes(ctx context.Context, r chi.Router, d MountDeps, ipp *ipni_provi
 		return xerrors.Errorf("eth sender required for PDP routes")
 	}
 
-	pdsvc := NewPDPService(ctx, d.DB, d.LocalStore, d.EthClient, d.Chain, d.EthSender, d.AlertTask, ipp)
+	authPolicy, err := NewAuthorizerAllowlist(d.AuthorizerConfig)
+	if err != nil {
+		return xerrors.Errorf("building PDP authorizer allowlist: %w", err)
+	}
+
+	pdsvc := NewPDPService(ctx, d.DB, d.LocalStore, d.EthClient, d.Chain, d.EthSender, d.AlertTask, ipp, authPolicy)
 	Routes(r, pdsvc)
 	return nil
 }

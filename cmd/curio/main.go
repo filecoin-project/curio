@@ -78,6 +78,7 @@ func main() {
 		calcCmd,
 		toolboxCmd,
 		batchCmd,
+		pdpCmd,
 	}
 
 	for _, cmd := range local {
