@@ -1,0 +1,22 @@
+// Each thread writes `1u` to `payload[tid]` for a unique linear thread id (no atomics).
+// Host sets `thread_count`; `payload` length must match `MSM_DISPATCH_SMOKE_MAX_THREADS` in msm_gpu.rs.
+//
+// `local_size_x` is specialization constant id **0** (uint). Prebuilt with `glslangValidator -V -S comp`
+// to `msm_dispatch_grid_smoke_prebuilt.spv` (naga glsl-in does not support `local_size_x_id`).
+#version 450
+
+layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) buffer Data {
+    uint thread_count;
+    uint payload[4096];
+};
+
+void main() {
+    uvec3 gid = gl_GlobalInvocationID;
+    uint stride_x = gl_WorkGroupSize.x * gl_NumWorkGroups.x;
+    uint tid = gid.x + gid.y * stride_x;
+    if (tid < thread_count && tid < 4096u) {
+        payload[tid] = 1u;
+    }
+}

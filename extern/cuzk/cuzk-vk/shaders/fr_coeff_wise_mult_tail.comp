@@ -1,0 +1,40 @@
+// `out[i] = a[i] * b[i]` in Montgomery Fr. `d[0]` = `n` (element count); `local_size_x = 64`.
+// Max elements `FR_PW_MAX_N`; layout: header 64 words, then `out`, `a`, `b` each `FR_PW_MAX_N * 8` words.
+
+#define FR_PW_MAX_N 16384u
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) buffer Data {
+    uint d[64u + FR_PW_MAX_N * 8u * 3u];
+} buf;
+
+void fr_load_at(uint base, out @@FR_T@@ x) {
+    for (uint i = 0u; i < 8u; i++) {
+        x.val[i] = buf.d[base + i];
+    }
+}
+
+void fr_store_at(uint base, @@FR_T@@ x) {
+    for (uint i = 0u; i < 8u; i++) {
+        buf.d[base + i] = x.val[i];
+    }
+}
+
+void main() {
+    uint n = buf.d[0];
+    uint tid = gl_GlobalInvocationID.x;
+    if (tid >= n) {
+        return;
+    }
+    uint base_o = 64u;
+    uint base_a = 64u + FR_PW_MAX_N * 8u;
+    uint base_b = 64u + 2u * FR_PW_MAX_N * 8u;
+    uint off = tid * 8u;
+    @@FR_T@@ a;
+    @@FR_T@@ b;
+    fr_load_at(base_a + off, a);
+    fr_load_at(base_b + off, b);
+    @@FR_T@@ r = fr_mul_mont_cios(a, b);
+    fr_store_at(base_o + off, r);
+}

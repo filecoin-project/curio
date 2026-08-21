@@ -1,0 +1,75 @@
+// Appended after `ec_gpu_gen::glsl_32_bit_field_params::<Scalar>()` (build.rs).
+// SSBO layout: `out[8]`, `a[8]`, `b[8]` (host writes `a`/`b` at word indices 8..24; reads `out` from 0).
+// Placeholders @@FR_T@@ (struct type) and @@FR_P@@ (modulus const symbol, e.g. `…_P`).
+
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) buffer Data {
+    uint d[24];
+} buf;
+
+bool fr_gte_val(@@FR_T@@ a, @@FR_T@@ b) {
+    for (uint k = 0u; k < 8u; k++) {
+        uint i = 7u - k;
+        if (a.val[i] > b.val[i]) {
+            return true;
+        }
+        if (a.val[i] < b.val[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+@@FR_T@@ fr_load_p() {
+    @@FR_T@@ p;
+    for (uint i = 0u; i < 8u; i++) {
+        p.val[i] = @@FR_P@@[i];
+    }
+    return p;
+}
+
+@@FR_T@@ fr_add_raw(@@FR_T@@ a, @@FR_T@@ b) {
+    uint carry = 0u;
+    for (uint i = 0u; i < 8u; i++) {
+        uint old = a.val[i];
+        a.val[i] = old + b.val[i] + carry;
+        carry = (carry != 0u) ? ((old >= a.val[i]) ? 1u : 0u) : ((old > a.val[i]) ? 1u : 0u);
+    }
+    return a;
+}
+
+@@FR_T@@ fr_sub_raw(@@FR_T@@ a, @@FR_T@@ b) {
+    uint borrow = 0u;
+    for (uint i = 0u; i < 8u; i++) {
+        uint old = a.val[i];
+        a.val[i] = old - b.val[i] - borrow;
+        borrow = (borrow != 0u) ? ((old <= a.val[i]) ? 1u : 0u) : ((old < a.val[i]) ? 1u : 0u);
+    }
+    return a;
+}
+
+@@FR_T@@ fr_add_mod(@@FR_T@@ a, @@FR_T@@ b) {
+    @@FR_T@@ r = fr_add_raw(a, b);
+    @@FR_T@@ p = fr_load_p();
+    if (fr_gte_val(r, p)) {
+        r = fr_sub_raw(r, p);
+    }
+    return r;
+}
+
+void main() {
+    if (gl_GlobalInvocationID.x != 0u) {
+        return;
+    }
+    @@FR_T@@ a;
+    @@FR_T@@ b;
+    for (uint i = 0u; i < 8u; i++) {
+        a.val[i] = buf.d[i + 8u];
+        b.val[i] = buf.d[i + 16u];
+    }
+    @@FR_T@@ r = fr_add_mod(a, b);
+    for (uint i = 0u; i < 8u; i++) {
+        buf.d[i] = r.val[i];
+    }
+}

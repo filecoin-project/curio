@@ -495,3 +495,68 @@ impl StatusTracker {
         }
     }
 }
+
+#[cfg(test)]
+mod step_p02_status_tests {
+    use super::*;
+    use std::sync::Arc;
+
+    #[test]
+    fn step_p02_status_register_then_snapshot_workers() {
+        let budget = Arc::new(MemoryBudget::new(1024 * 1024 * 1024));
+        let st = StatusTracker::new(budget);
+        st.register_workers(&[(0u32, 0u32), (1u32, 0u32)]);
+        let snap = st.snapshot(vec![], vec![]);
+        assert_eq!(snap.gpu_workers.len(), 2);
+        assert_eq!(snap.gpu_workers[0].worker_id, 0);
+        assert_eq!(snap.gpu_workers[0].state, "idle");
+    }
+
+    #[test]
+    fn step_p02_status_partition_lifecycle_synth_then_gpu() {
+        let budget = Arc::new(MemoryBudget::new(1024 * 1024 * 1024));
+        let st = StatusTracker::new(budget);
+        st.register_workers(&[(0u32, 0u32)]);
+        st.register_job("job1", "porep_c2", 2);
+        st.partition_synth_start("job1", 0);
+        let snap = st.snapshot(vec![], vec![]);
+        assert_eq!(snap.synthesis.active, 1);
+        assert_eq!(snap.pipelines[0].partitions[0].state, "synthesizing");
+        st.partition_synth_end("job1", 0);
+        st.partition_gpu_start("job1", 0, 0);
+        let snap2 = st.snapshot(vec![], vec![]);
+        assert_eq!(snap2.pipelines[0].partitions[0].state, "gpu");
+        assert_eq!(snap2.gpu_workers[0].state, "proving");
+    }
+
+    #[test]
+    fn step_p02_status_job_completed_increments_counters() {
+        let budget = Arc::new(MemoryBudget::new(1024 * 1024 * 1024));
+        let st = StatusTracker::new(budget);
+        st.job_completed("j", "porep_c2", true);
+        let snap = st.snapshot(vec![], vec![]);
+        assert_eq!(snap.counters.total_completed, 1);
+        st.job_completed("j2", "porep_c2", false);
+        let snap2 = st.snapshot(vec![], vec![]);
+        assert_eq!(snap2.counters.total_failed, 1);
+    }
+
+    #[test]
+    fn step_p02_status_failed_partition_recorded() {
+        let budget = Arc::new(MemoryBudget::new(1024 * 1024 * 1024));
+        let st = StatusTracker::new(budget);
+        st.register_job("jobf", "porep_c2", 1);
+        st.partition_failed("jobf", 0);
+        let snap = st.snapshot(vec![], vec![]);
+        assert_eq!(snap.pipelines[0].partitions[0].state, "failed");
+    }
+
+    #[test]
+    fn step_p02_status_queue_depth_setter_thread_safe() {
+        let budget = Arc::new(MemoryBudget::new(1024 * 1024 * 1024));
+        let st = StatusTracker::new(budget);
+        st.set_queue_depth(7);
+        let snap = st.snapshot(vec![], vec![]);
+        assert_eq!(snap.counters.queue_depth, 7);
+    }
+}
