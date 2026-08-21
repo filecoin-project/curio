@@ -102,6 +102,7 @@ func PiecesFromReceipt(receipt *types.Receipt) ([]AddedPiece, error) {
 }
 
 func parsePiecesAddedV2Log(vLog *types.Log) (piecesAddedV2Batch, error) {
+	// nil filterer b/c parsing does not use it. Don't call FilterLogs/WatchLogs though.
 	parser, err := NewPDPVerifierFilterer(vLog.Address, nil)
 	if err != nil {
 		return piecesAddedV2Batch{}, fmt.Errorf("failed to create PDPVerifierFilterer: %w", err)
