@@ -31,6 +31,12 @@ var (
 	ErrPDPVerifierDataSetNotLive             abi.Error
 	ErrPDPVerifierInsufficientChallengeDelay abi.Error
 
+	ErrPDPVerifierPendingPieceDeletions     abi.Error
+	ErrPDPVerifierInvalidPieceDeletionBatch abi.Error
+	ErrPDPVerifierEmptyRemovalBatch         abi.Error
+	ErrPDPVerifierOnlyStorageProvider       abi.Error
+	ErrPDPVerifierNoPiecesToProve           abi.Error
+
 	// Unexpected proving invariant errors. Curio should not produce these in
 	// normal PDPv0 initPP/nextPP/prove flow; classify them explicitly so they
 	// alert and require investigation instead of entering recovery/backoff paths.
@@ -75,6 +81,33 @@ func init() {
 	ErrPDPVerifierExcessiveChallengeDelay, ok = parsedPDPVerifier.Errors["ExcessiveChallengeDelay"]
 	if !ok {
 		panic("PDPVerifier ABI missing ExcessiveChallengeDelay error")
+	}
+
+	removalQueue := contract.RemovalQueueABI()
+
+	ErrPDPVerifierPendingPieceDeletions, ok = removalQueue.Errors["PendingPieceDeletions"]
+	if !ok {
+		panic("PDPVerifier removal ABI missing PendingPieceDeletions error")
+	}
+
+	ErrPDPVerifierInvalidPieceDeletionBatch, ok = removalQueue.Errors["InvalidPieceDeletionBatch"]
+	if !ok {
+		panic("PDPVerifier removal ABI missing InvalidPieceDeletionBatch error")
+	}
+
+	ErrPDPVerifierEmptyRemovalBatch, ok = removalQueue.Errors["EmptyRemovalBatch"]
+	if !ok {
+		panic("PDPVerifier removal ABI missing EmptyRemovalBatch error")
+	}
+
+	ErrPDPVerifierOnlyStorageProvider, ok = removalQueue.Errors["OnlyStorageProvider"]
+	if !ok {
+		panic("PDPVerifier removal ABI missing OnlyStorageProvider error")
+	}
+
+	ErrPDPVerifierNoPiecesToProve, ok = removalQueue.Errors["NoPiecesToProve"]
+	if !ok {
+		panic("PDPVerifier removal ABI missing NoPiecesToProve error")
 	}
 
 	parsedFWSS, err := FWSS.FilecoinWarmStorageServiceMetaData.GetAbi()
@@ -218,7 +251,43 @@ func IsNextProvingPeriodEmptyDatasetError(err error) bool {
 	if err == nil {
 		return false
 	}
-	return strings.Contains(strings.ToLower(err.Error()), strings.ToLower(provingRevertNoLeavesForProvingPeriod))
+	errStr := strings.ToLower(err.Error())
+	return strings.Contains(errStr, strings.ToLower(provingRevertNoLeavesForProvingPeriod)) ||
+		strings.Contains(errStr, contractErrorSelector(ErrPDPVerifierNoPiecesToProve))
+}
+
+// IsPendingPieceDeletionsError returns true when nextProvingPeriod (or initPP)
+// refuses to roll over because the data set still has scheduled removals
+// queued. This is recoverable: the process deletions task processes the queue and the
+// proving-period task retries.
+func IsPendingPieceDeletionsError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), contractErrorSelector(ErrPDPVerifierPendingPieceDeletions))
+}
+
+func IsStaleRemovalQueueViewError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := strings.ToLower(err.Error())
+	return strings.Contains(errStr, contractErrorSelector(ErrPDPVerifierInvalidPieceDeletionBatch)) ||
+		strings.Contains(errStr, contractErrorSelector(ErrPDPVerifierEmptyRemovalBatch))
+}
+
+func IsOnlyStorageProviderError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), contractErrorSelector(ErrPDPVerifierOnlyStorageProvider))
+}
+
+func IsPDPVerifierDataSetNotLive(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), contractErrorSelector(ErrPDPVerifierDataSetNotLive))
 }
 
 // IsRefreshProvingStateError returns true when initPP/nextPP selected a
