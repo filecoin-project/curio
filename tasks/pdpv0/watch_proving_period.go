@@ -192,7 +192,7 @@ func clearFailedProvingPeriodReconciliations(ctx context.Context, db *harmonydb.
 //
 // A zero next challenge epoch is ambiguous since FilOzone/pdp#297:
 // processPieceDeletions also clears it, on a perfectly healthy data set that
-// still has leaves and is simply due a fresh challenge at the next rollover.
+// still has leaves and is simply due a fresh challenge at the next proving period.
 // Leaf count is the discriminator -- only a zero challenge with zero leaves is a
 // genuinely emptied data set.
 func processEmptyProvingPeriods(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, periods []confirmedProvingPeriod) error {
@@ -225,9 +225,6 @@ func processEmptyProvingPeriods(ctx context.Context, db *harmonydb.DB, ethClient
 			return xerrors.Errorf("failed to get leaf count for data set %d: %w", period.DataSetID, err)
 		}
 		if leafCount.Sign() > 0 {
-			// Leaves remain, so the challenge was cleared by a processed
-			// deletion rather than by the data set emptying. The proving
-			// schedule is still valid and nextProvingPeriod will resample.
 			log.Debugw("skipping empty-period reset; challenge cleared by processed deletions",
 				"dataSetId", period.DataSetID, "leafCount", leafCount.String())
 			continue
@@ -273,9 +270,3 @@ func clearProvingPeriodReconcileNeeded(ctx context.Context, db *harmonydb.DB, pe
 	}
 	return nil
 }
-
-// processPendingPieceDeletes, and its helpers, moved to
-// watch_process_deletions.go: removals are now applied by their own
-// transaction rather than by nextProvingPeriod. It is still called from here as
-// well, because the reconciliation is chain-authoritative and therefore correct
-// against a PDPVerifier that predates processPieceDeletions.
