@@ -30,12 +30,14 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/apiconn"
 	"github.com/filecoin-project/curio/lib/lists"
+	pdpwallet "github.com/filecoin-project/curio/pdp/wallet"
 	"github.com/filecoin-project/curio/tasks/tasknames"
 
 	"github.com/filecoin-project/lotus/blockstore"
 	"github.com/filecoin-project/lotus/chain/actors/adt"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/types"
+	"github.com/filecoin-project/lotus/chain/types/ethtypes"
 )
 
 type AlertNow struct {
@@ -144,8 +146,46 @@ func balanceCheck(al *alerts) {
 			fmt.Fprintf(&ret, "Balance for wallet %s (%s) is below %s. ", addr, keyAddr, al.cfg.MinimumWalletBalance.Short())
 		}
 	}
+
+	pdpBalanceCheck(al, &ret)
+
 	if ret.String() != "" {
 		al.alertMap[Name].alertString = ret.String()
+	}
+}
+
+// pdpBalanceCheck checks the PDP wallet (used to pay gas for PDP on-chain
+// transactions) against the same MinimumWalletBalance threshold as the other
+// wallets.
+func pdpBalanceCheck(al *alerts, ret *strings.Builder) {
+	status, err := pdpwallet.PDPKeyStatus(al.ctx, al.db)
+	if err != nil {
+		fmt.Fprintf(ret, "Could not check PDP wallet: %s. ", err)
+		return
+	}
+	if !status.Configured {
+		return
+	}
+
+	ea, err := ethtypes.ParseEthAddress(status.Address)
+	if err != nil {
+		fmt.Fprintf(ret, "Could not parse PDP wallet address %s: %s. ", status.Address, err)
+		return
+	}
+	filAddr, err := ea.ToFilecoinAddress()
+	if err != nil {
+		fmt.Fprintf(ret, "Could not derive fil address for PDP wallet %s: %s. ", status.Address, err)
+		return
+	}
+
+	balance, err := al.api.WalletBalance(al.ctx, filAddr)
+	if err != nil {
+		fmt.Fprintf(ret, "Could not get balance for PDP wallet %s: %s. ", filAddr, err)
+		return
+	}
+
+	if abi.TokenAmount(al.cfg.MinimumWalletBalance).GreaterThanEqual(balance) {
+		fmt.Fprintf(ret, "Balance for PDP wallet %s (%s) is below %s. ", status.Address, filAddr, al.cfg.MinimumWalletBalance.Short())
 	}
 }
 
