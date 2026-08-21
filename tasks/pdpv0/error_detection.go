@@ -31,9 +31,6 @@ var (
 	ErrPDPVerifierDataSetNotLive             abi.Error
 	ErrPDPVerifierInsufficientChallengeDelay abi.Error
 
-	// Removal-queue errors from FilOzone/pdp#297. These resolve against the
-	// hand-maintained ABI fragment in pdp/contract/removals.go until the
-	// generated PDPVerifier bindings carry them.
 	ErrPDPVerifierPendingPieceDeletions     abi.Error
 	ErrPDPVerifierInvalidPieceDeletionBatch abi.Error
 	ErrPDPVerifierEmptyRemovalBatch         abi.Error
@@ -250,12 +247,6 @@ func IsProvingPeriodNotInitializedError(err error) bool {
 
 // IsNextProvingPeriodEmptyDatasetError returns true when PDPVerifier refuses to
 // start the next proving period because the current proving set has no leaves.
-//
-// Both encodings are matched because one Curio build spans two contract
-// versions: the condition is a string revert before FilOzone/pdp#297 and the
-// NoPiecesToProve custom error afterwards. The underlying requirement --
-// dataSetLeafCount > 0 -- is the same, so neither form can be dropped until no
-// deployment runs the older contract.
 func IsNextProvingPeriodEmptyDatasetError(err error) bool {
 	if err == nil {
 		return false
@@ -267,7 +258,7 @@ func IsNextProvingPeriodEmptyDatasetError(err error) bool {
 
 // IsPendingPieceDeletionsError returns true when nextProvingPeriod (or initPP)
 // refuses to roll over because the data set still has scheduled removals
-// queued. This is recoverable: the drain task processes the queue and the
+// queued. This is recoverable: the process deletions task processes the queue and the
 // proving-period task retries.
 func IsPendingPieceDeletionsError(err error) bool {
 	if err == nil {
@@ -276,10 +267,6 @@ func IsPendingPieceDeletionsError(err error) bool {
 	return strings.Contains(strings.ToLower(err.Error()), contractErrorSelector(ErrPDPVerifierPendingPieceDeletions))
 }
 
-// IsStaleRemovalQueueViewError returns true when processPieceDeletions rejects
-// the requested batch because Curio's view of the queue is out of date -- the
-// queue shrank, or emptied, between the read and the send. Re-reading the queue
-// and retrying is the correct response.
 func IsStaleRemovalQueueViewError(err error) bool {
 	if err == nil {
 		return false
@@ -289,9 +276,6 @@ func IsStaleRemovalQueueViewError(err error) bool {
 		strings.Contains(errStr, contractErrorSelector(ErrPDPVerifierEmptyRemovalBatch))
 }
 
-// IsOnlyStorageProviderError returns true when PDPVerifier rejects a removal
-// call because the sender is not the data set's storage provider. This needs
-// operator attention rather than a retry.
 func IsOnlyStorageProviderError(err error) bool {
 	if err == nil {
 		return false
@@ -299,9 +283,6 @@ func IsOnlyStorageProviderError(err error) bool {
 	return strings.Contains(strings.ToLower(err.Error()), contractErrorSelector(ErrPDPVerifierOnlyStorageProvider))
 }
 
-// IsPDPVerifierDataSetNotLive returns true when PDPVerifier reports that a data
-// set is no longer live. In the removal pipeline this means the data set is
-// being deleted or cleaned up, so its removal queue no longer matters.
 func IsPDPVerifierDataSetNotLive(err error) bool {
 	if err == nil {
 		return false
