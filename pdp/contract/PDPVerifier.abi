@@ -1234,6 +1234,43 @@
   },
   {
     "type": "event",
+    "name": "PiecesAddedV2",
+    "inputs": [
+      {
+        "name": "setId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "firstPieceId",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "pieceCids",
+        "type": "tuple[]",
+        "indexed": false,
+        "internalType": "struct Cids.PackedCid[]",
+        "components": [
+          {
+            "name": "header",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "root",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ]
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "PiecesRemoved",
     "inputs": [
       {
