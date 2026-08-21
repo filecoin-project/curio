@@ -379,29 +379,38 @@ var _ = harmonytask.Reg(&CommpTask{})
 var _ harmonytask.TaskInterface = &CommpTask{}
 
 func failDeal(ctx context.Context, db *harmonydb.DB, deal string, updatePipeline bool, reason string) error {
-	n, err := db.Exec(ctx, `WITH updated AS (
-									UPDATE market_mk12_deals
-									SET error = $1
-									WHERE uuid = $2
-									RETURNING uuid
-								)
-								UPDATE market_direct_deals
-								SET error = $1
-								WHERE uuid = $2 AND NOT EXISTS (SELECT 1 FROM updated)`, reason, deal)
-	if err != nil {
-		return xerrors.Errorf("store deal failure: updating deal pipeline: %w", err)
-	}
-	if n != 1 {
-		return xerrors.Errorf("store deal failure: updated %d rows", n)
-	}
-	if updatePipeline {
-		n, err := db.Exec(ctx, `DELETE FROM market_mk12_deal_pipeline WHERE uuid = $1`, deal)
+	committed, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		n, err := tx.Exec(`UPDATE market_mk12_deals SET error = $1 WHERE uuid = $2`, reason, deal)
 		if err != nil {
-			return xerrors.Errorf("store deal pipeline cleanup: updating deal pipeline: %w", err)
+			return false, xerrors.Errorf("store deal failure: updating MK1.2 deal: %w", err)
+		}
+		if n == 0 {
+			n, err = tx.Exec(`UPDATE market_direct_deals SET error = $1 WHERE uuid = $2`, reason, deal)
+			if err != nil {
+				return false, xerrors.Errorf("store deal failure: updating direct deal: %w", err)
+			}
 		}
 		if n != 1 {
-			return xerrors.Errorf("store deal pipeline cleanup: updated %d rows", n)
+			return false, xerrors.Errorf("store deal failure: updated %d rows", n)
 		}
+
+		if updatePipeline {
+			n, err = tx.Exec(`DELETE FROM market_mk12_deal_pipeline WHERE uuid = $1`, deal)
+			if err != nil {
+				return false, xerrors.Errorf("store deal pipeline cleanup: updating deal pipeline: %w", err)
+			}
+			if n != 1 {
+				return false, xerrors.Errorf("store deal pipeline cleanup: updated %d rows", n)
+			}
+		}
+
+		return true, nil
+	}, harmonydb.OptionRetry())
+	if err != nil {
+		return err
+	}
+	if !committed {
+		return xerrors.Errorf("store deal failure: transaction did not commit")
 	}
 	return nil
 }
