@@ -8,7 +8,7 @@ description: >-
 
 Each Curio node keeps track of defined storage locations in `~/.curio/storage.json` (or `$CURIO_REPO_PATH/storage.json`) and uses `~/.curio` path as default.
 
-Upon initialization of a storage location, a `<path-to-storage>/sectorstorage.json` file is created that contains the UUID assigned to this location, along with whether it can be used for sealing or storing.
+Upon initialization of a storage location, a `<path-to-storage>/sectorstore.json` file is created that contains the UUID assigned to this location, along with whether it can be used for sealing or storing.
 
 ## Adding sealing storage location&#x20;
 
@@ -85,7 +85,7 @@ curio cli --machine <Machine IP:Port> storage attach <PATH_FOR_LONG_TERM_STORAGE
 
 ## Filter sector types <a href="#filter-sector-types" id="filter-sector-types"></a>
 
-You can filter for what sectors types are allowed in each sealing path by adjusting the configuration file in: `<path-to-storage>/sectorstorage.json`.
+You can filter for what sector file types are allowed in each path by adjusting `<path-to-storage>/sectorstore.json`. You can also set these at attach time with `--allow-types` and `--deny-types`.
 
 ```json
 {
@@ -104,14 +104,16 @@ You can filter for what sectors types are allowed in each sealing path by adjust
 Valid values for `AllowTypes` and `DenyTypes` are:
 
 ```javascript
-"unsealed"
-"sealed"
-"cache"
-"update"
-"update-cache"
+"unsealed"      // unsealed sector files
+"sealed"        // sealed sector replicas
+"cache"         // sealing cache
+"update"        // snap-deal update replica
+"update-cache"  // snap-deal update cache
+"piece"         // parked pieces: PDP payloads and market piece parking
+"key"           // unseal keys
 ```
 
-These values must be put in an array to be valid (e.g `"AllowTypes": ["unsealed", "update-cache"]`), any other values will generate an error on startup of the `Curio`. A restart of the `Curio` node where this storage is attached is also needed for changes to take effect.
+These values must be put in an array to be valid (e.g `"AllowTypes": ["unsealed", "update-cache"]`). Unknown values generate a warning and are ignored. A restart of the Curio node where this storage is attached is needed for `sectorstore.json` edits to take effect.
 
 ## Separate sealed and unsealed&#x20;
 
@@ -125,6 +127,24 @@ Setting only `unsealed` for `AllowTypes` will still allow `cache` and `update-ca
 {% hint style="info" %}
 If there are existing files with disallowed types in a storage path, those files will remain readable for PoSt/Retrieval. So the worst that can happen in case of misconfiguration in the storage path is that sealing tasks will get stuck waiting for storage to become available.
 {% endhint %}
+
+## Separate PDP / parked pieces from sealed storage <a href="#separate-pdp-parked-pieces" id="separate-pdp-parked-pieces"></a>
+
+PDP payloads and market parked pieces are stored as file type `"piece"`, not as sealed/unsealed sector files. They also use miner ID `f00` (actor 0) internally; they do **not** use the SP miner ID. Miner `AllowMiners` / `DenyMiners` filters are for splitting disks between real miners, not for keeping PDP off sealed storage.
+
+To keep parked pieces on their own disks:
+
+* Attach PDP / piece-park store paths with `"AllowTypes": ["piece"]` (and `CanStore: true`).
+* Attach sealed long-term paths with `"DenyTypes": ["piece"]`.
+
+```sh
+curio cli storage attach --init --store --allow-types piece /mnt/pdp
+curio cli storage attach --init --store --deny-types piece /mnt/sealed
+```
+
+Long-term PDP pieces allocate on **store** paths (`--store` / `CanStore`). A `--seal`-only path will not take PDP uploads or pulls.
+
+This filter applies to all parked pieces. MK12/MK20 piece parking uses the same `"piece"` type, so those files share the piece-only disks. There is no path filter that selects PDP pieces and excludes market parking.
 
 ## Segregating long-term storage per miner&#x20;
 
