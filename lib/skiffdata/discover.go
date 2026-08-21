@@ -1,21 +1,27 @@
-package pdpnode
+// Package skiffdata provides Curio-PDP storage candidate discovery and path helpers.
+package skiffdata
 
 import (
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/google/uuid"
+	logging "github.com/ipfs/go-log/v2"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/storiface"
 )
 
+var log = logging.Logger("skiffdata")
+
 const (
+	DefaultDataPath         = "/data"
 	defaultPDPStorageWeight = 10
-	skiffHotDataDirName     = "filecoin-hot-data"
 	maxStorageScanDepth     = 3
 )
 
@@ -23,14 +29,85 @@ var skipStorageDirNames = func() map[string]struct{} {
 	out := map[string]struct{}{
 		paths.FetchTempSubdir: {},
 		paths.StashDirName:    {},
-		"yugabyte":            {}, // skiff docker compose DB data dir under SKIFF_DATA
-		"skiff":               {}, // skiff docker compose repo dir under SKIFF_DATA
+		"yugabyte":            {},
+		"skiff":               {},
+		"forest":              {},
+		"forest-token":        {},
 	}
 	for _, ft := range storiface.PathTypes {
 		out[ft.String()] = struct{}{}
 	}
 	return out
 }()
+
+// ResolveDataRoot returns the preferred storage candidate root for Curio-PDP.
+// Precedence: DATA_STORAGE, SKIFF_DATA, CURIO_DATA, [Subsystems].DataPath, /data.
+func ResolveDataRoot(cfg *config.CurioConfig) string {
+	if v := os.Getenv("DATA_STORAGE"); v != "" {
+		return v
+	}
+	if v := os.Getenv("SKIFF_DATA"); v != "" {
+		return v
+	}
+	if v := os.Getenv("CURIO_DATA"); v != "" {
+		return v
+	}
+	if cfg != nil && cfg.Subsystems.DataPath != "" {
+		return cfg.Subsystems.DataPath
+	}
+	return DefaultDataPath
+}
+
+// DiscoverStorageCandidates lists writable directories under dataRoot for UI selection.
+func DiscoverStorageCandidates(dataRoot string) ([]string, error) {
+	return discoverWritableStoragePaths(dataRoot)
+}
+
+// EnsurePDPSectorstore creates sectorstore.json with PDP defaults when missing.
+func EnsurePDPSectorstore(storagePath string) error {
+	return ensureSectorstoreJSON(storagePath)
+}
+
+// CanonicalLocalPath expands path to an absolute, symlink-resolved directory path.
+func CanonicalLocalPath(path string) (string, error) {
+	if strings.TrimSpace(path) == "" {
+		return "", xerrors.Errorf("path is empty")
+	}
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return "", xerrors.Errorf("abs path: %w", err)
+	}
+	canonPath, err := filepath.EvalSymlinks(absPath)
+	if err != nil {
+		return filepath.Clean(absPath), nil
+	}
+	return canonPath, nil
+}
+
+// CanonicalPathUnderDataRoot expands path and requires it to be dataRoot or a subdirectory.
+func CanonicalPathUnderDataRoot(path, dataRoot string) (string, error) {
+	canonPath, err := CanonicalLocalPath(path)
+	if err != nil {
+		return "", err
+	}
+	absRoot, err := filepath.Abs(dataRoot)
+	if err != nil {
+		return "", xerrors.Errorf("abs data root: %w", err)
+	}
+	canonRoot, err := filepath.EvalSymlinks(absRoot)
+	if err != nil {
+		canonRoot = filepath.Clean(absRoot)
+	}
+
+	rel, err := filepath.Rel(canonRoot, canonPath)
+	if err != nil {
+		return "", xerrors.Errorf("path %s is outside data root %s", canonPath, canonRoot)
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", xerrors.Errorf("path %s is outside data root %s", canonPath, canonRoot)
+	}
+	return canonPath, nil
+}
 
 func isSkippedStorageDir(name string) bool {
 	_, ok := skipStorageDirNames[name]
@@ -140,13 +217,9 @@ func discoverWritableStoragePaths(dataRoot string) ([]string, error) {
 			}
 
 			childPath := filepath.Join(entry.path, name)
-			if name == skiffHotDataDirName {
-				if isWritableDir(childPath) {
-					addPath(childPath)
-				}
-				continue
+			if isWritableDir(childPath) {
+				addPath(childPath)
 			}
-
 			queue = append(queue, scanEntry{path: childPath, depth: entry.depth + 1})
 		}
 	}
@@ -160,7 +233,7 @@ func defaultPDPStorageMeta() storiface.LocalStorageMeta {
 		ID:       storiface.ID(uuid.New().String()),
 		Weight:   defaultPDPStorageWeight,
 		CanStore: true,
-		CanSeal:  true, // for uploads
+		CanSeal:  true,
 	}
 }
 

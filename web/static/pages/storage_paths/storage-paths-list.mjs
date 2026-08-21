@@ -1,15 +1,35 @@
 import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs';
 import { loadingBlock, loadingStyles } from '/lib/loading.mjs';
+import { getUIVariant } from '/lib/ui-variant.mjs';
+
+function formatBytes(n) {
+    const v = Number(n) || 0;
+    if (v <= 0) return '0 B';
+    const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB'];
+    let x = v;
+    let i = 0;
+    while (x >= 1024 && i < units.length - 1) {
+        x /= 1024;
+        i++;
+    }
+    return `${x < 10 && i > 0 ? x.toFixed(1) : Math.round(x)} ${units[i]}`;
+}
 
 customElements.define('storage-paths-list', class StoragePathsList extends LitElement {
     static properties = {
         paths: { type: Array },
+        candidates: { type: Array },
         loading: { type: Boolean },
         error: { type: String },
         sortBy: { type: String },
         sortAsc: { type: Boolean },
         filterType: { type: String },
+        isSkiff: { type: Boolean },
+        busyPath: { type: String },
+        customPath: { type: String },
+        actionMessage: { type: String },
+        actionError: { type: String },
     };
 
     static styles = [loadingStyles, css`
@@ -38,6 +58,10 @@ customElements.define('storage-paths-list', class StoragePathsList extends LitEl
         .tag-readonly {
             background: rgba(255, 214, 0, 0.3);
             color: #FFD600;
+        }
+        .tag-attached {
+            background: rgba(75, 181, 67, 0.25);
+            color: #4BB543;
         }
         .usage-bar {
             display: inline-block;
@@ -98,16 +122,75 @@ customElements.define('storage-paths-list', class StoragePathsList extends LitEl
             color: var(--color-text-secondary);
             font-family: var(--font-mono);
         }
+        .picker {
+            background: var(--color-bg-subtle, #161b22);
+            border: 1px solid var(--color-border-default, #30363d);
+            border-radius: 8px;
+            padding: 16px 20px;
+            margin-bottom: 24px;
+        }
+        .picker h2 {
+            font-size: 1.1rem;
+            margin: 0 0 8px;
+        }
+        .picker p {
+            color: var(--color-text-secondary, #8b949e);
+            margin: 0 0 12px;
+        }
+        .picker .mono {
+            font-family: var(--font-mono, monospace);
+        }
+        .picker-actions {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+        .banner {
+            border-radius: 6px;
+            padding: 8px 12px;
+            margin-bottom: 12px;
+            font-size: 0.9em;
+        }
+        .banner.ok {
+            background: rgba(75, 181, 67, 0.15);
+            color: #4BB543;
+        }
+        .banner.err {
+            background: rgba(182, 51, 51, 0.2);
+            color: #ff7b72;
+        }
+        .cand-path {
+            font-family: var(--font-mono, monospace);
+            word-break: break-all;
+        }
+        .custom-path-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+        .custom-path-row input {
+            flex: 1 1 280px;
+            min-width: 200px;
+            font-family: var(--font-mono, monospace);
+        }
     `];
 
     constructor() {
         super();
         this.paths = [];
+        this.candidates = [];
         this.loading = true;
         this.error = null;
         this.sortBy = 'path';
         this.sortAsc = true;
         this.filterType = 'all';
+        this.isSkiff = false;
+        this.busyPath = '';
+        this.customPath = '';
+        this.actionMessage = '';
+        this.actionError = '';
     }
 
     connectedCallback() {
@@ -117,7 +200,14 @@ customElements.define('storage-paths-list', class StoragePathsList extends LitEl
 
     async loadData() {
         try {
-            this.paths = await RPCCall('StoragePathList') || [];
+            this.isSkiff = (await getUIVariant()) === 'skiff';
+            const tasks = [RPCCall('StoragePathList')];
+            if (this.isSkiff) {
+                tasks.push(RPCCall('StorageCandidates'));
+            }
+            const [paths, candidates] = await Promise.all(tasks);
+            this.paths = paths || [];
+            this.candidates = candidates || [];
             this.loading = false;
         } catch (e) {
             this.error = e.message || 'Failed to load storage paths';
@@ -125,10 +215,53 @@ customElements.define('storage-paths-list', class StoragePathsList extends LitEl
         }
     }
 
+    async attachPath(path) {
+        const trimmed = (path || '').trim();
+        if (!trimmed) {
+            this.actionError = 'Enter a directory path to attach';
+            return;
+        }
+        this.busyPath = trimmed;
+        this.actionMessage = '';
+        this.actionError = '';
+        try {
+            await RPCCall('StorageAttachLocal', [trimmed]);
+            this.actionMessage = `Attached ${trimmed}`;
+            this.customPath = '';
+            await this.loadData();
+        } catch (e) {
+            this.actionError = e.message || String(e);
+        } finally {
+            this.busyPath = '';
+        }
+    }
+
+    attachCustomPath(e) {
+        e?.preventDefault?.();
+        return this.attachPath(this.customPath);
+    }
+
+    async detachPath(path) {
+        if (!confirm(`Detach storage path ${path}?`)) {
+            return;
+        }
+        this.busyPath = path;
+        this.actionMessage = '';
+        this.actionError = '';
+        try {
+            await RPCCall('StorageDetachLocal', [path]);
+            this.actionMessage = `Detached ${path}`;
+            await this.loadData();
+        } catch (e) {
+            this.actionError = e.message || String(e);
+        } finally {
+            this.busyPath = '';
+        }
+    }
+
     get filteredPaths() {
         let filtered = [...this.paths];
-        
-        // Apply type filter
+
         if (this.filterType !== 'all') {
             filtered = filtered.filter(p => {
                 const canSeal = p.CanSeal;
@@ -142,8 +275,7 @@ customElements.define('storage-paths-list', class StoragePathsList extends LitEl
                 }
             });
         }
-        
-        // Apply sorting
+
         filtered.sort((a, b) => {
             let valA, valB;
             switch (this.sortBy) {
@@ -175,13 +307,13 @@ customElements.define('storage-paths-list', class StoragePathsList extends LitEl
                     valA = a.LocalPath || a.StorageID || '';
                     valB = b.LocalPath || b.StorageID || '';
             }
-            
+
             if (typeof valA === 'string') {
                 return this.sortAsc ? valA.localeCompare(valB) : valB.localeCompare(valA);
             }
             return this.sortAsc ? valA - valB : valB - valA;
         });
-        
+
         return filtered;
     }
 
@@ -197,6 +329,79 @@ customElements.define('storage-paths-list', class StoragePathsList extends LitEl
     renderSortIndicator(column) {
         if (this.sortBy !== column) return '';
         return html`<span class="sort-indicator">${this.sortAsc ? '▲' : '▼'}</span>`;
+    }
+
+    renderPicker() {
+        if (!this.isSkiff) {
+            return html``;
+        }
+        return html`
+            <div class="picker">
+                <h2>Select storage folders</h2>
+                <p>
+                    Attach any existing directory Curio-PDP should use. Suggested candidates under
+                    <span class="mono">/data</span> (or <span class="mono">DATA_STORAGE</span>) appear below.
+                    Paths are not auto-registered.
+                </p>
+                ${this.actionMessage ? html`<div class="banner ok">${this.actionMessage}</div>` : ''}
+                ${this.actionError ? html`<div class="banner err">${this.actionError}</div>` : ''}
+                <form class="custom-path-row" @submit=${(e) => this.attachCustomPath(e)}>
+                    <input class="form-control form-control-sm" type="text"
+                           placeholder="/var/lib/curio-data or /mnt/nvme0"
+                           .value=${this.customPath}
+                           ?disabled=${!!this.busyPath}
+                           @input=${(e) => { this.customPath = e.target.value; }}>
+                    <button class="btn btn-primary btn-sm" type="submit"
+                            ?disabled=${!!this.busyPath || !(this.customPath || '').trim()}>
+                        ${this.busyPath && this.busyPath === (this.customPath || '').trim() ? '…' : 'Attach path'}
+                    </button>
+                    <button class="btn btn-secondary btn-sm" type="button" ?disabled=${!!this.busyPath}
+                            @click=${() => this.loadData()}>Refresh</button>
+                </form>
+                ${!this.candidates?.length ? html`
+                    <p>No suggested folders under the data root. Enter a path above, or mount directories under <span class="mono">/data</span>.</p>
+                ` : html`
+                    <table class="table table-dark">
+                        <thead>
+                            <tr>
+                                <th>Folder</th>
+                                <th>Available</th>
+                                <th>Capacity</th>
+                                <th>Status</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${this.candidates.map(c => html`
+                                <tr>
+                                    <td class="cand-path">${c.Path}</td>
+                                    <td>${formatBytes(c.Available)}</td>
+                                    <td>${formatBytes(c.Capacity)}</td>
+                                    <td>
+                                        ${c.Attached
+                                            ? html`<span class="tag tag-attached">Attached</span>`
+                                            : html`<span class="tag">Available</span>`}
+                                    </td>
+                                    <td>
+                                        ${c.Attached
+                                            ? html`<button class="btn btn-secondary btn-sm"
+                                                    ?disabled=${this.busyPath === c.Path}
+                                                    @click=${() => this.detachPath(c.Path)}>
+                                                    ${this.busyPath === c.Path ? '…' : 'Detach'}
+                                                </button>`
+                                            : html`<button class="btn btn-primary btn-sm"
+                                                    ?disabled=${this.busyPath === c.Path}
+                                                    @click=${() => this.attachPath(c.Path)}>
+                                                    ${this.busyPath === c.Path ? '…' : 'Attach'}
+                                                </button>`}
+                                    </td>
+                                </tr>
+                            `)}
+                        </tbody>
+                    </table>
+                `}
+            </div>
+        `;
     }
 
     render() {
@@ -221,11 +426,13 @@ customElements.define('storage-paths-list', class StoragePathsList extends LitEl
         return html`
             <link rel="stylesheet" href="/ux/vendor/bootstrap.min.css">
             <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'">
-            
+
             <div style="max-width: 1600px;">
                 <h1 style="margin-bottom: 8px;">Storage Mounts</h1>
                 <p style="color: var(--color-text-secondary); margin-bottom: 20px;">Each mount with capacity, usage, and health.</p>
-                
+
+                ${this.renderPicker()}
+
                 <div class="filters">
                     <label>
                         Filter by type:
@@ -240,7 +447,7 @@ customElements.define('storage-paths-list', class StoragePathsList extends LitEl
                     </label>
                     <span style="color: #aaa;">Showing ${filtered.length} of ${this.paths.length} paths</span>
                 </div>
-                
+
                 <table class="table table-dark">
                     <thead>
                         <tr>
@@ -265,7 +472,12 @@ customElements.define('storage-paths-list', class StoragePathsList extends LitEl
                         </tr>
                     </thead>
                     <tbody>
-                        ${filtered.map(path => html`
+                        ${filtered.length === 0 ? html`
+                            <tr><td colspan="8" style="color: var(--color-text-secondary);">
+                                No storage paths attached yet.
+                                ${this.isSkiff ? 'Use Select storage folders above.' : ''}
+                            </td></tr>
+                        ` : filtered.map(path => html`
                             <tr>
                                 <td>
                                     <code class="mount-path">${path.LocalPath || '—'}</code>

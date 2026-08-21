@@ -85,4 +85,4 @@ The chain node must match the skiff build network (mainnet, calibration, etc.).
 
 ## Storage
 
-Skiff does not use `storage.json`. On startup it scans the first three directory levels of each mount point for a folder named `filecoin-hot-data` (at most one per mount point). If a discovered path has no `sectorstore.json`, one is created automatically with store enabled.
+Skiff persists attached paths in `$CURIO_REPO_PATH/storage.json` (same model as full Curio). Attach any existing directory from the admin GUI (**Storage** page): enter a custom path, or pick a suggested candidate under `/data` (or `DATA_STORAGE` / `--data` / `[Subsystems].DataPath`). Paths are **not** auto-registered. Attaching a folder creates `sectorstore.json` when missing.

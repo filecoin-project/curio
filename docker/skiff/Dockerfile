@@ -61,13 +61,15 @@ FROM ubuntu-base AS skiff
 ARG BUILD_VERSION=0.1
 
 LABEL org.opencontainers.image.version=$BUILD_VERSION \
+      org.opencontainers.image.title="curio-pdp" \
       org.opencontainers.image.authors="Curio Dev Team" \
-      name="skiff" \
+      org.opencontainers.image.source="https://github.com/filecoin-project/curio" \
+      name="curio-pdp" \
       maintainer="Curio Dev Team" \
       vendor="Curio Dev Team" \
       version=$BUILD_VERSION \
       release=$BUILD_VERSION \
-      summary="Skiff PDP storage service" \
+      summary="Curio-PDP storage service" \
       description="Lightweight PDP-only Curio (skiff) node" \
       io.curio.skiff.ports='[{"port":4701,"protocol":"tcp","purpose":"Admin GUI (webrpc, config editor)"},{"port":80,"protocol":"tcp","purpose":"Public PDP HTTP API when HTTP.DelegateTLS=true"},{"port":443,"protocol":"tcp","purpose":"Public PDP HTTPS API when HTTP.DelegateTLS=false (autocert)"}]'
 
@@ -75,7 +77,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Repo holds node identity; /data is scanned for storage.
+# Repo holds node identity; /data is the preferred root for operator-selected storage.
 ENV CURIO_REPO_PATH=/var/lib/skiff \
     SKIFF_DATA=/data \
     SKIFF_DOCKER=1
