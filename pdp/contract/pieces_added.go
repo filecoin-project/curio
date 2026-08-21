@@ -48,6 +48,7 @@ func PiecesFromReceipt(receipt *types.Receipt) ([]AddedPiece, error) {
 	}
 
 	eventV2, hasV2 := pdpABI.Events["PiecesAddedV2"]
+	// TODO #1451: Remove this after mainnetcontract upgrade.
 	eventV1, hasV1 := pdpABI.Events["PiecesAdded"]
 	if !hasV2 && !hasV1 {
 		return nil, fmt.Errorf("neither PiecesAdded nor PiecesAddedV2 found in ABI")
