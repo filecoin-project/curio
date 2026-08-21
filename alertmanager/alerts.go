@@ -189,8 +189,8 @@ var pdpTasks = []string{
 // taskFailureCheckWith is the parameterized core shared by taskFailureCheck
 // and pdpTaskFailureCheck. It alerts on final task failures over the given
 // interval: any final failure in sensitiveTasks, and >5 final failures for all
-// other tasks or machines.
-func taskFailureCheckWith(al *alerts, name AlertName, interval time.Duration, sensitiveTasks []string) {
+// other in-scope tasks or machines.
+func taskFailureCheckWith(al *alerts, name AlertName, interval time.Duration, sensitiveTasks []string, inScope func(taskName string) bool) {
 	al.alertMap[name] = &alertOut{}
 
 	type taskFailure struct {
@@ -231,6 +231,9 @@ func taskFailureCheckWith(al *alerts, name AlertName, interval time.Duration, se
 	tmap := make(map[string]int)
 
 	for _, tf := range taskFailures {
+		if !inScope(tf.Name) {
+			continue
+		}
 		tmap[tf.Name] += tf.Failures
 		mmap[tf.Machine] += tf.Failures
 	}
@@ -248,15 +251,19 @@ func taskFailureCheckWith(al *alerts, name AlertName, interval time.Duration, se
 	}
 }
 
-// taskFailureCheck checks all tasks over the last FullAlertInterval.
+// taskFailureCheck checks all non-PDP tasks over the last FullAlertInterval.
 func taskFailureCheck(al *alerts) {
-	taskFailureCheckWith(al, Name_TaskFailures, FullAlertInterval, sealingTasks)
+	taskFailureCheckWith(al, Name_TaskFailures, FullAlertInterval, sealingTasks, func(taskName string) bool {
+		return !slices.Contains(pdpTasks, taskName)
+	})
 }
 
 // pdpTaskFailureCheck checks PDP (v1 and v0) tasks over the last
 // AlertMangerInterval so failures surface on every ping-health cadence.
 func pdpTaskFailureCheck(al *alerts) {
-	taskFailureCheckWith(al, Name_PDPTaskFailures, AlertManagerInterval, pdpTasks)
+	taskFailureCheckWith(al, Name_PDPTaskFailures, AlertManagerInterval, pdpTasks, func(taskName string) bool {
+		return slices.Contains(pdpTasks, taskName)
+	})
 }
 
 // permanentStorageCheck retrieves the storage details from the database and checks if there is sufficient space for sealing sectors.
