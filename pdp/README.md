@@ -162,9 +162,12 @@ All endpoints are rooted at `/pdp`.
   "pieceCid": "<piece-CID-v2>",
   "status": "<status>",
   "indexed": <boolean>,
+  "indexedAt": "<RFC3339-timestamp-or-omitted>",
+  "adCreated": <boolean>,
+  "adCreatedAt": "<RFC3339-timestamp-or-omitted>",
+  "adCid": "<ad-CID-or-omitted>",
   "advertised": <boolean>,
-  "retrieved": <boolean>,
-  "retrievedAt": "<RFC3339-timestamp-or-omitted>"
+  "advertisedAt": "<RFC3339-timestamp-or-omitted>"
 }
 ```
 
@@ -174,12 +177,14 @@ All endpoints are rooted at `/pdp`.
         - `"pending"` – Not yet indexed.
         - `"indexing"` – CAR indexing task is in progress.
         - `"creating_ad"` – IPNI advertisement is being created.
-        - `"announced"` – Advertisement published to IPNI network.
-        - `"retrieved"` – Piece has been retrieved by a client.
+        - `"announced"` – The advertisement row exists. Not a guarantee it's been broadcast (see `advertised`) or indexed (see `adCid`).
     - `indexed`: Whether the piece has been indexed and is ready for IPNI.
-    - `advertised`: Whether an IPNI advertisement has been published.
-    - `retrieved`: Whether the piece has been retrieved by a client.
-    - `retrievedAt`: Timestamp of last retrieval (omitted if never retrieved).
+    - `indexedAt`: Timestamp CAR indexing completed (omitted if not yet indexed).
+    - `adCreated`: Whether an IPNI advertisement has been created for this piece.
+    - `adCreatedAt`: Timestamp the advertisement was created (omitted if not yet created).
+    - `adCid`: This piece's advertisement CID, once created. Curio doesn't check whether an indexer finished processing it - callers can, e.g. `GET https://cid.contact/sync/status/ad/{adCid}`.
+    - `advertised`: Whether the provider has sent an HTTP announce covering this ad.
+    - `advertisedAt`: Approximate, not a fixed record: it's the last known successful announce time for the *provider*, not this ad specifically, so it can drift forward on later calls once the provider announces newer ads, and is lost on a Curio restart (the provider re-announces its current head once on startup to recover it).
 
 #### Errors
 

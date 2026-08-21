@@ -51,7 +51,7 @@ const IPNIRoutePath = "/ipni-provider/"
 // IPNIPath is a constant that represents the path for IPNI API requests.
 const IPNIPath = "/ipni/v1/ad/"
 
-const PublishInterval = 5 * time.Second
+const PublishInterval = 1 * time.Second
 
 const (
 	PDPv0ProviderType = "PDP_v0"
@@ -460,8 +460,6 @@ func (p *Provider) handleGet(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			log.Errorw("failed to write HTTP response", "err", err)
 		}
-		// Log advertisement fetch for indexing status tracking
-		go p.logPDPFetch(providerID, b.String())
 		return
 	case ipnisync.CidSchemaEntryChunk:
 		content = "entry"
@@ -522,23 +520,7 @@ func (p *Provider) handleGet(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			log.Errorw("failed to write HTTP response", "err", err)
 		}
-		// Log advertisement fetch for indexing status tracking
-		go p.logPDPFetch(providerID, b.String())
 		return
-	}
-}
-
-func (p *Provider) logPDPFetch(peer, b string) {
-	p.mu.RLock()
-	info, ok := p.providerInfos[peer]
-	p.mu.RUnlock()
-	if !ok || info.SPID > 0 {
-		return
-	}
-	logCtx := context.Background()
-	_, err := p.db.Exec(logCtx, `INSERT INTO ipni_ad_fetches (ad_cid, fetched_at) VALUES ($1, NOW())`, b)
-	if err != nil {
-		log.Warnw("failed to log ad fetch", "ad_cid", b, "err", err)
 	}
 }
 
@@ -587,22 +569,6 @@ func (p *Provider) startPublishing(ctx context.Context) {
 			return
 		}
 		p.announceURLs = urls
-	}
-
-	// Populated latest head cid from the ipni_head table
-	p.mu.RLock()
-	peers := make([]string, 0, len(p.providerInfos))
-	for pr := range p.providerInfos {
-		peers = append(peers, pr)
-	}
-	p.mu.RUnlock()
-	for _, provider := range peers {
-		c, err := p.getHeadCID(ctx, provider)
-		if err != nil {
-			log.Errorw("failed to get head CID", "provider", provider, "error", err)
-			continue
-		}
-		p.latest[provider] = c
 	}
 
 	ticker := time.NewTicker(PublishInterval)
