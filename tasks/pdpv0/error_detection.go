@@ -83,29 +83,27 @@ func init() {
 		panic("PDPVerifier ABI missing ExcessiveChallengeDelay error")
 	}
 
-	removalQueue := contract.RemovalQueueABI()
-
-	ErrPDPVerifierPendingPieceDeletions, ok = removalQueue.Errors["PendingPieceDeletions"]
+	ErrPDPVerifierPendingPieceDeletions, ok = parsedPDPVerifier.Errors["PendingPieceDeletions"]
 	if !ok {
 		panic("PDPVerifier removal ABI missing PendingPieceDeletions error")
 	}
 
-	ErrPDPVerifierInvalidPieceDeletionBatch, ok = removalQueue.Errors["InvalidPieceDeletionBatch"]
+	ErrPDPVerifierInvalidPieceDeletionBatch, ok = parsedPDPVerifier.Errors["InvalidPieceDeletionBatch"]
 	if !ok {
 		panic("PDPVerifier removal ABI missing InvalidPieceDeletionBatch error")
 	}
 
-	ErrPDPVerifierEmptyRemovalBatch, ok = removalQueue.Errors["EmptyRemovalBatch"]
+	ErrPDPVerifierEmptyRemovalBatch, ok = parsedPDPVerifier.Errors["EmptyRemovalBatch"]
 	if !ok {
 		panic("PDPVerifier removal ABI missing EmptyRemovalBatch error")
 	}
 
-	ErrPDPVerifierOnlyStorageProvider, ok = removalQueue.Errors["OnlyStorageProvider"]
+	ErrPDPVerifierOnlyStorageProvider, ok = parsedPDPVerifier.Errors["OnlyStorageProvider"]
 	if !ok {
 		panic("PDPVerifier removal ABI missing OnlyStorageProvider error")
 	}
 
-	ErrPDPVerifierNoPiecesToProve, ok = removalQueue.Errors["NoPiecesToProve"]
+	ErrPDPVerifierNoPiecesToProve, ok = parsedPDPVerifier.Errors["NoPiecesToProve"]
 	if !ok {
 		panic("PDPVerifier removal ABI missing NoPiecesToProve error")
 	}
