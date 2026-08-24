@@ -203,6 +203,7 @@ var configRmCmd = &cli.Command{
 		return nil
 	},
 }
+
 var configViewCmd = &cli.Command{
 	Name:      "interpret",
 	Aliases:   []string{"view", "stacked", "stack"},
