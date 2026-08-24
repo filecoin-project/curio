@@ -222,6 +222,10 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchai
 	return nil
 }
 
+func ShouldInspectRailForSettlement(rail PaymentsRailInfo) bool {
+	return shouldInspectRailForSettlement(rail)
+}
+
 func shouldInspectRailForSettlement(rail PaymentsRailInfo) bool {
 	if !rail.IsTerminated {
 		return true

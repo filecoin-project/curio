@@ -61,6 +61,7 @@ type PDPDataSetDetail struct {
 	HeadEpoch                 int64      `json:"headEpoch"`
 	ProvingStatus             string     `json:"provingStatus"`
 	ExploreURL                string     `json:"exploreUrl,omitempty"`
+	PaymentAtRisk             *PDPDataSetAtRiskDetail `json:"paymentAtRisk,omitempty"`
 }
 
 // PDPDataSetPayments is chain-derived wallet/payment state for a dataset.
@@ -390,6 +391,12 @@ func (a *WebRPC) PDPDataSetDetail(ctx context.Context, id int64) (*PDPDataSetDet
 	if base, err := urlhelper.GetExternalURL(&a.Deps.Cfg.HTTP); err == nil && base != nil && strings.TrimSpace(base.Host) != "" {
 		detail.ExploreURL = strings.TrimRight(base.String(), "/") + "/explore/data-sets/" + strconv.FormatInt(id, 10)
 	}
+
+	atRisk, err := a.loadDataSetAtRiskDetail(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	detail.PaymentAtRisk = atRisk
 
 	return detail, nil
 }

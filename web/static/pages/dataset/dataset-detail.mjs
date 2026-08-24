@@ -102,6 +102,29 @@ function epochsLabel(n) {
   return html`<span class="mono">${n}</span> <span class="muted">epochs</span>`
 }
 
+function formatAtRiskDeleteDate(atRisk) {
+  if (!atRisk) return 'the scheduled deletion date'
+  if (atRisk.projectedDeleteAt) {
+    const d = new Date(atRisk.projectedDeleteAt)
+    const date = d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+    if (atRisk.projectedDeleteEpoch != null) {
+      return `${date} (epoch ${atRisk.projectedDeleteEpoch})`
+    }
+    return date
+  }
+  if (atRisk.deleteDatePending) return 'pending confirmation'
+  return 'the scheduled deletion date'
+}
+
+function atRiskBannerMessage(atRisk) {
+  const owner = atRisk?.payer ? `owner (payer ${atRisk.payer})` : 'dataset owner (if known)'
+  const deleteDate = formatAtRiskDeleteDate(atRisk)
+  if (atRisk?.status === 'grace') {
+    return `Contact the ${owner} to bring payments current before deletion on ${deleteDate}.`
+  }
+  return `This dataset is scheduled for deletion on ${deleteDate}. Contact the ${owner}.`
+}
+
 customElements.define('pdp-dataset-detail', class PdpDatasetDetail extends LitElement {
   static properties = {
     data: { type: Object },
@@ -291,7 +314,29 @@ customElements.define('pdp-dataset-detail', class PdpDatasetDetail extends LitEl
           margin: 8px 0 14px;
           line-height: 1.4;
         }
+        .payment-at-risk-banner {
+          border: 1px solid rgba(248, 81, 73, 0.45);
+          background: rgba(248, 81, 73, 0.12);
+          color: var(--color-text-primary, #e6edf3);
+          border-radius: 8px;
+          padding: 12px 16px;
+          margin-bottom: 16px;
+          font-size: 14px;
+          line-height: 1.45;
+        }
+        .payment-at-risk-banner strong {
+          display: block;
+          margin-bottom: 4px;
+          color: var(--color-danger-fg, #f85149);
+        }
       </style>
+
+      ${d.paymentAtRisk?.atRisk ? html`
+        <div class="payment-at-risk-banner">
+          <strong>Payment grace / pending deletion</strong>
+          ${atRiskBannerMessage(d.paymentAtRisk)}
+        </div>
+      ` : ''}
 
       <div class="top-line">
         <a class="back" href="/pages/datasets/">← DataSets</a>
