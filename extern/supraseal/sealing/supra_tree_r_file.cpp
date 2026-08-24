@@ -15,7 +15,9 @@ template<class P>
 static int tree_r_file_impl(const char* last_layer_filename,
                             const char* data_filename,
                             const char* output_dir) {
-  topology_t topology("supra_seal.cfg");
+  // File-based TreeR only needs PC2 core affinity. A missing config is not
+  // fatal — unlike NVMe sealing, this path does not require SPDK devices.
+  topology_t topology("supra_seal.cfg", false);
   set_core_affinity(topology.pc2_hasher);
 
   size_t stream_count = P::GetSectorSizeLg() <= 24 ? 8 : 64;
