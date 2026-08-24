@@ -8,6 +8,7 @@ import (
 	"math/big"
 	"time"
 
+	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/yugabyte/pgx/v5"
@@ -66,17 +67,9 @@ type ProcessDeletionsChainApi interface {
 
 // NewProcessDeletionsTask drains PDPVerifier scheduled-removal queues.
 //
-// PDPVerifier zeroes a data set's next challenge epoch when removals are
-// processed, so a drain destroys whatever challenge the current proving period
-// was sampled against. Curio therefore only drains once the challenge window has
-// closed: by then the proof has either landed or been missed, and there is
-// nothing left to protect. That is the same predicate the nextProvingPeriod
-// watcher gates on, so this watcher runs in an earlier phase to guarantee the
-// drain is attempted first.
-//
-// Overrunning the window is safe rather than terminal: nextProvingPeriod reverts
-// with PendingPieceDeletions while the queue is non-empty, which is classified
-// as "drain and retry" instead of a proving failure.
+// Scheduling is driven only by pdpv0_deletion_drain coordination rows. A NULL
+// task_id means no Harmony task currently owns the row; a NULL msg_hash means no
+// processPieceDeletions transaction is waiting for confirmation.
 func NewProcessDeletionsTask(db *harmonydb.DB, ethClient ethchain.EthClient, fil ProcessDeletionsChainApi, w *Watcher, sender *message.SenderETH) *ProcessDeletionsTask {
 	p := &ProcessDeletionsTask{
 		db:        db,
@@ -95,26 +88,14 @@ func NewProcessDeletionsTask(db *harmonydb.DB, ethClient ethchain.EthClient, fil
 			DataSetID int64 `db:"data_set"`
 		}
 
-		// Candidate selection is pure SQL: the drain gate is epoch arithmetic on
-		// pdp_data_sets, and queue length is confirmed by the task's own chain
-		// read. prove_at_epoch IS NULL is included so that a data set which
-		// somehow holds a queue without a proving schedule is surfaced rather
-		// than ignored; the task alerts on it (see handleUnschedulableDrain).
 		err := db.Select(ctx, &candidates, `
-			SELECT d.data_set
-			FROM pdpv0_deletion_drain d
-			INNER JOIN pdp_data_sets pds ON pds.id = d.data_set
-			WHERE d.task_id IS NULL
-			  AND d.msg_hash IS NULL
-			  AND (d.blocked_at IS NULL OR d.blocked_at < TIMEZONE('UTC', NOW()) - INTERVAL '10 minutes')
-			  AND pds.unrecoverable_proving_failure_epoch IS NULL
-			  AND (
-			        pds.prove_at_epoch IS NULL
-			     OR (pds.challenge_window IS NOT NULL AND pds.prove_at_epoch + pds.challenge_window <= $1)
-			  )
-			ORDER BY d.data_set
-			LIMIT $2
-		`, int64(apply.Height()), processDeletionsScheduleLimit)
+			SELECT data_set
+			FROM pdpv0_deletion_drain
+			WHERE task_id IS NULL
+			  AND msg_hash IS NULL
+			ORDER BY data_set
+			LIMIT $1
+		`, processDeletionsScheduleLimit)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			_ = al.EmitEvent(ctx, curioalerting.AlertEvent{
 				System:    alertType,
@@ -176,8 +157,8 @@ func (p *ProcessDeletionsTask) Do(ctx context.Context, taskID harmonytask.TaskID
 		return false, xerrors.Errorf("failed to determine PDPVerifier removal support: %w", err)
 	}
 	if !supported {
-		if err := p.dropDrainRow(ctx, dataSetID, taskID); err != nil {
-			return false, err
+		if dropErr := p.dropDrainRow(ctx, dataSetID, taskID); dropErr != nil {
+			return false, dropErr
 		}
 		log.Debugw("PDPVerifier predates processPieceDeletions; leaving removals to nextProvingPeriod",
 			"dataSetId", dataSetID)
@@ -199,39 +180,74 @@ func (p *ProcessDeletionsTask) Do(ctx context.Context, taskID harmonytask.TaskID
 	}
 
 	if len(queued) == 0 {
-		if err := p.dropDrainRow(ctx, dataSetID, taskID); err != nil {
-			return false, err
+		if err := processPendingPieceDeletes(ctx, p.db, verifier, dataSetID, nil); err != nil {
+			return false, xerrors.Errorf("failed to reconcile drained piece deletes for data set %d: %w", dataSetID, err)
+		}
+		if dropErr := p.dropDrainRow(ctx, dataSetID, taskID); dropErr != nil {
+			return false, dropErr
 		}
 		return true, nil
 	}
 
-	// Re-check the drain gate now that we know the queue is non-empty. The
-	// watcher filtered on it, but the claim and this read are not atomic with
-	// respect to the chain.
-	schedule, err := p.loadProvingSchedule(ctx, dataSetID)
+	// Contract state is the drain authority. A zero nextChallengeEpoch means
+	// there is no sampled challenge for processPieceDeletions to invalidate.
+	nextChallengeEpoch, err := verifier.GetNextChallengeEpoch(contract.EthCallOpts(ctx), big.NewInt(dataSetID))
 	if err != nil {
-		return false, err
+		return false, xerrors.Errorf("failed to read next challenge epoch for data set %d: %w", dataSetID, err)
 	}
-
-	ts, err := p.fil.ChainHead(ctx)
-	if err != nil {
-		return false, xerrors.Errorf("failed to get chain head: %w", err)
+	if nextChallengeEpoch == nil {
+		return false, xerrors.Errorf("next challenge epoch is nil for data set %d", dataSetID)
 	}
-	currentHeight := int64(ts.Height())
-
-	if !schedule.ProveAtEpoch.Valid || !schedule.ChallengeWindow.Valid {
-		return p.handleUnschedulableDrain(ctx, dataSetID, taskID, len(queued))
-	}
-	if schedule.ProveAtEpoch.Int64+schedule.ChallengeWindow.Int64 > currentHeight {
-		// Still inside the challenge window. Draining now would destroy a
-		// challenge Curio still intends to prove.
-		if err := p.blockDrainRow(ctx, dataSetID, taskID); err != nil {
+	if nextChallengeEpoch.Sign() != 0 {
+		schedule, err := p.loadProvingSchedule(ctx, dataSetID)
+		if err != nil {
 			return false, err
 		}
-		log.Debugw("deferring removal drain until the challenge window closes",
-			"dataSetId", dataSetID, "proveAtEpoch", schedule.ProveAtEpoch.Int64,
-			"challengeWindow", schedule.ChallengeWindow.Int64, "height", currentHeight)
-		return true, nil
+		if !schedule.ProveAtEpoch.Valid || !schedule.ChallengeWindow.Valid {
+			log.Warnw("deferring removal drain; active on-chain challenge has no complete local proving schedule",
+				"dataSetId", dataSetID,
+				"nextChallengeEpoch", nextChallengeEpoch.String())
+			if dropErr := p.dropDrainRow(ctx, dataSetID, taskID); dropErr != nil {
+				return false, dropErr
+			}
+			return true, nil
+		}
+		if !nextChallengeEpoch.IsInt64() {
+			return false, xerrors.Errorf("next challenge epoch %s does not fit in int64 for data set %d", nextChallengeEpoch.String(), dataSetID)
+		}
+		if schedule.ProveAtEpoch.Int64 != nextChallengeEpoch.Int64() {
+			log.Warnw("deferring removal drain; local proving schedule does not match PDPVerifier challenge",
+				"dataSetId", dataSetID,
+				"localProveAtEpoch", schedule.ProveAtEpoch.Int64,
+				"nextChallengeEpoch", nextChallengeEpoch.String())
+			if dropErr := p.dropDrainRow(ctx, dataSetID, taskID); dropErr != nil {
+				return false, dropErr
+			}
+			return true, nil
+		}
+
+		ts, err := p.fil.ChainHead(ctx)
+		if err != nil {
+			return false, xerrors.Errorf("failed to get chain head: %w", err)
+		}
+
+		currentHeight := int64(ts.Height())
+		drainAfter := schedule.ProveAtEpoch.Int64 + schedule.ChallengeWindow.Int64
+		if drainAfter > currentHeight {
+			// A non-zero nextChallengeEpoch means PDPVerifier has sampled an
+			// active challenge. Drain only after that challenge window is over.
+			if dropErr := p.dropDrainRow(ctx, dataSetID, taskID); dropErr != nil {
+				return false, dropErr
+			}
+			log.Debugw("deferring removal drain until the on-chain challenge window closes",
+				"dataSetId", dataSetID,
+				"nextChallengeEpoch", nextChallengeEpoch.String(),
+				"proveAtEpoch", schedule.ProveAtEpoch.Int64,
+				"challengeWindow", schedule.ChallengeWindow.Int64,
+				"height", currentHeight,
+				"drainAfter", drainAfter)
+			return true, nil
+		}
 	}
 
 	if !stillOwned() {
@@ -243,7 +259,12 @@ func (p *ProcessDeletionsTask) Do(ctx context.Context, taskID harmonytask.TaskID
 		return false, xerrors.Errorf("failed to get storage provider for data set %d: %w", dataSetID, err)
 	}
 
-	txHash, batchSize, err := p.sendProcessPieceDeletions(ctx, fromAddress, dataSetID, len(queued))
+	pabi, err := contract.PDPVerifierMetaData.GetAbi()
+	if err != nil {
+		return false, xerrors.Errorf("failed to get PDPVerifier metadata: %w", err)
+	}
+
+	txHash, batchSize, err := p.sendProcessPieceDeletions(ctx, pabi, fromAddress, dataSetID, len(queued))
 	if err != nil {
 		return false, xerrors.Errorf("failed to send processPieceDeletions: %w", err)
 	}
@@ -251,7 +272,7 @@ func (p *ProcessDeletionsTask) Do(ctx context.Context, taskID harmonytask.TaskID
 	comm, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		n, err := tx.Exec(`
 			UPDATE pdpv0_deletion_drain
-			SET msg_hash = $1, task_id = NULL, blocked_at = NULL
+			SET msg_hash = $1, task_id = NULL
 			WHERE task_id = $2
 		`, txHash.Hex(), taskID)
 		if err != nil {
@@ -286,17 +307,37 @@ func (p *ProcessDeletionsTask) Do(ctx context.Context, taskID harmonytask.TaskID
 	return true, nil
 }
 
+type drainProvingSchedule struct {
+	ProveAtEpoch    sql.NullInt64 `db:"prove_at_epoch"`
+	ChallengeWindow sql.NullInt64 `db:"challenge_window"`
+}
+
+func (p *ProcessDeletionsTask) loadProvingSchedule(ctx context.Context, dataSetID int64) (drainProvingSchedule, error) {
+	var schedule drainProvingSchedule
+	err := p.db.QueryRow(ctx, `
+		SELECT prove_at_epoch, challenge_window
+		FROM pdp_data_sets
+		WHERE id = $1
+	`, dataSetID).Scan(&schedule.ProveAtEpoch, &schedule.ChallengeWindow)
+	if err != nil {
+		return drainProvingSchedule{}, xerrors.Errorf("failed to load proving schedule for data set %d: %w", dataSetID, err)
+	}
+	return schedule, nil
+}
+
 // sendProcessPieceDeletions submits one drain batch, halving on gas-estimate
 // failure. SenderETH estimates gas before submission, so a failed estimate means
 // nothing was sent and a smaller retry cannot double-drain.
-func (p *ProcessDeletionsTask) sendProcessPieceDeletions(ctx context.Context, from common.Address, dataSetID int64, queueLength int) (common.Hash, int, error) {
+func (p *ProcessDeletionsTask) sendProcessPieceDeletions(ctx context.Context, pabi *abi.ABI, from common.Address, dataSet int64, queueLength int) (common.Hash, int, error) {
 	batchSize := processDeletionsBatchSize
 	if queueLength < batchSize {
 		batchSize = queueLength
 	}
 
+	dataSetID := big.NewInt(dataSet)
+
 	for {
-		data, err := contract.PackProcessPieceDeletions(big.NewInt(dataSetID), big.NewInt(int64(batchSize)))
+		data, err := pabi.Pack("processPieceDeletions", dataSetID, big.NewInt(int64(batchSize)))
 		if err != nil {
 			return common.Hash{}, 0, err
 		}
@@ -330,62 +371,6 @@ func (p *ProcessDeletionsTask) sendProcessPieceDeletions(ctx context.Context, fr
 			"dataSetId", dataSetID, "batchSize", batchSize, "nextBatchSize", next, "err", err)
 		batchSize = next
 	}
-}
-
-type drainProvingSchedule struct {
-	ProveAtEpoch    sql.NullInt64 `db:"prove_at_epoch"`
-	ChallengeWindow sql.NullInt64 `db:"challenge_window"`
-}
-
-func (p *ProcessDeletionsTask) loadProvingSchedule(ctx context.Context, dataSetID int64) (drainProvingSchedule, error) {
-	var rows []drainProvingSchedule
-	err := p.db.Select(ctx, &rows, `
-		SELECT prove_at_epoch, challenge_window
-		FROM pdp_data_sets
-		WHERE id = $1
-	`, dataSetID)
-	if err != nil {
-		return drainProvingSchedule{}, xerrors.Errorf("failed to load proving schedule for data set %d: %w", dataSetID, err)
-	}
-	if len(rows) != 1 {
-		return drainProvingSchedule{}, xerrors.Errorf("expected 1 pdp_data_sets row for data set %d, got %d", dataSetID, len(rows))
-	}
-	return rows[0], nil
-}
-
-// handleUnschedulableDrain reports a data set holding a removal queue with no
-// local proving schedule. The DeletePiece intake path refuses to enqueue in that
-// state, so this should be unreachable for anything scheduled after the upgrade;
-// the alert exists so that a data set seeded by the migration in that condition
-// is visible to an operator instead of silently never draining.
-func (p *ProcessDeletionsTask) handleUnschedulableDrain(ctx context.Context, dataSetID int64, taskID harmonytask.TaskID, queueLength int) (bool, error) {
-	msg := fmt.Sprintf("data set %d has %d scheduled removals but no proving schedule; removals cannot be drained until proving is initialized",
-		dataSetID, queueLength)
-	log.Errorw("removal queue is not drainable", "dataSetId", dataSetID, "queueLength", queueLength)
-	_ = p.al.EmitEvent(ctx, curioalerting.AlertEvent{
-		System:    alertType,
-		Subsystem: alertNameProcessDeletions,
-		Message:   msg,
-	})
-
-	if err := p.blockDrainRow(ctx, dataSetID, taskID); err != nil {
-		return false, err
-	}
-	return true, nil
-}
-
-// blockDrainRow releases the claim and records that the row was not actionable,
-// so the watcher backs off instead of re-reading chain state every tipset.
-func (p *ProcessDeletionsTask) blockDrainRow(ctx context.Context, dataSetID int64, taskID harmonytask.TaskID) error {
-	_, err := p.db.Exec(ctx, `
-		UPDATE pdpv0_deletion_drain
-		SET task_id = NULL, blocked_at = TIMEZONE('UTC', NOW())
-		WHERE data_set = $1 AND task_id = $2
-	`, dataSetID, taskID)
-	if err != nil {
-		return xerrors.Errorf("failed to defer deletion drain for data set %d: %w", dataSetID, err)
-	}
-	return nil
 }
 
 func (p *ProcessDeletionsTask) dropDrainRow(ctx context.Context, dataSetID int64, taskID harmonytask.TaskID) error {
@@ -426,11 +411,7 @@ func (p *ProcessDeletionsTask) Adder(taskFunc harmonytask.AddTaskFunc) {
 // removals scheduled out of band -- is picked up rather than retrying a
 // rollover that cannot succeed.
 func enqueueDeletionDrain(tx *harmonydb.Tx, dataSetID int64) error {
-	_, err := tx.Exec(`
-		INSERT INTO pdpv0_deletion_drain (data_set)
-		VALUES ($1)
-		ON CONFLICT (data_set) DO UPDATE SET blocked_at = NULL
-	`, dataSetID)
+	_, err := tx.Exec(`INSERT INTO pdpv0_deletion_drain (data_set) VALUES ($1) ON CONFLICT DO NOTHING`, dataSetID)
 	if err != nil {
 		return xerrors.Errorf("failed to enqueue removal drain for data set %d: %w", dataSetID, err)
 	}

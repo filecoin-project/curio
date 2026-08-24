@@ -464,7 +464,7 @@ func handleNextProvingPeriodSendError(ctx context.Context, tx *harmonydb.Tx, pro
 		}
 		log.Warnw("Proving period scheduling blocked by pending piece deletions; draining first",
 			"dataSetId", dataSetId, "subsystem", alertSubsystem, "height", currentHeight, "error", sendErr)
-		return sendErr
+		return nil
 	case IsInsufficientChallengeDelayError(sendErr):
 		// The challenge epoch was too close to the current block. Retry the
 		// task so it recomputes challenge state and calldata instead of

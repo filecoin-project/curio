@@ -5,16 +5,15 @@
 -- processPieceDeletions, and nextProvingPeriod reverts while the queue is
 -- non-empty. See https://github.com/FilOzone/pdp/pull/297.
 --
--- This table is the work queue the drain watcher selects from. Rows are
--- candidates rather than confirmed work: the task's first action is an on-chain
--- queue read, and a row whose data set has an empty queue is simply dropped. So
--- the seed below can be indiscriminate and needs no chain access at migration
--- time.
+-- This table coordinates removal draining. Rows are candidates rather than
+-- confirmed work: the task's first action is an on-chain queue read, and a row
+-- whose data set has an empty queue is simply dropped. So the seed below can be
+-- indiscriminate and needs no chain access at migration time.
 --
 -- Two writers: this one-time seed, which picks up data sets already carrying a
 -- removal queue at upgrade time (including any stuck by FilOzone/pdp#283), and
--- the DeletePiece intake path, which inserts a row alongside every
--- schedulePieceDeletions send from here on.
+-- proving-period code, which inserts a row when it observes confirmed delete
+-- intent that still needs explicit draining.
 
 CREATE TABLE IF NOT EXISTS pdpv0_deletion_drain (
     data_set BIGINT PRIMARY KEY REFERENCES pdp_data_sets(id) ON DELETE CASCADE,
@@ -28,16 +27,7 @@ CREATE TABLE IF NOT EXISTS pdpv0_deletion_drain (
     -- drains must be sequential because each one re-reads the queue length.
     msg_hash TEXT DEFAULT NULL,
 
-    -- Bumped when a drain send fails, bounding retries so a permanently failing
-    -- data set cannot spin forever.
-    failures BIGINT NOT NULL DEFAULT 0,
-
-    -- Set when the task claimed the row but could not act on it yet (for
-    -- example the challenge window has not closed). Keeps the watcher from
-    -- re-claiming and re-reading chain state on every tipset.
-    blocked_at TIMESTAMPTZ DEFAULT NULL,
-
-    created_at TIMESTAMPTZ NOT NULL DEFAULT TIMEZONE('UTC', NOW())
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 COMMENT ON TABLE pdpv0_deletion_drain IS
@@ -48,7 +38,7 @@ CREATE INDEX IF NOT EXISTS idx_pdpv0_deletion_drain_pending
     ON pdpv0_deletion_drain (data_set)
     WHERE task_id IS NULL AND msg_hash IS NULL;
 
--- The confirmation watcher scans by in-flight message.
+-- Reorg rollback locates drain rows by in-flight message.
 CREATE INDEX IF NOT EXISTS idx_pdpv0_deletion_drain_msg_hash
     ON pdpv0_deletion_drain (msg_hash)
     WHERE msg_hash IS NOT NULL;

@@ -572,15 +572,15 @@ func (t *ReorgCheckTask) rollbackProcessDeletionsTx(ctx context.Context, tx *har
 	var dataSets []struct {
 		DataSet int64 `db:"data_set"`
 	}
-	err := tx.Select(&dataSets, `SELECT data_set FROM pdpv0_deletion_drain WHERE LOWER(msg_hash) = $1`, txHash)
+	err := tx.Select(&dataSets, `SELECT data_set FROM pdpv0_deletion_drain WHERE msg_hash = $1`, txHash)
 	if err != nil {
 		return "", err
 	}
 
 	n, err := tx.Exec(`
 		UPDATE pdpv0_deletion_drain
-		SET msg_hash = NULL, blocked_at = NULL
-		WHERE LOWER(msg_hash) = $1`, txHash)
+		SET msg_hash = NULL
+		WHERE msg_hash = $1`, txHash)
 	if err != nil {
 		return "", err
 	}

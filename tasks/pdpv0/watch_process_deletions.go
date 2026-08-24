@@ -3,9 +3,11 @@ package pdpv0
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"math/big"
 
+	"github.com/ethereum/go-ethereum/core/types"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/alertmanager/curioalerting"
@@ -24,14 +26,11 @@ const deletionDrainReconcileBatchLimit = 128
 // Before FilOzone/pdp#297, nextProvingPeriod applied scheduled removals, so
 // local removal tracking was reconciled off a confirmed nextProvingPeriod
 // message. Removals are now applied by their own transaction, so that is the
-// trigger. The reconciliation itself is unchanged and remains chain-authoritative
-// (scheduled-removal queue membership, then pieceLive), which is why it stays
-// correct against both contract versions and is still also driven from the
-// proving-period watcher.
+// trigger. The watcher uses the PiecesRemoved event as the candidate set, then
+// still verifies chain state before marking local pieces removed.
 func NewProcessDeletionsWatcher(w *Watcher) {
 	if err := w.AddWatcher(func(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, al curioalerting.AlertingInterface, revert, apply *chainTypes.TipSet) {
-		dataSets, err := reconcileDrainMessages(ctx, db)
-		if err != nil {
+		if err := reconcileDrainMessages(ctx, db, ethClient); err != nil {
 			log.Warnf("Failed to reconcile PDP removal drain messages: %s", err)
 			_ = al.EmitEvent(ctx, curioalerting.AlertEvent{
 				System:    alertType,
@@ -39,18 +38,6 @@ func NewProcessDeletionsWatcher(w *Watcher) {
 				Message:   fmt.Sprintf("failed to reconcile PDP removal drain messages: %s", err),
 			})
 			return
-		}
-		if len(dataSets) == 0 {
-			return
-		}
-
-		if err := processPendingPieceDeletes(ctx, db, ethClient, dataSets); err != nil {
-			log.Warnf("Failed to process pending PDP piece deletes: %s", err)
-			_ = al.EmitEvent(ctx, curioalerting.AlertEvent{
-				System:    alertType,
-				Subsystem: alertNameProcessDeletions,
-				Message:   fmt.Sprintf("failed to process pending PDP piece deletes: %s", err),
-			})
 		}
 	}, WatcherOrderProcessDeletions); err != nil {
 		panic(err)
@@ -62,22 +49,24 @@ type drainMessage struct {
 	TxHash    string         `db:"msg_hash"`
 	TxStatus  sql.NullString `db:"tx_status"`
 	TxSuccess sql.NullBool   `db:"tx_success"`
+	TxReceipt []byte         `db:"tx_receipt"`
 }
 
-// reconcileDrainMessages clears in-flight drain messages that have reached a
-// final state, and returns the data sets whose local removal tracking should be
-// re-examined.
+// reconcileDrainMessages handles in-flight drain messages that have reached a
+// final state.
 //
 // Clearing msg_hash is what lets the drain watcher pick the data set up again:
 // one drain transaction handles at most one batch, so a deep queue needs several
-// passes.
-func reconcileDrainMessages(ctx context.Context, db *harmonydb.DB) ([]int64, error) {
+// passes. The local piece reconciliation must happen before that clear, so a
+// process restart can replay from the in-flight drain row.
+func reconcileDrainMessages(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient) error {
 	var messages []drainMessage
 	err := db.Select(ctx, &messages, `
 		SELECT d.data_set,
 		       d.msg_hash,
 		       mwe.tx_status,
-		       mwe.tx_success
+		       mwe.tx_success,
+		       mwe.tx_receipt
 		FROM pdpv0_deletion_drain d
 		LEFT JOIN message_waits_eth mwe ON mwe.signed_tx_hash = d.msg_hash
 		WHERE d.msg_hash IS NOT NULL
@@ -85,10 +74,29 @@ func reconcileDrainMessages(ctx context.Context, db *harmonydb.DB) ([]int64, err
 		LIMIT $1
 	`, deletionDrainReconcileBatchLimit)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to select in-flight removal drains: %w", err)
+		return xerrors.Errorf("failed to select in-flight removal drains: %w", err)
 	}
 
-	var settled []int64
+	if len(messages) == 0 {
+		return nil
+	}
+
+	pdpVerifier, err := contract.NewPDPVerifier(contract.ContractAddresses().PDPVerifier, ethClient)
+	if err != nil {
+		return xerrors.Errorf("failed to instantiate PDPVerifier contract: %w", err)
+	}
+
+	pdpABI, err := contract.PDPVerifierMetaData.GetAbi()
+	if err != nil {
+		return xerrors.Errorf("failed to get PDP ABI: %w", err)
+	}
+
+	event, exists := pdpABI.Events["PiecesRemoved"]
+	if !exists {
+		return xerrors.Errorf("PiecesRemoved event not found in ABI")
+	}
+
+	pdpVerifierAddress := contract.ContractAddresses().PDPVerifier
 	for _, msg := range messages {
 		if !msg.TxStatus.Valid || msg.TxStatus.String != "confirmed" {
 			continue
@@ -97,32 +105,69 @@ func reconcileDrainMessages(ctx context.Context, db *harmonydb.DB) ([]int64, err
 		success := msg.TxSuccess.Valid && msg.TxSuccess.Bool
 		if !success {
 			// The drain did not apply. Clear the message so the data set is
-			// retried rather than stalling behind a dead transaction, and bound
-			// the retries.
+			// retried rather than stalling behind a dead transaction.
 			log.Errorw("PDP removal drain transaction failed", "dataSetId", msg.DataSetID, "txHash", msg.TxHash)
 			if _, err := db.Exec(ctx, `
 				UPDATE pdpv0_deletion_drain
-				SET msg_hash = NULL, failures = failures + 1
-				WHERE data_set = $1 AND msg_hash = $2
+				SET msg_hash = NULL WHERE data_set = $1 AND msg_hash = $2
 			`, msg.DataSetID, msg.TxHash); err != nil {
-				return nil, xerrors.Errorf("failed to clear failed removal drain %s: %w", msg.TxHash, err)
+				return xerrors.Errorf("failed to clear failed removal drain %s: %w", msg.TxHash, err)
 			}
 			continue
 		}
 
-		if _, err := db.Exec(ctx, `
-			UPDATE pdpv0_deletion_drain
-			SET msg_hash = NULL, blocked_at = NULL
-			WHERE data_set = $1 AND msg_hash = $2
-		`, msg.DataSetID, msg.TxHash); err != nil {
-			return nil, xerrors.Errorf("failed to clear confirmed removal drain %s: %w", msg.TxHash, err)
+		var txReceipt types.Receipt
+		err = json.Unmarshal(msg.TxReceipt, &txReceipt)
+		if err != nil {
+			return xerrors.Errorf("failed to unmarshal tx_receipt for tx %s: %w", msg.TxHash, err)
 		}
 
-		log.Infow("PDP removal drain confirmed", "dataSetId", msg.DataSetID, "txHash", msg.TxHash)
-		settled = append(settled, msg.DataSetID)
+		var removedPieceIDs []int64
+		for _, vLog := range txReceipt.Logs {
+			if vLog.Address == pdpVerifierAddress && len(vLog.Topics) > 0 && vLog.Topics[0] == event.ID {
+				prv, err := pdpVerifier.ParsePiecesRemoved(*vLog)
+				if err != nil {
+					return xerrors.Errorf("failed to parse PDP removal event: %w", err)
+				}
+				if !prv.SetId.IsInt64() {
+					return xerrors.Errorf("PiecesRemoved set id %s does not fit in int64", prv.SetId.String())
+				}
+				eventDataSetID := prv.SetId.Int64()
+				if eventDataSetID != msg.DataSetID {
+					return xerrors.Errorf("PiecesRemoved event data set %d does not match drain row data set %d for tx %s", eventDataSetID, msg.DataSetID, msg.TxHash)
+				}
+
+				pids := make([]int64, len(prv.PieceIds))
+				for i, pid := range prv.PieceIds {
+					if !pid.IsInt64() {
+						return xerrors.Errorf("PiecesRemoved piece id %s does not fit in int64 for tx %s", pid.String(), msg.TxHash)
+					}
+					pids[i] = pid.Int64()
+				}
+
+				removedPieceIDs = append(removedPieceIDs, pids...)
+			}
+		}
+
+		if len(removedPieceIDs) == 0 {
+			return xerrors.Errorf("confirmed removal drain %s for data set %d had no PiecesRemoved event", msg.TxHash, msg.DataSetID)
+		}
+
+		if err := processPendingPieceDeletes(ctx, db, pdpVerifier, msg.DataSetID, removedPieceIDs); err != nil {
+			return xerrors.Errorf("failed to process pending piece deletes for drain %s: %w", msg.TxHash, err)
+		}
+
+		if _, err := db.Exec(ctx, `
+			UPDATE pdpv0_deletion_drain
+			SET msg_hash = NULL WHERE data_set = $1 AND msg_hash = $2
+		`, msg.DataSetID, msg.TxHash); err != nil {
+			return xerrors.Errorf("failed to clear confirmed removal drain %s: %w", msg.TxHash, err)
+		}
+
+		log.Infow("PDP removal drain confirmed", "dataSetId", msg.DataSetID, "txHash", msg.TxHash, "piecesRemoved", len(removedPieceIDs))
 	}
 
-	return settled, nil
+	return nil
 }
 
 type pendingPieceDelete struct {
@@ -134,11 +179,15 @@ type pendingPieceDelete struct {
 }
 
 // processPendingPieceDeletes reconciles local piece-removal rows against
-// PDPVerifier. A confirmed schedulePieceDeletions transaction only records
-// delete intent; the piece must not be marked removed locally while PDPVerifier
-// still reports it as scheduled or live, because piece GC keys off that flag and
-// deletes the underlying data.
-func processPendingPieceDeletes(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, dataSets []int64) error {
+// PDPVerifier. When candidatePieceIDs is non-nil, it is the PiecesRemoved event
+// payload from a confirmed processPieceDeletions transaction and limits the rows
+// considered. When candidatePieceIDs is nil, all pending rows for the data set
+// are reconciled against chain state. In both modes a confirmed
+// schedulePieceDeletions transaction only records delete intent, and the piece
+// must not be marked removed locally while PDPVerifier still reports it as
+// scheduled or live, because piece GC keys off that flag and deletes the
+// underlying data.
+func processPendingPieceDeletes(ctx context.Context, db *harmonydb.DB, verifier *contract.PDPVerifier, dataSetID int64, candidatePieceIDs []int64) error {
 	var pendingDeletes []pendingPieceDelete
 	err := db.Select(ctx, &pendingDeletes, `
 		SELECT psp.data_set,
@@ -148,11 +197,11 @@ func processPendingPieceDeletes(ctx context.Context, db *harmonydb.DB, ethClient
 		       mwe.tx_success
 		FROM pdp_data_set_pieces psp
 		LEFT JOIN message_waits_eth mwe ON mwe.signed_tx_hash = psp.rm_message_hash
-		WHERE psp.data_set = ANY($1::bigint[])
+		WHERE psp.data_set = $1
 		  AND psp.rm_message_hash IS NOT NULL
 		  AND psp.removed = FALSE
 		ORDER BY psp.data_set, psp.piece_id
-	`, dataSets)
+	`, dataSetID)
 	if err != nil {
 		return xerrors.Errorf("failed to select pending piece deletes: %w", err)
 	}
@@ -160,12 +209,16 @@ func processPendingPieceDeletes(ctx context.Context, db *harmonydb.DB, ethClient
 		return nil
 	}
 
-	verifier, err := contract.NewPDPVerifier(contract.ContractAddresses().PDPVerifier, ethClient)
-	if err != nil {
-		return xerrors.Errorf("failed to instantiate PDPVerifier contract: %w", err)
+	var candidateSet map[int64]struct{}
+	if candidatePieceIDs != nil {
+		candidateSet = make(map[int64]struct{}, len(candidatePieceIDs))
+		for _, pieceID := range candidatePieceIDs {
+			candidateSet[pieceID] = struct{}{}
+		}
 	}
 
-	scheduledByDataSet := map[int64]map[int64]struct{}{}
+	var scheduled map[int64]struct{}
+	var loadedScheduled bool
 	for _, piece := range pendingDeletes {
 		// Wait until the schedulePieceDeletions send has a final watcher result.
 		if !piece.TxStatus.Valid || piece.TxStatus.String != "confirmed" {
@@ -189,13 +242,18 @@ func processPendingPieceDeletes(ctx context.Context, db *harmonydb.DB, ethClient
 			continue
 		}
 
-		scheduled, ok := scheduledByDataSet[piece.DataSetID]
-		if !ok {
-			scheduled, err = getScheduledRemovalSet(ctx, verifier, piece.DataSetID)
+		if candidateSet != nil {
+			if _, ok := candidateSet[piece.PieceID]; !ok {
+				continue
+			}
+		}
+
+		if !loadedScheduled {
+			scheduled, err = getScheduledRemovalSet(ctx, verifier, dataSetID)
 			if err != nil {
 				return err
 			}
-			scheduledByDataSet[piece.DataSetID] = scheduled
+			loadedScheduled = true
 		}
 		// Still scheduled means the removal has not been processed yet. Keep
 		// rm_message_hash set and leave removed=false.
@@ -206,7 +264,7 @@ func processPendingPieceDeletes(ctx context.Context, db *harmonydb.DB, ethClient
 		// Once it is no longer scheduled, PieceLive is the final authority for
 		// whether the removal actually applied.
 		pieceID := big.NewInt(piece.PieceID)
-		live, err := verifier.PieceLive(contract.EthCallOpts(ctx), big.NewInt(piece.DataSetID), pieceID)
+		live, err := verifier.PieceLive(contract.EthCallOpts(ctx), big.NewInt(dataSetID), pieceID)
 		if err != nil {
 			return xerrors.Errorf("failed to check if piece is live: %w", err)
 		}

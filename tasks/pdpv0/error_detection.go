@@ -31,11 +31,8 @@ var (
 	ErrPDPVerifierDataSetNotLive             abi.Error
 	ErrPDPVerifierInsufficientChallengeDelay abi.Error
 
-	ErrPDPVerifierPendingPieceDeletions     abi.Error
-	ErrPDPVerifierInvalidPieceDeletionBatch abi.Error
-	ErrPDPVerifierEmptyRemovalBatch         abi.Error
-	ErrPDPVerifierOnlyStorageProvider       abi.Error
-	ErrPDPVerifierNoPiecesToProve           abi.Error
+	ErrPDPVerifierPendingPieceDeletions abi.Error
+	ErrPDPVerifierNoPiecesToProve       abi.Error
 
 	// Unexpected proving invariant errors. Curio should not produce these in
 	// normal PDPv0 initPP/nextPP/prove flow; classify them explicitly so they
@@ -83,29 +80,12 @@ func init() {
 		panic("PDPVerifier ABI missing ExcessiveChallengeDelay error")
 	}
 
-	removalQueue := contract.RemovalQueueABI()
-
-	ErrPDPVerifierPendingPieceDeletions, ok = removalQueue.Errors["PendingPieceDeletions"]
+	ErrPDPVerifierPendingPieceDeletions, ok = parsedPDPVerifier.Errors["PendingPieceDeletions"]
 	if !ok {
 		panic("PDPVerifier removal ABI missing PendingPieceDeletions error")
 	}
 
-	ErrPDPVerifierInvalidPieceDeletionBatch, ok = removalQueue.Errors["InvalidPieceDeletionBatch"]
-	if !ok {
-		panic("PDPVerifier removal ABI missing InvalidPieceDeletionBatch error")
-	}
-
-	ErrPDPVerifierEmptyRemovalBatch, ok = removalQueue.Errors["EmptyRemovalBatch"]
-	if !ok {
-		panic("PDPVerifier removal ABI missing EmptyRemovalBatch error")
-	}
-
-	ErrPDPVerifierOnlyStorageProvider, ok = removalQueue.Errors["OnlyStorageProvider"]
-	if !ok {
-		panic("PDPVerifier removal ABI missing OnlyStorageProvider error")
-	}
-
-	ErrPDPVerifierNoPiecesToProve, ok = removalQueue.Errors["NoPiecesToProve"]
+	ErrPDPVerifierNoPiecesToProve, ok = parsedPDPVerifier.Errors["NoPiecesToProve"]
 	if !ok {
 		panic("PDPVerifier removal ABI missing NoPiecesToProve error")
 	}
@@ -265,22 +245,6 @@ func IsPendingPieceDeletionsError(err error) bool {
 		return false
 	}
 	return strings.Contains(strings.ToLower(err.Error()), contractErrorSelector(ErrPDPVerifierPendingPieceDeletions))
-}
-
-func IsStaleRemovalQueueViewError(err error) bool {
-	if err == nil {
-		return false
-	}
-	errStr := strings.ToLower(err.Error())
-	return strings.Contains(errStr, contractErrorSelector(ErrPDPVerifierInvalidPieceDeletionBatch)) ||
-		strings.Contains(errStr, contractErrorSelector(ErrPDPVerifierEmptyRemovalBatch))
-}
-
-func IsOnlyStorageProviderError(err error) bool {
-	if err == nil {
-		return false
-	}
-	return strings.Contains(strings.ToLower(err.Error()), contractErrorSelector(ErrPDPVerifierOnlyStorageProvider))
 }
 
 func IsPDPVerifierDataSetNotLive(err error) bool {

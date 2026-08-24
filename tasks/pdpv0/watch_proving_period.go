@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/big"
 
+	"golang.org/x/exp/maps"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/alertmanager/curioalerting"
@@ -66,12 +67,22 @@ func NewProvingPeriodWatcher(w *Watcher) {
 			return
 		}
 
-		if err := processPendingPieceDeletes(ctx, db, ethClient, readyDataSets); err != nil {
-			log.Warnf("Failed to process pending PDP piece deletes: %s", err)
+		if err := reconcilePendingPieceDeletesFromChain(ctx, db, ethClient, readyDataSets); err != nil {
+			log.Warnf("Failed to reconcile pending PDP piece deletes: %s", err)
 			_ = al.EmitEvent(ctx, curioalerting.AlertEvent{
 				System:    alertType,
 				Subsystem: alertNameProvingPeriod,
-				Message:   fmt.Sprintf("failed to process pending PDP piece deletes: %s", err),
+				Message:   fmt.Sprintf("failed to reconcile pending PDP piece deletes: %s", err),
+			})
+			return
+		}
+
+		if err := enqueueDeletionDrainsForPendingDeletes(ctx, db, ethClient, readyDataSets); err != nil {
+			log.Warnf("Failed to enqueue PDP deletion drains: %s", err)
+			_ = al.EmitEvent(ctx, curioalerting.AlertEvent{
+				System:    alertType,
+				Subsystem: alertNameProvingPeriod,
+				Message:   fmt.Sprintf("failed to enqueue PDP deletion drains: %s", err),
 			})
 			return
 		}
@@ -191,10 +202,9 @@ func clearFailedProvingPeriodReconciliations(ctx context.Context, db *harmonydb.
 // the now-stale prove_at_epoch.
 //
 // A zero next challenge epoch is ambiguous since FilOzone/pdp#297:
-// processPieceDeletions also clears it, on a perfectly healthy data set that
-// still has leaves and is simply due a fresh challenge at the next proving period.
-// Leaf count is the discriminator -- only a zero challenge with zero leaves is a
-// genuinely emptied data set.
+// processPieceDeletions also clears it, on a data set that may still have
+// leaves and only needs a fresh proving-period transition. Leaf count is the
+// discriminator -- only a zero challenge with zero leaves is genuinely empty.
 func processEmptyProvingPeriods(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, periods []confirmedProvingPeriod) error {
 	if len(periods) == 0 {
 		return nil
@@ -225,7 +235,7 @@ func processEmptyProvingPeriods(ctx context.Context, db *harmonydb.DB, ethClient
 			return xerrors.Errorf("failed to get leaf count for data set %d: %w", period.DataSetID, err)
 		}
 		if leafCount.Sign() > 0 {
-			log.Debugw("skipping empty-period reset; challenge cleared by processed deletions",
+			log.Debugw("skipping empty-period reset; challenge cleared but data set still has leaves",
 				"dataSetId", period.DataSetID, "leafCount", leafCount.String())
 			continue
 		}
@@ -267,6 +277,105 @@ func clearProvingPeriodReconcileNeeded(ctx context.Context, db *harmonydb.DB, pe
 		if err != nil {
 			return xerrors.Errorf("failed to clear proving period reconciliation flag for data set %d: %w", period.DataSetID, err)
 		}
+	}
+	return nil
+}
+
+func reconcilePendingPieceDeletesFromChain(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, dataSets []int64) error {
+	if len(dataSets) == 0 {
+		return nil
+	}
+
+	verifier, err := contract.NewPDPVerifier(contract.ContractAddresses().PDPVerifier, ethClient)
+	if err != nil {
+		return xerrors.Errorf("failed to instantiate PDPVerifier contract: %w", err)
+	}
+
+	for _, dataSetID := range dataSets {
+		if err := processPendingPieceDeletes(ctx, db, verifier, dataSetID, nil); err != nil {
+			return xerrors.Errorf("failed to reconcile pending piece deletes for data set %d: %w", dataSetID, err)
+		}
+	}
+
+	return nil
+}
+
+type pendingPieceDeleteDrain struct {
+	DataSetID int64 `db:"data_set"`
+	PieceID   int64 `db:"piece_id"`
+}
+
+// enqueueDeletionDrainsForPendingDeletes records datasets whose confirmed
+// delete intent is still present in PDPVerifier's scheduled-removal queue.
+func enqueueDeletionDrainsForPendingDeletes(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, dataSets []int64) error {
+	var pendingDeletes []pendingPieceDeleteDrain
+	err := db.Select(ctx, &pendingDeletes, `
+		SELECT psp.data_set,
+		       psp.piece_id
+		FROM pdp_data_set_pieces psp
+		INNER JOIN message_waits_eth mwe ON mwe.signed_tx_hash = psp.rm_message_hash
+		WHERE psp.data_set = ANY($1::bigint[])
+		  AND psp.rm_message_hash IS NOT NULL
+		  AND psp.removed = FALSE
+		  AND mwe.tx_status = 'confirmed'
+		  AND mwe.tx_success = TRUE
+		ORDER BY psp.data_set, psp.piece_id
+	`, dataSets)
+	if err != nil {
+		return xerrors.Errorf("failed to select pending deletion drains: %w", err)
+	}
+	if len(pendingDeletes) == 0 {
+		return nil
+	}
+
+	verifier, err := contract.NewPDPVerifier(contract.ContractAddresses().PDPVerifier, ethClient)
+	if err != nil {
+		return xerrors.Errorf("failed to instantiate PDPVerifier contract: %w", err)
+	}
+
+	scheduledByDataSet := map[int64]map[int64]struct{}{}
+	drainQueuedByDataSet := map[int64]struct{}{}
+	for _, piece := range pendingDeletes {
+		scheduled, ok := scheduledByDataSet[piece.DataSetID]
+		if !ok {
+			scheduled, err = getScheduledRemovalSet(ctx, verifier, piece.DataSetID)
+			if err != nil {
+				return err
+			}
+			scheduledByDataSet[piece.DataSetID] = scheduled
+		}
+		if _, ok := scheduled[piece.PieceID]; ok {
+			if _, queued := drainQueuedByDataSet[piece.DataSetID]; !queued {
+				if err := enqueueDeletionDrainFromProvingWatcher(ctx, db, piece.DataSetID); err != nil {
+					return err
+				}
+				drainQueuedByDataSet[piece.DataSetID] = struct{}{}
+			}
+			continue
+		}
+	}
+
+	ds := maps.Keys(drainQueuedByDataSet)
+
+	if len(ds) > 0 {
+		log.Infow("Scheduled Deletion Process", "dataset", maps.Keys(drainQueuedByDataSet))
+	}
+
+	return nil
+}
+
+func enqueueDeletionDrainFromProvingWatcher(ctx context.Context, db *harmonydb.DB, dataSetID int64) error {
+	committed, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+		if err := enqueueDeletionDrain(tx, dataSetID); err != nil {
+			return false, err
+		}
+		return true, nil
+	}, harmonydb.OptionRetry())
+	if err != nil {
+		return xerrors.Errorf("failed to enqueue removal drain from proving watcher: %w", err)
+	}
+	if !committed {
+		return xerrors.Errorf("failed to commit removal drain enqueue for data set %d", dataSetID)
 	}
 	return nil
 }
