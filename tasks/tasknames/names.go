@@ -64,7 +64,7 @@ const (
 	SectorMetadata = "SectorMetadata"
 	ExpMgr         = "ExpMgr"
 	BalanceMgr     = "BalanceMgr"
-	Settle = "Settle"
+	Settle         = "Settle"
 
 	// Unseal
 	UnsealDecode = "UnsealDecode"

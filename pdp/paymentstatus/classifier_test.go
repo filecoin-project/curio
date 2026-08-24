@@ -4,8 +4,9 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/filecoin-project/go-state-types/builtin"
 	"github.com/stretchr/testify/require"
+
+	"github.com/filecoin-project/go-state-types/builtin"
 
 	"github.com/filecoin-project/curio/lib/filecoinpayment"
 )

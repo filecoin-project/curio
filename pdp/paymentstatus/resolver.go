@@ -16,9 +16,9 @@ import (
 )
 
 const (
-	defaultCacheTTL        = 2 * time.Minute
-	defaultScanBatch       = 20
-	scanParallelism        = 10
+	defaultCacheTTL         = 2 * time.Minute
+	defaultScanBatch        = 20
+	scanParallelism         = 10
 	DefaultMinScanSizeBytes = 100 * 1024 // 100 KiB — skip smaller datasets in grace scans
 )
 

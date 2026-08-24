@@ -47,20 +47,20 @@ type PDPDataSetInteraction struct {
 }
 
 type PDPDataSetDetail struct {
-	ID                        int64      `json:"id"`
-	ObjectCount               int64      `json:"objectCount"`
-	SizeBytes                 int64      `json:"sizeBytes"`
-	FirstUploadAt             *time.Time `json:"firstUploadAt,omitempty"`
-	LifespanSeconds           *int64     `json:"lifespanSeconds,omitempty"`
-	ProveAtEpoch              *int64     `json:"proveAtEpoch,omitempty"`
-	ChallengeWindow           *int64     `json:"challengeWindow,omitempty"`
-	ProvingPeriod             *int64     `json:"provingPeriod,omitempty"`
-	UnrecoverableFailureEpoch *int64     `json:"unrecoverableFailureEpoch,omitempty"`
-	InitReady                 bool       `json:"initReady"`
-	Service                   string     `json:"service"`
-	HeadEpoch                 int64      `json:"headEpoch"`
-	ProvingStatus             string     `json:"provingStatus"`
-	ExploreURL                string     `json:"exploreUrl,omitempty"`
+	ID                        int64                   `json:"id"`
+	ObjectCount               int64                   `json:"objectCount"`
+	SizeBytes                 int64                   `json:"sizeBytes"`
+	FirstUploadAt             *time.Time              `json:"firstUploadAt,omitempty"`
+	LifespanSeconds           *int64                  `json:"lifespanSeconds,omitempty"`
+	ProveAtEpoch              *int64                  `json:"proveAtEpoch,omitempty"`
+	ChallengeWindow           *int64                  `json:"challengeWindow,omitempty"`
+	ProvingPeriod             *int64                  `json:"provingPeriod,omitempty"`
+	UnrecoverableFailureEpoch *int64                  `json:"unrecoverableFailureEpoch,omitempty"`
+	InitReady                 bool                    `json:"initReady"`
+	Service                   string                  `json:"service"`
+	HeadEpoch                 int64                   `json:"headEpoch"`
+	ProvingStatus             string                  `json:"provingStatus"`
+	ExploreURL                string                  `json:"exploreUrl,omitempty"`
 	PaymentAtRisk             *PDPDataSetAtRiskDetail `json:"paymentAtRisk,omitempty"`
 }
 
