@@ -2,7 +2,6 @@ package pdpv0
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"math/big"
@@ -247,24 +246,6 @@ func (p *ProcessDeletionsTask) Do(ctx context.Context, taskID harmonytask.TaskID
 	return true, nil
 }
 
-type drainProvingSchedule struct {
-	ProveAtEpoch    sql.NullInt64 `db:"prove_at_epoch"`
-	ChallengeWindow sql.NullInt64 `db:"challenge_window"`
-}
-
-func (p *ProcessDeletionsTask) loadProvingSchedule(ctx context.Context, dataSetID int64) (drainProvingSchedule, error) {
-	var schedule drainProvingSchedule
-	err := p.db.QueryRow(ctx, `
-		SELECT prove_at_epoch, challenge_window
-		FROM pdp_data_sets
-		WHERE id = $1
-	`, dataSetID).Scan(&schedule.ProveAtEpoch, &schedule.ChallengeWindow)
-	if err != nil {
-		return drainProvingSchedule{}, xerrors.Errorf("failed to load proving schedule for data set %d: %w", dataSetID, err)
-	}
-	return schedule, nil
-}
-
 // sendProcessPieceDeletions submits one drain batch, halving on gas-estimate
 // failure. SenderETH estimates gas before submission, so a failed estimate means
 // nothing was sent and a smaller retry cannot double-drain.
@@ -356,27 +337,6 @@ func enqueueDeletionDrain(tx *harmonydb.Tx, dataSetID int64) error {
 		return xerrors.Errorf("failed to enqueue removal drain for data set %d: %w", dataSetID, err)
 	}
 	return nil
-}
-
-// hasDrainInFlight reports whether a data set has a processPieceDeletions
-// transaction awaiting confirmation. The proving-period tasks preflight on this
-// so they do not send a nextProvingPeriod that PDPVerifier is certain to revert.
-//
-// Deliberately narrower than "has a drain row": the migration seeds a row for
-// every data set, and those rows are only cleared once the drain task has
-// confirmed each queue is empty. Gating rollover on row existence would stall
-// proving fleet-wide until that sweep finished. An in-flight message is the one
-// state where the rollover is guaranteed to fail, and PendingPieceDeletions
-// handling covers everything else.
-func hasDrainInFlight(ctx context.Context, db *harmonydb.DB, dataSetID int64) (bool, error) {
-	var exists bool
-	err := db.QueryRow(ctx, `
-		SELECT EXISTS (SELECT 1 FROM pdpv0_deletion_drain WHERE data_set = $1 AND msg_hash IS NOT NULL)
-	`, dataSetID).Scan(&exists)
-	if err != nil {
-		return false, xerrors.Errorf("failed to check removal drain state for data set %d: %w", dataSetID, err)
-	}
-	return exists, nil
 }
 
 var _ harmonytask.TaskInterface = &ProcessDeletionsTask{}
