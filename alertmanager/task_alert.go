@@ -210,12 +210,13 @@ func (a *AlertTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwne
 			if strings.Contains(out.alertString, "PDP") {
 				log.Warnf("Ping health check problem: %s %s %s", name, out.err, out.alertString)
 				problme = true
+				break
 			}
 		} else {
 			log.Warnf("Ping health check problem: %s %s %s", name, out.err, out.alertString)
 			problme = true
+			break
 		}
-		break
 	}
 	a.pingMu.Lock()
 	a.pingProblems = problme
