@@ -51,6 +51,10 @@ func NewNextProvingPeriodTask(db *harmonydb.DB, ethClient ethchain.EthClient, fi
 		fil:       fil,
 		al:        w.al,
 	}
+	verifier, err := contract.NewPDPVerifier(contract.ContractAddresses().PDPVerifier, ethClient)
+	if err != nil {
+		panic(err)
+	}
 
 	_ = w.AddWatcher(func(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, al curioalerting.AlertingInterface, revert, apply *chainTypes.TipSet) {
 		if apply == nil {
@@ -63,18 +67,37 @@ func NewNextProvingPeriodTask(db *harmonydb.DB, ethClient ethchain.EthClient, fi
 		}
 
 		currentHeight := apply.Height()
-		err := db.Select(ctx, &toCallNext, `
-                SELECT id
-                FROM pdp_data_sets
-                WHERE challenge_request_task_id IS NULL
-                  AND (prove_at_epoch + challenge_window) <= $1
-                  AND unrecoverable_proving_failure_epoch IS NULL
-				  AND NOT EXISTS (
-    				SELECT 1
-    				FROM pdpv0_deletion_drains d
-    				WHERE d.data_set = pdp_data_sets.id
-                  )
-	            `, currentHeight)
+		supported, err := contract.SupportsPieceDeletionProcessing(ctx, verifier)
+		if err != nil {
+			return
+		}
+
+		// NextProvingPeriod should only schedule based on deletion drains rows after
+		// the pdp verifier has been upgraded.  Until then no rows will ever be processed
+		// or removed from pdpv0_deletion_drains.
+		// TODO: remove this logic after upgrade -- https://github.com/filecoin-project/curio/issues/1455
+		if supported {
+			err = db.Select(ctx, &toCallNext, `
+					SELECT id
+					FROM pdp_data_sets
+					WHERE challenge_request_task_id IS NULL
+					AND (prove_at_epoch + challenge_window) <= $1
+					AND unrecoverable_proving_failure_epoch IS NULL
+					AND NOT EXISTS (
+						SELECT 1
+						FROM pdpv0_deletion_drains d
+						WHERE d.data_set = pdp_data_sets.id
+					)
+					`, currentHeight)
+		} else {
+			err = db.Select(ctx, &toCallNext, `
+			SELECT id
+			FROM pdp_data_sets
+			WHERE challenge_request_task_id IS NULL
+			AND (prove_at_epoch + challenge_window) <= $1
+			AND unrecoverable_proving_failure_epoch IS NULL
+			`, currentHeight)
+		}
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			_ = al.EmitEvent(ctx, curioalerting.AlertEvent{
 				System:    alertType,

@@ -79,9 +79,22 @@ func NewProcessDeletionsTask(db *harmonydb.DB, ethClient ethchain.EthClient, fil
 		fil:       fil,
 		al:        w.al,
 	}
+	verifier, err := contract.NewPDPVerifier(contract.ContractAddresses().PDPVerifier, ethClient)
+	if err != nil {
+		panic(err)
+	}
 
 	_ = w.AddWatcher(func(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, al curioalerting.AlertingInterface, revert, apply *chainTypes.TipSet) {
 		if apply == nil {
+			return
+		}
+
+		// Only schedule work for process deletions once the pdp verifier has been upgraded
+		supported, err := contract.SupportsPieceDeletionProcessing(ctx, verifier)
+		if err != nil {
+			return
+		}
+		if !supported {
 			return
 		}
 
@@ -90,7 +103,7 @@ func NewProcessDeletionsTask(db *harmonydb.DB, ethClient ethchain.EthClient, fil
 		}
 
 		currentHeight := apply.Height()
-		err := db.Select(ctx, &candidates, `
+		err = db.Select(ctx, &candidates, `
 			SELECT d.data_set
 			FROM pdpv0_deletion_drain d
 			JOIN pdp_data_sets ds ON ds.id = d.data_set
@@ -151,22 +164,6 @@ func (p *ProcessDeletionsTask) Do(ctx context.Context, taskID harmonytask.TaskID
 	verifier, err := contract.NewPDPVerifier(contract.ContractAddresses().PDPVerifier, p.ethClient)
 	if err != nil {
 		return false, xerrors.Errorf("failed to instantiate PDPVerifier contract: %w", err)
-	}
-
-	// The deployed contract may predate processPieceDeletions, in which case
-	// nextProvingPeriod still drains the queue itself and this task must not
-	// send anything.
-	supported, err := contract.SupportsPieceDeletionProcessing(ctx, verifier)
-	if err != nil {
-		return false, xerrors.Errorf("failed to determine PDPVerifier removal support: %w", err)
-	}
-	if !supported {
-		if dropErr := p.dropDrainRow(ctx, dataSetID, taskID); dropErr != nil {
-			return false, dropErr
-		}
-		log.Debugw("PDPVerifier predates processPieceDeletions; leaving removals to nextProvingPeriod",
-			"dataSetId", dataSetID)
-		return true, nil
 	}
 
 	queued, err := verifier.GetScheduledRemovals(contract.EthCallOpts(ctx), big.NewInt(dataSetID))
