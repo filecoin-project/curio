@@ -67,7 +67,8 @@ type ProcessDeletionsChainApi interface {
 
 // NewProcessDeletionsTask drains PDPVerifier scheduled-removal queues.
 //
-// Scheduling is driven only by pdpv0_deletion_drain coordination rows. A NULL
+// Scheduling is driven by pdpv0_deletion_drain coordination rows, gated on the
+// same prove_at_epoch + challenge_window deadline as nextProvingPeriod. A NULL
 // task_id means no Harmony task currently owns the row; a NULL msg_hash means no
 // processPieceDeletions transaction is waiting for confirmation.
 func NewProcessDeletionsTask(db *harmonydb.DB, ethClient ethchain.EthClient, fil ProcessDeletionsChainApi, w *Watcher, sender *message.SenderETH) *ProcessDeletionsTask {
@@ -88,14 +89,17 @@ func NewProcessDeletionsTask(db *harmonydb.DB, ethClient ethchain.EthClient, fil
 			DataSetID int64 `db:"data_set"`
 		}
 
+		currentHeight := apply.Height()
 		err := db.Select(ctx, &candidates, `
-			SELECT data_set
-			FROM pdpv0_deletion_drain
-			WHERE task_id IS NULL
-			  AND msg_hash IS NULL
-			ORDER BY data_set
-			LIMIT $1
-		`, processDeletionsScheduleLimit)
+			SELECT d.data_set
+			FROM pdpv0_deletion_drain d
+			JOIN pdp_data_sets ds ON ds.id = d.data_set
+			WHERE d.task_id IS NULL
+			  AND d.msg_hash IS NULL
+			  AND (ds.prove_at_epoch + ds.challenge_window) <= $1
+			ORDER BY d.data_set
+			LIMIT $2
+		`, currentHeight, processDeletionsScheduleLimit)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			_ = al.EmitEvent(ctx, curioalerting.AlertEvent{
 				System:    alertType,
@@ -187,67 +191,6 @@ func (p *ProcessDeletionsTask) Do(ctx context.Context, taskID harmonytask.TaskID
 			return false, dropErr
 		}
 		return true, nil
-	}
-
-	// Contract state is the drain authority. A zero nextChallengeEpoch means
-	// there is no sampled challenge for processPieceDeletions to invalidate.
-	nextChallengeEpoch, err := verifier.GetNextChallengeEpoch(contract.EthCallOpts(ctx), big.NewInt(dataSetID))
-	if err != nil {
-		return false, xerrors.Errorf("failed to read next challenge epoch for data set %d: %w", dataSetID, err)
-	}
-	if nextChallengeEpoch == nil {
-		return false, xerrors.Errorf("next challenge epoch is nil for data set %d", dataSetID)
-	}
-	if nextChallengeEpoch.Sign() != 0 {
-		schedule, err := p.loadProvingSchedule(ctx, dataSetID)
-		if err != nil {
-			return false, err
-		}
-		if !schedule.ProveAtEpoch.Valid || !schedule.ChallengeWindow.Valid {
-			log.Warnw("deferring removal drain; active on-chain challenge has no complete local proving schedule",
-				"dataSetId", dataSetID,
-				"nextChallengeEpoch", nextChallengeEpoch.String())
-			if dropErr := p.dropDrainRow(ctx, dataSetID, taskID); dropErr != nil {
-				return false, dropErr
-			}
-			return true, nil
-		}
-		if !nextChallengeEpoch.IsInt64() {
-			return false, xerrors.Errorf("next challenge epoch %s does not fit in int64 for data set %d", nextChallengeEpoch.String(), dataSetID)
-		}
-		if schedule.ProveAtEpoch.Int64 != nextChallengeEpoch.Int64() {
-			log.Warnw("deferring removal drain; local proving schedule does not match PDPVerifier challenge",
-				"dataSetId", dataSetID,
-				"localProveAtEpoch", schedule.ProveAtEpoch.Int64,
-				"nextChallengeEpoch", nextChallengeEpoch.String())
-			if dropErr := p.dropDrainRow(ctx, dataSetID, taskID); dropErr != nil {
-				return false, dropErr
-			}
-			return true, nil
-		}
-
-		ts, err := p.fil.ChainHead(ctx)
-		if err != nil {
-			return false, xerrors.Errorf("failed to get chain head: %w", err)
-		}
-
-		currentHeight := int64(ts.Height())
-		drainAfter := schedule.ProveAtEpoch.Int64 + schedule.ChallengeWindow.Int64
-		if drainAfter > currentHeight {
-			// A non-zero nextChallengeEpoch means PDPVerifier has sampled an
-			// active challenge. Drain only after that challenge window is over.
-			if dropErr := p.dropDrainRow(ctx, dataSetID, taskID); dropErr != nil {
-				return false, dropErr
-			}
-			log.Debugw("deferring removal drain until the on-chain challenge window closes",
-				"dataSetId", dataSetID,
-				"nextChallengeEpoch", nextChallengeEpoch.String(),
-				"proveAtEpoch", schedule.ProveAtEpoch.Int64,
-				"challengeWindow", schedule.ChallengeWindow.Int64,
-				"height", currentHeight,
-				"drainAfter", drainAfter)
-			return true, nil
-		}
 	}
 
 	if !stillOwned() {

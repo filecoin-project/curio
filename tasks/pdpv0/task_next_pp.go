@@ -69,6 +69,11 @@ func NewNextProvingPeriodTask(db *harmonydb.DB, ethClient ethchain.EthClient, fi
                 WHERE challenge_request_task_id IS NULL
                   AND (prove_at_epoch + challenge_window) <= $1
                   AND unrecoverable_proving_failure_epoch IS NULL
+				  AND NOT EXISTS (
+    				SELECT 1
+    				FROM pdpv0_deletion_drains d
+    				WHERE d.data_set = pdp_data_sets.id
+                  )
 	            `, currentHeight)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			_ = al.EmitEvent(ctx, curioalerting.AlertEvent{
@@ -127,20 +132,6 @@ func (n *NextProvingPeriodTask) Do(ctx context.Context, taskID harmonytask.TaskI
 			err = fmt.Errorf("failed to set up next proving period for dataset %d: %w", dataSetId, err)
 		}
 	}()
-
-	// PDPVerifier reverts nextProvingPeriod while scheduled removals remain, so
-	// there is no point sending one while a drain is in flight. The drain
-	// watcher runs in an earlier phase; complete here and let the next tipset
-	// re-schedule this task. A queue with no drain in flight is handled by the
-	// PendingPieceDeletions revert instead.
-	draining, err := hasDrainInFlight(ctx, n.db, dataSetId)
-	if err != nil {
-		return false, err
-	}
-	if draining {
-		log.Debugw("deferring nextProvingPeriod until scheduled removals are drained", "dataSetId", dataSetId)
-		return true, nil
-	}
 
 	// Get the listener address for this data set from the PDPVerifier contract
 	pdpVerifier, err := contract.NewPDPVerifier(contract.ContractAddresses().PDPVerifier, n.ethClient)

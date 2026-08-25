@@ -127,17 +127,6 @@ func (ipp *InitProvingPeriodTask) Do(ctx context.Context, taskID harmonytask.Tas
 		}
 	}()
 
-	// initPP sends nextProvingPeriod calldata, so it reverts on pending
-	// deletions exactly as nextPP does. Drain first.
-	draining, err := hasDrainInFlight(ctx, ipp.db, dataSetId)
-	if err != nil {
-		return false, err
-	}
-	if draining {
-		log.Debugw("deferring initProvingPeriod until scheduled removals are drained", "dataSetId", dataSetId)
-		return true, nil
-	}
-
 	// Get the listener address for this data set from the PDPVerifier contract
 	pdpVerifier, err := contract.NewPDPVerifier(contract.ContractAddresses().PDPVerifier, ipp.ethClient)
 	if err != nil {
