@@ -17,6 +17,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/jellydator/ttlcache/v2"
+	"golang.org/x/mod/semver"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -55,6 +56,23 @@ const (
 	// in a future release.
 	CapIpniPeerIDDeprecated = "IPNIPeerID"
 )
+
+const pdpVerifierProcessPieceDeletionsAfterVersion = "v3.4.0"
+
+func SemverVersion(version string) string {
+	if strings.HasPrefix(version, "v") {
+		return version
+	}
+	return "v" + version
+}
+
+func SupportsPieceDeletionProcessing(ctx context.Context, verifier *PDPVerifier) (bool, error) {
+	version, err := verifier.VERSION(EthCallOpts(ctx))
+	if err != nil {
+		return false, xerrors.Errorf("failed to get PDPVerifier version: %w", err)
+	}
+	return semver.Compare(SemverVersion(version), pdpVerifierProcessPieceDeletionsAfterVersion) > 0, nil
+}
 
 // PDPOfferingData converts a PDPOffering-like struct to capability key-value pairs
 type PDPOfferingData struct {

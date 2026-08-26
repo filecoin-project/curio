@@ -110,4 +110,5 @@ const (
 	PDPv0_ChainSync  = "PDPv0_ChainSync"
 	PDPv0_DatasetIdx = "PDPv0_DatasetIdx"
 	PDPv0_FixPiece   = "PDPv0_FixPiece"
+	PDPv0_ProcDel    = "PDPv0_ProcDel"
 )
