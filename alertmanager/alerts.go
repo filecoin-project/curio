@@ -140,6 +140,7 @@ func balanceCheck(al *alerts) {
 		balance, err := al.api.WalletBalance(al.ctx, addr)
 		if err != nil {
 			al.alertMap[Name].err = err
+			return
 		}
 
 		if abi.TokenAmount(al.cfg.MinimumWalletBalance).GreaterThanEqual(balance) {
