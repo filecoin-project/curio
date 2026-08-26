@@ -33,14 +33,13 @@ var log = logging.Logger("web")
 //go:embed static
 var static embed.FS
 
-var basePath = "/static/"
-
 // A dev mode hack for no-restart changes to static and templates.
 // You still need to recompile the binary for changes to go code.
 var webDev = os.Getenv("CURIO_WEB_DEV") == "1"
 
 func GetSrv(ctx context.Context, deps *deps.Deps, devMode bool) (*http.Server, error) {
 	mx := mux.NewRouter()
+	var basePath = "/static/"
 
 	// Single CORS middleware that handles all CORS logic
 	// Wrap the entire router to ensure middleware runs for all requests including unmatched routes

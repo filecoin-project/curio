@@ -7,10 +7,6 @@ import (
 	"reflect"
 	"strings"
 	"time"
-	"unsafe"
-
-	"github.com/yugabyte/pgx/v5"
-	"github.com/yugabyte/pgx/v5/pgconn"
 )
 
 const (
@@ -18,11 +14,6 @@ const (
 	adminQueryMaxRows   = 1000
 	adminQueryTimeout   = 10 * time.Minute
 )
-
-type adminPool interface {
-	Query(context.Context, string, ...any) (pgx.Rows, error)
-	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
-}
 
 // AdminQueryResult holds tabular or command output from AdminQuery.
 type AdminQueryResult struct {
@@ -34,6 +25,11 @@ type AdminQueryResult struct {
 }
 
 // AdminQuery runs arbitrary SQL for trusted admin consoles.
+//
+// HarmonyQuery's Query/Exec only accept compile-time string literals
+// (rawStringOnly). Admin consoles and ANALYZE need a runtime string, so we
+// call those public methods via reflect instead of reaching into the
+// unexported pool.
 func AdminQuery(ctx context.Context, db *DB, sql string) (*AdminQueryResult, error) {
 	if db == nil {
 		return nil, fmt.Errorf("database not configured")
@@ -53,16 +49,12 @@ func AdminQuery(ctx context.Context, db *DB, sql string) (*AdminQueryResult, err
 	ctx, cancel := context.WithTimeout(ctx, adminQueryTimeout)
 	defer cancel()
 
-	pool, err := adminPoolFromDB(db)
-	if err != nil {
-		return nil, err
-	}
-
 	var result *AdminQueryResult
+	var err error
 	if isAdminReadQuery(sql) {
-		result, err = adminQueryRows(ctx, pool, sql)
+		result, err = adminQueryRows(ctx, db, sql)
 	} else {
-		result, err = adminQueryExec(ctx, pool, sql)
+		result, err = adminQueryExec(ctx, db, sql)
 	}
 	return result, mapAdminQueryError(err)
 }
@@ -80,17 +72,21 @@ func mapAdminQueryError(err error) error {
 	return err
 }
 
-func adminPoolFromDB(db *DB) (adminPool, error) {
-	rv := reflect.ValueOf(db).Elem()
-	f := rv.FieldByName("pgx")
-	if !f.IsValid() || f.IsNil() {
-		return nil, fmt.Errorf("database pool unavailable")
+// callDB invokes DB.Query or DB.Exec with a runtime SQL string.
+func callDB(db *DB, method string, ctx context.Context, sql string) ([]reflect.Value, error) {
+	m := reflect.ValueOf(db).MethodByName(method)
+	if !m.IsValid() {
+		return nil, fmt.Errorf("database %s unavailable", strings.ToLower(method))
 	}
-	pool, ok := reflect.NewAt(f.Type(), unsafe.Pointer(f.UnsafeAddr())).Elem().Interface().(adminPool)
-	if !ok {
-		return nil, fmt.Errorf("database pool unavailable")
+	sqlArg := reflect.ValueOf(sql).Convert(m.Type().In(1))
+	return m.Call([]reflect.Value{reflect.ValueOf(ctx), sqlArg}), nil
+}
+
+func callErr(out []reflect.Value) error {
+	if out[len(out)-1].IsNil() {
+		return nil
 	}
-	return pool, nil
+	return out[len(out)-1].Interface().(error)
 }
 
 func validateSingleStatement(sql string) error {
@@ -114,30 +110,33 @@ func isAdminReadQuery(sql string) bool {
 	}
 }
 
-func adminQueryRows(ctx context.Context, pool adminPool, sql string) (*AdminQueryResult, error) {
-	rows, err := pool.Query(ctx, sql)
+func adminQueryRows(ctx context.Context, db *DB, sql string) (*AdminQueryResult, error) {
+	out, err := callDB(db, "Query", ctx, sql)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	if err := callErr(out); err != nil {
+		return nil, err
+	}
+	q := out[0].Interface().(*Query)
+	defer q.Close()
 
-	fields := rows.FieldDescriptions()
-	columns := make([]string, len(fields))
-	for i, f := range fields {
-		columns[i] = f.Name
+	columns, err := queryColumnNames(q)
+	if err != nil {
+		return nil, err
 	}
 
-	out := make([][]string, 0)
+	rows := make([][]string, 0)
 	truncated := false
-	for rows.Next() {
+	for q.Next() {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		if len(out) >= adminQueryMaxRows {
+		if len(rows) >= adminQueryMaxRows {
 			truncated = true
 			break
 		}
-		values, err := rows.Values()
+		values, err := q.Values()
 		if err != nil {
 			return nil, err
 		}
@@ -145,9 +144,9 @@ func adminQueryRows(ctx context.Context, pool adminPool, sql string) (*AdminQuer
 		for i, v := range values {
 			row[i] = formatAdminCell(v)
 		}
-		out = append(out, row)
+		rows = append(rows, row)
 	}
-	if err := rows.Err(); err != nil {
+	if err := q.Err(); err != nil {
 		return nil, err
 	}
 	if err := ctx.Err(); err != nil {
@@ -156,17 +155,40 @@ func adminQueryRows(ctx context.Context, pool adminPool, sql string) (*AdminQuer
 
 	return &AdminQueryResult{
 		Columns:   columns,
-		Rows:      out,
+		Rows:      rows,
 		Truncated: truncated,
 	}, nil
 }
 
-func adminQueryExec(ctx context.Context, pool adminPool, sql string) (*AdminQueryResult, error) {
-	tag, err := pool.Exec(ctx, sql)
+func queryColumnNames(q *Query) ([]string, error) {
+	if q.Qry == nil {
+		return nil, fmt.Errorf("database query unavailable")
+	}
+	m := reflect.ValueOf(q.Qry).MethodByName("FieldDescriptions")
+	if !m.IsValid() {
+		return nil, fmt.Errorf("database query unavailable")
+	}
+	fds := m.Call(nil)[0]
+	names := make([]string, fds.Len())
+	for i := 0; i < fds.Len(); i++ {
+		name := fds.Index(i).FieldByName("Name")
+		if !name.IsValid() {
+			return nil, fmt.Errorf("database query unavailable")
+		}
+		names[i] = name.String()
+	}
+	return names, nil
+}
+
+func adminQueryExec(ctx context.Context, db *DB, sql string) (*AdminQueryResult, error) {
+	out, err := callDB(db, "Exec", ctx, sql)
 	if err != nil {
 		return nil, err
 	}
-	affected := tag.RowsAffected()
+	if err := callErr(out); err != nil {
+		return nil, err
+	}
+	affected := int64(out[0].Interface().(int))
 	return &AdminQueryResult{
 		RowsAffected: affected,
 		CommandTag:   fmt.Sprintf("%d rows affected", affected),
