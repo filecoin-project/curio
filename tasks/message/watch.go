@@ -233,7 +233,7 @@ func (mw *MessageWatcher) update() {
 		copy(callbacks, mw.onLanded)
 		mw.onLandedMu.Unlock()
 		for _, fn := range callbacks {
-			go fn()
+			go fn() //nolint:safetylint // local copy of onLanded under onLandedMu
 		}
 	}
 }

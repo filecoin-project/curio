@@ -268,7 +268,7 @@ func (c *changeNotifier) Unlock() {
 	for k, v := range c.latest {
 		if !safeCmpEqual(v, c.originally[k]) {
 			if notifier := c.notifier[k]; notifier != nil {
-				go notifier()
+				go notifier() //nolint:safetylint // local snapshot from notifier map under cdmx
 			}
 		}
 	}

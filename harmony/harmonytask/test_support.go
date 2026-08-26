@@ -99,7 +99,7 @@ func (n *PipeNode) ConnectToPeer(peerAddr string) (PeerConnection, error) {
 	}
 	local, remoteEnd := newPipePair()
 	if onConnect != nil {
-		go onConnect(n.addr, remoteEnd)
+		go onConnect(n.addr, remoteEnd) //nolint:safetylint // local snapshot under net.mu
 	}
 	return local, nil
 }
