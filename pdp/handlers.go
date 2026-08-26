@@ -28,6 +28,7 @@ import (
 	"github.com/filecoin-project/curio/lib/paths"
 	ipni_provider "github.com/filecoin-project/curio/market/ipni/ipni-provider"
 	"github.com/filecoin-project/curio/pdp/contract"
+	pdpwallet "github.com/filecoin-project/curio/pdp/wallet"
 	"github.com/filecoin-project/curio/tasks/indexing"
 
 	types2 "github.com/filecoin-project/lotus/chain/types"
@@ -229,6 +230,16 @@ func (p *PDPService) handlePing(w http.ResponseWriter, r *http.Request) {
 	_, err := p.AuthService(r)
 	if err != nil {
 		httpServerError(w, http.StatusUnauthorized, "Failed to authorize request", err)
+		return
+	}
+
+	status, err := pdpwallet.PDPKeyStatus(r.Context(), p.db)
+	if err != nil {
+		httpServerError(w, http.StatusServiceUnavailable, "Service Unavailable", err)
+		return
+	}
+	if !status.Configured {
+		httpServerError(w, http.StatusServiceUnavailable, "PDP wallet not configured", nil)
 		return
 	}
 
