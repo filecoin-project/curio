@@ -85,7 +85,7 @@ func NewNextProvingPeriodTask(db *harmonydb.DB, ethClient ethchain.EthClient, fi
 					AND unrecoverable_proving_failure_epoch IS NULL
 					AND NOT EXISTS (
 						SELECT 1
-						FROM pdpv0_deletion_drains d
+						FROM pdpv0_deletion_drain d
 						WHERE d.data_set = pdp_data_sets.id
 					)
 					`, currentHeight)
