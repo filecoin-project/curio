@@ -606,6 +606,9 @@ jobs:
     needs: [ci-lint]
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Depth 2 so PR merge checkouts have HEAD^1 (base tip) for fiximports merge-base.
+          fetch-depth: 2
 
       - name: Setup Go
         uses: ./.github/actions/install-go
@@ -641,6 +644,7 @@ jobs:
         env:
           LANG: en-US
           FFI_USE_OPENCL: 1
+          GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: make gen
         shell: bash
 
