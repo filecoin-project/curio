@@ -32,14 +32,9 @@ type Dynamic[T any] struct {
 }
 
 func NewDynamic[T any](value T) *Dynamic[T] {
-	d := &Dynamic[T]{value: value}
-	// The notifier map is read concurrently by changeNotifier.Unlock and
-	// written by OnChange (both under cdmx); an unguarded write here races
-	// with them whenever a Dynamic is created after change detection starts.
-	dynamicLocker.cdmx.Lock()
-	dynamicLocker.notifier[reflect.ValueOf(d).Pointer()] = nil
-	dynamicLocker.cdmx.Unlock()
-	return d
+	// Construction is concurrent (DefaultCurioConfig / ForEachConfig). Register
+	// callbacks in OnChange under cdmx; a missing notifier key is treated as nil.
+	return &Dynamic[T]{value: value}
 }
 
 // OnChange registers a function to be called in a goroutine when the dynamic value changes to a new final-layered value.
