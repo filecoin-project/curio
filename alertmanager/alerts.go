@@ -364,9 +364,9 @@ func permanentStorageCheck(al *alerts) {
 
 		sectorMap[key] = false
 
-		for _, strg := range storages {
-			if space <= strg.Available {
-				strg.Available -= space
+		for i := range storages {
+			if space <= storages[i].Available {
+				storages[i].Available -= space
 				sectorMap[key] = true
 				break
 			}
@@ -376,7 +376,7 @@ func permanentStorageCheck(al *alerts) {
 	missingSpace := big.NewInt(0)
 	for sec, accounted := range sectorMap {
 		if !accounted {
-			big.Add(missingSpace, big.NewInt(sec.size))
+			missingSpace = big.Add(missingSpace, big.NewInt(sec.size))
 		}
 	}
 
