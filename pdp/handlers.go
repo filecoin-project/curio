@@ -243,9 +243,11 @@ func (p *PDPService) handlePing(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if p.alertTask != nil && p.alertTask.Problems() {
-		httpServerError(w, http.StatusServiceUnavailable, "Service Unavailable", nil)
-		return
+	if p.alertTask != nil {
+		if detail := p.alertTask.ProblemDetail(); detail != "" {
+			httpServerError(w, http.StatusServiceUnavailable, "Service Unavailable", errors.New(detail))
+			return
+		}
 	}
 
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
