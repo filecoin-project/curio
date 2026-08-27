@@ -159,8 +159,8 @@ func (pr *PrefetchReader) Close() error {
 	// Recycle the ring buffer only after in-flight Read copies finish.
 	pr.mu.Lock()
 	if pr.buffer != nil {
-		pool.Put(pr.buffer)
 		pr.buffer = nil
+		pool.Put(pr.buffer)
 	}
 	pr.mu.Unlock()
 
