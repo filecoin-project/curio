@@ -278,6 +278,7 @@ func (p *PDPService) handleGetPieceStatus(w http.ResponseWriter, r *http.Request
 		AdvertisementCreated   bool           `db:"advertisement_created"`
 		AdvertisementCreatedAt sql.NullTime   `db:"advertisement_created_at"`
 		AdCID                  sql.NullString `db:"ad_cid"`
+		SyncedAt               sql.NullTime   `db:"synced_at"`
 		Status                 string         `db:"status"`
 		Provider               sql.NullString `db:"provider"`
 	}
@@ -296,11 +297,11 @@ func (p *PDPService) handleGetPieceStatus(w http.ResponseWriter, r *http.Request
 			ia.ad_cid IS NOT NULL as advertisement_created,
 			pr.advertisement_created_at as advertisement_created_at,
 			ia.ad_cid,
+			ia.indexed_at as synced_at,
 
-			-- Determine overall status. "announced" only means the ad row
-			-- exists, not that an indexer finished processing it; callers
-			-- check that themselves via adCid.
+			-- "announced" only means the ad row exists; "synced" is indexer-confirmed.
 			CASE
+				WHEN ia.indexed_at IS NOT NULL THEN 'synced'
 				WHEN ia.ad_cid IS NOT NULL THEN 'announced'
 				WHEN pr.ipni_task_id IS NOT NULL THEN 'creating_ad'
 				WHEN pr.indexing_task_id IS NOT NULL THEN 'indexing'
@@ -314,16 +315,20 @@ func (p *PDPService) handleGetPieceStatus(w http.ResponseWriter, r *http.Request
 		JOIN parked_pieces pp ON pp.id = pprf.piece_id
 		LEFT JOIN LATERAL (
 			SELECT
-				MIN(i.ad_cid) as ad_cid,
-				MIN(i.provider) as provider
+				i.ad_cid,
+				i.provider,
+				-- $4: sentinel for "never confirmed" (see UnconfirmedSyncSentinel)
+				CASE WHEN i.indexed_at = $4 THEN NULL ELSE i.indexed_at END as indexed_at
 			FROM ipni i
 			WHERE i.piece_cid = pr.piece_cid
 				AND i.provider = (SELECT peer_id FROM ipni_peerid WHERE sp_id = $3)
 				AND i.is_rm = FALSE
+			ORDER BY i.order_number DESC
+			LIMIT 1
 		) ia ON true
 		WHERE pr.piece_cid = $1 AND pr.service = $2
 		LIMIT 1
-	`, pieceCidV1Str, serviceLabel, indexing.PDP_v0_SP_ID)
+	`, pieceCidV1Str, serviceLabel, indexing.PDP_v0_SP_ID, ipni_provider.UnconfirmedSyncSentinel)
 	if err != nil {
 		httpServerError(w, http.StatusInternalServerError, "Failed to query piece status", err)
 		return
@@ -354,6 +359,8 @@ func (p *PDPService) handleGetPieceStatus(w http.ResponseWriter, r *http.Request
 		AdCid        *string    `json:"adCid,omitempty"`
 		Advertised   bool       `json:"advertised"`
 		AdvertisedAt *time.Time `json:"advertisedAt,omitempty"`
+		Synced       bool       `json:"synced"`
+		SyncedAt     *time.Time `json:"syncedAt,omitempty"`
 	}{
 		PieceCID:  pieceInfo.CidV2.String(),
 		Status:    result.Status,
@@ -377,20 +384,20 @@ func (p *PDPService) handleGetPieceStatus(w http.ResponseWriter, r *http.Request
 		response.AdCid = &result.AdCID.String
 	}
 
-	// LastPublishTime is per-provider, not per-ad, so it only confirms this ad
-	// was advertised once it postdates the ad's creation. Falls back to the
-	// old timing heuristic if that signal isn't available.
+	if result.SyncedAt.Valid {
+		response.Synced = true
+		response.SyncedAt = &result.SyncedAt.Time
+	}
+
+	// LastPublishTime is per-provider, so it's only used to confirm a push
+	// happened, not as the displayed time - AdvertisedAt is always the fixed
+	// formula below, so it doesn't drift as the provider announces later ads.
 	if result.AdvertisementCreatedAt.Valid {
 		var publishedAt *time.Time
 		if p.ipp != nil && result.Provider.Valid {
 			publishedAt = p.ipp.LastPublishTime(result.Provider.String)
 		}
-		if publishedAt != nil {
-			if publishedAt.After(result.AdvertisementCreatedAt.Time) {
-				response.Advertised = true
-				response.AdvertisedAt = new(*publishedAt)
-			}
-		} else if time.Since(result.AdvertisementCreatedAt.Time) > ipni_provider.PublishInterval {
+		if publishedAt != nil && publishedAt.After(result.AdvertisementCreatedAt.Time) {
 			response.Advertised = true
 			response.AdvertisedAt = new(result.AdvertisementCreatedAt.Time.Add(ipni_provider.PublishInterval))
 		}

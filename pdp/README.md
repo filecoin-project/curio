@@ -167,7 +167,9 @@ All endpoints are rooted at `/pdp`.
   "adCreatedAt": "<RFC3339-timestamp-or-omitted>",
   "adCid": "<ad-CID-or-omitted>",
   "advertised": <boolean>,
-  "advertisedAt": "<RFC3339-timestamp-or-omitted>"
+  "advertisedAt": "<RFC3339-timestamp-or-omitted>",
+  "synced": <boolean>,
+  "syncedAt": "<RFC3339-timestamp-or-omitted>"
 }
 ```
 
@@ -177,14 +179,17 @@ All endpoints are rooted at `/pdp`.
         - `"pending"` – Not yet indexed.
         - `"indexing"` – CAR indexing task is in progress.
         - `"creating_ad"` – IPNI advertisement is being created.
-        - `"announced"` – The advertisement row exists. Not a guarantee it's been broadcast (see `advertised`) or indexed (see `adCid`).
+        - `"announced"` – The advertisement row exists. Not a guarantee it's been broadcast (see `advertised`) or indexed (see `synced`).
+        - `"synced"` – A configured indexer service (e.g. cid.contact) has confirmed it fully processed the advertisement.
     - `indexed`: Whether the piece has been indexed and is ready for IPNI.
     - `indexedAt`: Timestamp CAR indexing completed (omitted if not yet indexed).
     - `adCreated`: Whether an IPNI advertisement has been created for this piece.
     - `adCreatedAt`: Timestamp the advertisement was created (omitted if not yet created).
-    - `adCid`: This piece's advertisement CID, once created. Curio doesn't check whether an indexer finished processing it - callers can, e.g. `GET https://cid.contact/sync/status/ad/{adCid}`.
+    - `adCid`: This piece's advertisement CID, once created. Callers who want to double-check independently can query an indexer directly, e.g. `GET https://cid.contact/sync/status/ad/{adCid}`.
     - `advertised`: Whether the provider has sent an HTTP announce covering this ad.
-    - `advertisedAt`: Approximate, not a fixed record: it's the last known successful announce time for the *provider*, not this ad specifically, so it can drift forward on later calls once the provider announces newer ads, and is lost on a Curio restart (the provider re-announces its current head once on startup to recover it).
+    - `advertisedAt`: `adCreatedAt` plus the announce publish interval - a fixed estimate, not the provider's raw last-announce time, so it doesn't drift on later calls as the provider announces newer ads.
+    - `synced`: Whether an indexer has confirmed it fully processed this ad.
+    - `syncedAt`: The indexer-reported processing time, when `synced` is true.
 
 #### Errors
 
