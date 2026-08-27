@@ -56,8 +56,8 @@ type AlertTask struct {
 	db      *harmonydb.DB
 	plugins []plugin.Plugin
 
-	pingMu       sync.Mutex
-	pingProblems bool
+	pingMu            sync.Mutex
+	pingProblemDetail string
 }
 
 type alertOut struct {
@@ -169,14 +169,15 @@ func NewAlertTask(
 	}
 }
 
-// Problems returns the ping-relevant alert results from the most recent
-// AlertTask run (ChainSync, PermanentStorageSpace, Balance Check).
-// Returns nil before the first run — the node is assumed healthy until
-// the first periodic check completes.
-func (a *AlertTask) Problems() bool {
+// ProblemDetail returns which ping-relevant check (ChainSync,
+// PermanentStorageSpace, Balance Check, ...) last reported a problem, empty
+// if healthy. Empty before the first run — the node is assumed healthy until
+// the first periodic check completes. Meant for server-side logging, not for
+// exposing to unauthenticated callers of /pdp/ping.
+func (a *AlertTask) ProblemDetail() string {
 	a.pingMu.Lock()
 	defer a.pingMu.Unlock()
-	return a.pingProblems
+	return a.pingProblemDetail
 }
 
 func (a *AlertTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
@@ -198,7 +199,7 @@ func (a *AlertTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwne
 		al(altrs)
 	}
 
-	problme := false
+	detail := ""
 	// Update the ping-relevant subset for the /ping health endpoint.
 	for name := range PingHealthFuncs {
 		out, ok := altrs.alertMap[name]
@@ -208,18 +209,18 @@ func (a *AlertTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwne
 		// Only say unhealthy if PDP IPNI sync is failing, PoRep provider should not fail health check
 		if name == Name_IPNISync {
 			if strings.Contains(out.alertString, "PDP") {
-				log.Warnf("Ping health check problem: %s %s %s", name, out.err, out.alertString)
-				problme = true
+				log.Warnf("Ping health check problem: %s %v %s", name, out.err, out.alertString)
+				detail = fmt.Sprintf("%s: %v %s", name, out.err, out.alertString)
 				break
 			}
 		} else {
-			log.Warnf("Ping health check problem: %s %s %s", name, out.err, out.alertString)
-			problme = true
+			log.Warnf("Ping health check problem: %s %v %s", name, out.err, out.alertString)
+			detail = fmt.Sprintf("%s: %v %s", name, out.err, out.alertString)
 			break
 		}
 	}
 	a.pingMu.Lock()
-	a.pingProblems = problme
+	a.pingProblemDetail = detail
 	a.pingMu.Unlock()
 
 	if isPingHealthOnly(now) {
