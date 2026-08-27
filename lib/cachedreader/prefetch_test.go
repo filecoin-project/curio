@@ -256,9 +256,35 @@ func TestPrefetchReader_Close(t *testing.T) {
 
 	buf := make([]byte, 4)
 	_, err := reader.Read(buf)
-	if err == nil {
-		t.Error("expected error reading from closed reader")
+	if !errors.Is(err, errClosed) {
+		t.Errorf("expected errClosed reading from closed reader, got %v", err)
 	}
+}
+
+func TestPrefetchReader_CloseDuringRead(t *testing.T) {
+	source := &mockReader{
+		data:  bytes.Repeat([]byte("x"), 64*1024),
+		delay: time.Millisecond,
+	}
+	reader := New(source, 1024)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		buf := make([]byte, 128)
+		for {
+			_, err := reader.Read(buf)
+			if err != nil {
+				return
+			}
+		}
+	}()
+
+	time.Sleep(2 * time.Millisecond)
+	if err := reader.Close(); err != nil {
+		t.Fatalf("unexpected error on close: %v", err)
+	}
+	<-done
 }
 
 func TestPrefetchReader_MinBufferSize(t *testing.T) {

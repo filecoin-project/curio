@@ -1,12 +1,16 @@
 package cachedreader
 
 import (
+	"errors"
 	"io"
+	"sync"
 	"sync/atomic"
 	"time"
 
 	pool "github.com/libp2p/go-buffer-pool"
 )
+
+var errClosed = errors.New("prefetch reader closed")
 
 const (
 	defaultSleepDuration = 1 * time.Millisecond
@@ -15,6 +19,7 @@ const (
 
 type PrefetchReader struct {
 	source     io.Reader
+	mu         sync.Mutex
 	buffer     []byte
 	readPtr    atomic.Uint64
 	writePtr   atomic.Uint64
@@ -51,6 +56,12 @@ func (pr *PrefetchReader) Read(p []byte) (int, error) {
 	}
 
 	for {
+		pr.mu.Lock()
+		if pr.buffer == nil {
+			pr.mu.Unlock()
+			return 0, errClosed
+		}
+
 		readPos := pr.readPtr.Load()
 		writePos := pr.writePtr.Load()
 
@@ -73,8 +84,10 @@ func (pr *PrefetchReader) Read(p []byte) (int, error) {
 
 			// Publish the new read offset after bytes are consumed.
 			pr.readPtr.Add(available)
+			pr.mu.Unlock()
 			return int(available), nil
 		}
+		pr.mu.Unlock()
 
 		// No buffered bytes; surface any worker error immediately.
 		if errPtr := pr.err.Load(); errPtr != nil {
@@ -140,11 +153,16 @@ func (pr *PrefetchReader) Close() error {
 	close(pr.done)
 	<-pr.workerDone // Wait for worker to finish
 
-	// Clean up buffer
+	closed := errClosed
+	pr.err.Store(&closed)
+
+	// Recycle the ring buffer only after in-flight Read copies finish.
+	pr.mu.Lock()
 	if pr.buffer != nil {
 		pool.Put(pr.buffer)
 		pr.buffer = nil
 	}
+	pr.mu.Unlock()
 
 	if closer, ok := pr.source.(io.Closer); ok {
 		return closer.Close()
