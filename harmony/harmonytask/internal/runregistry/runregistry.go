@@ -119,13 +119,25 @@ func (h *Handle) Preempt() {
 }
 
 // WaitDone blocks until the task's goroutine exits (Registry.Finish is called)
-// or until the supplied deadline channel fires. It reports whether the task
-// exited before the deadline.
-func (h *Handle) WaitDone(deadline <-chan time.Time) (exited bool) {
+// or until deadline. A shared time.Time is safe across multiple waits; a
+// time.After channel is not (the first receive drains it, and later waits
+// can block forever).
+func (h *Handle) WaitDone(deadline time.Time) (exited bool) {
+	d := time.Until(deadline)
+	if d <= 0 {
+		select {
+		case <-h.done:
+			return true
+		default:
+			return false
+		}
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
 	select {
 	case <-h.done:
 		return true
-	case <-deadline:
+	case <-t.C:
 		return false
 	}
 }

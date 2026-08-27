@@ -39,6 +39,7 @@ var webDev = os.Getenv("CURIO_WEB_DEV") == "1"
 
 func GetSrv(ctx context.Context, deps *deps.Deps, devMode bool) (*http.Server, error) {
 	mx := mux.NewRouter()
+	registerPprof(mx)
 	var basePath = "/static/"
 
 	// Single CORS middleware that handles all CORS logic

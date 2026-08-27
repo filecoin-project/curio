@@ -57,11 +57,34 @@ func TestWaitDoneDeadline(t *testing.T) {
 	r := New()
 	_, cancel := context.WithCancel(context.Background())
 	h := r.Start(5, cancel)
-	deadline := time.After(10 * time.Millisecond)
-	if ok := h.WaitDone(deadline); ok {
+	if ok := h.WaitDone(time.Now().Add(10 * time.Millisecond)); ok {
 		t.Fatal("expected WaitDone to time out since Finish not called")
 	}
 	r.Finish(5)
+}
+
+func TestWaitDoneSharedDeadlineDoesNotHang(t *testing.T) {
+	r := New()
+	_, cancel1 := context.WithCancel(context.Background())
+	_, cancel2 := context.WithCancel(context.Background())
+	h1 := r.Start(1, cancel1)
+	h2 := r.Start(2, cancel2)
+
+	deadline := time.Now().Add(20 * time.Millisecond)
+	done := make(chan struct{})
+	go func() {
+		_ = h1.WaitDone(deadline)
+		_ = h2.WaitDone(deadline)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("shared deadline WaitDone hung after first timeout")
+	}
+	r.Finish(1)
+	r.Finish(2)
 }
 
 func TestConcurrentStartFinish(t *testing.T) {
