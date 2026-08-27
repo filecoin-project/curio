@@ -188,7 +188,7 @@ All endpoints are rooted at `/pdp`.
     - `adCid`: This piece's advertisement CID, once created. Callers who want to double-check independently can query an indexer directly, e.g. `GET https://cid.contact/sync/status/ad/{adCid}`.
     - `advertised`: Whether the provider has sent an HTTP announce covering this ad.
     - `advertisedAt`: `adCreatedAt` plus the announce publish interval - a fixed estimate, not the provider's raw last-announce time, so it doesn't drift on later calls as the provider announces newer ads.
-    - `synced`: Whether an indexer has confirmed it fully processed this ad.
+    - `synced`: Whether an indexer has confirmed it fully processed this ad, per an in-memory (not persisted) cache checked on demand. A cache miss triggers a background check against the configured indexer services and returns `false` for this call - a later call for the same piece will see the result once that check completes. `true` is a confirmed signal - callers can act on it right away. `false` is inconclusive rather than proof the ad isn't indexed: it can also show up on the first call after a Curio restart (cache cleared) or if a later call catches an indexer resync, without the ad actually losing its indexed state - poll again if that matters for your workflow.
     - `syncedAt`: The indexer-reported processing time, when `synced` is true.
 
 #### Errors

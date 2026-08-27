@@ -19,6 +19,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/ipfs/go-cid"
 	"github.com/yugabyte/pgx/v5"
 
 	"github.com/filecoin-project/curio/alertmanager"
@@ -278,7 +279,6 @@ func (p *PDPService) handleGetPieceStatus(w http.ResponseWriter, r *http.Request
 		AdvertisementCreated   bool           `db:"advertisement_created"`
 		AdvertisementCreatedAt sql.NullTime   `db:"advertisement_created_at"`
 		AdCID                  sql.NullString `db:"ad_cid"`
-		SyncedAt               sql.NullTime   `db:"synced_at"`
 		Status                 string         `db:"status"`
 		Provider               sql.NullString `db:"provider"`
 	}
@@ -297,11 +297,9 @@ func (p *PDPService) handleGetPieceStatus(w http.ResponseWriter, r *http.Request
 			ia.ad_cid IS NOT NULL as advertisement_created,
 			pr.advertisement_created_at as advertisement_created_at,
 			ia.ad_cid,
-			ia.indexed_at as synced_at,
 
-			-- "announced" only means the ad row exists; "synced" is indexer-confirmed.
+			-- "synced" is filled in below from a live check against the indexer.
 			CASE
-				WHEN ia.indexed_at IS NOT NULL THEN 'synced'
 				WHEN ia.ad_cid IS NOT NULL THEN 'announced'
 				WHEN pr.ipni_task_id IS NOT NULL THEN 'creating_ad'
 				WHEN pr.indexing_task_id IS NOT NULL THEN 'indexing'
@@ -314,21 +312,18 @@ func (p *PDPService) handleGetPieceStatus(w http.ResponseWriter, r *http.Request
 		JOIN parked_piece_refs pprf ON pprf.ref_id = pr.piece_ref
 		JOIN parked_pieces pp ON pp.id = pprf.piece_id
 		LEFT JOIN LATERAL (
-			SELECT
-				i.ad_cid,
-				i.provider,
-				-- $4: sentinel for "never confirmed" (see UnconfirmedSyncSentinel)
-				CASE WHEN i.indexed_at = $4 THEN NULL ELSE i.indexed_at END as indexed_at
+			-- created_at is the primary sort; order_number only breaks ties.
+			SELECT i.ad_cid, i.provider
 			FROM ipni i
 			WHERE i.piece_cid = pr.piece_cid
 				AND i.provider = (SELECT peer_id FROM ipni_peerid WHERE sp_id = $3)
 				AND i.is_rm = FALSE
-			ORDER BY i.order_number DESC
+			ORDER BY i.created_at DESC, i.order_number DESC
 			LIMIT 1
 		) ia ON true
 		WHERE pr.piece_cid = $1 AND pr.service = $2
 		LIMIT 1
-	`, pieceCidV1Str, serviceLabel, indexing.PDP_v0_SP_ID, ipni_provider.UnconfirmedSyncSentinel)
+	`, pieceCidV1Str, serviceLabel, indexing.PDP_v0_SP_ID)
 	if err != nil {
 		httpServerError(w, http.StatusInternalServerError, "Failed to query piece status", err)
 		return
@@ -384,9 +379,14 @@ func (p *PDPService) handleGetPieceStatus(w http.ResponseWriter, r *http.Request
 		response.AdCid = &result.AdCID.String
 	}
 
-	if result.SyncedAt.Valid {
-		response.Synced = true
-		response.SyncedAt = &result.SyncedAt.Time
+	if result.AdCID.Valid && p.ipp != nil {
+		if adCid, err := cid.Parse(result.AdCID.String); err == nil {
+			if syncedAt := p.ipp.SyncedAt(adCid, result.Provider.String); syncedAt != nil {
+				response.Status = "synced"
+				response.Synced = true
+				response.SyncedAt = syncedAt
+			}
+		}
 	}
 
 	// LastPublishTime is per-provider, so it's only used to confirm a push

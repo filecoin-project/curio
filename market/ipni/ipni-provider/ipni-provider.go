@@ -14,10 +14,10 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/ipld/go-ipld-prime/codec/dagjson"
@@ -31,6 +31,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
 	"github.com/samber/lo"
+	"github.com/snadrus/must"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -64,14 +65,11 @@ const (
 	PoRepProviderType = "PoRep"
 )
 
-// pendingSyncBatchSize caps how many ads checkSyncStatus checks per run.
-const pendingSyncBatchSize = 50
+// syncCacheSize caps the in-memory ad-sync-status cache.
+const syncCacheSize = 10000
 
-// UnconfirmedSyncSentinel marks indexed_at as "never confirmed" (predates
-// this feature, or storetheindex permanently skipped it) - distinct from
-// NULL ("not yet confirmed") without a second column. Exported so other
-// packages bind it as a query parameter rather than duplicating the literal.
-var UnconfirmedSyncSentinel = time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
+// syncCheckConcurrency caps concurrent ad-sync-status checks against the indexer.
+const syncCheckConcurrency = 20
 
 var (
 	log = logging.Logger("ipni-provider")
@@ -111,8 +109,12 @@ type Provider struct {
 	// https://cid.contact. Not all of them support that endpoint.
 	serviceURLs []*url.URL
 	syncClient  *http.Client
-
-	checkingSyncStatus atomic.Bool
+	// syncCache holds confirmed ad sync results, populated lazily on request
+	syncCache *lru.Cache[cid.Cid, syncResult]
+	// syncChecksInFlight dedups concurrent checks for the same ad_cid.
+	syncChecksInFlight sync.Map
+	// syncCheckSem bounds how many ad-sync-status checks run at once, across all ad_cids.
+	syncCheckSem chan struct{}
 }
 
 // NewProvider initializes a new Provider using the provided dependencies.
@@ -152,6 +154,8 @@ func NewProvider(d *deps.Deps) (*Provider, error) {
 		latest:         make(map[string]cid.Cid),
 		serviceURLs:    serviceURLs,
 		syncClient:     &http.Client{Timeout: 5 * time.Second},
+		syncCache:      must.One(lru.New[cid.Cid, syncResult](syncCacheSize)),
+		syncCheckSem:   make(chan struct{}, syncCheckConcurrency),
 	}
 
 	if err := p.refreshProviders(ctx); err != nil {
@@ -617,7 +621,6 @@ func (p *Provider) startPublishing(ctx context.Context) {
 			// Call the function to publish head for each provider
 			p.publishHead(ctx)
 			p.maybeUpdateSparkContract(ctx)
-			go p.checkSyncStatus(ctx) // must not block publishHead on a slow indexer service
 		case <-ctx.Done():
 			ticker.Stop()
 			return
@@ -783,70 +786,61 @@ type adSyncStatus struct {
 	SkippedTime *time.Time
 }
 
-// checkSyncStatus checks a batch of unconfirmed ads against the indexer
-// services. Meant to run off the same ticker as publishHead; the atomic
-// guard drops a run instead of letting them pile up if one is still in flight.
-func (p *Provider) checkSyncStatus(ctx context.Context) {
-	if !p.checkingSyncStatus.CompareAndSwap(false, true) {
-		log.Debugw("skipping sync status check, previous run still in flight")
-		return
-	}
-	defer p.checkingSyncStatus.Store(false)
+// syncResult is a cached, possibly-stale answer
+type syncResult struct {
+	IndexedAt *time.Time
+}
 
-	var pending []struct {
-		AdCID    string `db:"ad_cid"`
-		PieceCID string `db:"piece_cid"`
-		Provider string `db:"provider"`
+// SyncedAt returns the cached indexed time for adCid, or nil on a cache miss.
+func (p *Provider) SyncedAt(adCid cid.Cid, provider string) *time.Time {
+	if sr, ok := p.syncCache.Get(adCid); ok {
+		return sr.IndexedAt
 	}
-	err := p.db.Select(ctx, &pending, `
-		SELECT ad_cid, piece_cid, provider
-		FROM ipni
-		WHERE is_rm = FALSE AND indexed_at IS NULL
-		ORDER BY order_number ASC
-		LIMIT $1`, pendingSyncBatchSize)
-	if err != nil {
-		log.Errorw("failed to query pending ipni sync status", "err", err)
+	p.checkAdSyncStatusAsync(adCid, provider)
+	return nil
+}
+
+// checkAdSyncStatusAsync queries the indexer services for adCid in the background.
+func (p *Provider) checkAdSyncStatusAsync(adCid cid.Cid, provider string) {
+	if _, alreadyChecking := p.syncChecksInFlight.LoadOrStore(adCid, struct{}{}); alreadyChecking {
 		return
 	}
 
-	for _, ad := range pending {
-		checkStart := time.Now()
+	select {
+	case p.syncCheckSem <- struct{}{}:
+	default:
+		p.syncChecksInFlight.Delete(adCid)
+		return
+	}
 
-		adCid, err := cid.Parse(ad.AdCID)
-		if err != nil {
-			log.Warnw("failed to parse pending ad cid", "ad_cid", ad.AdCID, "err", err)
-			continue
-		}
+	go func() {
+		defer p.syncChecksInFlight.Delete(adCid)
+		defer func() { <-p.syncCheckSem }()
+
+		ctx := context.Background()
 
 		service, status, ok := p.queryAdSyncStatus(ctx, adCid)
 		if !ok {
-			continue // still pending everywhere checked; retry next run
+			return // still pending
 		}
 
 		switch {
 		case status.Indexed:
-			indexedAt := time.Now().UTC() // fallback: IndexedTime is nil if the confirming service doesn't report it
+			indexedAt := time.Now().UTC() // fallback when IndexedTime is nil
 			if status.IndexedTime != nil {
 				indexedAt = status.IndexedTime.UTC()
 			}
-			if err := p.setAdIndexedAt(ctx, ad.AdCID, indexedAt); err != nil {
-				log.Errorw("failed to record ad indexed time", "ad_cid", ad.AdCID, "err", err)
-				continue
-			}
-			latency := p.observeSyncLatency(ctx, ad.PieceCID, ad.Provider, service, indexedAt)
-			log.Infow("IPNI advertisement confirmed indexed", "provider", ad.Provider, "ad_cid", ad.AdCID, "service", service, "indexed_at", indexedAt, "check_took", time.Since(checkStart), "latency", latency)
+			p.syncCache.Add(adCid, syncResult{IndexedAt: &indexedAt})
+			latency := p.observeSyncLatency(ctx, adCid, provider, indexedAt)
+			log.Infow("IPNI advertisement confirmed indexed", "provider", provider, "ad_cid", adCid.String(), "service", service, "indexed_at", indexedAt, "latency", latency)
 		case status.Skipped:
-			log.Warnw("indexer permanently skipped ad, it will never be indexed", "ad_cid", ad.AdCID, "service", service)
-			if err := p.setAdIndexedAt(ctx, ad.AdCID, UnconfirmedSyncSentinel); err != nil {
-				log.Errorw("failed to mark skipped ad", "ad_cid", ad.AdCID, "err", err)
-			}
+			log.Warnw("indexer permanently skipped ad, it will never be indexed", "ad_cid", adCid.String(), "service", service)
+			p.syncCache.Add(adCid, syncResult{})
 		}
-	}
+	}()
 }
 
-// queryAdSyncStatus checks each configured service in turn. ok is false if
-// none gave a definitive (indexed or skipped) answer - retry later. A 404
-// means the service doesn't support this endpoint, not that it's pending.
+// queryAdSyncStatus checks each configured service in turn for a definitive answer.
 func (p *Provider) queryAdSyncStatus(ctx context.Context, adCid cid.Cid) (service string, status adSyncStatus, ok bool) {
 	for _, svc := range p.serviceURLs {
 		u := *svc
@@ -891,42 +885,22 @@ func (p *Provider) queryAdSyncStatus(ctx context.Context, adCid cid.Cid) (servic
 	return "", adSyncStatus{}, false
 }
 
-func (p *Provider) setAdIndexedAt(ctx context.Context, adCid string, at time.Time) error {
-	_, err := p.db.Exec(ctx, `UPDATE ipni SET indexed_at = $1 WHERE ad_cid = $2`, at, adCid)
-	return err
-}
-
-// observeSyncLatency records the sync-latency metric for a newly-confirmed
-// ad, estimating announce time as advertisement_created_at + PublishInterval
-// since Curio doesn't track a precise per-ad publish time. Returns nil if the
-// latency couldn't be computed at all.
-func (p *Provider) observeSyncLatency(ctx context.Context, pieceCID, provider, service string, indexedAt time.Time) *time.Duration {
+// observeSyncLatency records the sync-latency metric, estimating announce
+// time as ipni.created_at + PublishInterval. Returns nil if latency can't be computed.
+func (p *Provider) observeSyncLatency(ctx context.Context, adCid cid.Cid, provider string, indexedAt time.Time) *time.Duration {
 	var createdAt sql.NullTime
-	// piece_cid isn't unique in pdp_piecerefs (dedup across clients); take the
-	// earliest advertisement_created_at, since later rows just found the ad
-	// already published and recorded their own completion time.
-	err := p.db.QueryRow(ctx, `
-		SELECT advertisement_created_at FROM pdp_piecerefs
-		WHERE piece_cid = $1 AND advertisement_created_at IS NOT NULL
-		ORDER BY advertisement_created_at ASC LIMIT 1`, pieceCID).Scan(&createdAt)
+	err := p.db.QueryRow(ctx, `SELECT created_at FROM ipni WHERE ad_cid = $1`, adCid.String()).Scan(&createdAt)
 	if err != nil || !createdAt.Valid {
-		log.Debugw("no advertisement_created_at to compute sync latency", "piece_cid", pieceCID, "err", err)
+		log.Debugw("no ipni.created_at to compute sync latency", "ad_cid", adCid.String(), "err", err)
 		return nil
 	}
 
 	announcedAt := createdAt.Time.Add(PublishInterval)
 	if indexedAt.Before(announcedAt) {
-		return nil // publish loop unhealthy or estimate off; skip rather than report a negative duration
+		return nil // avoid a negative duration
 	}
-
-	p.mu.RLock()
-	providerType := ""
-	if info, ok := p.providerInfos[provider]; ok {
-		providerType = info.providerType
-	}
-	p.mu.RUnlock()
 
 	latency := indexedAt.Sub(announcedAt)
-	observeIndexedLatency(provider, providerType, service, latency)
+	observeIndexedLatency(provider, latency)
 	return &latency
 }
