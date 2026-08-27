@@ -153,7 +153,7 @@ func (t *ethMessageReplacer) loadEthMessageCandidates(ctx context.Context, stuck
 	for _, fromAddress := range fromAddresses {
 		queue := senderQueues[fromAddress]
 		ethCtx, cancel := context.WithTimeout(ctx, defaultEthCallTimeout)
-		nonce, err := t.client.NonceAt(ethCtx, queue.From, big.NewInt(int64(height)))
+		nonce, err := t.client.NonceAt(ethCtx, queue.From, nil)
 		cancel()
 		if err != nil {
 			log.Warnw("skipping eth message replacement sender; account nonce lookup failed", "from", fromAddress, "error", err)
@@ -449,7 +449,7 @@ func (t *ethMessageReplacer) prepareFeeReplacementEthMessage(ctx context.Context
 	ethCtx, cancel := context.WithTimeout(ctx, defaultEthCallTimeout)
 	defer cancel()
 
-	header, err := t.client.HeaderByNumber(ethCtx, big.NewInt(int64(height)))
+	header, err := t.client.HeaderByNumber(ethCtx, nil)
 	if err != nil {
 		return nil, false, fmt.Errorf("getting latest eth header for %s nonce %d: %w", from.Hex(), candidate.Nonce, err)
 	}
