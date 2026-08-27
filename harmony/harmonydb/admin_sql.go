@@ -93,6 +93,38 @@ func AdminAnalyze(ctx context.Context, db *DB, schema, table string) error {
 	return mapAdminQueryError(err)
 }
 
+// AdminTableCount returns SELECT COUNT(*) FROM schema.table.
+// Dynamic identifiers cannot be passed through HarmonyQuery's compile-time SQL
+// strings, so this uses the same reflect path as AdminAnalyze.
+func AdminTableCount(ctx context.Context, db *DB, schema, table string) (int64, error) {
+	if db == nil {
+		return 0, fmt.Errorf("database not configured")
+	}
+	if schema == "" || table == "" {
+		return 0, fmt.Errorf("schema and table are required")
+	}
+
+	countSQL := "SELECT COUNT(*) FROM " + pgx.Identifier{schema, table}.Sanitize()
+	if len(countSQL) > adminQueryMaxSQLLen {
+		return 0, fmt.Errorf("query too long (max %d bytes)", adminQueryMaxSQLLen)
+	}
+
+	out, err := callDB(db, "QueryRow", ctx, countSQL)
+	if err != nil {
+		return 0, err
+	}
+	row, ok := out[0].Interface().(interface{ Scan(...any) error })
+	if !ok || row == nil {
+		return 0, fmt.Errorf("database queryrow unavailable")
+	}
+
+	var n int64
+	if err := row.Scan(&n); err != nil {
+		return 0, mapAdminQueryError(err)
+	}
+	return n, nil
+}
+
 func mapAdminQueryError(err error) error {
 	if err == nil {
 		return nil

@@ -43,7 +43,7 @@ func TestDoAnalyzesTables(t *testing.T) {
 		SELECT table_name FROM table_analyze_state ORDER BY table_name LIMIT 1`).Scan(&sample))
 	t.Logf("analyzed %d tables; sample=%s", n, sample)
 
-	// Second pass with no churn growth should not bump analyze_count.
+	// Second pass with unchanged COUNT(*) should not bump analyze_count.
 	var before int64
 	require.NoError(t, db.QueryRow(ctx, `
 		SELECT analyze_count FROM table_analyze_state WHERE table_name = $1`, sample).Scan(&before))
@@ -55,7 +55,20 @@ func TestDoAnalyzesTables(t *testing.T) {
 	var after int64
 	require.NoError(t, db.QueryRow(ctx, `
 		SELECT analyze_count FROM table_analyze_state WHERE table_name = $1`, sample).Scan(&after))
-	require.Equal(t, before, after, "second pass should skip tables without 10%% churn growth")
+	require.Equal(t, before, after, "second pass should skip tables without 10%% row growth")
+}
+
+func TestShouldAnalyzeUsesRowCount(t *testing.T) {
+	prev := int64(1000)
+	require.True(t, shouldAnalyze(50, nil), "first sight")
+	require.False(t, shouldAnalyze(1000, &prev), "unchanged")
+	require.False(t, shouldAnalyze(1050, &prev), "delta below minRowDelta")
+	require.True(t, shouldAnalyze(1100, &prev), "10% growth")
+	require.True(t, shouldAnalyze(50, &prev), "shrink re-baselines")
+
+	zero := int64(0)
+	require.False(t, shouldAnalyze(0, &zero), "empty stays empty")
+	require.True(t, shouldAnalyze(100, &zero), "growth off a zero baseline")
 }
 
 func TestDoSkipsWhenNewerMachineBooted(t *testing.T) {
