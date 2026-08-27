@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/yugabyte/pgx/v5"
@@ -16,6 +17,10 @@ const (
 	adminQueryMaxRows   = 1000
 	adminQueryTimeout   = 10 * time.Minute
 )
+
+// ybAnalyzeGUCUnavailable is set once SET yb_make_next_ddl_statement_nonincrementing
+// fails. The backing DB does not change for the life of a process.
+var ybAnalyzeGUCUnavailable atomic.Bool
 
 // AdminQueryResult holds tabular or command output from AdminQuery.
 type AdminQueryResult struct {
@@ -79,18 +84,42 @@ func AdminAnalyze(ctx context.Context, db *DB, schema, table string) error {
 		return fmt.Errorf("query too long (max %d bytes)", adminQueryMaxSQLLen)
 	}
 
+	if ybAnalyzeGUCUnavailable.Load() {
+		_, err := db.BeginTransaction(ctx, func(tx *Tx) (bool, error) {
+			return execAnalyze(tx, analyzeSQL)
+		})
+		return mapAdminQueryError(err)
+	}
+
+	// The YB GUC must be set on the same connection as ANALYZE. A failed SET
+	// (Postgres itest, older YB, non-superuser) aborts that transaction, so
+	// ANALYZE is retried in a new one and the miss is remembered.
+	setFailed := false
 	_, err := db.BeginTransaction(ctx, func(tx *Tx) (bool, error) {
-		_, _ = tx.Exec(`SET yb_make_next_ddl_statement_nonincrementing = on`)
-		out, err := callTx(tx, "Exec", analyzeSQL)
-		if err != nil {
-			return false, err
+		if _, setErr := tx.Exec(`SET yb_make_next_ddl_statement_nonincrementing = on`); setErr != nil {
+			ybAnalyzeGUCUnavailable.Store(true)
+			setFailed = true
+			return false, setErr
 		}
-		if err := callErr(out); err != nil {
-			return false, err
-		}
-		return true, nil
+		return execAnalyze(tx, analyzeSQL)
 	})
+	if setFailed {
+		_, err = db.BeginTransaction(ctx, func(tx *Tx) (bool, error) {
+			return execAnalyze(tx, analyzeSQL)
+		})
+	}
 	return mapAdminQueryError(err)
+}
+
+func execAnalyze(tx *Tx, analyzeSQL string) (bool, error) {
+	out, err := callTx(tx, "Exec", analyzeSQL)
+	if err != nil {
+		return false, err
+	}
+	if err := callErr(out); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // AdminTableCount returns SELECT COUNT(*) FROM schema.table.
