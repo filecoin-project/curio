@@ -7,6 +7,8 @@ import (
 	"reflect"
 	"strings"
 	"time"
+
+	"github.com/yugabyte/pgx/v5"
 )
 
 const (
@@ -59,6 +61,38 @@ func AdminQuery(ctx context.Context, db *DB, sql string) (*AdminQueryResult, err
 	return result, mapAdminQueryError(err)
 }
 
+// AdminAnalyze runs ANALYZE on schema.table. On the same connection it first
+// sets yb_make_next_ddl_statement_nonincrementing so Yugabyte does not bump
+// the catalog version (which invalidates every live YSQL backend).
+// The GUC is Yugabyte-only and SUSET; a missing or denied SET is ignored so
+// ANALYZE still runs (local Postgres itests, older YB, non-superuser).
+func AdminAnalyze(ctx context.Context, db *DB, schema, table string) error {
+	if db == nil {
+		return fmt.Errorf("database not configured")
+	}
+	if schema == "" || table == "" {
+		return fmt.Errorf("schema and table are required")
+	}
+
+	analyzeSQL := "ANALYZE " + pgx.Identifier{schema, table}.Sanitize()
+	if len(analyzeSQL) > adminQueryMaxSQLLen {
+		return fmt.Errorf("query too long (max %d bytes)", adminQueryMaxSQLLen)
+	}
+
+	_, err := db.BeginTransaction(ctx, func(tx *Tx) (bool, error) {
+		_, _ = tx.Exec(`SET yb_make_next_ddl_statement_nonincrementing = on`)
+		out, err := callTx(tx, "Exec", analyzeSQL)
+		if err != nil {
+			return false, err
+		}
+		if err := callErr(out); err != nil {
+			return false, err
+		}
+		return true, nil
+	})
+	return mapAdminQueryError(err)
+}
+
 func mapAdminQueryError(err error) error {
 	if err == nil {
 		return nil
@@ -80,6 +114,15 @@ func callDB(db *DB, method string, ctx context.Context, sql string) ([]reflect.V
 	}
 	sqlArg := reflect.ValueOf(sql).Convert(m.Type().In(1))
 	return m.Call([]reflect.Value{reflect.ValueOf(ctx), sqlArg}), nil
+}
+
+func callTx(tx *Tx, method, sql string) ([]reflect.Value, error) {
+	m := reflect.ValueOf(tx).MethodByName(method)
+	if !m.IsValid() {
+		return nil, fmt.Errorf("database %s unavailable", strings.ToLower(method))
+	}
+	sqlArg := reflect.ValueOf(sql).Convert(m.Type().In(0))
+	return m.Call([]reflect.Value{sqlArg}), nil
 }
 
 func callErr(out []reflect.Value) error {

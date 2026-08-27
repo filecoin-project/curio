@@ -6,7 +6,6 @@ import (
 	"time"
 
 	logging "github.com/ipfs/go-log/v2"
-	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/mod/semver"
 	"golang.org/x/xerrors"
 
@@ -79,7 +78,7 @@ func (d *DBAnalyzeTask) Do(ctx context.Context, taskID harmonytask.TaskID, still
 		}
 
 		tctx, cancel := context.WithTimeout(ctx, perTableAnalyzeTimeout)
-		_, err = harmonydb.AdminQuery(tctx, d.db, "ANALYZE "+pgx.Identifier{schema, r.TableName}.Sanitize())
+		err = harmonydb.AdminAnalyze(tctx, d.db, schema, r.TableName)
 		cancel()
 		if err != nil {
 			log.Warnw("ANALYZE failed", "table", r.TableName, "error", err)
