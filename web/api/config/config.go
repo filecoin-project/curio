@@ -91,6 +91,11 @@ func uiSchemaSpecialType(i reflect.Type) *jsonschema.Schema {
 }
 
 func getSch(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	apihelper.OrHTTPFail(w, json.NewEncoder(w).Encode(buildUISchema()))
+}
+
+func buildUISchema() *jsonschema.Schema {
 	ref := jsonschema.Reflector{
 		Mapper: uiSchemaMapper,
 	}
@@ -127,12 +132,15 @@ func getSch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Add comments to inline schemas in root Properties (like Ingest -> CurioIngestConfig)
-	inlineSchemaMap := uiInlineSchemaDocMap()
-	for propName, docKey := range inlineSchemaMap {
-		if prop, ok := sch.Properties.Get(propName); ok {
-			if doc, ok := config.Doc[docKey]; ok {
-				addComments(prop, doc)
+	// Add comments to inline schemas in root Properties (like Ingest -> CurioIngestConfig).
+	// Reflect() emits a $ref root without Properties unless ExpandedStruct is set.
+	if sch.Properties != nil {
+		inlineSchemaMap := uiInlineSchemaDocMap()
+		for propName, docKey := range inlineSchemaMap {
+			if prop, ok := sch.Properties.Get(propName); ok {
+				if doc, ok := config.Doc[docKey]; ok {
+					addComments(prop, doc)
+				}
 			}
 		}
 	}
@@ -168,9 +176,7 @@ func getSch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	allOpt(sch)
-
-	w.Header().Set("Content-Type", "application/json")
-	apihelper.OrHTTPFail(w, json.NewEncoder(w).Encode(sch))
+	return sch
 }
 
 func (c *cfg) getLayers(w http.ResponseWriter, r *http.Request) {
