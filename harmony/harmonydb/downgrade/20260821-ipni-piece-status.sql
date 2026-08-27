@@ -1,3 +1,5 @@
+ALTER TABLE ipni DROP COLUMN IF EXISTS created_at;
+
 CREATE TABLE IF NOT EXISTS ipni_ad_fetches (
     ad_cid TEXT NOT NULL,
     fetched_at TIMESTAMPTZ NOT NULL DEFAULT NOW()

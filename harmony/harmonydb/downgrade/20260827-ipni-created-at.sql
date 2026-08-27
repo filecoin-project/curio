@@ -1,1 +1,0 @@
-ALTER TABLE ipni DROP COLUMN IF EXISTS created_at;
