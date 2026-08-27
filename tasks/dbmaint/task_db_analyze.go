@@ -49,12 +49,12 @@ func (d *DBAnalyzeTask) Do(ctx context.Context, taskID harmonytask.TaskID, still
 		RowsAtAnalyze *int64 `db:"rows_at_analyze"`
 	}
 	err = d.db.Select(ctx, &rows, `
-		SELECT t.tablename AS table_name,
+		SELECT s.relname AS table_name,
 		       a.rows_at_analyze
-		FROM pg_tables t
-		LEFT JOIN table_analyze_state a ON a.table_name = t.tablename
-		WHERE t.schemaname = current_schema()
-		ORDER BY t.tablename`)
+		FROM pg_stat_user_tables s
+		LEFT JOIN table_analyze_state a ON a.table_name = s.relname
+		WHERE s.schemaname = current_schema()
+		ORDER BY s.relname`)
 	if err != nil {
 		return false, xerrors.Errorf("listing tables: %w", err)
 	}
@@ -111,7 +111,7 @@ func (d *DBAnalyzeTask) Do(ctx context.Context, taskID harmonytask.TaskID, still
 	if _, err := d.db.Exec(ctx, `
 		DELETE FROM table_analyze_state
 		WHERE table_name NOT IN (
-			SELECT tablename FROM pg_tables WHERE schemaname = current_schema()
+			SELECT relname FROM pg_stat_user_tables WHERE schemaname = current_schema()
 		)`); err != nil {
 		log.Warnw("failed to prune dropped table analyze state", "error", err)
 	}

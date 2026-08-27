@@ -109,17 +109,28 @@ func AdminTableCount(ctx context.Context, db *DB, schema, table string) (int64, 
 		return 0, fmt.Errorf("query too long (max %d bytes)", adminQueryMaxSQLLen)
 	}
 
-	out, err := callDB(db, "QueryRow", ctx, countSQL)
+	out, err := callDB(db, "Query", ctx, countSQL)
 	if err != nil {
 		return 0, err
 	}
-	row, ok := out[0].Interface().(interface{ Scan(...any) error })
-	if !ok || row == nil {
-		return 0, fmt.Errorf("database queryrow unavailable")
+	if err := callErr(out); err != nil {
+		return 0, mapAdminQueryError(err)
+	}
+	q, ok := out[0].Interface().(*Query)
+	if !ok || q == nil {
+		return 0, fmt.Errorf("database query unavailable")
+	}
+	defer q.Close()
+
+	if !q.Next() {
+		if err := q.Err(); err != nil {
+			return 0, mapAdminQueryError(err)
+		}
+		return 0, fmt.Errorf("COUNT(*) returned no rows")
 	}
 
 	var n int64
-	if err := row.Scan(&n); err != nil {
+	if err := q.Scan(&n); err != nil {
 		return 0, mapAdminQueryError(err)
 	}
 	return n, nil

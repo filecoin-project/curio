@@ -27,6 +27,12 @@ func TestDoAnalyzesTables(t *testing.T) {
 	ctx := t.Context()
 	db := openITestDB(t)
 
+	var schema string
+	require.NoError(t, db.QueryRow(ctx, `SELECT current_schema()`).Scan(&schema))
+	counted, err := harmonydb.AdminTableCount(ctx, db, schema, "table_analyze_state")
+	require.NoError(t, err, "COUNT(*) via AdminTableCount")
+	require.GreaterOrEqual(t, counted, int64(0))
+
 	// Fresh itest schema: no harmony_machine_details peers => upgrade guard is a no-op.
 	// Empty table_analyze_state => shouldAnalyze returns true for every table (first sight).
 	task := NewDBAnalyzeTask(db)
