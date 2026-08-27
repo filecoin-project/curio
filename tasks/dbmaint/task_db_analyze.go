@@ -44,27 +44,36 @@ func (d *DBAnalyzeTask) Do(ctx context.Context, taskID harmonytask.TaskID, still
 		return true, nil
 	}
 
-	var rows []struct {
-		TableName     string `db:"table_name"`
-		RowsAtAnalyze *int64 `db:"rows_at_analyze"`
-	}
-	err = d.db.Select(ctx, &rows, `
-		SELECT s.relname AS table_name,
-		       a.rows_at_analyze
-		FROM pg_stat_user_tables s
-		LEFT JOIN table_analyze_state a ON a.table_name = s.relname
-		WHERE s.schemaname = current_schema()
-		ORDER BY s.relname`)
-	if err != nil {
-		return false, xerrors.Errorf("listing tables: %w", err)
-	}
-
 	var schema string
 	if err := d.db.QueryRow(ctx, `SELECT current_schema()`).Scan(&schema); err != nil {
 		return false, xerrors.Errorf("getting current schema: %w", err)
 	}
 
+	// pg_stat_user_tables counters are empty on Yugabyte; pg_class is the catalog list.
+	var rows []struct {
+		TableName     string `db:"table_name"`
+		RowsAtAnalyze int64  `db:"rows_at_analyze"`
+		Seen          bool   `db:"seen"`
+	}
+	err = d.db.Select(ctx, &rows, `
+		SELECT c.relname AS table_name,
+		       COALESCE(a.rows_at_analyze, 0) AS rows_at_analyze,
+		       a.table_name IS NOT NULL AS seen
+		FROM pg_class c
+		JOIN pg_namespace n ON n.oid = c.relnamespace
+		LEFT JOIN table_analyze_state a ON a.table_name = c.relname
+		WHERE n.nspname = $1
+		  AND c.relkind = 'r'
+		ORDER BY c.relname`, schema)
+	if err != nil {
+		return false, xerrors.Errorf("listing tables: %w", err)
+	}
+	if len(rows) == 0 {
+		return false, xerrors.Errorf("no tables found in schema %s", schema)
+	}
+
 	analyzed := 0
+	var firstErr error
 	for _, r := range rows {
 		if !stillOwned() {
 			return false, nil
@@ -75,10 +84,13 @@ func (d *DBAnalyzeTask) Do(ctx context.Context, taskID harmonytask.TaskID, still
 		cancel()
 		if err != nil {
 			log.Warnw("COUNT(*) failed", "table", r.TableName, "error", err)
+			if firstErr == nil {
+				firstErr = xerrors.Errorf("COUNT(*) %s: %w", r.TableName, err)
+			}
 			continue
 		}
 
-		if !shouldAnalyze(n, r.RowsAtAnalyze) {
+		if !shouldAnalyze(n, r.Seen, r.RowsAtAnalyze) {
 			continue
 		}
 
@@ -87,6 +99,9 @@ func (d *DBAnalyzeTask) Do(ctx context.Context, taskID harmonytask.TaskID, still
 		cancel()
 		if err != nil {
 			log.Warnw("ANALYZE failed", "table", r.TableName, "error", err)
+			if firstErr == nil {
+				firstErr = xerrors.Errorf("ANALYZE %s: %w", r.TableName, err)
+			}
 			continue
 		}
 
@@ -101,6 +116,9 @@ func (d *DBAnalyzeTask) Do(ctx context.Context, taskID harmonytask.TaskID, still
 			r.TableName, n)
 		if err != nil {
 			log.Warnw("failed to record analyze state", "table", r.TableName, "error", err)
+			if firstErr == nil {
+				firstErr = xerrors.Errorf("record %s: %w", r.TableName, err)
+			}
 			continue
 		}
 
@@ -109,22 +127,30 @@ func (d *DBAnalyzeTask) Do(ctx context.Context, taskID harmonytask.TaskID, still
 	}
 
 	if _, err := d.db.Exec(ctx, `
-		DELETE FROM table_analyze_state
-		WHERE table_name NOT IN (
-			SELECT relname FROM pg_stat_user_tables WHERE schemaname = current_schema()
-		)`); err != nil {
+		DELETE FROM table_analyze_state a
+		WHERE NOT EXISTS (
+			SELECT 1
+			FROM pg_class c
+			JOIN pg_namespace n ON n.oid = c.relnamespace
+			WHERE n.nspname = $1
+			  AND c.relkind = 'r'
+			  AND c.relname = a.table_name
+		)`, schema); err != nil {
 		log.Warnw("failed to prune dropped table analyze state", "error", err)
+	}
+
+	if analyzed == 0 && firstErr != nil {
+		return false, xerrors.Errorf("analyzed 0 of %d tables: %w", len(rows), firstErr)
 	}
 
 	log.Infow("DB analyze pass complete", "task_id", taskID, "tables", len(rows), "analyzed", analyzed)
 	return true, nil
 }
 
-func shouldAnalyze(rows int64, rowsAtAnalyze *int64) bool {
-	if rowsAtAnalyze == nil {
+func shouldAnalyze(rows int64, seen bool, prev int64) bool {
+	if !seen {
 		return true
 	}
-	prev := *rowsAtAnalyze
 	if rows < prev {
 		return true
 	}

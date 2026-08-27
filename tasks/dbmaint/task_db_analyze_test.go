@@ -65,16 +65,13 @@ func TestDoAnalyzesTables(t *testing.T) {
 }
 
 func TestShouldAnalyzeUsesRowCount(t *testing.T) {
-	prev := int64(1000)
-	require.True(t, shouldAnalyze(50, nil), "first sight")
-	require.False(t, shouldAnalyze(1000, &prev), "unchanged")
-	require.False(t, shouldAnalyze(1050, &prev), "delta below minRowDelta")
-	require.True(t, shouldAnalyze(1100, &prev), "10% growth")
-	require.True(t, shouldAnalyze(50, &prev), "shrink re-baselines")
-
-	zero := int64(0)
-	require.False(t, shouldAnalyze(0, &zero), "empty stays empty")
-	require.True(t, shouldAnalyze(100, &zero), "growth off a zero baseline")
+	require.True(t, shouldAnalyze(50, false, 0), "first sight")
+	require.False(t, shouldAnalyze(1000, true, 1000), "unchanged")
+	require.False(t, shouldAnalyze(1050, true, 1000), "delta below minRowDelta")
+	require.True(t, shouldAnalyze(1100, true, 1000), "10% growth")
+	require.True(t, shouldAnalyze(50, true, 1000), "shrink re-baselines")
+	require.False(t, shouldAnalyze(0, true, 0), "empty stays empty")
+	require.True(t, shouldAnalyze(100, true, 0), "growth off a zero baseline")
 }
 
 func TestDoSkipsWhenNewerMachineBooted(t *testing.T) {
