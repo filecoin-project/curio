@@ -1,17 +1,11 @@
 package pdp
 
 import (
-	"bytes"
 	"context"
-	"database/sql"
-	"encoding/json"
-	"fmt"
 	"net/http"
 	"time"
 
-	"github.com/curiostorage/harmonyquery"
 	logger "github.com/ipfs/go-log/v2"
-	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
@@ -40,74 +34,6 @@ func NewPDPNotifyTask(db *harmonydb.DB) *PDPNotifyTask {
 }
 
 func (t *PDPNotifyTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-
-	// Fetch the pdp_piece_uploads entry associated with the taskID
-	var upload struct {
-		ID             string         `db:"id" json:"id"`
-		Service        string         `db:"service" json:"service"`
-		PieceCID       sql.NullString `db:"piece_cid" json:"piece_cid"`
-		NotifyURL      string         `db:"notify_url" json:"notify_url"`
-		PieceRef       int64          `db:"piece_ref" json:"piece_ref"`
-		CheckHashCodec string         `db:"check_hash_codec" json:"check_hash_codec"`
-		CheckHash      []byte         `db:"check_hash" json:"check_hash"`
-	}
-	err = t.db.QueryRow(ctx, `
-        SELECT id, service, piece_cid, notify_url, piece_ref, check_hash_codec, check_hash 
-        FROM pdp_piece_uploads 
-        WHERE notify_task_id = $1`, taskID).Scan(
-		&upload.ID, &upload.Service, &upload.PieceCID, &upload.NotifyURL, &upload.PieceRef, &upload.CheckHashCodec, &upload.CheckHash)
-	if err != nil {
-		return false, fmt.Errorf("failed to query pdp_piece_uploads for task %d: %w", taskID, err)
-	}
-
-	// Perform HTTP Post request to the notify URL
-	upJson, err := json.Marshal(upload)
-	if err != nil {
-		return false, fmt.Errorf("failed to marshal upload to JSON: %w", err)
-	}
-
-	log.Infow("PDP notify", "upload", upload, "task_id", taskID)
-
-	if upload.NotifyURL != "" {
-
-		resp, err := t.client.Post(upload.NotifyURL, "application/json", bytes.NewReader(upJson))
-		if err != nil {
-			log.Errorw("HTTP POST request to notify_url failed", "notify_url", upload.NotifyURL, "upload_id", upload.ID, "error", err)
-		} else {
-			defer func() {
-				_ = resp.Body.Close()
-			}()
-			// Not reading the body as per requirement
-			log.Infow("HTTP GET request to notify_url succeeded", "notify_url", upload.NotifyURL, "upload_id", upload.ID)
-		}
-	}
-
-	// Move the entry from pdp_piece_uploads to pdp_piecerefs
-	comm, err := t.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
-		_, err := tx.Exec(`
-			INSERT INTO pdp_piecerefs (service, piece_cid, piece_ref, created_at) 
-			VALUES ($1, $2, $3, NOW())`,
-			upload.Service, upload.PieceCID, upload.PieceRef)
-		if err != nil {
-			return false, fmt.Errorf("failed to insert into pdp_piecerefs: %w", err)
-		}
-
-		_, err = tx.Exec(`DELETE FROM pdp_piece_uploads WHERE id = $1`, upload.ID)
-		if err != nil {
-			return false, fmt.Errorf("failed to delete upload ID %s from pdp_piece_uploads: %w", upload.ID, err)
-		}
-
-		return true, nil
-	}, harmonyquery.OptionRetry())
-	if err != nil {
-		return false, fmt.Errorf("failed to move upload to piecerefs: %w", err)
-	}
-	if !comm {
-		return false, fmt.Errorf("transaction to move upload to piecerefs was not committed")
-	}
-
-	log.Infof("Successfully processed PDP notify task %d for upload ID %s", taskID, upload.ID)
-
 	return true, nil
 }
 
@@ -135,43 +61,7 @@ func (t *PDPNotifyTask) TypeDetails() harmonytask.TaskTypeDetails {
 }
 
 func (t *PDPNotifyTask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFunc) error {
-	for {
-		stop := true
-		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-			n, err := tx.Exec(`
-				WITH pending AS (
-					SELECT pu.id
-					FROM pdp_piece_uploads pu
-					JOIN parked_piece_refs pr ON pr.ref_id = pu.piece_ref
-					JOIN parked_pieces pp ON pp.id = pr.piece_id
-					WHERE pu.piece_ref IS NOT NULL
-					  AND pp.complete = TRUE
-					  AND pu.notify_task_id IS NULL
-					LIMIT 1
-				)
-				UPDATE pdp_piece_uploads pu
-				SET notify_task_id = $1
-				FROM pending
-				WHERE pu.id = pending.id
-				  AND pu.notify_task_id IS NULL
-			`, id)
-			if err != nil {
-				return false, xerrors.Errorf("updating notify_task_id: %w", err)
-			}
-			if n == 0 {
-				return false, nil
-			}
-			if n != 1 {
-				return false, xerrors.Errorf("updated %d rows assigning pdp notify task", n)
-			}
-
-			stop = false     // Continue scheduling as there might be more tasks
-			return true, nil // Commit the transaction
-		})
-		if stop {
-			return nil
-		}
-	}
+	return nil
 }
 
 func (t *PDPNotifyTask) Adder(taskFunc harmonytask.AddTaskFunc) {

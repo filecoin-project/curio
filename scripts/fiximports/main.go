@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log"
@@ -79,14 +80,12 @@ func main() {
 // getChangedFilesSinceMergeBase returns Go files that have changed since the merge-base with main.
 // This includes committed changes on the branch, uncommitted changes, and untracked files.
 func getChangedFilesSinceMergeBase() []string {
-	// Find the merge-base between main and HEAD
-	mergeBase, err := exec.Command("git", "merge-base", "main", "HEAD").Output()
+	base, err := findMergeBase()
 	if err != nil {
 		// If we can't find merge-base (e.g., not on a branch), fall back to all files
-		fmt.Println("Could not determine merge-base, processing all files")
+		fmt.Printf("Could not determine merge-base, processing all files: %v\n", err)
 		return getAllGoFiles()
 	}
-	base := strings.TrimSpace(string(mergeBase))
 
 	// Get files changed between merge-base and HEAD (committed changes)
 	committed, _ := exec.Command("git", "diff", "--name-only", base, "HEAD").Output()
@@ -126,6 +125,49 @@ func getChangedFilesSinceMergeBase() []string {
 		goFiles = append(goFiles, path)
 	}
 	return goFiles
+}
+
+func findMergeBase() (string, error) {
+	var refs []string
+	if sha := os.Getenv("GITHUB_BASE_SHA"); sha != "" {
+		refs = append(refs, sha)
+	}
+	if br := os.Getenv("GITHUB_BASE_REF"); br != "" {
+		refs = append(refs, br, "origin/"+br)
+	}
+	refs = append(refs, "main", "origin/main")
+
+	var errs []string
+	for _, ref := range refs {
+		base, err := gitOutput("merge-base", ref, "HEAD")
+		if err == nil {
+			return base, nil
+		}
+		errs = append(errs, fmt.Sprintf("%s: %v", ref, err))
+	}
+
+	// actions/checkout PR merge commit: first parent is the base-branch tip.
+	if os.Getenv("GITHUB_ACTIONS") == "true" && os.Getenv("GITHUB_EVENT_NAME") == "pull_request" {
+		base, err := gitOutput("rev-parse", "--verify", "HEAD^1")
+		if err == nil {
+			return base, nil
+		}
+		errs = append(errs, fmt.Sprintf("HEAD^1: %v", err))
+	}
+
+	return "", errors.New(strings.Join(errs, "; "))
+}
+
+func gitOutput(args ...string) (string, error) {
+	out, err := exec.Command("git", args...).Output()
+	if err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) && len(ee.Stderr) > 0 {
+			return "", errors.New(strings.TrimSpace(string(ee.Stderr)))
+		}
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
 }
 
 // getAllGoFiles returns all Go files in the repo (fallback when merge-base fails)
