@@ -61,6 +61,7 @@ func buildPDPTasks(ctx context.Context, d *Deps, chainSched *chainsched.CurioCha
 	pdp.NewWatcherPieceDelete(db, chainSched)
 
 	tasks = append(tasks,
+		pdp.NewPDPNotifyTask(db),
 		pdp.NewProveTask(chainSched, db, ethClient, d.Chain, senderEth, d.CachedPieceReader, d.IndexStore),
 		pdp.NewNextProvingPeriodTask(db, ethClient, d.Chain, chainSched, senderEth),
 		pdp.NewInitProvingPeriodTask(db, ethClient, d.Chain, chainSched, senderEth),

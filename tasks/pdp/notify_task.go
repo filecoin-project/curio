@@ -6,7 +6,6 @@ import (
 	"time"
 
 	logger "github.com/ipfs/go-log/v2"
-	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
@@ -62,43 +61,7 @@ func (t *PDPNotifyTask) TypeDetails() harmonytask.TaskTypeDetails {
 }
 
 func (t *PDPNotifyTask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFunc) error {
-	for {
-		stop := true
-		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-			n, err := tx.Exec(`
-				WITH pending AS (
-					SELECT pu.id
-					FROM pdp_piece_uploads pu
-					JOIN parked_piece_refs pr ON pr.ref_id = pu.piece_ref
-					JOIN parked_pieces pp ON pp.id = pr.piece_id
-					WHERE pu.piece_ref IS NOT NULL
-					  AND pp.complete = TRUE
-					  AND pu.notify_task_id IS NULL
-					LIMIT 1
-				)
-				UPDATE pdp_piece_uploads pu
-				SET notify_task_id = $1
-				FROM pending
-				WHERE pu.id = pending.id
-				  AND pu.notify_task_id IS NULL
-			`, id)
-			if err != nil {
-				return false, xerrors.Errorf("updating notify_task_id: %w", err)
-			}
-			if n == 0 {
-				return false, nil
-			}
-			if n != 1 {
-				return false, xerrors.Errorf("updated %d rows assigning pdp notify task", n)
-			}
-
-			stop = false     // Continue scheduling as there might be more tasks
-			return true, nil // Commit the transaction
-		})
-		if stop {
-			return nil
-		}
-	}
+	return nil
 }
 
 func (t *PDPNotifyTask) Adder(taskFunc harmonytask.AddTaskFunc) {
