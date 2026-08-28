@@ -96,6 +96,7 @@ const (
 
 	// PDP v0
 	PDPv0_Prove      = "PDPv0_Prove"
+	PDPv0_Notify     = "PDPv0_Notify"
 	PDPv0_PullPiece  = "PDPv0_PullPiece"
 	PDPv0_SaveCache  = "PDPv0_SaveCache"
 	PDPv0_InitPP     = "PDPv0_InitPP"

@@ -153,6 +153,7 @@ All three mechanisms funnel through `harmonytask.AddTask()`, which atomically in
 | `PDPv0_InitPP` | `InitProvingPeriodTask` | `tasks/pdpv0/task_init_pp.go` | Chain handler |
 | `PDPv0_ProvPeriod` | `NextProvingPeriodTask` | `tasks/pdpv0/task_next_pp.go` | Chain handler |
 | `PDPv0_Prove` | `ProveTask` | `tasks/pdpv0/task_prove.go` | Chain handler |
+| `PDPv0_Notify` | `PDPNotifyTask` | `tasks/pdpv0/notify_task.go` | IAmBored (5s, rollout compatibility only) |
 | `PDPv0_PullPiece` | `PDPPullPieceTask` | `tasks/pdpv0/task_pull_piece.go` | Polling (10s) |
 | `PDPv0_Indexing` | `PDPIndexingTask` | `tasks/indexing/task_pdp_v0_indexing.go` | IAmBored (3s) |
 | `PDPv0_IPNI` | `PDPIPNITask` | `tasks/indexing/task_pdp_v0_ipni.go` | IAmBored (30s) |
@@ -184,6 +185,8 @@ There are three paths for getting pieces into the system:
 1. The client posts the PieceCID. If a complete long-term copy already exists, the handler creates its `parked_piece_refs` and `pdp_piecerefs` rows immediately.
 2. Otherwise, the client PUTs the bytes to the returned upload URL. The handler claims a `parked_pieces` row, writes the request body once directly to final piece storage while computing CommP, and validates the declared size and PieceCID.
 3. After the write succeeds, one database transaction marks the parked piece complete, creates `pdp_piecerefs`, and deletes the upload row. The legacy `notify` request field is accepted for compatibility but this path does not call the URL or schedule a notify task.
+
+During the upload-pipeline rollout, a compatibility-only PDP v0 task publishes completed uploads left by the previous scratch-backed pipeline. It never calls notification URLs, and the direct upload transaction above cannot create work for it. The historical PDP v0 task name remains registered temporarily so tasks assigned before the upgrade can finish. Operators must stop old upload ingress and wait for accepted scratch-backed uploads to reach final storage before restarting Curio because scratch files are deleted when storage paths reopen.
 
 **Streaming upload path:**
 1. The client creates an upload session and PUTs bytes without declaring a PieceCID. The handler claims a provisional `parked_pieces` identity for that session, then streams the request once directly into final piece storage while calculating CommP and the raw size.
