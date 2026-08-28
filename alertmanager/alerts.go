@@ -220,8 +220,6 @@ var pdpTasks = []string{
 	tasknames.AggregatePDPDeal,
 	// PDP v0
 	tasknames.PDPv0_Prove,
-	tasknames.PDPv0_PullPiece,
-	tasknames.PDPv0_SaveCache,
 	tasknames.PDPv0_InitPP,
 	tasknames.PDPv0_ProvPeriod,
 	tasknames.PDPv0_Notify,
