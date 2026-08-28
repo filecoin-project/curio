@@ -47,7 +47,7 @@ func newTestProvider(t *testing.T, serviceURLs ...string) *Provider {
 	return &Provider{
 		serviceURLs:  urls,
 		syncClient:   &http.Client{Timeout: 5 * time.Second},
-		syncCache:    must.One(lru.New[cid.Cid, syncResult](syncCacheSize)),
+		syncCache:    must.One(lru.New[cid.Cid, *time.Time](syncCacheSize)),
 		syncCheckSem: make(chan struct{}, syncCheckConcurrency),
 	}
 }
@@ -150,7 +150,7 @@ func TestSyncedAt_CacheHitReturnsImmediatelyWithoutQuerying(t *testing.T) {
 	adCid := mustParseTestCid(t)
 	indexedAt := time.Date(2026, 8, 26, 11, 49, 52, 0, time.UTC)
 	p := newTestProvider(t, srv.URL)
-	p.syncCache.Add(adCid, syncResult{IndexedAt: &indexedAt})
+	p.syncCache.Add(adCid, &indexedAt)
 
 	got := p.SyncedAt(adCid, "provider")
 	require.NotNil(t, got)
@@ -174,9 +174,9 @@ func TestSyncedAt_CacheMissReturnsNilAndPopulatesCacheInBackground(t *testing.T)
 
 	waitForInFlightCheckToFinish(t, p, adCid)
 
-	sr, ok := p.syncCache.Get(adCid)
+	cached, ok := p.syncCache.Get(adCid)
 	require.True(t, ok, "the background check should have populated the cache")
-	require.Nil(t, sr.IndexedAt, "a skipped ad has no indexed time")
+	require.Nil(t, cached, "a skipped ad has no indexed time")
 
 	// still nil: skipped ads have no indexed time
 	require.Nil(t, p.SyncedAt(adCid, "provider"))

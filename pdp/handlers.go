@@ -298,7 +298,6 @@ func (p *PDPService) handleGetPieceStatus(w http.ResponseWriter, r *http.Request
 			pr.advertisement_created_at as advertisement_created_at,
 			ia.ad_cid,
 
-			-- "synced" is filled in below from a live check against the indexer.
 			CASE
 				WHEN ia.ad_cid IS NOT NULL THEN 'announced'
 				WHEN pr.ipni_task_id IS NOT NULL THEN 'creating_ad'
@@ -382,7 +381,6 @@ func (p *PDPService) handleGetPieceStatus(w http.ResponseWriter, r *http.Request
 	if result.AdCID.Valid && p.ipp != nil {
 		if adCid, err := cid.Parse(result.AdCID.String); err == nil {
 			if syncedAt := p.ipp.SyncedAt(adCid, result.Provider.String); syncedAt != nil {
-				response.Status = "synced"
 				response.Synced = true
 				response.SyncedAt = syncedAt
 			}

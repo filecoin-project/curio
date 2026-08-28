@@ -109,8 +109,8 @@ type Provider struct {
 	// https://cid.contact. Not all of them support that endpoint.
 	serviceURLs []*url.URL
 	syncClient  *http.Client
-	// syncCache holds confirmed ad sync results, populated lazily on request
-	syncCache *lru.Cache[cid.Cid, syncResult]
+	// syncCache holds confirmed ad indexed times, populated lazily on request; nil for a skipped ad.
+	syncCache *lru.Cache[cid.Cid, *time.Time]
 	// syncChecksInFlight dedups concurrent checks for the same ad_cid.
 	syncChecksInFlight sync.Map
 	// syncCheckSem bounds how many ad-sync-status checks run at once, across all ad_cids.
@@ -154,7 +154,7 @@ func NewProvider(d *deps.Deps) (*Provider, error) {
 		latest:         make(map[string]cid.Cid),
 		serviceURLs:    serviceURLs,
 		syncClient:     &http.Client{Timeout: 5 * time.Second},
-		syncCache:      must.One(lru.New[cid.Cid, syncResult](syncCacheSize)),
+		syncCache:      must.One(lru.New[cid.Cid, *time.Time](syncCacheSize)),
 		syncCheckSem:   make(chan struct{}, syncCheckConcurrency),
 	}
 
@@ -786,15 +786,10 @@ type adSyncStatus struct {
 	SkippedTime *time.Time
 }
 
-// syncResult is a cached, possibly-stale answer
-type syncResult struct {
-	IndexedAt *time.Time
-}
-
 // SyncedAt returns the cached indexed time for adCid, or nil on a cache miss.
 func (p *Provider) SyncedAt(adCid cid.Cid, provider string) *time.Time {
-	if sr, ok := p.syncCache.Get(adCid); ok {
-		return sr.IndexedAt
+	if indexedAt, ok := p.syncCache.Get(adCid); ok {
+		return indexedAt
 	}
 	p.checkAdSyncStatusAsync(adCid, provider)
 	return nil
@@ -830,12 +825,12 @@ func (p *Provider) checkAdSyncStatusAsync(adCid cid.Cid, provider string) {
 			if status.IndexedTime != nil {
 				indexedAt = status.IndexedTime.UTC()
 			}
-			p.syncCache.Add(adCid, syncResult{IndexedAt: &indexedAt})
+			p.syncCache.Add(adCid, &indexedAt)
 			latency := p.observeSyncLatency(ctx, adCid, provider, indexedAt)
 			log.Infow("IPNI advertisement confirmed indexed", "provider", provider, "ad_cid", adCid.String(), "service", service, "indexed_at", indexedAt, "latency", latency)
 		case status.Skipped:
 			log.Warnw("indexer permanently skipped ad, it will never be indexed", "ad_cid", adCid.String(), "service", service)
-			p.syncCache.Add(adCid, syncResult{})
+			p.syncCache.Add(adCid, nil)
 		}
 	}()
 }

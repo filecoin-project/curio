@@ -179,8 +179,7 @@ All endpoints are rooted at `/pdp`.
         - `"pending"` – Not yet locally indexed.
         - `"indexing"` – Local CAR indexing task is in progress.
         - `"creating_ad"` – IPNI advertisement is being created.
-        - `"announced"` – The advertisement row exists. Not a guarantee it's been broadcast (see `advertised`) or indexed externally (see `synced`).
-        - `"synced"` – A configured IPNI instance (e.g., cid.contact) has confirmed it fully processed the advertisement.
+        - `"announced"` – The advertisement row exists, the terminal status. Not a guarantee it's been broadcast (see `advertised`) or indexed externally (see `synced`).
     - `indexed`: Whether the piece has been indexed locally and is ready for IPNI.
     - `indexedAt`: Timestamp when local CAR indexing completed (omitted if not yet indexed).
     - `adCreated`: Whether an IPNI advertisement has been created for this piece.
