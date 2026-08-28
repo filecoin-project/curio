@@ -176,20 +176,20 @@ All endpoints are rooted at `/pdp`.
 - **Fields:**
     - `pieceCid`: The Piece CID in v2 format.
     - `status`: Overall status string. One of:
-        - `"pending"` – Not yet indexed.
-        - `"indexing"` – CAR indexing task is in progress.
+        - `"pending"` – Not yet locally indexed.
+        - `"indexing"` – Local CAR indexing task is in progress.
         - `"creating_ad"` – IPNI advertisement is being created.
-        - `"announced"` – The advertisement row exists. Not a guarantee it's been broadcast (see `advertised`) or indexed (see `synced`).
-        - `"synced"` – A configured indexer service (e.g. cid.contact) has confirmed it fully processed the advertisement.
-    - `indexed`: Whether the piece has been indexed and is ready for IPNI.
-    - `indexedAt`: Timestamp CAR indexing completed (omitted if not yet indexed).
+        - `"announced"` – The advertisement row exists. Not a guarantee it's been broadcast (see `advertised`) or indexed externally (see `synced`).
+        - `"synced"` – A configured IPNI instance (e.g., cid.contact) has confirmed it fully processed the advertisement.
+    - `indexed`: Whether the piece has been indexed locally and is ready for IPNI.
+    - `indexedAt`: Timestamp when local CAR indexing completed (omitted if not yet indexed).
     - `adCreated`: Whether an IPNI advertisement has been created for this piece.
     - `adCreatedAt`: Timestamp the advertisement was created (omitted if not yet created).
-    - `adCid`: This piece's advertisement CID, once created. Callers who want to double-check independently can query an indexer directly, e.g. `GET https://cid.contact/sync/status/ad/{adCid}`.
+    - `adCid`: This piece's advertisement CID, once created. Callers who want to double-check independently can query an IPNI instance directly (e.g., `GET https://cid.contact/sync/status/ad/{adCid}`).
     - `advertised`: Whether the provider has sent an HTTP announce covering this ad.
     - `advertisedAt`: `adCreatedAt` plus the announce publish interval - a fixed estimate, not the provider's raw last-announce time, so it doesn't drift on later calls as the provider announces newer ads.
-    - `synced`: Whether an indexer has confirmed it fully processed this ad, per an in-memory (not persisted) cache checked on demand. A cache miss triggers a background check against the configured indexer services and returns `false` for this call - a later call for the same piece will see the result once that check completes. `true` is a confirmed signal - callers can act on it right away. `false` is inconclusive rather than proof the ad isn't indexed: it can also show up on the first call after a Curio restart (cache cleared) or if a later call catches an indexer resync, without the ad actually losing its indexed state - poll again if that matters for your workflow.
-    - `syncedAt`: The indexer-reported processing time, when `synced` is true.
+    - `synced`: Whether an IPNI instance has confirmed it fully processed this ad, per an in-memory (not persisted) cache checked on demand. A cache miss triggers a background check against the configured IPNI instance and returns `false` for this call - a later call for the same piece will see the result once that check completes. `true` is a confirmed signal - callers can act on it right away. `false` is inconclusive rather than proof the ad isn't indexed: it can also show up on the first call after a Curio restart (cache cleared) or if a later call catches an IPNI instance resync, without the ad actually losing its indexed state - poll again if that matters for your workflow.
+    - `syncedAt`: When `synced` becomes true, this stores the IPNI instance's reported processing time.
 
 #### Errors
 

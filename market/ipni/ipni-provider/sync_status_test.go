@@ -144,7 +144,6 @@ func TestSyncedAt_CacheHitReturnsImmediatelyWithoutQuerying(t *testing.T) {
 	var requests int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&requests, 1)
-		t.Fatal("cache hit should not query the indexer")
 	}))
 	defer srv.Close()
 
