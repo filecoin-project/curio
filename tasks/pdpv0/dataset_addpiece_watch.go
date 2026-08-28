@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"golang.org/x/xerrors"
 
@@ -87,11 +88,43 @@ func processDataSetPieceAdd(ctx context.Context, db *harmonydb.DB, ethClient eth
 
 	// Parse the logs to extract piece IDs and other data
 	err = extractAndInsertPiecesFromReceipt(ctx, db, &txReceipt, pieceAdd)
-	if err != nil {
+	if err == nil {
+		return nil
+	}
+
+	fresh, refetchErr := refetchPieceAddReceipt(ctx, ethClient, pieceAdd.AddMessageHash)
+	if refetchErr != nil {
 		return xerrors.Errorf("failed to extract pieces from receipt for tx %s: %w", pieceAdd.AddMessageHash, err)
 	}
 
+	if err := extractAndInsertPiecesFromReceipt(ctx, db, fresh, pieceAdd); err != nil {
+		return xerrors.Errorf("failed to extract pieces from refetched receipt for tx %s: %w", pieceAdd.AddMessageHash, err)
+	}
+
+	if freshJSON, mErr := json.Marshal(fresh); mErr == nil {
+		if _, uErr := db.Exec(ctx, `
+			UPDATE message_waits_eth SET tx_receipt = $1 WHERE signed_tx_hash = $2
+		`, freshJSON, pieceAdd.AddMessageHash); uErr != nil {
+			log.Warnw("failed to persist refetched receipt", "txHash", pieceAdd.AddMessageHash, "error", uErr)
+		}
+	}
+
 	return nil
+}
+
+func refetchPieceAddReceipt(ctx context.Context, ethClient ethchain.EthClient, txHash string) (*types.Receipt, error) {
+	requested := common.HexToHash(txHash)
+	receipt, err := ethClient.TransactionReceipt(ctx, requested)
+	if err != nil {
+		return nil, err
+	}
+	if receipt.TxHash != requested {
+		receipt, err = ethClient.TransactionReceipt(ctx, receipt.TxHash)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return receipt, nil
 }
 
 func extractAndInsertPiecesFromReceipt(ctx context.Context, db *harmonydb.DB, receipt *types.Receipt, pieceAdd DataSetPieceAdd) error {
