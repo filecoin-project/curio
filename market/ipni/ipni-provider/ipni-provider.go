@@ -813,11 +813,13 @@ func (p *Provider) checkAdSyncStatusAsync(adCid cid.Cid, provider string) {
 		defer func() { <-p.syncCheckSem }()
 
 		ctx := context.Background()
+		checkStart := time.Now()
 
 		service, status, ok := p.queryAdSyncStatus(ctx, adCid)
 		if !ok {
 			return // still pending
 		}
+		checkTook := time.Since(checkStart)
 
 		switch {
 		case status.Indexed:
@@ -827,9 +829,9 @@ func (p *Provider) checkAdSyncStatusAsync(adCid cid.Cid, provider string) {
 			}
 			p.syncCache.Add(adCid, &indexedAt)
 			latency := p.observeSyncLatency(ctx, adCid, provider, indexedAt)
-			log.Infow("IPNI advertisement confirmed indexed", "provider", provider, "ad_cid", adCid.String(), "service", service, "indexed_at", indexedAt, "latency", latency)
+			log.Infow("IPNI advertisement confirmed indexed", "provider", provider, "ad_cid", adCid.String(), "service", service, "indexed_at", indexedAt, "check_took", checkTook, "latency", latency)
 		case status.Skipped:
-			log.Warnw("indexer permanently skipped ad, it will never be indexed", "ad_cid", adCid.String(), "service", service)
+			log.Warnw("indexer permanently skipped ad, it will never be indexed", "ad_cid", adCid.String(), "service", service, "check_took", checkTook)
 			p.syncCache.Add(adCid, nil)
 		}
 	}()

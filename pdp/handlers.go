@@ -365,13 +365,13 @@ func (p *PDPService) handleGetPieceStatus(w http.ResponseWriter, r *http.Request
 	if !result.IndexedAt.Valid {
 		response.IndexedAt = nil
 	} else {
-		response.IndexedAt = &result.IndexedAt.Time
+		response.IndexedAt = new(result.IndexedAt.Time.UTC())
 	}
 
 	if !result.AdvertisementCreatedAt.Valid {
 		response.AdCreatedAt = nil
 	} else {
-		response.AdCreatedAt = &result.AdvertisementCreatedAt.Time
+		response.AdCreatedAt = new(result.AdvertisementCreatedAt.Time.UTC())
 	}
 
 	if result.AdCID.Valid {
@@ -397,7 +397,7 @@ func (p *PDPService) handleGetPieceStatus(w http.ResponseWriter, r *http.Request
 		}
 		if publishedAt != nil && publishedAt.After(result.AdvertisementCreatedAt.Time) {
 			response.Advertised = true
-			response.AdvertisedAt = new(result.AdvertisementCreatedAt.Time.Add(ipni_provider.PublishInterval))
+			response.AdvertisedAt = new(result.AdvertisementCreatedAt.Time.Add(ipni_provider.PublishInterval).UTC())
 		}
 	}
 
