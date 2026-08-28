@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/invopop/jsonschema"
@@ -9,6 +10,14 @@ import (
 
 	depsconfig "github.com/filecoin-project/curio/deps/config"
 )
+
+func TestBuildUISchema(t *testing.T) {
+	sch := buildUISchema()
+	require.NotNil(t, sch)
+	require.NotEmpty(t, sch.Definitions)
+	_, err := json.Marshal(sch)
+	require.NoError(t, err)
+}
 
 func TestSchemaDynamicFieldsUseInnerType(t *testing.T) {
 	ref := jsonschema.Reflector{Mapper: uiSchemaMapper}
