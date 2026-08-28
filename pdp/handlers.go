@@ -19,6 +19,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/ipfs/go-cid"
 	"github.com/yugabyte/pgx/v5"
 
 	"github.com/filecoin-project/curio/alertmanager"
@@ -283,18 +284,16 @@ func (p *PDPService) handleGetPieceStatus(w http.ResponseWriter, r *http.Request
 
 	// Query status from database
 	var results []struct {
-		PieceCID                 string         `db:"piece_cid"`
-		PieceRawSize             uint64         `db:"piece_raw_size"`
-		CreatedAt                time.Time      `db:"created_at"`
-		Indexed                  bool           `db:"indexed"`
-		IndexedAt                sql.NullTime   `db:"indexed_at"`
-		AdvertisementCreated     bool           `db:"advertisement_created"`
-		AdvertisementCreatedAt   sql.NullTime   `db:"advertisement_created_at"`
-		AdCID                    sql.NullString `db:"ad_cid"`
-		AdvertisementRetrieved   bool           `db:"advertisement_retrieved"`
-		AdvertisementRetrievedAt sql.NullTime   `db:"advertisement_retrieved_at"`
-		Status                   string         `db:"status"`
-		Provider                 sql.NullString `db:"provider"`
+		PieceCID               string         `db:"piece_cid"`
+		PieceRawSize           uint64         `db:"piece_raw_size"`
+		CreatedAt              time.Time      `db:"created_at"`
+		Indexed                bool           `db:"indexed"`
+		IndexedAt              sql.NullTime   `db:"indexed_at"`
+		AdvertisementCreated   bool           `db:"advertisement_created"`
+		AdvertisementCreatedAt sql.NullTime   `db:"advertisement_created_at"`
+		AdCID                  sql.NullString `db:"ad_cid"`
+		Status                 string         `db:"status"`
+		Provider               sql.NullString `db:"provider"`
 	}
 
 	err = p.db.Select(ctx, &results, `
@@ -312,33 +311,27 @@ func (p *PDPService) handleGetPieceStatus(w http.ResponseWriter, r *http.Request
 			pr.advertisement_created_at as advertisement_created_at,
 			ia.ad_cid,
 
-			-- Advertisement Fetch status
-			ia.fetched_at IS NOT NULL as advertisement_retrieved,
-			ia.fetched_at as advertisement_retrieved_at,
-
-			-- Determine overall status
 			CASE
-				WHEN ia.fetched_at IS NOT NULL THEN 'retrieved'
 				WHEN ia.ad_cid IS NOT NULL THEN 'announced'
 				WHEN pr.ipni_task_id IS NOT NULL THEN 'creating_ad'
 				WHEN pr.indexing_task_id IS NOT NULL THEN 'indexing'
 				ELSE 'pending'
 			END as status,
-		
+
 			ia.provider
 
 		FROM pdp_piecerefs pr
 		JOIN parked_piece_refs pprf ON pprf.ref_id = pr.piece_ref
 		JOIN parked_pieces pp ON pp.id = pprf.piece_id
 		LEFT JOIN LATERAL (
-			SELECT
-				MIN(i.ad_cid) as ad_cid,
-				MIN(i.provider) as provider,
-				MIN((SELECT MIN(af.fetched_at) FROM ipni_ad_fetches af WHERE af.ad_cid = i.ad_cid)) as fetched_at
+			-- created_at is the primary sort; order_number only breaks ties.
+			SELECT i.ad_cid, i.provider
 			FROM ipni i
 			WHERE i.piece_cid = pr.piece_cid
 				AND i.provider = (SELECT peer_id FROM ipni_peerid WHERE sp_id = $3)
 				AND i.is_rm = FALSE
+			ORDER BY i.created_at DESC, i.order_number DESC
+			LIMIT 1
 		) ia ON true
 		WHERE pr.piece_cid = $1 AND pr.service = $2
 		LIMIT 1
@@ -370,96 +363,54 @@ func (p *PDPService) handleGetPieceStatus(w http.ResponseWriter, r *http.Request
 		IndexedAt    *time.Time `json:"indexedAt,omitempty"`
 		AdCreated    bool       `json:"adCreated"`
 		AdCreatedAt  *time.Time `json:"adCreatedAt,omitempty"`
+		AdCid        *string    `json:"adCid,omitempty"`
 		Advertised   bool       `json:"advertised"`
 		AdvertisedAt *time.Time `json:"advertisedAt,omitempty"`
-		Retrieved    bool       `json:"retrieved"`
-		RetrievedAt  *time.Time `json:"retrievedAt,omitempty"`
+		Synced       bool       `json:"synced"`
+		SyncedAt     *time.Time `json:"syncedAt,omitempty"`
 	}{
 		PieceCID:  pieceInfo.CidV2.String(),
 		Status:    result.Status,
 		Indexed:   result.Indexed,
 		AdCreated: result.AdvertisementCreated,
-		Retrieved: result.AdvertisementRetrieved,
 	}
 
 	if !result.IndexedAt.Valid {
 		response.IndexedAt = nil
 	} else {
-		response.IndexedAt = &result.IndexedAt.Time
+		response.IndexedAt = new(result.IndexedAt.Time.UTC())
 	}
 
 	if !result.AdvertisementCreatedAt.Valid {
 		response.AdCreatedAt = nil
 	} else {
-		response.AdCreatedAt = &result.AdvertisementCreatedAt.Time
+		response.AdCreatedAt = new(result.AdvertisementCreatedAt.Time.UTC())
 	}
 
-	if !result.AdvertisementRetrievedAt.Valid {
-		response.RetrievedAt = nil
-	} else {
-		response.RetrievedAt = &result.AdvertisementRetrievedAt.Time
+	if result.AdCID.Valid {
+		response.AdCid = &result.AdCID.String
 	}
 
-	// Advertised and AdvertisedAt are derived from three signals, in order:
-	// 1. A recorded fetch of this ad in ipni_ad_fetches is the strongest per-ad
-	//    signal. If an indexer fetched the ad, it must have been advertised
-	//    already. Since we do not store the actual first publish time for each
-	//    ad, AdvertisedAt is estimated as the earlier of
-	//    advertisement_created_at + PublishInterval and the first fetch time.
-	//    This keeps AdvertisedAt from appearing after RetrievedAt.
-	// 2. The in-process IPNI provider exposes LastPublishTime per provider, not
-	//    per ad. It is useful only when there is no fetch record and we know
-	//    when this ad was created. A provider publish after this ad was created
-	//    means the ad should have been included in the announced head; an older
-	//    provider publish means it was not, and we do not fall through to the
-	//    timing heuristic.
-	// 3. Without either signal, fall back to the old timing heuristic: after
-	//    PublishInterval has elapsed from ad creation, assume the ad was
-	//    announced.
-	if result.AdvertisementRetrieved {
-		response.Advertised = true
-		if result.AdvertisementRetrievedAt.Valid {
-			advertisedAt := result.AdvertisementRetrievedAt.Time
-			if result.AdvertisementCreatedAt.Valid {
-				createdAtEstimate := result.AdvertisementCreatedAt.Time.Add(ipni_provider.PublishInterval)
-				if createdAtEstimate.Before(advertisedAt) {
-					advertisedAt = createdAtEstimate
-				}
-			}
-			response.AdvertisedAt = &advertisedAt
-		} else {
-			response.AdvertisedAt = nil
-		}
-	}
-
-	advertisedFromProvider := false
-	if !response.Advertised && result.AdvertisementCreatedAt.Valid && p.ipp != nil && result.Provider.Valid {
-		publishedAt := p.ipp.LastPublishTime(result.Provider.String)
-		if publishedAt != nil {
-			advertisedFromProvider = true
-			if publishedAt.After(result.AdvertisementCreatedAt.Time) {
-				response.Advertised = true
-				response.AdvertisedAt = new(*publishedAt)
-				if publishedAt.After(time.Now().Add(ipni_provider.PublishInterval)) {
-					response.AdvertisedAt = new(result.AdvertisementCreatedAt.Time.Add(ipni_provider.PublishInterval))
-				}
-			} else {
-				response.Advertised = false
-				response.AdvertisedAt = nil
+	if result.AdCID.Valid && p.ipp != nil {
+		if adCid, err := cid.Parse(result.AdCID.String); err == nil {
+			if syncedAt := p.ipp.SyncedAt(adCid, result.Provider.String); syncedAt != nil {
+				response.Synced = true
+				response.SyncedAt = syncedAt
 			}
 		}
 	}
 
-	if !advertisedFromProvider && !response.Advertised {
-		if result.AdvertisementCreated && result.AdvertisementCreatedAt.Valid {
-			if time.Since(result.AdvertisementCreatedAt.Time) > ipni_provider.PublishInterval {
-				// More than 5 seconds since advertisement was created, assume it's published
-				response.Advertised = true
-				response.AdvertisedAt = new(result.AdvertisementCreatedAt.Time.Add(ipni_provider.PublishInterval))
-			} else {
-				response.Advertised = false
-				response.AdvertisedAt = nil
-			}
+	// LastPublishTime is per-provider, so it's only used to confirm a push
+	// happened, not as the displayed time - AdvertisedAt is always the fixed
+	// formula below, so it doesn't drift as the provider announces later ads.
+	if result.AdvertisementCreatedAt.Valid {
+		var publishedAt *time.Time
+		if p.ipp != nil && result.Provider.Valid {
+			publishedAt = p.ipp.LastPublishTime(result.Provider.String)
+		}
+		if publishedAt != nil && publishedAt.After(result.AdvertisementCreatedAt.Time) {
+			response.Advertised = true
+			response.AdvertisedAt = new(result.AdvertisementCreatedAt.Time.Add(ipni_provider.PublishInterval).UTC())
 		}
 	}
 
