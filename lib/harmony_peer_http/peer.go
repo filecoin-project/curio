@@ -114,12 +114,7 @@ func (p *PeerHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	p.connMu.Lock()
 	conn, exists := p.connections[peerAddr]
 	if !exists {
-		conn = &peerHTTPConnection{
-			parent:   p,
-			peerAddr: peerAddr,
-			incoming: make(chan []byte, 100),
-			done:     make(chan struct{}),
-		}
+		conn = p.newConnection(peerAddr)
 		p.connections[peerAddr] = conn
 	}
 	onConnect := p.onConnect
@@ -158,17 +153,28 @@ func (p *PeerHTTP) ConnectToPeer(peerID string) (harmonytask.PeerConnection, err
 		return conn, nil
 	}
 
-	conn := &peerHTTPConnection{
-		parent:   p,
-		peerAddr: peerID,
-		incoming: make(chan []byte, 100),
-		done:     make(chan struct{}),
-	}
+	conn := p.newConnection(peerID)
 	p.connections[peerID] = conn
 
 	log.Infow("connecting to peer via HTTP", "peer", peerID)
 
 	return conn, nil
+}
+
+// newConnection builds a peerHTTPConnection with a snapshot of localAddr and a
+// bound drop callback. The connection does not retain *PeerHTTP, so later
+// mutations of PeerHTTP fields cannot be observed through it.
+func (p *PeerHTTP) newConnection(peerAddr string) *peerHTTPConnection {
+	conn := &peerHTTPConnection{
+		localAddr: p.localAddr,
+		peerAddr:  peerAddr,
+		incoming:  make(chan []byte, 100),
+		done:      make(chan struct{}),
+	}
+	conn.dropPeer = func() {
+		p.dropPeer(peerAddr, conn)
+	}
+	return conn
 }
 
 // dropPeer removes a peer from the connection registry and signals its
@@ -198,8 +204,9 @@ func (p *PeerHTTP) dropPeer(peerAddr string, conn *peerHTTPConnection) {
 // the peering layer's receive loop reads from via ReceiveMessage. incoming
 // is never closed; a drop is signalled by closing done.
 type peerHTTPConnection struct {
-	parent    *PeerHTTP
+	localAddr string
 	peerAddr  string
+	dropPeer  func()
 	incoming  chan []byte
 	done      chan struct{}
 	closeOnce sync.Once
@@ -218,23 +225,23 @@ func (pc *peerHTTPConnection) SendMessage(message []byte) error {
 	url := fmt.Sprintf("http://%s/peer/v1", pc.peerAddr)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(message))
 	if err != nil {
-		pc.parent.dropPeer(pc.peerAddr, pc)
+		pc.dropPeer()
 		return fmt.Errorf("failed to create request to peer %s: %w", pc.peerAddr, err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Peer-ID", pc.parent.localAddr)
+	req.Header.Set("X-Peer-ID", pc.localAddr)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		pc.parent.dropPeer(pc.peerAddr, pc)
+		pc.dropPeer()
 		return fmt.Errorf("failed to send to peer %s (dropping): %w", pc.peerAddr, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		pc.parent.dropPeer(pc.peerAddr, pc)
+		pc.dropPeer()
 		return fmt.Errorf("peer %s returned %d (dropping): %s", pc.peerAddr, resp.StatusCode, string(body))
 	}
 

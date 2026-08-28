@@ -124,8 +124,11 @@ func BuildTreeD(data io.Reader, unpaddedData bool, outPath string, size abi.Padd
 		}
 	}
 
+	var workWg sync.WaitGroup
+
 	// defer free pool buffers
 	defer func() {
+		workWg.Wait() // in-case we got here via panic or error
 		for _, workerBuffer := range workerBuffers {
 			for _, level := range workerBuffer {
 				pool.Put(level)
@@ -138,7 +141,6 @@ func BuildTreeD(data io.Reader, unpaddedData bool, outPath string, size abi.Padd
 
 	// start processing
 	var processed uint64
-	var workWg sync.WaitGroup
 	var errLock sync.Mutex
 	var oerr error
 
