@@ -4,6 +4,7 @@ import (
 	"math/big"
 	"os"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -179,6 +180,28 @@ func ServiceRegistryAddress() (common.Address, error) {
 
 const USDFCAddressMainnet = "0x80B98d3aa09ffff255c3ba4A241111Ff1262F045"
 const USDFCAddressCalibnet = "0xb3042734b608a1B16e9e86B374A3f3e389B4cDf0"
+
+// Bundled FWSS state view addresses from @filoz/synapse-core/chains. Used to
+// avoid an eth_call to viewContractAddress() on well-known networks.
+const (
+	fwssViewAddressMainnet  = "0xdDd8F083a3fe9C66547D46bee24e5AaF56BCa0ab"
+	fwssViewAddressCalibnet = "0x9BF9e67e83EC8613883FDdDec4D3b38AEE937177"
+)
+
+func knownFWSSViewAddress(serviceAddr common.Address) (common.Address, bool) {
+	fwssService := ContractAddresses().AllowedPublicRecordKeepers.FWSService
+	if !strings.EqualFold(serviceAddr.Hex(), fwssService.Hex()) {
+		return common.Address{}, false
+	}
+	switch build.BuildType {
+	case build.BuildMainnet:
+		return common.HexToAddress(fwssViewAddressMainnet), true
+	case build.BuildCalibnet:
+		return common.HexToAddress(fwssViewAddressCalibnet), true
+	default:
+		return common.Address{}, false
+	}
+}
 
 func USDFCAddress() (common.Address, error) {
 	if c := configured.Load(); c != nil {

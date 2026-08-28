@@ -207,6 +207,13 @@ func ResolveViewAddress(ctx context.Context, serviceAddr common.Address, ethClie
 		return cached.(common.Address), nil
 	}
 
+	if viewAddr, ok := knownFWSSViewAddress(serviceAddr); ok {
+		if err := viewAddressCache.Set(key, viewAddr); err != nil {
+			log.Warnw("Failed to cache known FWSS view address", "serviceAddr", serviceAddr, "error", err)
+		}
+		return viewAddr, nil
+	}
+
 	svc, err := NewContractWithView(serviceAddr, ethClient)
 	if err != nil {
 		return common.Address{}, xerrors.Errorf("failed to bind to service at %s: %w", serviceAddr, err)

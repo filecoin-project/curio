@@ -83,6 +83,8 @@ customElements.define('pdp-overview', class PdpOverview extends LitElement {
     financialLoading: { type: Boolean },
     financialError: { type: String },
     chartReady: { type: Boolean },
+    atRiskCount: { type: Number },
+    atRiskStatus: { type: String },
   }
 
   constructor() {
@@ -99,6 +101,8 @@ customElements.define('pdp-overview', class PdpOverview extends LitElement {
     this.financialLoading = true
     this.financialError = null
     this.chartReady = false
+    this.atRiskCount = 0
+    this.atRiskStatus = 'loading'
     this._chart = null
     this._loadPromise = null
     pollRPC(async () => {
@@ -171,7 +175,16 @@ customElements.define('pdp-overview', class PdpOverview extends LitElement {
       this.requestUpdate()
       this.renderWalletAside()
     })
-    await Promise.all([summaryP, alertsP, regP])
+    const atRiskP = RPCCall('PDPDataSetAtRiskCount').then((count) => {
+      this.atRiskCount = count ?? 0
+      this.atRiskStatus = 'ok'
+      this.requestUpdate()
+    }).catch((e) => {
+      console.warn('PDPDataSetAtRiskCount failed:', e)
+      if (this.atRiskStatus !== 'ok') this.atRiskStatus = 'error'
+      this.requestUpdate()
+    })
+    await Promise.all([summaryP, alertsP, regP, atRiskP])
   }
 
   async loadFinancial() {
@@ -586,6 +599,27 @@ customElements.define('pdp-overview', class PdpOverview extends LitElement {
     })
   }
 
+  renderPaymentAtRiskAlerts() {
+    if (this.atRiskStatus === 'loading') return ''
+    if (this.atRiskStatus === 'error' || this.atRiskCount <= 0) return ''
+
+    const label = this.atRiskCount === 1
+      ? '1 dataset in payment grace / pending deletion'
+      : `${this.atRiskCount} datasets in payment grace / pending deletion`
+
+    return html`
+      <div class="proving-alerts">
+        <p class="proving-alerts-title">Payment Grace</p>
+        <ul class="proving-alerts-list">
+          <li>${label}. Contact dataset owners to bring payments current before deletion.</li>
+        </ul>
+        <p class="proving-alerts-foot">
+          <a href="/pages/datasets/?risk=payment">View payment grace datasets</a>
+        </p>
+      </div>
+    `
+  }
+
   renderProvingAlerts() {
     const reasons = provingIssueReasons(this.summary)
     if (!reasons.length) return ''
@@ -802,6 +836,7 @@ customElements.define('pdp-overview', class PdpOverview extends LitElement {
               <canvas id="proving-activity-chart"></canvas>
             </div>
             ${this.renderProvingAlerts()}
+            ${this.renderPaymentAtRiskAlerts()}
             ${!(this.summary?.provingActivity?.some((d) => (d.success ?? 0) + (d.failed ?? 0) + (d.faulted ?? 0) > 0)) ? html`
               <p class="kpi-sub" style="margin-top:6px">No proving activity in the last 30 days</p>
             ` : ''}
