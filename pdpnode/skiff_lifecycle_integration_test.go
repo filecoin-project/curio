@@ -35,6 +35,7 @@ import (
 	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/pieceprovider"
+	"github.com/filecoin-project/curio/lib/piecestore"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/pdp"
 	"github.com/filecoin-project/curio/pdp/contract"
@@ -123,10 +124,10 @@ func TestSkiffCreateAddRetrieveLifecycle(t *testing.T) {
 	svcCtx, svcCancel := context.WithCancel(ctx)
 	t.Cleanup(svcCancel)
 	require.NoError(t, pdp.MountRoutes(svcCtx, mux, pdp.MountDeps{
-		DB:         db,
-		LocalStore: localStore,
-		EthClient:  stubEthClient{},
-		EthSender:  mockSender,
+		DB:        db,
+		PieceIO:   piecestore.New(remote, localStore, index),
+		EthClient: stubEthClient{},
+		EthSender: mockSender,
 	}, nil))
 
 	srv := httptest.NewServer(mux)
@@ -177,28 +178,20 @@ func TestSkiffCreateAddRetrieveLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusNoContent, putRes.StatusCode, httpBody(t, putRes))
 	require.NoError(t, putRes.Body.Close())
 
-	var parkedID, pieceRef int64
-	var uploadID string
+	var parkedID, pieceRef, pdpPieceRefID int64
+	var parkedComplete bool
 	err = db.QueryRow(ctx, `
-		SELECT pu.id, pu.piece_ref, pp.id
-		FROM pdp_piece_uploads pu
-		JOIN parked_piece_refs ppr ON ppr.ref_id = pu.piece_ref
+		SELECT pr.id, pr.piece_ref, pp.id, pp.complete
+		FROM pdp_piecerefs pr
+		JOIN parked_piece_refs ppr ON ppr.ref_id = pr.piece_ref
 		JOIN parked_pieces pp ON pp.id = ppr.piece_id
-		WHERE pu.piece_cid = $1`, pieceCidV1.String()).Scan(&uploadID, &pieceRef, &parkedID)
+		WHERE pr.piece_cid = $1`, pieceCidV1.String()).Scan(&pdpPieceRefID, &pieceRef, &parkedID, &parkedComplete)
 	require.NoError(t, err)
+	require.True(t, parkedComplete)
 
-	require.NoError(t, writeParkedPieceBytes(storageDir, parkedID, raw))
-	_, err = db.Exec(ctx, `UPDATE parked_pieces SET complete = TRUE WHERE id = $1`, parkedID)
-	require.NoError(t, err)
-
-	var pdpPieceRefID int64
-	err = db.QueryRow(ctx, `
-		INSERT INTO pdp_piecerefs (service, piece_cid, piece_ref, created_at)
-		VALUES ('public', $1, $2, NOW())
-		RETURNING id`, pieceCidV1.String(), pieceRef).Scan(&pdpPieceRefID)
-	require.NoError(t, err)
-	_, err = db.Exec(ctx, `DELETE FROM pdp_piece_uploads WHERE id = $1`, uploadID)
-	require.NoError(t, err)
+	var uploadExists bool
+	require.NoError(t, db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pdp_piece_uploads WHERE piece_cid = $1)`, pieceCidV1.String()).Scan(&uploadExists))
+	require.False(t, uploadExists)
 
 	addBody, err := json.Marshal(map[string]any{
 		"pieces": []map[string]any{{
@@ -264,18 +257,6 @@ func httpBody(t *testing.T, res *http.Response) string {
 	require.NoError(t, err)
 	_ = res.Body.Close()
 	return string(b)
-}
-
-func writeParkedPieceBytes(storageDir string, pieceID int64, data []byte) error {
-	path := filepath.Join(
-		storageDir,
-		storiface.FTPiece.String(),
-		storiface.SectorName(storiface.PieceNumber(pieceID).Ref().ID),
-	)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	return os.WriteFile(path, data, 0o644)
 }
 
 type stubEthClient struct{}

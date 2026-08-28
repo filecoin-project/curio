@@ -61,7 +61,6 @@ func buildPDPTasks(ctx context.Context, d *Deps, chainSched *chainsched.CurioCha
 	pdp.NewWatcherPieceDelete(db, chainSched)
 
 	tasks = append(tasks,
-		pdp.NewPDPNotifyTask(db),
 		pdp.NewProveTask(chainSched, db, ethClient, d.Chain, senderEth, d.CachedPieceReader, d.IndexStore),
 		pdp.NewNextProvingPeriodTask(db, ethClient, d.Chain, chainSched, senderEth),
 		pdp.NewInitProvingPeriodTask(db, ethClient, d.Chain, chainSched, senderEth),
@@ -88,7 +87,7 @@ func buildPDPTasks(ctx context.Context, d *Deps, chainSched *chainsched.CurioCha
 		pdpv0.NewNextProvingPeriodTask(db, ethClient, d.Chain, w, senderEth),
 		pdpv0.NewInitProvingPeriodTask(db, ethClient, d.Chain, w, senderEth),
 		pdpv0.NewProcessDeletionsTask(db, ethClient, d.Chain, w, senderEth),
-		pdpv0.NewPDPNotifyTask(ctx, db),
+		pdpv0.NewPDPNotifyTask(db),
 		pdpv0.NewPDPPullPieceTask(ctx, db, d.PieceIO, cfg.Subsystems.PDPPullPieceMaxTasks),
 		pdpv0.NewTerminateServiceTask(db, ethClient, senderEth),
 		pdpv0.NewDeleteDataSetTask(db, ethClient, senderEth),
