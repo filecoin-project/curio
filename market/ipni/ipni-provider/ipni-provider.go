@@ -680,9 +680,8 @@ func (p *Provider) publishHead(ctx context.Context) {
 	}
 }
 
-// announceProviderHead announces head for provider, unless that same head has already
-// been announced. A head that no indexer accepted is not recorded, so it is retried on
-// the next publish tick.
+// announceProviderHead announces head for provider unless it was already announced. A
+// head no indexer accepted is not recorded, so the next publish tick retries it.
 func (p *Provider) announceProviderHead(ctx context.Context, provider string, head cid.Cid) {
 	if last, ok := p.latest[provider]; ok && last == head {
 		log.Debugw("Skipping duplicate announce for provider", "provider", provider, "cid", head.String())
@@ -716,9 +715,9 @@ func (p *Provider) announceProviderHead(ctx context.Context, provider string, he
 	p.mu.Unlock()
 }
 
-// publishhttp sends an HTTP announce message for the given advertisement CID and peer ID
-// to every configured announce URL. It returns the number of indexers that accepted the
-// announce, along with any error.
+// publishhttp announces adCid to every configured announce URL concurrently. It returns
+// the number of indexers that accepted the announce, and the errors from those that did
+// not, so callers can tell a partial failure from a total one.
 func (p *Provider) publishhttp(ctx context.Context, adCid cid.Cid, peer string) (int, error) {
 	lrt := &loggingRoundTripper{
 		proxied: http.DefaultTransport,
@@ -754,15 +753,33 @@ func (p *Provider) publishhttp(ctx context.Context, adCid cid.Cid, peer string) 
 
 	log.Infow("Announcing advertisements over HTTP", "urls", a)
 
-	httpSender, err := httpsender.New(a, info.ID, httpsender.WithClient(c))
-	if err != nil {
-		return 0, fmt.Errorf("cannot create http announce sender: %w", err)
+	// One sender per URL: a single sender joins every outcome into one error, leaving a
+	// partial failure indistinguishable from a total one.
+	var wg sync.WaitGroup
+	errs := make([]error, len(a))
+	for i, u := range a {
+		// copy: httpsender.New fills in an empty Path on the URL it is given
+		announceURL := *u
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sender, err := httpsender.New([]*url.URL{&announceURL}, info.ID, httpsender.WithClient(c))
+			if err != nil {
+				errs[i] = fmt.Errorf("cannot create http announce sender for %s: %w", announceURL.String(), err)
+				return
+			}
+			errs[i] = announce.Send(ctx, adCid, addrs, sender)
+		}()
 	}
+	wg.Wait()
 
-	if err := announce.Send(ctx, adCid, addrs, httpSender); err != nil {
-		return 0, err
+	var delivered int
+	for _, err := range errs {
+		if err == nil {
+			delivered++
+		}
 	}
-	return len(a), nil
+	return delivered, errors.Join(errs...)
 }
 
 type loggingRoundTripper struct {

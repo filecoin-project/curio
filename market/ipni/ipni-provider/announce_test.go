@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/ipfs/go-cid"
 	"github.com/libp2p/go-libp2p/core/crypto"
@@ -16,8 +17,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// newAnnounceTestProvider builds a Provider with a single PDP provider (SPID 0, so no
-// announce URL is filtered out) announcing to the given URLs.
+// newAnnounceTestProvider builds a Provider with one PDP provider (SPID 0, so no announce
+// URL is filtered out) announcing to the given URLs.
 func newAnnounceTestProvider(t *testing.T, announceURLs ...string) (*Provider, string) {
 	t.Helper()
 
@@ -63,13 +64,13 @@ func countingIndexer(t *testing.T, status int) (*httptest.Server, *int32) {
 	return srv, &hits
 }
 
-// A dead indexer must not stop a healthy one from receiving the announce, whichever way
-// it signals that it is gone. Anything that is not 200/204 is one code path.
+// An unreachable indexer must not stop a reachable one from receiving the announce,
+// whichever status it rejects with. Anything that is not 200/204 is one code path.
 func TestPublishHTTP_DeadIndexerDoesNotBlockHealthyIndexer(t *testing.T) {
 	for _, status := range []int{
-		http.StatusInternalServerError, // filecoinpin.contact erroring
-		http.StatusGone,                // decommissioned
-		http.StatusNotFound,            // hostname reassigned
+		http.StatusInternalServerError,
+		http.StatusGone,
+		http.StatusNotFound,
 		http.StatusServiceUnavailable,
 	} {
 		t.Run(http.StatusText(status), func(t *testing.T) {
@@ -87,9 +88,8 @@ func TestPublishHTTP_DeadIndexerDoesNotBlockHealthyIndexer(t *testing.T) {
 	}
 }
 
-// The regression under test: with one indexer permanently down (filecoinpin.contact being
-// shut down), the duplicate-announce guard must still suppress re-announcing an unchanged
-// head to the healthy indexer (cid.contact) on every publish tick.
+// One unreachable indexer must not defeat the duplicate-announce guard: an unchanged head
+// is announced to the reachable indexers once, not once per publish tick.
 func TestAnnounceProviderHead_DeadIndexerDoesNotCauseRepublishToHealthyIndexer(t *testing.T) {
 	dead, _ := countingIndexer(t, http.StatusInternalServerError)
 	healthy, healthyHits := countingIndexer(t, http.StatusOK)
@@ -108,7 +108,7 @@ func TestAnnounceProviderHead_DeadIndexerDoesNotCauseRepublishToHealthyIndexer(t
 		"a head accepted by at least one indexer counts as published")
 }
 
-// A new head must still be announced even though one indexer is down.
+// A new head is announced even while one indexer is unreachable.
 func TestAnnounceProviderHead_NewHeadIsStillAnnouncedWhileOneIndexerIsDown(t *testing.T) {
 	dead, _ := countingIndexer(t, http.StatusInternalServerError)
 	healthy, healthyHits := countingIndexer(t, http.StatusOK)
@@ -121,8 +121,8 @@ func TestAnnounceProviderHead_NewHeadIsStillAnnouncedWhileOneIndexerIsDown(t *te
 	require.EqualValues(t, 2, atomic.LoadInt32(healthyHits))
 }
 
-// When no indexer accepted the announce there is nothing to dedupe against, so the next
-// tick must retry rather than silently give up.
+// With no indexer accepting the announce there is nothing to dedupe against, so every
+// tick retries.
 func TestAnnounceProviderHead_RetriesWhenNoIndexerAccepted(t *testing.T) {
 	deadA, hitsA := countingIndexer(t, http.StatusInternalServerError)
 	deadB, hitsB := countingIndexer(t, http.StatusBadGateway)
@@ -139,7 +139,7 @@ func TestAnnounceProviderHead_RetriesWhenNoIndexerAccepted(t *testing.T) {
 	require.Nil(t, p.LastPublishTime(provider), "nothing was published")
 }
 
-// Baseline: with every indexer healthy, an unchanged head is announced once.
+// With every indexer reachable, an unchanged head is announced once.
 func TestAnnounceProviderHead_DedupesWhenAllIndexersHealthy(t *testing.T) {
 	healthy, hits := countingIndexer(t, http.StatusOK)
 
@@ -151,4 +151,34 @@ func TestAnnounceProviderHead_DedupesWhenAllIndexersHealthy(t *testing.T) {
 	}
 
 	require.EqualValues(t, 1, atomic.LoadInt32(hits))
+}
+
+// An indexer that accepts the connection and then never answers must not hold up delivery
+// to the others. The announce context bounds the wait, well inside publishhttp's client
+// timeout.
+func TestPublishHTTP_HangingIndexerDoesNotBlockReachableIndexer(t *testing.T) {
+	release := make(chan struct{})
+	hanging := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+	}))
+	t.Cleanup(hanging.Close)
+	t.Cleanup(func() { close(release) })
+
+	reachable, reachableHits := countingIndexer(t, http.StatusOK)
+	p, provider := newAnnounceTestProvider(t, hanging.URL, reachable.URL)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	delivered, err := p.publishhttp(ctx, makeTestCid(t, 1), provider)
+	elapsed := time.Since(start)
+
+	require.Error(t, err)
+	require.Equal(t, 1, delivered, "the reachable indexer accepted the announce")
+	require.EqualValues(t, 1, atomic.LoadInt32(reachableHits))
+	require.Less(t, elapsed, 5*time.Second, "the announce must not wait out the client timeout")
 }
