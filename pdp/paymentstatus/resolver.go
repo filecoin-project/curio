@@ -320,7 +320,6 @@ func listDataSetsBySizePage(ctx context.Context, db *harmonydb.DB, afterSize, af
 type chainClients struct {
 	fwssView *FWSS.FilecoinWarmStorageServiceStateView
 	payments *filecoinpayment.Payments
-	local    *chainClients // local eth fallback when primary uses Glif
 }
 
 func (r *Resolver) chainClients(ctx context.Context, ethClient ethchain.EthClient) (*chainClients, error) {
@@ -330,39 +329,13 @@ func (r *Resolver) chainClients(ctx context.Context, ethClient ethchain.EthClien
 		return r.clients, nil
 	}
 
-	clients, err := r.newChainClientsWithFallback(ctx, ethClient)
+	clients, err := newChainClients(ctx, ethClient)
 	if err != nil {
 		return nil, err
 	}
 	r.clients = clients
 	r.clientsAt = time.Now()
 	return clients, nil
-}
-
-func (r *Resolver) newChainClientsWithFallback(ctx context.Context, localEth ethchain.EthClient) (*chainClients, error) {
-	glifEth, usingGlif := preferReadEthClient(ctx)
-	if !usingGlif {
-		return newChainClients(ctx, localEth)
-	}
-
-	primary, err := newChainClients(ctx, glifEth)
-	if err != nil {
-		markGlifUnhealthy()
-		log.Debugw("Glif chain client init failed, using local eth client", "error", err)
-		return newChainClients(ctx, localEth)
-	}
-
-	local, localErr := newChainClients(ctx, localEth)
-	if localErr != nil {
-		log.Warnw("local eth fallback client init failed; Glif-only for payment reads", "error", localErr)
-		return primary, nil
-	}
-
-	return &chainClients{
-		fwssView: primary.fwssView,
-		payments: primary.payments,
-		local:    local,
-	}, nil
 }
 
 func (r *Resolver) resolveFromChain(
@@ -401,23 +374,6 @@ func newChainClients(ctx context.Context, ethClient ethchain.EthClient) (*chainC
 }
 
 func resolveFromChainWithClients(
-	ctx context.Context,
-	clients *chainClients,
-	dataSetID int64,
-	currentEpoch uint64,
-	overlays overlayBundle,
-) (Snapshot, error) {
-	snap, err := resolveOnceWithClients(ctx, clients, dataSetID, currentEpoch, overlays)
-	if err == nil || clients.local == nil {
-		return snap, err
-	}
-
-	log.Debugw("Glif read failed, retrying on local eth client", "dataSetId", dataSetID, "error", err)
-	markGlifUnhealthy()
-	return resolveOnceWithClients(ctx, clients.local, dataSetID, currentEpoch, overlays)
-}
-
-func resolveOnceWithClients(
 	ctx context.Context,
 	clients *chainClients,
 	dataSetID int64,
