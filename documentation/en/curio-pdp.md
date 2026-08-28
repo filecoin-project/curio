@@ -148,6 +148,8 @@ Skiff requires an external Lotus-compatible chain node. Set `FULLNODE_API_INFO` 
 
 Curio-PDP stores piece payloads on local disk. Mount drives at **`/data`** (or bind-mount volumes beneath it). On startup the node scans `/data` and **every subdirectory**, probes each for write access, and uses every writable location as storage. Unwritable paths are skipped.
 
+On a full Curio cluster that also seals sectors, keep PDP data off certain disks with the `"piece"` DenyTypes filter. Or add a dedicated storage location with AllowTypes: ["piece"]. See [Separate PDP / parked pieces from sealed storage](storage-configuration.md#separate-pdp-parked-pieces).
+
 Missing `sectorstore.json` files are created automatically in each writable location.
 
 Additionally, you can use a path other than `/data`:
