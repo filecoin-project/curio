@@ -824,11 +824,13 @@ func (p *Provider) checkAdSyncStatusAsync(adCid cid.Cid, provider string) {
 		switch {
 		case status.Indexed:
 			indexedAt := time.Now().UTC() // fallback when IndexedTime is nil
+			var latency *time.Duration
 			if status.IndexedTime != nil {
 				indexedAt = status.IndexedTime.UTC()
+				// Only a real, indexer-reported IndexedTime is a trustworthy
+				latency = p.observeSyncLatency(ctx, adCid, provider, indexedAt)
 			}
 			p.syncCache.Add(adCid, &indexedAt)
-			latency := p.observeSyncLatency(ctx, adCid, provider, indexedAt)
 			log.Infow("IPNI advertisement confirmed indexed", "provider", provider, "ad_cid", adCid.String(), "service", service, "indexed_at", indexedAt, "check_took", checkTook, "latency", latency)
 		case status.Skipped:
 			log.Warnw("indexer permanently skipped ad, it will never be indexed", "ad_cid", adCid.String(), "service", service, "check_took", checkTook)
