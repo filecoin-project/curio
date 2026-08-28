@@ -239,6 +239,44 @@ type ParsedResponse struct {
 	LastError             string         `json:"LastError"`
 }
 
+// ipniServiceTimeout bounds a single indexer lookup so one unresponsive service cannot
+// stall the IPNI summary.
+const ipniServiceTimeout = 10 * time.Second
+
+// fetchIPNIProvider reads one provider's record from an indexer service.
+func fetchIPNIProvider(ctx context.Context, service, peerID string) (ParsedResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, ipniServiceTimeout)
+	defer cancel()
+
+	var parsed ParsedResponse
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, service+"/providers/"+peerID, nil)
+	if err != nil {
+		return parsed, xerrors.Errorf("building request: %w", err)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return parsed, xerrors.Errorf("fetching data from IPNI service: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return parsed, xerrors.Errorf("failed to fetch data from IPNI service: %s", resp.Status)
+	}
+
+	out, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return parsed, xerrors.Errorf("failed to read response body: %w", err)
+	}
+
+	if err := json.Unmarshal(out, &parsed); err != nil {
+		return parsed, xerrors.Errorf("failed to unmarshal IPNI service response: %w", err)
+	}
+
+	return parsed, nil
+}
+
 func (a *WebRPC) IPNISummary(ctx context.Context) ([]*IPNI, error) {
 	var summary []*IPNI
 
@@ -291,29 +329,13 @@ func (a *WebRPC) IPNISummary(ctx context.Context) ([]*IPNI, error) {
 
 	for _, service := range lists.UniqNoAlloc(services) {
 		for _, d := range summary {
-			url := service + "/providers/" + d.PeerID
-			resp, err := http.Get(url)
+			parsed, err := fetchIPNIProvider(ctx, service, d.PeerID)
 			if err != nil {
-				return nil, xerrors.Errorf("Error fetching data from IPNI service: %w", err)
-			}
-			defer func(Body io.ReadCloser) {
-				_ = Body.Close()
-			}(resp.Body)
-			if resp.StatusCode != http.StatusOK {
 				d.SyncStatus = append(d.SyncStatus, IpniSyncStatus{
 					Service: service,
-					Error:   fmt.Sprintf("failed to fetch data from IPNI service: %s", resp.Status),
+					Error:   err.Error(),
 				})
 				continue
-			}
-			out, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, fmt.Errorf("failed to read response body: %w", err)
-			}
-			var parsed ParsedResponse
-			err = json.Unmarshal(out, &parsed)
-			if err != nil {
-				return nil, fmt.Errorf("failed to unmarshal IPNI service response: %w", err)
 			}
 			sync := IpniSyncStatus{
 				Service:               service,
