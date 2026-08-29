@@ -1,0 +1,15 @@
+// After a **transfer-queue** upload into `d[64]`, a compute dispatch on another queue reads it into `d[0]`
+// (dual-queue semaphore ordering test). `local_size_x = 1`.
+
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) buffer Data {
+    uint d[256];
+} buf;
+
+void main() {
+    if (gl_GlobalInvocationID.x != 0u) {
+        return;
+    }
+    buf.d[0] = buf.d[64];
+}

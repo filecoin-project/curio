@@ -526,6 +526,14 @@ mod tests {
     }
 
     #[test]
+    fn step_p06_config_loads_repo_example_toml() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../cuzk.example.toml");
+        let cfg = Config::from_file(&path).expect("cuzk.example.toml should parse");
+        assert!(!cfg.daemon.listen.is_empty());
+        assert!(!cfg.srs.param_cache.as_os_str().is_empty());
+    }
+
+    #[test]
     fn test_parse_toml() {
         let toml_str = r#"
 [daemon]

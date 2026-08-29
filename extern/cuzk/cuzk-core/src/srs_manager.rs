@@ -442,4 +442,47 @@ mod tests {
         let params = circuit_id_to_param_filename(&CircuitId::Porep32G);
         assert_eq!(f.strip_suffix(".vk"), params.strip_suffix(".params"));
     }
+
+    #[cfg(not(feature = "cuda-supraseal"))]
+    #[test]
+    fn step_p04_srs_stub_ensure_loaded_returns_error() {
+        let budget = std::sync::Arc::new(crate::memory::MemoryBudget::new(10 * crate::memory::GIB));
+        let mut mgr = SrsManager::new(std::path::PathBuf::from("/nonexistent_cuzk_params"), budget);
+        let err = mgr
+            .ensure_loaded(&CircuitId::Porep32G, None)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("cuda-supraseal") || err.contains("SRS loading requires"),
+            "{}",
+            err
+        );
+    }
+
+    #[cfg(feature = "cuda-supraseal")]
+    #[test]
+    fn step_p04_srs_evict_when_empty_returns_zero() {
+        let budget = std::sync::Arc::new(crate::memory::MemoryBudget::new(100 * crate::memory::GIB));
+        let mut mgr = SrsManager::new(std::path::PathBuf::from("/"), budget);
+        assert_eq!(mgr.evict(&CircuitId::Porep32G), 0);
+        assert!(mgr.evictable_entries().is_empty());
+    }
+
+    #[cfg(feature = "cuda-supraseal")]
+    #[test]
+    fn step_p04_srs_ensure_loaded_missing_param_file_returns_err() {
+        let budget = std::sync::Arc::new(crate::memory::MemoryBudget::new(100 * crate::memory::GIB));
+        let dir = std::env::temp_dir().join(format!("cuzk_srs_miss_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut mgr = SrsManager::new(dir, budget);
+        let err = mgr
+            .ensure_loaded(&CircuitId::Porep32G, None)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("not found") || err.contains("param file"),
+            "unexpected err: {}",
+            err
+        );
+    }
 }

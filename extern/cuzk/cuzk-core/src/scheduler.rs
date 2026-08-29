@@ -110,3 +110,90 @@ impl Scheduler {
         counts.into_iter().collect()
     }
 }
+
+#[cfg(test)]
+mod step_p02_scheduler_tests {
+    use super::*;
+    use crate::types::{JobId, Priority, ProofKind, ProofRequest};
+    use std::time::{Duration, Instant};
+
+    fn mk_req(job: &str, priority: Priority, kind: ProofKind, submitted_at: Instant) -> ProofRequest {
+        ProofRequest {
+            job_id: JobId(job.to_string()),
+            request_id: job.to_string(),
+            proof_kind: kind,
+            priority,
+            submitted_at,
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn step_p02_scheduler_priority_ordering() {
+        let s = Scheduler::new();
+        let t0 = Instant::now();
+        s.submit(mk_req("low", Priority::Low, ProofKind::PoRepSealCommit, t0))
+            .await;
+        s.submit(mk_req(
+            "critical",
+            Priority::Critical,
+            ProofKind::PoRepSealCommit,
+            t0,
+        ))
+        .await;
+        s.submit(mk_req("normal", Priority::Normal, ProofKind::PoRepSealCommit, t0))
+            .await;
+        assert_eq!(s.next().await.job_id.0, "critical");
+        assert_eq!(s.next().await.job_id.0, "normal");
+        assert_eq!(s.next().await.job_id.0, "low");
+    }
+
+    #[tokio::test]
+    async fn step_p02_scheduler_fifo_within_priority() {
+        let s = Scheduler::new();
+        let t0 = Instant::now();
+        s.submit(mk_req("a", Priority::Normal, ProofKind::PoRepSealCommit, t0))
+            .await;
+        tokio::time::sleep(Duration::from_millis(5)).await;
+        s.submit(mk_req("b", Priority::Normal, ProofKind::PoRepSealCommit, Instant::now()))
+            .await;
+        assert_eq!(s.next().await.job_id.0, "a");
+        assert_eq!(s.next().await.job_id.0, "b");
+    }
+
+    #[tokio::test]
+    async fn step_p02_scheduler_stats_per_kind() {
+        let s = Scheduler::new();
+        let t0 = Instant::now();
+        s.submit(mk_req(
+            "1",
+            Priority::Normal,
+            ProofKind::PoRepSealCommit,
+            t0,
+        ))
+        .await;
+        s.submit(mk_req(
+            "2",
+            Priority::Normal,
+            ProofKind::WinningPost,
+            t0,
+        ))
+        .await;
+        let mut stats = s.stats().await;
+        stats.sort_by(|a, b| format!("{:?}", a.0).cmp(&format!("{:?}", b.0)));
+        assert_eq!(stats.len(), 2);
+        let sum: u32 = stats.iter().map(|(_, c)| c).sum();
+        assert_eq!(sum, 2);
+    }
+
+    #[tokio::test]
+    async fn step_p02_scheduler_len_zero_after_drain() {
+        let s = Scheduler::new();
+        let t0 = Instant::now();
+        s.submit(mk_req("x", Priority::High, ProofKind::PoRepSealCommit, t0))
+            .await;
+        assert_eq!(s.len().await, 1);
+        let _ = s.next().await;
+        assert_eq!(s.len().await, 0);
+    }
+}
