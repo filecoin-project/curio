@@ -186,9 +186,13 @@ func (c *CleanupPieceTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.Ta
 	err = c.db.QueryRow(ctx, `SELECT COALESCE(array_agg(cleanup_task_id), '{}')::bigint[] AS cleanup_task_ids FROM 
 										(
 										    SELECT pp.cleanup_task_id FROM parked_pieces pp
-											INNER JOIN sector_location l ON l.miner_id = 0 AND l.sector_num = pp.id AND l.sector_filetype = 32
-											WHERE cleanup_task_id = ANY ($1) 
-											  AND l.storage_id = ANY ($2)
+											LEFT JOIN LATERAL (
+												SELECT bool_or(l.storage_id = ANY ($2)) AS here, count(*) AS n
+												FROM sector_location l
+												WHERE l.miner_id = 0 AND l.sector_num = pp.id AND l.sector_filetype = 32
+											) loc ON TRUE
+											WHERE pp.cleanup_task_id = ANY ($1)
+											  AND (COALESCE(loc.here, FALSE) OR loc.n = 0)
 											  LIMIT 100
 										) s`, indIDs, storageIDs).Scan(&acceptedIDs)
 	if err != nil {
