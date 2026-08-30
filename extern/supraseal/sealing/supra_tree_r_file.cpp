@@ -27,6 +27,9 @@ static int tree_r_file_impl(const char* last_layer_filename,
   std::vector<std::string> layer_filenames;
   layer_filenames.push_back(std::string(last_layer_filename));
   streaming_node_reader_files_t<sealing_config_t<1, P>> node_reader(P::GetSectorSize(), layer_filenames);
+  if (!node_reader.is_open()) {
+    return 1;
+  }
 
   node_reader.alloc_slots(stream_count * 2, P::GetNumLayers() * batch_size, true);
 
