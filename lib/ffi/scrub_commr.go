@@ -5,6 +5,7 @@ import (
 	"context"
 	"io"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/ipfs/go-cid"
@@ -168,8 +169,11 @@ func (sb *SealCalls) getCachePath(ctx context.Context, s storiface.SectorRef, ft
 	if err == nil {
 		localPath := storiface.PathByType(paths, ft)
 		if localPath != "" {
-			// Cache is available locally
-			return localPath, func() {}, nil
+			if verr := validateCacheDir(localPath); verr == nil {
+				return localPath, func() {}, nil
+			} else {
+				log.Warnw("local cache unusable, falling back to remote", "sector", s.ID, "type", ft, "path", localPath, "err", verr)
+			}
 		}
 	}
 
@@ -213,6 +217,20 @@ func validateSectorFile(path string, ssize uint64) error {
 	}
 	if uint64(st.Size()) != ssize {
 		return xerrors.Errorf("%s size %d != expected %d", path, st.Size(), ssize)
+	}
+	return nil
+}
+
+func validateCacheDir(path string) error {
+	st, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if !st.IsDir() {
+		return xerrors.Errorf("%s is not a directory", path)
+	}
+	if _, err := os.Stat(filepath.Join(path, "p_aux")); err != nil {
+		return xerrors.Errorf("p_aux in %s: %w", path, err)
 	}
 	return nil
 }
