@@ -178,6 +178,8 @@ Chain API: bundled Forest via compose, or set `FULLNODE_API_INFO` / `[APIs].Chai
 
 Curio-PDP stores piece payloads on local disk. Attach folders in the admin GUI (**Storage** page) by entering any existing path, or by selecting a suggested candidate under `/data`. Paths are persisted in `$CURIO_REPO_PATH/storage.json`.
 
+On a full Curio cluster that also seals sectors, keep PDP data off certain disks with the `"piece"` DenyTypes filter. Or add a dedicated storage location with AllowTypes: ["piece"]. See [Separate PDP / parked pieces from sealed storage](storage-configuration.md#separate-pdp-parked-pieces).
+
 Missing `sectorstore.json` files are created when you attach a folder.
 
 Suggested candidates are scanned under `/data` by default. To change that scan root (without limiting custom attach):

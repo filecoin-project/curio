@@ -11,7 +11,10 @@ import (
 )
 
 const costTimeout = 200 * time.Millisecond
-const preemptTaskKillTimeout = 500 * time.Millisecond
+
+// preemptTaskKillTimeout is the wall-clock budget for victims to exit after
+// cancel. A var so tests can shrink it.
+var preemptTaskKillTimeout = 500 * time.Millisecond
 
 type preemptCandidate struct {
 	handler *taskTypeHandler
@@ -112,7 +115,12 @@ func (e *TaskEngine) computePreemptionPlan(needed resources.Resources) *preempti
 }
 
 func (e *TaskEngine) executePreemption(plan *preemptionPlan) {
-	handles := make([]*runregistry.Handle, 0, len(plan.candidates))
+	type wait struct {
+		handle *runregistry.Handle
+		name   string
+		taskID TaskID
+	}
+	waits := make([]wait, 0, len(plan.candidates))
 	for _, c := range plan.candidates {
 		handle, ok := c.handler.running.Get(int64(c.taskID))
 		if !ok {
@@ -120,13 +128,16 @@ func (e *TaskEngine) executePreemption(plan *preemptionPlan) {
 		}
 		log.Infow("preempting task", "task", c.handler.Name, "id", c.taskID, "runtime", c.runtime)
 		handle.Preempt()
-		handles = append(handles, handle)
+		waits = append(waits, wait{handle: handle, name: c.handler.Name, taskID: c.taskID})
 	}
 
-	deadline := time.After(preemptTaskKillTimeout)
-	for _, handle := range handles {
-		if exited := handle.WaitDone(deadline); !exited {
-			log.Warnw("preempted task did not exit in time")
+	// One wall-clock budget for the whole plan. A shared time.After channel
+	// would be drained by the first timeout, and the next WaitDone would
+	// block the scheduler forever if that task's Do() ignores cancel.
+	deadline := time.Now().Add(preemptTaskKillTimeout)
+	for _, w := range waits {
+		if exited := w.handle.WaitDone(deadline); !exited {
+			log.Warnw("preempted task did not exit in time", "task", w.name, "id", w.taskID)
 		}
 	}
 }

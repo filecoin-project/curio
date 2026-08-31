@@ -565,6 +565,14 @@ func LoadConfigWithUpgrades(text string, curioConfigWithDefaults *CurioConfig) (
 
 func LoadConfigWithUpgradesGeneric[T any](text string, curioConfigWithDefaults T, fixupFn func(string, T) error) (toml.MetaData, error) {
 
+	// Drop empty Dynamic wrapper tables before the [addresses] -> [[addresses]]
+	// rewrite so a raw-encoded *Dynamic[[]CurioAddresses] is not turned into
+	// a spurious empty address entry.
+	text, err := StripEmptyDynamicTables(text, curioConfigWithDefaults)
+	if err != nil {
+		return toml.MetaData{}, err
+	}
+
 	// allow migration from old config format that was limited to 1 wallet setup.
 	newText := strings.Join(lo.Map(strings.Split(text, "\n"), func(line string, _ int) string {
 		if strings.EqualFold(line, "[addresses]") {
@@ -573,7 +581,7 @@ func LoadConfigWithUpgradesGeneric[T any](text string, curioConfigWithDefaults T
 		return line
 	}), "\n")
 
-	err := fixupFn(newText, curioConfigWithDefaults)
+	err = fixupFn(newText, curioConfigWithDefaults)
 
 	if err != nil {
 		return toml.MetaData{}, err

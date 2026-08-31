@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -177,6 +178,8 @@ func TestDefaultCurioConfigMarshal(t *testing.T) {
 	data, err := TransparentMarshal(cfg)
 	assert.NoError(t, err, "Should be able to marshal DefaultCurioConfig to TOML")
 	assert.NotEmpty(t, data)
+	assert.Contains(t, string(data), "PDPUnclaimedUploadKeepHours = 2")
+	assert.NotContains(t, string(data), "[Subsystems.PDPUnclaimedUploadKeepHours]")
 	t.Logf("Successfully marshaled config to %d bytes of TOML", len(data))
 }
 
@@ -207,6 +210,38 @@ func TestCurioConfigRoundTrip(t *testing.T) {
 
 	// Verify static fields were preserved
 	assert.Equal(t, cfg1.Subsystems.GuiAddress, cfg2.Subsystems.GuiAddress)
+}
+
+func TestNewDynamicConcurrentConstruction(t *testing.T) {
+	// ForEachConfig on recent main calls DefaultCurioConfig per layer while
+	// ActorSummary runs on the JSON-RPC worker pool. That used to fatal with
+	// concurrent map writes in NewDynamic. This should stay clean under -race.
+	const goroutines = 16
+	const iters = 64
+
+	var wg sync.WaitGroup
+	wg.Add(goroutines + 1)
+	for i := 0; i < goroutines; i++ {
+		go func() {
+			defer wg.Done()
+			for j := 0; j < iters; j++ {
+				d := NewDynamic(j)
+				d.OnChange(func() {})
+				_ = DefaultCurioConfig()
+			}
+		}()
+	}
+	watched := NewDynamic(0)
+	watched.OnChange(func() {})
+	go func() {
+		defer wg.Done()
+		for j := 0; j < iters; j++ {
+			dynamicLocker.Lock()
+			watched.SetWithoutLock(j)
+			dynamicLocker.Unlock()
+		}
+	}()
+	wg.Wait()
 }
 
 func TestBecomes(t *testing.T) {

@@ -18,7 +18,10 @@ import (
 )
 
 type dataSetTerminationStatusResponse struct {
-	TerminationTxHash       string `json:"terminationTxHash"`
+	TerminationTxHash string `json:"terminationTxHash"`
+	// ConfirmedTxHash is the hash that landed on chain. It differs from
+	// terminationTxHash when Curio replaced the original send by fee.
+	ConfirmedTxHash         string `json:"confirmedTxHash,omitempty"`
 	FWSSTerminated          *bool  `json:"fwssTerminated"`
 	ServiceTerminationEpoch *int64 `json:"serviceTerminationEpoch"`
 }
@@ -239,6 +242,19 @@ func (p *PDPService) handleGetDataSetTerminationStatus(w http.ResponseWriter, r 
 		if row.ServiceTerminationEpoch.Valid {
 			response.FWSSTerminated = new(true)
 			response.ServiceTerminationEpoch = new(row.ServiceTerminationEpoch.Int64)
+		}
+		var confirmedTxHash sql.NullString
+		err = p.db.QueryRow(ctx, `
+			SELECT confirmed_tx_hash
+			FROM message_waits_eth
+			WHERE signed_tx_hash = $1
+		`, row.TerminateTxHash.String).Scan(&confirmedTxHash)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			httpServerError(w, http.StatusInternalServerError, "Failed to query confirmed termination hash", err)
+			return
+		}
+		if confirmedTxHash.Valid {
+			response.ConfirmedTxHash = confirmedTxHash.String
 		}
 	}
 

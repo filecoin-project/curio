@@ -200,6 +200,16 @@ func (t SectorFileType) Has(singleType SectorFileType) bool {
 	return t&singleType == singleType
 }
 
+// IsDirectory reports whether this file type is stored as a directory.
+func (t SectorFileType) IsDirectory() bool {
+	switch t {
+	case FTCache, FTUpdateCache:
+		return true
+	default:
+		return false
+	}
+}
+
 // SealSpaceUse calculates the amount of space needed for sealing the sector
 // based on the given sector size. It iterates over the different path types
 // and calculates the space needed for each path type using the FSOverheadSeal
@@ -406,10 +416,16 @@ func ParseSectorID(baseName string) (abi.SectorID, error) {
 		return abi.SectorID{}, xerrors.Errorf("parseSectorID expected to scan 2 values, got %d", read)
 	}
 
-	return abi.SectorID{
+	id := abi.SectorID{
 		Miner:  mid,
 		Number: n,
-	}, nil
+	}
+	// Sscanf accepts a prefix match, so reject leftovers such as s-t01000-5.tmp.
+	if SectorName(id) != baseName {
+		return abi.SectorID{}, xerrors.Errorf("parseSectorID: %q is not a sector name", baseName)
+	}
+
+	return id, nil
 }
 
 // SectorName returns the name of a sector in the format "s-t0<Miner>-<Number>"

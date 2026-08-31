@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/big"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ethereum/go-ethereum"
@@ -36,6 +37,10 @@ type ethMessageReplacer struct {
 	db               *harmonydb.DB
 	client           ethchain.EthClient
 	stuckForDuration time.Duration
+
+	feeFloorLk sync.Mutex
+	feeFloor   *big.Int
+	feeFloorAt time.Time
 }
 
 type ethMessageReplaceSenderQueue struct {
@@ -148,7 +153,7 @@ func (t *ethMessageReplacer) loadEthMessageCandidates(ctx context.Context, stuck
 	for _, fromAddress := range fromAddresses {
 		queue := senderQueues[fromAddress]
 		ethCtx, cancel := context.WithTimeout(ctx, defaultEthCallTimeout)
-		nonce, err := t.client.NonceAt(ethCtx, queue.From, big.NewInt(int64(height)))
+		nonce, err := t.client.NonceAt(ethCtx, queue.From, nil)
 		cancel()
 		if err != nil {
 			log.Warnw("skipping eth message replacement sender; account nonce lookup failed", "from", fromAddress, "error", err)
@@ -444,7 +449,7 @@ func (t *ethMessageReplacer) prepareFeeReplacementEthMessage(ctx context.Context
 	ethCtx, cancel := context.WithTimeout(ctx, defaultEthCallTimeout)
 	defer cancel()
 
-	header, err := t.client.HeaderByNumber(ethCtx, big.NewInt(int64(height)))
+	header, err := t.client.HeaderByNumber(ethCtx, nil)
 	if err != nil {
 		return nil, false, fmt.Errorf("getting latest eth header for %s nonce %d: %w", from.Hex(), candidate.Nonce, err)
 	}
@@ -452,11 +457,18 @@ func (t *ethMessageReplacer) prepareFeeReplacementEthMessage(ctx context.Context
 		return nil, false, fmt.Errorf("base fee is not available for %s nonce %d", from.Hex(), candidate.Nonce)
 	}
 
+	// Match eth_sender fee construction: gasFeeCap = 2*baseFee + tip, with a
+	// recent FeeHistory max used as a base-fee floor.
+	baseFee := new(big.Int).Set(header.BaseFee)
+	if floor := t.baseFeeFloor(ctx); floor != nil && floor.Cmp(baseFee) > 0 {
+		baseFee = floor
+	}
+
 	gasTipCap, err := t.client.SuggestGasTipCap(ethCtx)
 	if err != nil {
 		return nil, false, fmt.Errorf("estimating gas tip cap for %s nonce %d: %w", from.Hex(), candidate.Nonce, err)
 	}
-	gasFeeCap := new(big.Int).Add(header.BaseFee, gasTipCap)
+	gasFeeCap := new(big.Int).Add(new(big.Int).Mul(baseFee, big.NewInt(2)), gasTipCap)
 
 	feeStuck := latest.GasFeeCap().Cmp(gasFeeCap) < 0 ||
 		latest.GasTipCap().Cmp(gasTipCap) < 0
@@ -671,6 +683,37 @@ func (t *ethMessageReplacer) signTransaction(ctx context.Context, from common.Ad
 	}
 
 	return gethtypes.SignTx(tx, gethtypes.LatestSignerForChainID(tx.ChainId()), privateKey)
+}
+
+func (t *ethMessageReplacer) baseFeeFloor(ctx context.Context) *big.Int {
+	t.feeFloorLk.Lock()
+	defer t.feeFloorLk.Unlock()
+
+	if t.feeFloor != nil && time.Since(t.feeFloorAt) < baseFeeFloorTTL {
+		return new(big.Int).Set(t.feeFloor)
+	}
+
+	fhCtx, cancel := context.WithTimeout(ctx, baseFeeFloorTimeout)
+	defer cancel()
+
+	feeHist, err := t.client.FeeHistory(fhCtx, 120, nil, nil)
+	if err != nil {
+		if t.feeFloor == nil {
+			return nil
+		}
+		return new(big.Int).Set(t.feeFloor)
+	}
+
+	floor := new(big.Int)
+	for _, histFee := range feeHist.BaseFee {
+		if histFee != nil && histFee.Cmp(floor) > 0 {
+			floor.Set(histFee)
+		}
+	}
+
+	t.feeFloor = floor
+	t.feeFloorAt = time.Now()
+	return new(big.Int).Set(floor)
 }
 
 func transactionSender(tx *gethtypes.Transaction) (common.Address, error) {

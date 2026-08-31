@@ -331,6 +331,7 @@ func (t *PDPPullPieceTask) expireStalePullItems(ctx context.Context) error {
 				AND failed = TRUE
 				AND task_id IS NULL
 				AND (parked_piece_ref IS NOT NULL OR pull_parked_piece_id IS NOT NULL)
+				AND created_at <= NOW()
 		`)
 		if err != nil {
 			return false, xerrors.Errorf("query failed pull items with refs: %w", err)
@@ -1347,9 +1348,8 @@ func (t *PDPPullPieceTask) CanAccept(ids []harmonytask.TaskID, engine *harmonyta
 
 func (t *PDPPullPieceTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name:      tasknames.PDPv0_PullPiece,
-		Max:       taskhelp.Max(t.max),
-		MayFollow: []string{tasknames.PDPv0_Notify},
+		Name: tasknames.PDPv0_PullPiece,
+		Max:  taskhelp.Max(t.max),
 		Cost: resources.Resources{
 			Cpu:     0,
 			Gpu:     0,

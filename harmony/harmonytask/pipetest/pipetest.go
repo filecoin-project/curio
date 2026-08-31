@@ -103,18 +103,26 @@ var _ harmonytask.PeerConnectorInterface = (*PipeNode)(nil)
 func (n *PipeNode) ConnectToPeer(peerAddr string) (harmonytask.PeerConnection, error) {
 	n.net.mu.Lock()
 	remote, ok := n.net.nodes[peerAddr]
+	var onConnect func(string, harmonytask.PeerConnection)
+	if ok {
+		// Read under the network mutex: SetOnConnect may run concurrently
+		// on the remote node (engines start at different times in tests).
+		onConnect = remote.onConnect
+	}
 	n.net.mu.Unlock()
 	if !ok {
 		return nil, fmt.Errorf("unknown peer: %s", peerAddr)
 	}
 	local, remoteEnd := newPipePair()
-	if remote.onConnect != nil {
-		go remote.onConnect(n.addr, remoteEnd)
+	if onConnect != nil {
+		go onConnect(n.addr, remoteEnd)
 	}
 	return local, nil
 }
 
 // SetOnConnect sets the callback for incoming peer connections.
 func (n *PipeNode) SetOnConnect(fn func(string, harmonytask.PeerConnection)) {
+	n.net.mu.Lock()
 	n.onConnect = fn
+	n.net.mu.Unlock()
 }

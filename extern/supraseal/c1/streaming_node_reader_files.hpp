@@ -21,17 +21,24 @@ class streaming_node_reader_t {
   size_t pages_per_slot;
 
   node_t* buffer;
+  bool open_ok;
 
   thread_pool_t pool;
 
 public:
   streaming_node_reader_t(size_t sector_size, std::vector<std::string> layer_filenames)
-    : buffer(nullptr)
+    : buffer(nullptr), open_ok(true)
   {
     layer_files.resize(layer_filenames.size());
     for (size_t i = 0; i < layer_filenames.size(); i++) {
-      layer_files[i].mmap_read(layer_filenames[i], sector_size);
+      if (layer_files[i].mmap_read(layer_filenames[i], sector_size) != 0) {
+        open_ok = false;
+      }
     }
+  }
+
+  bool is_open() const {
+    return open_ok && !layer_files.empty();
   }
 
   ~streaming_node_reader_t() {

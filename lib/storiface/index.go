@@ -72,6 +72,8 @@ type StorageInfo struct {
 	// - "cache"
 	// - "update"
 	// - "update-cache"
+	// - "piece" (parked pieces: PDP payloads and market piece parking)
+	// - "key" (unseal keys)
 	// Any other value will generate a warning and be ignored.
 	AllowTypes []string
 
@@ -84,6 +86,8 @@ type StorageInfo struct {
 	// - "cache"
 	// - "update"
 	// - "update-cache"
+	// - "piece" (parked pieces: PDP payloads and market piece parking)
+	// - "key" (unseal keys)
 	// Any other value will generate a warning and be ignored.
 	DenyTypes []string
 

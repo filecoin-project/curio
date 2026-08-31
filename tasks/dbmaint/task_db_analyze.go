@@ -6,7 +6,6 @@ import (
 	"time"
 
 	logging "github.com/ipfs/go-log/v2"
-	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/mod/semver"
 	"golang.org/x/xerrors"
 
@@ -23,7 +22,7 @@ var log = logging.Logger("dbanalyze")
 const (
 	analyzeInterval        = 24 * time.Hour
 	analyzeGrowthThreshold = 0.10
-	minChurnDelta          = 100
+	minRowDelta            = 100
 	perTableAnalyzeTimeout = 10 * time.Minute
 	upgradeQuietWindow     = time.Hour
 )
@@ -45,91 +44,121 @@ func (d *DBAnalyzeTask) Do(ctx context.Context, taskID harmonytask.TaskID, still
 		return true, nil
 	}
 
-	var rows []struct {
-		TableName      string `db:"table_name"`
-		Churn          int64  `db:"churn"`
-		LiveRows       int64  `db:"live_rows"`
-		ChurnAtAnalyze *int64 `db:"churn_at_analyze"`
-	}
-	err = d.db.Select(ctx, &rows, `
-		SELECT s.relname AS table_name,
-		       s.n_tup_ins + s.n_tup_upd + s.n_tup_del AS churn,
-		       s.n_live_tup AS live_rows,
-		       a.churn_at_analyze
-		FROM pg_stat_user_tables s
-		LEFT JOIN table_analyze_state a ON a.table_name = s.relname
-		WHERE s.schemaname = current_schema()
-		ORDER BY s.relname`)
-	if err != nil {
-		return false, xerrors.Errorf("listing table churn: %w", err)
-	}
-
 	var schema string
 	if err := d.db.QueryRow(ctx, `SELECT current_schema()`).Scan(&schema); err != nil {
 		return false, xerrors.Errorf("getting current schema: %w", err)
 	}
 
+	// pg_stat_user_tables counters are empty on Yugabyte; pg_class is the catalog list.
+	var rows []struct {
+		TableName     string `db:"table_name"`
+		RowsAtAnalyze int64  `db:"rows_at_analyze"`
+		Seen          bool   `db:"seen"`
+	}
+	err = d.db.Select(ctx, &rows, `
+		SELECT c.relname AS table_name,
+		       COALESCE(a.rows_at_analyze, 0) AS rows_at_analyze,
+		       a.table_name IS NOT NULL AS seen
+		FROM pg_class c
+		JOIN pg_namespace n ON n.oid = c.relnamespace
+		LEFT JOIN table_analyze_state a ON a.table_name = c.relname
+		WHERE n.nspname = $1
+		  AND c.relkind = 'r'
+		ORDER BY c.relname`, schema)
+	if err != nil {
+		return false, xerrors.Errorf("listing tables: %w", err)
+	}
+	if len(rows) == 0 {
+		return false, xerrors.Errorf("no tables found in schema %s", schema)
+	}
+
 	analyzed := 0
+	var firstErr error
 	for _, r := range rows {
 		if !stillOwned() {
 			return false, nil
 		}
-		if !shouldAnalyze(r.Churn, r.ChurnAtAnalyze) {
+
+		tctx, cancel := context.WithTimeout(ctx, perTableAnalyzeTimeout)
+		n, err := harmonydb.AdminTableCount(tctx, d.db, schema, r.TableName)
+		cancel()
+		if err != nil {
+			log.Warnw("COUNT(*) failed", "table", r.TableName, "error", err)
+			if firstErr == nil {
+				firstErr = xerrors.Errorf("COUNT(*) %s: %w", r.TableName, err)
+			}
 			continue
 		}
 
-		tctx, cancel := context.WithTimeout(ctx, perTableAnalyzeTimeout)
-		_, err = harmonydb.AdminQuery(tctx, d.db, "ANALYZE "+pgx.Identifier{schema, r.TableName}.Sanitize())
+		if !shouldAnalyze(n, r.Seen, r.RowsAtAnalyze) {
+			continue
+		}
+
+		tctx, cancel = context.WithTimeout(ctx, perTableAnalyzeTimeout)
+		err = harmonydb.AdminAnalyze(tctx, d.db, schema, r.TableName)
 		cancel()
 		if err != nil {
 			log.Warnw("ANALYZE failed", "table", r.TableName, "error", err)
+			if firstErr == nil {
+				firstErr = xerrors.Errorf("ANALYZE %s: %w", r.TableName, err)
+			}
 			continue
 		}
 
 		_, err = d.db.Exec(ctx, `
 			INSERT INTO table_analyze_state (table_name, churn_at_analyze, rows_at_analyze, last_analyzed_at, analyze_count)
-			VALUES ($1, $2, $3, NOW(), 1)
+			VALUES ($1, $2, $2, NOW(), 1)
 			ON CONFLICT (table_name) DO UPDATE SET
 			    churn_at_analyze = EXCLUDED.churn_at_analyze,
 			    rows_at_analyze  = EXCLUDED.rows_at_analyze,
 			    last_analyzed_at = NOW(),
 			    analyze_count    = table_analyze_state.analyze_count + 1`,
-			r.TableName, r.Churn, r.LiveRows)
+			r.TableName, n)
 		if err != nil {
 			log.Warnw("failed to record analyze state", "table", r.TableName, "error", err)
+			if firstErr == nil {
+				firstErr = xerrors.Errorf("record %s: %w", r.TableName, err)
+			}
 			continue
 		}
 
 		analyzed++
-		log.Infow("analyzed table", "table", r.TableName, "churn", r.Churn, "live_rows", r.LiveRows)
+		log.Infow("analyzed table", "table", r.TableName, "rows", n)
 	}
 
 	if _, err := d.db.Exec(ctx, `
-		DELETE FROM table_analyze_state
-		WHERE table_name NOT IN (
-			SELECT relname FROM pg_stat_user_tables WHERE schemaname = current_schema()
-		)`); err != nil {
+		DELETE FROM table_analyze_state a
+		WHERE NOT EXISTS (
+			SELECT 1
+			FROM pg_class c
+			JOIN pg_namespace n ON n.oid = c.relnamespace
+			WHERE n.nspname = $1
+			  AND c.relkind = 'r'
+			  AND c.relname = a.table_name
+		)`, schema); err != nil {
 		log.Warnw("failed to prune dropped table analyze state", "error", err)
+	}
+
+	if analyzed == 0 && firstErr != nil {
+		return false, xerrors.Errorf("analyzed 0 of %d tables: %w", len(rows), firstErr)
 	}
 
 	log.Infow("DB analyze pass complete", "task_id", taskID, "tables", len(rows), "analyzed", analyzed)
 	return true, nil
 }
 
-func shouldAnalyze(churn int64, churnAtAnalyze *int64) bool {
-	if churnAtAnalyze == nil {
+func shouldAnalyze(rows int64, seen bool, prev int64) bool {
+	if !seen {
 		return true
 	}
-	prev := *churnAtAnalyze
-	if churn < prev {
-		// Stats counters were reset; re-baseline.
+	if rows < prev {
 		return true
 	}
-	delta := churn - prev
-	if delta < minChurnDelta {
+	delta := rows - prev
+	if delta < minRowDelta {
 		return false
 	}
-	return float64(churn) >= float64(prev)*(1+analyzeGrowthThreshold)
+	return float64(rows) >= float64(prev)*(1+analyzeGrowthThreshold)
 }
 
 func (d *DBAnalyzeTask) skipForRollingUpgrade(ctx context.Context) (bool, error) {

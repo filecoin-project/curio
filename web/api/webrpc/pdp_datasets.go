@@ -47,20 +47,21 @@ type PDPDataSetInteraction struct {
 }
 
 type PDPDataSetDetail struct {
-	ID                        int64      `json:"id"`
-	ObjectCount               int64      `json:"objectCount"`
-	SizeBytes                 int64      `json:"sizeBytes"`
-	FirstUploadAt             *time.Time `json:"firstUploadAt,omitempty"`
-	LifespanSeconds           *int64     `json:"lifespanSeconds,omitempty"`
-	ProveAtEpoch              *int64     `json:"proveAtEpoch,omitempty"`
-	ChallengeWindow           *int64     `json:"challengeWindow,omitempty"`
-	ProvingPeriod             *int64     `json:"provingPeriod,omitempty"`
-	UnrecoverableFailureEpoch *int64     `json:"unrecoverableFailureEpoch,omitempty"`
-	InitReady                 bool       `json:"initReady"`
-	Service                   string     `json:"service"`
-	HeadEpoch                 int64      `json:"headEpoch"`
-	ProvingStatus             string     `json:"provingStatus"`
-	ExploreURL                string     `json:"exploreUrl,omitempty"`
+	ID                        int64                   `json:"id"`
+	ObjectCount               int64                   `json:"objectCount"`
+	SizeBytes                 int64                   `json:"sizeBytes"`
+	FirstUploadAt             *time.Time              `json:"firstUploadAt,omitempty"`
+	LifespanSeconds           *int64                  `json:"lifespanSeconds,omitempty"`
+	ProveAtEpoch              *int64                  `json:"proveAtEpoch,omitempty"`
+	ChallengeWindow           *int64                  `json:"challengeWindow,omitempty"`
+	ProvingPeriod             *int64                  `json:"provingPeriod,omitempty"`
+	UnrecoverableFailureEpoch *int64                  `json:"unrecoverableFailureEpoch,omitempty"`
+	InitReady                 bool                    `json:"initReady"`
+	Service                   string                  `json:"service"`
+	HeadEpoch                 int64                   `json:"headEpoch"`
+	ProvingStatus             string                  `json:"provingStatus"`
+	ExploreURL                string                  `json:"exploreUrl,omitempty"`
+	PaymentAtRisk             *PDPDataSetAtRiskDetail `json:"paymentAtRisk,omitempty"`
 }
 
 // PDPDataSetPayments is chain-derived wallet/payment state for a dataset.
@@ -390,6 +391,12 @@ func (a *WebRPC) PDPDataSetDetail(ctx context.Context, id int64) (*PDPDataSetDet
 	if base, err := urlhelper.GetExternalURL(&a.Deps.Cfg.HTTP); err == nil && base != nil && strings.TrimSpace(base.Host) != "" {
 		detail.ExploreURL = strings.TrimRight(base.String(), "/") + "/explore/data-sets/" + strconv.FormatInt(id, 10)
 	}
+
+	atRisk, err := a.loadDataSetAtRiskDetail(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	detail.PaymentAtRisk = atRisk
 
 	return detail, nil
 }

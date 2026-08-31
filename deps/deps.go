@@ -424,6 +424,12 @@ func LoadConfigWithUpgrades(text string, curioConfigWithDefaults *config.CurioCo
 
 func GetConfig(ctx context.Context, layers []string, db *harmonydb.DB) (*config.CurioConfig, error) {
 	if !db.ReadOnly() {
+		// Layers saved before Dynamic-aware GUI encoding may contain empty
+		// wrapper tables that break older decode paths and confuse operators.
+		// Repair them in-place (with history) before applying layers.
+		if _, err := config.RepairStoredEmptyDynamicTables(ctx, db); err != nil {
+			return nil, err
+		}
 		if err := updateBaseLayer(ctx, db); err != nil {
 			return nil, err
 		}

@@ -315,7 +315,7 @@ func NewTimeoutLimitReader(r io.Reader, timeout time.Duration) *TimeoutLimitRead
 	}
 }
 
-const UploadSizeLimit = int64(1 * 1024 * 1024 * 1024)
+const UploadSizeLimit = int64(((1 * 1024 * 1024 * 1024) * 127) / 128)
 
 func (t *TimeoutLimitReader) Read(p []byte) (int, error) {
 	deadline := time.Now().Add(t.timeout)

@@ -7,7 +7,7 @@ import (
 )
 
 func uiSchemaRoot() any {
-	return depsconfig.UnwrapDynamics(depsconfig.CurioConfig{})
+	return depsconfig.CurioConfig{}
 }
 
 func uiDefaultJSON() (map[string]any, error) {

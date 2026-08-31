@@ -1,7 +1,7 @@
 import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js'
 import RPCCall from '/lib/jsonrpc.mjs'
 import { relativePhrase } from '/lib/dateutil.mjs'
-import { loadingBlock, loadingCssText } from '/lib/loading.mjs'
+import { loadingBlock, loadingSpinner, loadingCssText } from '/lib/loading.mjs'
 
 function formatBytes(bytes) {
   const n = Number(bytes || 0)
@@ -43,6 +43,31 @@ function classifySearch(q) {
   return { kind: 'unknown', value: s }
 }
 
+function reasonLabel(reason) {
+  switch (reason) {
+    case 'unpaid_grace': return 'Unpaid (grace period)'
+    case 'payment_default': return 'Payment default'
+    case 'client_requested': return 'Client requested termination'
+    case 'proving_failure': return 'Proving failure'
+    default: return reason || '—'
+  }
+}
+
+function formatDeleteDate(item) {
+  if (item?.projectedDeleteAt) {
+    const d = new Date(item.projectedDeleteAt)
+    const date = d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+    const epoch = item.projectedDeleteEpoch != null ? ` (epoch ${item.projectedDeleteEpoch})` : ''
+    return `${date}${epoch}`
+  }
+  if (item?.deleteDatePending) return 'Pending confirmation'
+  return '—'
+}
+
+function ownerContactLine(payer) {
+  return payer ? `owner (payer ${payer})` : 'dataset owner (if known)'
+}
+
 customElements.define('pdp-datasets-list', class PdpDatasetsList extends LitElement {
   static properties = {
     items: { type: Array },
@@ -55,6 +80,11 @@ customElements.define('pdp-datasets-list', class PdpDatasetsList extends LitElem
     sortAsc: { type: Boolean },
     loadError: { type: String },
     loading: { type: Boolean },
+    scanning: { type: Boolean },
+    scanProgress: { type: Object },
+    viewMode: { type: String },
+    allAtRiskItems: { type: Array },
+    loadGeneration: { type: Number },
   }
 
   constructor() {
@@ -69,13 +99,23 @@ customElements.define('pdp-datasets-list', class PdpDatasetsList extends LitElem
     this.sortAsc = false
     this.loadError = null
     this.loading = false
+    this.scanning = false
+    this.scanProgress = null
+    this.viewMode = 'all'
+    this.allAtRiskItems = []
+    this.loadGeneration = 0
 
     const params = new URLSearchParams(window.location.search)
+    if (params.get('risk') === 'payment') {
+      this.viewMode = 'payment'
+      this.sortBy = 'size_bytes'
+      this.sortAsc = false
+    }
     if (params.get('q')) {
       this.filterInput = params.get('q')
     }
     const sort = params.get('sort')
-    if (sort === 'object_count' || sort === 'size_bytes' || sort === 'first_upload_at' || sort === 'id') {
+    if (sort === 'object_count' || sort === 'size_bytes' || sort === 'first_upload_at' || sort === 'id' || sort === 'projected_delete_epoch') {
       this.sortBy = sort
     }
     if (params.get('asc') === '1') {
@@ -103,11 +143,22 @@ customElements.define('pdp-datasets-list', class PdpDatasetsList extends LitElem
 
   syncUrl() {
     const url = new URL(window.location.href)
-    if (this.filter) url.searchParams.set('q', this.filter)
-    else url.searchParams.delete('q')
+    if (this.viewMode === 'payment') url.searchParams.set('risk', 'payment')
+    else url.searchParams.delete('risk')
 
-    const isDefaultSort = this.sortBy === 'id' && !this.sortAsc
-    if (isDefaultSort) {
+    if (this.viewMode === 'payment') {
+      if (this.filter) url.searchParams.set('q', this.filter)
+      else url.searchParams.delete('q')
+    } else if (this.filter) {
+      url.searchParams.set('q', this.filter)
+    } else {
+      url.searchParams.delete('q')
+    }
+
+    const defaultSort = this.viewMode === 'payment'
+      ? (this.sortBy === 'size_bytes' && !this.sortAsc)
+      : (this.sortBy === 'id' && !this.sortAsc)
+    if (defaultSort) {
       url.searchParams.delete('sort')
       url.searchParams.delete('asc')
     } else {
@@ -117,8 +168,31 @@ customElements.define('pdp-datasets-list', class PdpDatasetsList extends LitElem
     window.history.replaceState({}, '', url)
   }
 
+  setViewMode(mode) {
+    if (this.viewMode === mode) return
+    this.viewMode = mode
+    this.offset = 0
+    if (mode === 'payment') {
+      this.sortBy = 'size_bytes'
+      this.sortAsc = false
+      this.filter = ''
+      this.filterInput = ''
+    } else {
+      this.sortBy = 'id'
+      this.sortAsc = false
+    }
+    this.syncUrl()
+    this.loadData()
+  }
+
   async loadData() {
+    if (this.viewMode === 'payment') {
+      return this.loadPaymentAtRiskProgressive()
+    }
+
     this.loading = true
+    this.scanning = false
+    this.scanProgress = null
     try {
       const result = await RPCCall('PDPDataSetList', [
         this.limit,
@@ -138,6 +212,176 @@ customElements.define('pdp-datasets-list', class PdpDatasetsList extends LitElem
     } finally {
       this.loading = false
       this.requestUpdate()
+    }
+  }
+
+  sortAtRiskItems(items) {
+    const col = this.sortBy || 'size_bytes'
+    const asc = !!this.sortAsc
+    const sorted = [...items]
+    sorted.sort((a, b) => {
+      let cmp = 0
+      switch (col) {
+        case 'id':
+          cmp = a.id - b.id
+          break
+        case 'projected_delete_epoch': {
+          const ae = a.projectedDeleteEpoch ?? (asc ? Number.MAX_SAFE_INTEGER : -1)
+          const be = b.projectedDeleteEpoch ?? (asc ? Number.MAX_SAFE_INTEGER : -1)
+          cmp = ae - be
+          break
+        }
+        default:
+          cmp = (a.sizeBytes ?? 0) - (b.sizeBytes ?? 0)
+      }
+      if (cmp === 0) cmp = a.id - b.id
+      return asc ? cmp : -cmp
+    })
+    return sorted
+  }
+
+  scanProgressLabel() {
+    const p = this.scanProgress
+    if (!p) return 'Scanning datasets…'
+    const total = p.datasetTotal > 0 ? p.datasetTotal : '?'
+    const progress = `Scanning datasets (${p.scanned}/${total})`
+    if (p.stopped) {
+      return `Scan stopped (${p.scanned}/${total} scanned, ≥100 KiB only)`
+    }
+    if (p.awaiting) {
+      return `${progress} — awaiting batch ${p.batchNumber}…`
+    }
+    return `${progress}…`
+  }
+
+  stopPaymentScan() {
+    if (!this.scanning) return
+    this.loadGeneration++
+  }
+
+  applyAtRiskPagination() {
+    const sorted = this.sortAtRiskItems(this.allAtRiskItems)
+    this.total = sorted.length
+    const start = this.offset
+    const end = start + this.limit
+    this.items = sorted.slice(start, end)
+  }
+
+  async loadPaymentAtRiskProgressive() {
+    const generation = ++this.loadGeneration
+    this.loading = true
+    this.scanning = true
+    this.loadError = null
+    this.allAtRiskItems = []
+    this.items = []
+    this.total = 0
+    this.scanProgress = { scanned: 0, datasetTotal: 0, batchNumber: 1, awaiting: true }
+    this.requestUpdate()
+
+    let afterSize = 0
+    let afterID = 0
+    let scanned = 0
+    let complete = false
+    let chainRetries = 0
+    let batchNumber = 1
+    const maxChainRetries = 8
+    const scanBatchSize = 20
+    const minScanSizeBytes = 100 * 1024
+
+    try {
+      while (!complete) {
+        if (generation !== this.loadGeneration) {
+          this.scanProgress = {
+            ...this.scanProgress,
+            awaiting: false,
+            stopped: true,
+          }
+          return
+        }
+
+        this.scanProgress = {
+          scanned,
+          datasetTotal: this.scanProgress?.datasetTotal ?? 0,
+          batchNumber,
+          awaiting: true,
+        }
+        this.requestUpdate()
+
+        const batch = await RPCCall('PDPDataSetAtRiskScanBatch', [
+          afterSize,
+          afterID,
+          scanned,
+          scanBatchSize,
+          minScanSizeBytes,
+        ])
+        if (generation !== this.loadGeneration) {
+          this.scanProgress = {
+            ...this.scanProgress,
+            awaiting: false,
+            stopped: true,
+          }
+          return
+        }
+
+        if (batch?.chainError) {
+          chainRetries++
+          const hint = batch.chainError.includes('context deadline exceeded')
+            ? ' Chain RPC may be slow; retrying…'
+            : ''
+          if (chainRetries >= maxChainRetries) {
+            this.loadError = `Payment status lookup failed: ${batch.chainError}.${hint}`
+            break
+          }
+          this.loadError = `Chain lookup slow or unavailable: ${batch.chainError}. Retrying (${chainRetries}/${maxChainRetries})…${hint}`
+          this.scanProgress = {
+            scanned,
+            datasetTotal: batch?.datasetTotal ?? this.scanProgress?.datasetTotal ?? 0,
+            batchNumber,
+            awaiting: true,
+          }
+          this.requestUpdate()
+          await new Promise((r) => setTimeout(r, 2000))
+          continue
+        }
+        chainRetries = 0
+        this.loadError = null
+
+        const found = batch?.items ?? []
+        if (found.length > 0) {
+          this.allAtRiskItems = this.allAtRiskItems.concat(found)
+          this.applyAtRiskPagination()
+        }
+
+        scanned = batch?.scanned ?? scanned
+        complete = !!batch?.complete
+        afterSize = batch?.cursor?.afterSizeBytes ?? afterSize
+        afterID = batch?.cursor?.afterId ?? afterID
+        batchNumber++
+        this.scanProgress = {
+          scanned,
+          datasetTotal: batch?.datasetTotal ?? this.scanProgress?.datasetTotal ?? 0,
+          batchNumber,
+          awaiting: !complete,
+        }
+        this.requestUpdate()
+      }
+
+      if (generation !== this.loadGeneration) return
+      this.applyAtRiskPagination()
+    } catch (e) {
+      if (generation !== this.loadGeneration) return
+      console.error('Failed to scan at-risk datasets:', e)
+      this.loadError = e.message || String(e)
+      if (this.allAtRiskItems.length === 0) {
+        this.items = []
+        this.total = 0
+      }
+    } finally {
+      if (generation === this.loadGeneration) {
+        this.loading = false
+        this.scanning = false
+        this.requestUpdate()
+      }
     }
   }
 
@@ -207,11 +451,15 @@ customElements.define('pdp-datasets-list', class PdpDatasetsList extends LitElem
       this.sortAsc = !this.sortAsc
     } else {
       this.sortBy = column
-      // Default: newest / most objects first when picking a column
-      this.sortAsc = false
+      this.sortAsc = column === 'projected_delete_epoch'
     }
     this.offset = 0
     this.syncUrl()
+    if (this.viewMode === 'payment' && this.allAtRiskItems.length > 0) {
+      this.applyAtRiskPagination()
+      this.requestUpdate()
+      return
+    }
     this.loadData()
   }
 
@@ -223,11 +471,21 @@ customElements.define('pdp-datasets-list', class PdpDatasetsList extends LitElem
   nextPage() {
     if (this.offset + this.limit >= this.total) return
     this.offset += this.limit
+    if (this.viewMode === 'payment' && this.allAtRiskItems.length > 0) {
+      this.applyAtRiskPagination()
+      this.requestUpdate()
+      return
+    }
     this.loadData()
   }
 
   prevPage() {
     this.offset = Math.max(0, this.offset - this.limit)
+    if (this.viewMode === 'payment' && this.allAtRiskItems.length > 0) {
+      this.applyAtRiskPagination()
+      this.requestUpdate()
+      return
+    }
     this.loadData()
   }
 
@@ -263,10 +521,45 @@ customElements.define('pdp-datasets-list', class PdpDatasetsList extends LitElem
         .sortable { cursor: pointer; user-select: none; white-space: nowrap; }
         .sortable:hover { color: var(--color-accent-fg, #58a6ff); }
         .sort-indicator { margin-left: 4px; font-size: 11px; }
+        .view-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+        .view-tab {
+          border: 1px solid var(--color-border-default, #30363d);
+          background: var(--color-bg-subtle, #161b22);
+          color: var(--color-text-primary, #e6edf3);
+          border-radius: 6px;
+          padding: 6px 12px;
+          font-size: 13px;
+          cursor: pointer;
+        }
+        .view-tab.active {
+          border-color: var(--color-accent-fg, #58a6ff);
+          color: var(--color-accent-fg, #58a6ff);
+        }
+        .at-risk-note {
+          font-size: 12px;
+          color: var(--color-text-secondary, #8b949e);
+          margin: 4px 0 0;
+          max-width: 420px;
+        }
+        .scan-progress-row {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          flex-wrap: wrap;
+          margin: 8px 0 0;
+        }
       </style>
 
-      <p class="hint">${SEARCH_HINT}</p>
+      <div class="view-tabs">
+        <button type="button" class="view-tab ${this.viewMode === 'all' ? 'active' : ''}" @click=${() => this.setViewMode('all')}>All</button>
+        <button type="button" class="view-tab ${this.viewMode === 'payment' ? 'active' : ''}" @click=${() => this.setViewMode('payment')}>Payment grace</button>
+      </div>
 
+      ${this.viewMode === 'all' ? html`<p class="hint">${SEARCH_HINT}</p>` : html`
+        <p class="hint">Datasets ≥100 KiB with unpaid payment rails or pending deletion. Contact the dataset owner to bring payments current before the deletion date.</p>
+      `}
+
+      ${this.viewMode === 'all' ? html`
       <form class="datasets-search" @submit=${(e) => this.applySearch(e)}>
         <input
           type="search"
@@ -277,16 +570,39 @@ customElements.define('pdp-datasets-list', class PdpDatasetsList extends LitElem
         <button type="submit" class="btn btn-primary btn-sm">Search</button>
         ${this.filter || this.filterInput ? html`<button type="button" class="btn btn-secondary btn-sm" @click=${() => this.clearSearch()}>Clear</button>` : ''}
       </form>
+      ` : ''}
 
       ${this.loadError ? html`<p class="load-error">${this.loadError}</p>` : ''}
-      ${this.loading ? loadingBlock('Loading datasets…') : ''}
 
-      ${!this.loading && !this.loadError && this.items.length === 0
-        ? html`<p class="hint">No datasets found.</p>`
-        : !this.loading && this.items.length > 0 ? html`
+      ${this.viewMode === 'payment' && this.scanning
+        ? html`<div class="scan-progress-row hint scan-progress">
+            ${loadingSpinner({ label: this.scanProgressLabel(), size: 'sm' })}
+            <button type="button" class="btn btn-secondary btn-sm" @click=${() => this.stopPaymentScan()}>Stop</button>
+          </div>`
+        : ''}
+      ${this.viewMode === 'payment' && !this.scanning && this.scanProgress?.stopped
+        ? html`<p class="hint">${this.scanProgressLabel()}</p>`
+        : ''}
+
+      ${!this.loadError && this.items.length === 0 && !this.scanning && !this.loading
+        ? html`<p class="hint">${this.viewMode === 'payment' ? 'No datasets in payment grace or deletion.' : 'No datasets found.'}</p>`
+        : this.items.length > 0 ? html`
           <table class="table table-dark table-striped table-sm">
             <thead>
               <tr>
+                ${this.viewMode === 'payment' ? html`
+                  <th class="sortable" @click=${() => this.setSort('id')}>
+                    Dataset${this.renderSortIndicator('id')}
+                  </th>
+                  <th>Owner</th>
+                  <th class="sortable" @click=${() => this.setSort('size_bytes')}>
+                    Size${this.renderSortIndicator('size_bytes')}
+                  </th>
+                  <th>Reason</th>
+                  <th class="sortable" @click=${() => this.setSort('projected_delete_epoch')}>
+                    Deletes on${this.renderSortIndicator('projected_delete_epoch')}
+                  </th>
+                ` : html`
                 <th class="sortable" @click=${() => this.setSort('id')}>
                   Dataset${this.renderSortIndicator('id')}
                 </th>
@@ -300,10 +616,22 @@ customElements.define('pdp-datasets-list', class PdpDatasetsList extends LitElem
                 <th class="sortable" @click=${() => this.setSort('first_upload_at')}>
                   First upload${this.renderSortIndicator('first_upload_at')}
                 </th>
+                `}
               </tr>
             </thead>
             <tbody>
-              ${this.items.map((ds) => html`
+              ${this.items.map((ds) => this.viewMode === 'payment' ? html`
+                <tr>
+                  <td class="mono"><a href="/pages/dataset/?id=${ds.id}">${ds.id}</a></td>
+                  <td class="mono">${ds.payer || 'Unknown'}</td>
+                  <td class="mono">${formatBytes(ds.sizeBytes)}</td>
+                  <td>${reasonLabel(ds.reason)}</td>
+                  <td>
+                    <div>${formatDeleteDate(ds)}</div>
+                    <p class="at-risk-note">Contact the ${ownerContactLine(ds.payer)} to bring it current before deletion on ${formatDeleteDate(ds)}.</p>
+                  </td>
+                </tr>
+              ` : html`
                 <tr>
                   <td class="mono"><a href="/pages/dataset/?id=${ds.id}">${ds.id}</a></td>
                   <td class="mono">${ds.objectCount ?? 0}</td>
@@ -314,12 +642,14 @@ customElements.define('pdp-datasets-list', class PdpDatasetsList extends LitElem
               `)}
             </tbody>
           </table>
+          ${this.scanning ? html`<div class="cu-loading-block">${loadingSpinner({ label: this.scanProgressLabel() })}</div>` : ''}
+          ${this.viewMode === 'all' && this.loading ? loadingBlock('Loading datasets…') : ''}
           <div class="pager">
             <button class="btn btn-secondary btn-sm" ?disabled=${this.offset <= 0} @click=${() => this.prevPage()}>Prev</button>
-            <span class="hint" style="margin:0">${from}–${to} of ${this.total}</span>
-            <button class="btn btn-secondary btn-sm" ?disabled=${this.offset + this.limit >= this.total} @click=${() => this.nextPage()}>Next</button>
+            <span class="hint" style="margin:0">${from}–${to} of ${this.scanning ? `${this.total} found so far` : this.total}</span>
+            <button class="btn btn-secondary btn-sm" ?disabled=${this.offset + this.limit >= this.total || this.scanning} @click=${() => this.nextPage()}>Next</button>
           </div>
-        ` : ''}
+        ` : this.viewMode === 'all' && this.loading ? loadingBlock('Loading datasets…') : ''}
     `
   }
 })

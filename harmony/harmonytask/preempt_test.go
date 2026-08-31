@@ -2,6 +2,7 @@ package harmonytask
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -90,4 +91,47 @@ func TestComputePreemptionPlanNilWhenNoDeficit(t *testing.T) {
 		},
 	}
 	require.Nil(t, e.computePreemptionPlan(resources.Resources{Cpu: 1, Ram: 1 << 20}))
+}
+
+func TestExecutePreemptionDoesNotHangWhenVictimsIgnoreCancel(t *testing.T) {
+	max := taskhelp.Max(8)
+	h := &taskTypeHandler{
+		TaskTypeDetails: TaskTypeDetails{
+			Name: "Victim",
+			Max:  max,
+			Cost: resources.Resources{Cpu: 1, Ram: 1 << 20},
+		},
+		running: runregistry.New(),
+	}
+	h.running.Start(1, func() {})
+	h.running.Start(2, func() {})
+	max.Add(2)
+
+	e := &TaskEngine{
+		cfg: taskEngineConfig{
+			reg: &resources.Reg{
+				Resources: resources.Resources{Cpu: 2, Ram: 4 << 20},
+			},
+		},
+		handlers: []*taskTypeHandler{h},
+	}
+	plan := e.computePreemptionPlan(resources.Resources{Cpu: 2, Ram: 2 << 20})
+	require.NotNil(t, plan)
+	require.GreaterOrEqual(t, len(plan.candidates), 2)
+
+	oldTimeout := preemptTaskKillTimeout
+	preemptTaskKillTimeout = 20 * time.Millisecond
+	defer func() { preemptTaskKillTimeout = oldTimeout }()
+
+	done := make(chan struct{})
+	go func() {
+		e.executePreemption(plan)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("executePreemption hung waiting for victims that never Finish")
+	}
 }

@@ -3,6 +3,7 @@ package message
 import (
 	"context"
 	"encoding/json"
+	"sync"
 	"sync/atomic"
 
 	"github.com/ipfs/go-cid"
@@ -42,7 +43,10 @@ type MessageWatcher struct {
 	// per update() call that successfully recorded one or more messages as
 	// landed on chain. It is intended for waking pollers (seal/deal) that may
 	// be waiting on a message_waits row to be filled in.
-	onLanded []func()
+	// Guarded by onLandedMu: the run() goroutine is already live while
+	// startup wiring calls AddOnLanded.
+	onLandedMu sync.Mutex
+	onLanded   []func()
 }
 
 func NewMessageWatcher(db *harmonydb.DB, ht *harmonytask.TaskEngine, pcs *chainsched.CurioChainSched, api MessageWaiterApi) (*MessageWatcher, error) {
@@ -68,13 +72,15 @@ func NewMessageWatcher(db *harmonydb.DB, ht *harmonytask.TaskEngine, pcs *chains
 //
 // Callbacks are invoked asynchronously. Debouncing may be necessary.
 //
-// Must be called before the first message lands; not safe to call concurrently
-// with itself or with watcher updates.
+// Callbacks registered after a message has already landed only fire on
+// subsequent landings.
 func (mw *MessageWatcher) AddOnLanded(fn func()) {
 	if fn == nil {
 		return
 	}
+	mw.onLandedMu.Lock()
 	mw.onLanded = append(mw.onLanded, fn)
+	mw.onLandedMu.Unlock()
 }
 
 func (mw *MessageWatcher) run() {
@@ -222,8 +228,12 @@ func (mw *MessageWatcher) update() {
 	// pipeline on these rows being filled in, and would otherwise wait up to a
 	// full poller interval before noticing.
 	if landed > 0 {
-		for _, fn := range mw.onLanded {
-			go fn()
+		mw.onLandedMu.Lock()
+		callbacks := make([]func(), len(mw.onLanded))
+		copy(callbacks, mw.onLanded)
+		mw.onLandedMu.Unlock()
+		for _, fn := range callbacks {
+			go fn() //nolint:safetylint // local copy of onLanded under onLandedMu
 		}
 	}
 }

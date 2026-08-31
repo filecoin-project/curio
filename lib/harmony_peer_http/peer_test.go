@@ -580,6 +580,33 @@ func TestPeerHTTPCloseIsNoop(t *testing.T) {
 	t.Log("Close() is a no-op as documented — no breakage")
 }
 
+// TestPeerHTTPSetOnConnectConcurrentWithServeHTTP exercises the window where
+// SetOnConnect writes onConnect while ServeHTTP reads it. Without connMu
+// covering both, go test -race flags the field.
+func TestPeerHTTPSetOnConnectConcurrentWithServeHTTP(t *testing.T) {
+	p := New("test:1000")
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 200; i++ {
+			p.SetOnConnect(func(string, harmonytask.PeerConnection) {})
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 200; i++ {
+			req := httptest.NewRequest(http.MethodPost, "/peer/v1", bytes.NewReader([]byte("x")))
+			req.Header.Set("X-Peer-ID", fmt.Sprintf("peer:%d", i))
+			w := httptest.NewRecorder()
+			p.ServeHTTP(w, req)
+			require.Equal(t, http.StatusOK, w.Code)
+		}
+	}()
+	wg.Wait()
+}
+
 // TestPeerHTTPServeHTTPReusesInboundConnection verifies that repeated inbound
 // POSTs from the same peer reuse one connection (onConnect fires once) and the
 // payloads are delivered in order on that connection.

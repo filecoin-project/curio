@@ -63,24 +63,41 @@ func (c *cfg) addLayer(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(200)
 }
 
+func uiSchemaMapper(i reflect.Type) *jsonschema.Schema {
+	if inner, ok := config.DynamicInnerType(i); ok {
+		if mapped := uiSchemaSpecialType(inner); mapped != nil {
+			return mapped
+		}
+		return (&jsonschema.Reflector{Mapper: uiSchemaMapper}).ReflectFromType(inner)
+	}
+	return uiSchemaSpecialType(i)
+}
+
+func uiSchemaSpecialType(i reflect.Type) *jsonschema.Schema {
+	if i == reflect.TypeOf(types.MustParseFIL("1 Fil")) {
+		return &jsonschema.Schema{
+			Type:    "string",
+			Pattern: "1 fil/0.03 fil/0.31/1 attofil",
+		}
+	}
+	if i == reflect.TypeFor[time.Duration]() {
+		return &jsonschema.Schema{
+			Type:        "string",
+			Pattern:     durationPattern,
+			Description: `Go duration string (e.g. "1h30m", "1m1s", "30s"); components may be omitted when zero`,
+		}
+	}
+	return nil
+}
+
 func getSch(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	apihelper.OrHTTPFail(w, json.NewEncoder(w).Encode(buildUISchema()))
+}
+
+func buildUISchema() *jsonschema.Schema {
 	ref := jsonschema.Reflector{
-		Mapper: func(i reflect.Type) *jsonschema.Schema {
-			if i == reflect.TypeOf(types.MustParseFIL("1 Fil")) { // Override the Pattern for types.FIL
-				return &jsonschema.Schema{
-					Type:    "string",
-					Pattern: "1 fil/0.03 fil/0.31/1 attofil",
-				}
-			}
-			if i == reflect.TypeFor[time.Duration]() { // Override the Pattern for duration
-				return &jsonschema.Schema{
-					Type:        "string",
-					Pattern:     durationPattern,
-					Description: `Go duration string (e.g. "1h30m", "1m1s", "30s"); components may be omitted when zero`,
-				}
-			}
-			return nil
-		},
+		Mapper: uiSchemaMapper,
 	}
 	sch := ref.Reflect(uiSchemaRoot())
 
@@ -115,12 +132,15 @@ func getSch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Add comments to inline schemas in root Properties (like Ingest -> CurioIngestConfig)
-	inlineSchemaMap := uiInlineSchemaDocMap()
-	for propName, docKey := range inlineSchemaMap {
-		if prop, ok := sch.Properties.Get(propName); ok {
-			if doc, ok := config.Doc[docKey]; ok {
-				addComments(prop, doc)
+	// Add comments to inline schemas in root Properties (like Ingest -> CurioIngestConfig).
+	// Reflect() emits a $ref root without Properties unless ExpandedStruct is set.
+	if sch.Properties != nil {
+		inlineSchemaMap := uiInlineSchemaDocMap()
+		for propName, docKey := range inlineSchemaMap {
+			if prop, ok := sch.Properties.Get(propName); ok {
+				if doc, ok := config.Doc[docKey]; ok {
+					addComments(prop, doc)
+				}
 			}
 		}
 	}
@@ -156,9 +176,7 @@ func getSch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	allOpt(sch)
-
-	w.Header().Set("Content-Type", "application/json")
-	apihelper.OrHTTPFail(w, json.NewEncoder(w).Encode(sch))
+	return sch
 }
 
 func (c *cfg) getLayers(w http.ResponseWriter, r *http.Request) {

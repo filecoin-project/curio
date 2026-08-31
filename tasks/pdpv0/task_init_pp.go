@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/core/types"
+	logging "github.com/ipfs/go-log/v2"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
@@ -25,6 +26,8 @@ import (
 
 	chainTypes "github.com/filecoin-project/lotus/chain/types"
 )
+
+var log = logging.Logger("pdpv0")
 
 const alertNameInitPP = "InitProvingPeriod"
 
@@ -280,7 +283,7 @@ func (ipp *InitProvingPeriodTask) CanAccept(ids []harmonytask.TaskID, engine *ha
 func (ipp *InitProvingPeriodTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Name: tasknames.PDPv0_InitPP,
-		// Handoff from data onboarding (PDPv0_Notify → PDPv0_PullPiece → PDPv0_SaveCache).
+		// Handoff from data onboarding (PDPv0_PullPiece → PDPv0_SaveCache).
 		// InitPP checks on-chain leaf count before the first challenge request; proving
 		// continues PDPv0_InitPP → PDPv0_Prove.
 		MayFollow: []string{tasknames.PDPv0_SaveCache},

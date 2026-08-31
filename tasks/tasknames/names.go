@@ -89,7 +89,6 @@ const (
 	PDPDelDataSet    = "PDPDelDataSet"
 	PDPInitPP        = "PDPInitPP"
 	PDPProvingPeriod = "PDPProvingPeriod"
-	PDPNotify        = "PDPNotify"
 	PDPCommP         = "PDPCommP"
 	PDPSaveCache     = "PDPSaveCache"
 	AggregatePDPDeal = "AggregatePDPDeal"
@@ -97,11 +96,11 @@ const (
 
 	// PDP v0
 	PDPv0_Prove      = "PDPv0_Prove"
+	PDPv0_Notify     = "PDPv0_Notify"
 	PDPv0_PullPiece  = "PDPv0_PullPiece"
 	PDPv0_SaveCache  = "PDPv0_SaveCache"
 	PDPv0_InitPP     = "PDPv0_InitPP"
 	PDPv0_ProvPeriod = "PDPv0_ProvPeriod"
-	PDPv0_Notify     = "PDPv0_Notify"
 	PDPv0_DelDataSet = "PDPv0_DelDataSet"
 	PDPv0_Cleanup    = "PDPv0_Cleanup"
 	PDPv0_PieceGC    = "PDPv0_PieceGC"
@@ -110,4 +109,5 @@ const (
 	PDPv0_ChainSync  = "PDPv0_ChainSync"
 	PDPv0_DatasetIdx = "PDPv0_DatasetIdx"
 	PDPv0_FixPiece   = "PDPv0_FixPiece"
+	PDPv0_ProcDel    = "PDPv0_ProcDel"
 )

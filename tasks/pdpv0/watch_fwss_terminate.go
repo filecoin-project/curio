@@ -33,7 +33,7 @@ type serviceTerminationMessageWait struct {
 
 func NewTerminateServiceWatcher(w *Watcher) {
 	if err := w.AddWatcher(func(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, al curioalerting.AlertingInterface, revert, apply *chainTypes.TipSet) {
-		err := processTerminations(ctx, db, ethClient)
+		err := processTerminations(ctx, db, ethClient, al)
 		if err != nil {
 			log.Warnf("Failed to process pending service termination transactions: %s", err)
 			_ = al.EmitEvent(ctx, curioalerting.AlertEvent{
@@ -47,7 +47,7 @@ func NewTerminateServiceWatcher(w *Watcher) {
 	}
 }
 
-func processTerminations(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient) error {
+func processTerminations(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, al curioalerting.AlertingInterface) error {
 	var pending []pendingServiceTermination
 	err := db.Select(ctx, &pending, `
 		SELECT id, terminate_tx_hash, client_requested_termination

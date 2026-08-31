@@ -32,9 +32,9 @@ type Dynamic[T any] struct {
 }
 
 func NewDynamic[T any](value T) *Dynamic[T] {
-	d := &Dynamic[T]{value: value}
-	dynamicLocker.notifier[reflect.ValueOf(d).Pointer()] = nil
-	return d
+	// Construction is concurrent (DefaultCurioConfig / ForEachConfig). Register
+	// callbacks in OnChange under cdmx; a missing notifier key is treated as nil.
+	return &Dynamic[T]{value: value}
 }
 
 // OnChange registers a function to be called in a goroutine when the dynamic value changes to a new final-layered value.
@@ -268,7 +268,7 @@ func (c *changeNotifier) Unlock() {
 	for k, v := range c.latest {
 		if !safeCmpEqual(v, c.originally[k]) {
 			if notifier := c.notifier[k]; notifier != nil {
-				go notifier()
+				go notifier() //nolint:safetylint // local snapshot from notifier map under cdmx
 			}
 		}
 	}

@@ -277,10 +277,13 @@ func (h *taskTypeHandler) considerWork(from string, tasks []task, eventEmitter e
 
 			var sectorID *abi.SectorID
 			if ht, ok := h.TaskInterface.(pipelineTask); ok {
-				sectorID, err = ht.GetSectorID(h.TaskEngine.cfg.db, int64(tID))
-				if err != nil {
-					log.Errorw("Could not get sector ID", "task", h.Name, "id", tID, "error", err)
+				// Use a goroutine-local error: writing the enclosing
+				// considerWork err from concurrent task goroutines is a race.
+				sid, gsErr := ht.GetSectorID(h.TaskEngine.cfg.db, int64(tID))
+				if gsErr != nil {
+					log.Errorw("Could not get sector ID", "task", h.Name, "id", tID, "error", gsErr)
 				}
+				sectorID = sid
 			}
 
 			log.Infow("Beginning work on Task", "id", tID, "from", from, "name", h.Name, "sector", sectorID)

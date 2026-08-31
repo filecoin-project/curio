@@ -105,13 +105,47 @@ public:
   int c1_sleep_time;
   int c1_qpair;
 
-  topology_t(const char* filename) {
+  // Defaults used by file-based TreeR (no NVMe / SPDK). pc2_writer_cores
+  // must be > 0 or the CUDA writer pool will have zero threads.
+  void set_file_based_defaults() {
+    hashers_per_core = 1;
+    pc1_reader = 0;
+    pc1_writer = 1;
+    pc1_orchestrator = 2;
+    pc1_qpair_reader = 0;
+    pc1_qpair_writer = 1;
+    pc1_writer_sleep_time = 500;
+    pc1_reader_sleep_time = 250;
+    pc2_reader = 0;
+    pc2_hasher = 0;
+    pc2_hasher_cpu = 1;
+    pc2_writer = 2;
+    pc2_writer_cores = 4;
+    pc2_sleep_time = 200;
+    pc2_qpair = 2;
+    c1_reader = 0;
+    c1_sleep_time = 200;
+    c1_qpair = 3;
+  }
+
+  topology_t() {
+    set_file_based_defaults();
+  }
+
+  // required=true (default) exits if the file cannot be read — used by NVMe
+  // batch sealing. required=false keeps defaults so file-based TreeR works
+  // without a dummy supra_seal.cfg in the process working directory.
+  topology_t(const char* filename, bool required = true) {
+    set_file_based_defaults();
     Config cfg;
     try {
       cfg.readFile(filename);
     } catch(const FileIOException &fioex) {
-      std::cerr << "Could not read config file " << filename << std::endl;
-      exit(1);
+      if (required) {
+        std::cerr << "Could not read config file " << filename << std::endl;
+        exit(1);
+      }
+      return;
     } catch(const ParseException &pex) {
       std::cerr << "Parse error at " << pex.getFile() << ":" << pex.getLine()
                 << " - " << pex.getError() << std::endl;
