@@ -262,7 +262,7 @@ var marketMoveToEscrowCmd = &cli.Command{
 	ArgsUsage: "<amount>",
 	Action: func(cctx *cli.Context) error {
 		if cctx.Args().Len() != 1 {
-			return xerrors.Errorf("incorrect number of agruments")
+			return xerrors.Errorf("incorrect number of arguments")
 		}
 		amount, err := types.ParseFIL(cctx.Args().First())
 		if err != nil {
