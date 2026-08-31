@@ -331,6 +331,7 @@ func (t *PDPPullPieceTask) expireStalePullItems(ctx context.Context) error {
 				AND failed = TRUE
 				AND task_id IS NULL
 				AND (parked_piece_ref IS NOT NULL OR pull_parked_piece_id IS NOT NULL)
+				AND created_at <= NOW()
 		`)
 		if err != nil {
 			return false, xerrors.Errorf("query failed pull items with refs: %w", err)
