@@ -637,6 +637,7 @@ func (st *Local) declareSectors(ctx context.Context, p string, id storiface.ID, 
 
 			sid, ok := declareableSectorEntry(ent.Name(), t, info)
 			if !ok {
+				log.Warnw("skipping unreadable storage entry", "path", p, "type", t, "name", ent.Name(), "info", info)
 				continue
 			}
 

@@ -230,7 +230,7 @@ func validateCacheDir(path string) error {
 		return xerrors.Errorf("%s is not a directory", path)
 	}
 	if _, err := os.Stat(filepath.Join(path, "p_aux")); err != nil {
-		return xerrors.Errorf("p_aux in %s: %w", path, err)
+		return xerrors.Errorf("failed to stat p_aux in %x: %w", path, err)
 	}
 	return nil
 }
