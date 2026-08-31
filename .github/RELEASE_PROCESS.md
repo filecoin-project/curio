@@ -305,12 +305,12 @@ Repository secrets (already configured for this workflow):
 
 No other GitHub secrets are required for Curio-PDP image publish.
 
-### Docker Hub side (still required)
+### Docker Hub side
 
 Before the first release publish can succeed:
 
-1. Ensure the Docker Hub org/user **`curiostorage`** exists and your token account can push to it.
-2. Create the repository **`curiostorage/curio-pdp`** (or allow create-on-first-push for that org).
+1. Ensure the Docker Hub org/user **`filoz`** exists and your token account can push to it.
+2. Create the repository **`filoz/curio-pdp`** (or allow create-on-first-push for that org).
 3. Confirm the access token is not expired and has push rights to that repo.
 
 After each published release, open the **Docker Curio-PDP** Actions run and confirm both mainnet and calibnet pushes succeeded, then spot-check Hub tags.
