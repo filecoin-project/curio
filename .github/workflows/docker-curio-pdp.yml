@@ -3,12 +3,28 @@ name: Docker Curio-PDP
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Image version without v prefix (e.g. 1.28.0-dockery)
+        required: true
+        type: string
+      prerelease:
+        description: If true, do not also tag latest/calibnet
+        type: boolean
+        default: true
+  # Temporary: first push registers this workflow so `gh workflow run` works
+  # before the file exists on main. Remove after the dispatch test succeeds.
+  push:
+    branches: [feat/dockery]
+    paths: [.github/workflows/docker-curio-pdp.yml]
 
 permissions:
   contents: read
 
 jobs:
   push:
+    if: github.event_name != 'push'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -26,13 +42,19 @@ jobs:
       - name: Resolve tags
         id: tags
         run: |
-          RAW="${{ github.event.release.tag_name }}"
+          if [[ "${{ github.event_name }}" == "release" ]]; then
+            RAW="${{ github.event.release.tag_name }}"
+            IS_PRE="${{ github.event.release.prerelease }}"
+          else
+            RAW="${{ inputs.version }}"
+            IS_PRE="${{ inputs.prerelease }}"
+          fi
           VERSION="${RAW#v}"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
           MAINNET_TAGS="curiostorage/curio-pdp:${VERSION}"
           CALIBNET_TAGS="curiostorage/curio-pdp:${VERSION}-calibnet"
-          if [[ "${{ github.event.release.prerelease }}" != "true" ]]; then
+          if [[ "${IS_PRE}" != "true" ]]; then
             MAINNET_TAGS="${MAINNET_TAGS}"$'\n'"curiostorage/curio-pdp:latest"
             CALIBNET_TAGS="${CALIBNET_TAGS}"$'\n'"curiostorage/curio-pdp:calibnet"
           fi
