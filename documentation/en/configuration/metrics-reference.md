@@ -181,7 +181,7 @@ This document lists Prometheus metrics exported by Curio using the exact metric 
 | `curio_http_request_count` | counter | `path`, `method` | Counter of HTTP requests |
 | `curio_http_response_bytes_count` | counter | `status_code`, `path` | Sum of HTTP response content-length |
 | `curio_http_response_status_count` | counter | `status_code`, `path`, `method` | Counter of HTTP response status codes |
-| `curio_ipni_announce_attempts_total` | counter | `provider`, `result` | Total number of IPNI direct announce attempts. |
+| `curio_ipni_announce_attempts_total` | counter | `provider`, `result` | Total number of IPNI direct announce attempts. result is success when every indexer accepted the announce, partial when some did, error when none did. |
 | `curio_ipni_announce_http_roundtrip_milliseconds` | histogram | `provider`, `status` | Duration of outbound IPNI announce HTTP round trips in milliseconds. |
 | `curio_ipni_announce_to_indexed_latency_seconds` | histogram | `provider` | Duration from a successful head announce to confirmed indexing by an indexer service. |
 | `curio_ipni_entry_cache_hit_wait_milliseconds` | histogram | `request`, `origin`, `state` | Duration callers wait after hitting the IPNI entry cache. |

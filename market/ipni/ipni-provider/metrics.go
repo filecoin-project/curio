@@ -60,7 +60,7 @@ var (
 	)
 	ipniAnnounceAttempts = stats.Int64(
 		"ipni_announce_attempts_total",
-		"Total number of IPNI direct announce attempts.",
+		"Total number of IPNI direct announce attempts. result is success when every indexer accepted the announce, partial when some did, error when none did.",
 		stats.UnitDimensionless,
 	)
 	ipniAnnounceHTTPRoundTripDuration = stats.Float64(
