@@ -27,6 +27,12 @@ func TestDoAnalyzesTables(t *testing.T) {
 	ctx := t.Context()
 	db := openITestDB(t)
 
+	var schema string
+	require.NoError(t, db.QueryRow(ctx, `SELECT current_schema()`).Scan(&schema))
+	counted, err := harmonydb.AdminTableCount(ctx, db, schema, "table_analyze_state")
+	require.NoError(t, err, "COUNT(*) via AdminTableCount")
+	require.GreaterOrEqual(t, counted, int64(0))
+
 	// Fresh itest schema: no harmony_machine_details peers => upgrade guard is a no-op.
 	// Empty table_analyze_state => shouldAnalyze returns true for every table (first sight).
 	task := NewDBAnalyzeTask(db)
@@ -43,7 +49,7 @@ func TestDoAnalyzesTables(t *testing.T) {
 		SELECT table_name FROM table_analyze_state ORDER BY table_name LIMIT 1`).Scan(&sample))
 	t.Logf("analyzed %d tables; sample=%s", n, sample)
 
-	// Second pass with no churn growth should not bump analyze_count.
+	// Second pass with unchanged COUNT(*) should not bump analyze_count.
 	var before int64
 	require.NoError(t, db.QueryRow(ctx, `
 		SELECT analyze_count FROM table_analyze_state WHERE table_name = $1`, sample).Scan(&before))
@@ -55,7 +61,17 @@ func TestDoAnalyzesTables(t *testing.T) {
 	var after int64
 	require.NoError(t, db.QueryRow(ctx, `
 		SELECT analyze_count FROM table_analyze_state WHERE table_name = $1`, sample).Scan(&after))
-	require.Equal(t, before, after, "second pass should skip tables without 10%% churn growth")
+	require.Equal(t, before, after, "second pass should skip tables without 10%% row growth")
+}
+
+func TestShouldAnalyzeUsesRowCount(t *testing.T) {
+	require.True(t, shouldAnalyze(50, false, 0), "first sight")
+	require.False(t, shouldAnalyze(1000, true, 1000), "unchanged")
+	require.False(t, shouldAnalyze(1050, true, 1000), "delta below minRowDelta")
+	require.True(t, shouldAnalyze(1100, true, 1000), "10% growth")
+	require.True(t, shouldAnalyze(50, true, 1000), "shrink re-baselines")
+	require.False(t, shouldAnalyze(0, true, 0), "empty stays empty")
+	require.True(t, shouldAnalyze(100, true, 0), "growth off a zero baseline")
 }
 
 func TestDoSkipsWhenNewerMachineBooted(t *testing.T) {

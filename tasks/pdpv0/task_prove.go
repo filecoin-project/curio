@@ -249,7 +249,27 @@ func (p *ProveTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwne
 		return p.handleProvePreflightError(ctx, dataSetId, currentHeight, xerrors.Errorf("failed to get next challenge epoch: %w", err))
 	}
 
-	if challengeEpoch.Sign() == 0 { // if challengeEpoch is 0 (NO_CHALLENGE_SCHEDULED), we need to disable proving
+	if challengeEpoch.Sign() == 0 { // NO_CHALLENGE_SCHEDULED
+		// A zero challenge epoch has two causes since FilOzone/pdp#297, and they
+		// need opposite handling. Leaf count tells them apart.
+		leafCount, err := pdpVerifier.GetDataSetLeafCount(contract.EthCallOpts(ctx), big.NewInt(dataSetId))
+		if err != nil {
+			return p.handleProvePreflightError(ctx, dataSetId, currentHeight, xerrors.Errorf("failed to get data set leaf count: %w", err))
+		}
+
+		if leafCount.Sign() > 0 {
+			// Removals were processed before this period's proof, invalidating
+			// the challenge. There is nothing to prove this period, but the data
+			// set is healthy and its proving schedule is still valid. Complete
+			// without a proof and leave the schedule intact: the prove watcher
+			// already cleared challenge_request_msg_hash when it claimed this
+			// task, so the nextProvingPeriod watcher picks the data set up at
+			// prove_at_epoch + challenge_window and samples a fresh challenge.
+			log.Warnw("skipping proof; challenge invalidated by processed piece deletions",
+				"dataSetId", dataSetId, "taskID", taskID, "leafCount", leafCount.String())
+			return true, nil
+		}
+
 		log.Infow("disabling proving", "dataSetId", dataSetId, "taskID", taskID, "reason", "no challenge epoch")
 		err = p.disableProving(ctx, dataSetId)
 		if err != nil {

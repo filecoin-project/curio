@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/ipld/go-ipld-prime/codec/dagjson"
@@ -29,6 +31,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
 	"github.com/samber/lo"
+	"github.com/snadrus/must"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -51,13 +54,22 @@ const IPNIRoutePath = "/ipni-provider/"
 // IPNIPath is a constant that represents the path for IPNI API requests.
 const IPNIPath = "/ipni/v1/ad/"
 
-const PublishInterval = 5 * time.Second
+const PublishInterval = 1 * time.Second
+
+// interProviderAnnounceDelay spaces out announces when a node runs multiple providers.
+const interProviderAnnounceDelay = 200 * time.Millisecond
 
 const (
 	PDPv0ProviderType = "PDP_v0"
 	PDPv1ProviderType = "PDP_v1"
 	PoRepProviderType = "PoRep"
 )
+
+// syncCacheSize caps the in-memory ad-sync-status cache.
+const syncCacheSize = 10000
+
+// syncCheckConcurrency caps concurrent ad-sync-status checks against the indexer.
+const syncCheckConcurrency = 20
 
 var (
 	log = logging.Logger("ipni-provider")
@@ -92,6 +104,17 @@ type Provider struct {
 	announceURLs   []*url.URL
 	httpServerBase *url.URL
 	startLock      sync.Once
+
+	// serviceURLs are indexer services checked for ad sync status, e.g.
+	// https://cid.contact. Not all of them support that endpoint.
+	serviceURLs []*url.URL
+	syncClient  *http.Client
+	// syncCache holds confirmed ad indexed times, populated lazily on request; nil for a skipped ad.
+	syncCache *lru.Cache[cid.Cid, *time.Time]
+	// syncChecksInFlight dedups concurrent checks for the same ad_cid.
+	syncChecksInFlight sync.Map
+	// syncCheckSem bounds how many ad-sync-status checks run at once, across all ad_cids.
+	syncCheckSem chan struct{}
 }
 
 // NewProvider initializes a new Provider using the provided dependencies.
@@ -103,14 +126,9 @@ type Provider struct {
 func NewProvider(d *deps.Deps) (*Provider, error) {
 	ctx := context.Background()
 
-	announceURLs := make([]*url.URL, len(d.Cfg.Market.StorageMarketConfig.IPNI.DirectAnnounceURLs))
-
-	for i, us := range d.Cfg.Market.StorageMarketConfig.IPNI.DirectAnnounceURLs {
-		u, err := url.Parse(us)
-		if err != nil {
-			return nil, err
-		}
-		announceURLs[i] = u
+	announceURLs, err := parseURLs(d.Cfg.Market.StorageMarketConfig.IPNI.DirectAnnounceURLs)
+	if err != nil {
+		return nil, err
 	}
 
 	baseURL, err := urlhelper.GetExternalURL(&d.Cfg.HTTP)
@@ -118,6 +136,11 @@ func NewProvider(d *deps.Deps) (*Provider, error) {
 		return nil, xerrors.Errorf("getting external URL for IPNI: %w", err)
 	}
 	baseURL.Path = path.Join(baseURL.Path, IPNIRoutePath)
+
+	serviceURLs, err := parseURLs(d.Cfg.Market.StorageMarketConfig.IPNI.ServiceURL)
+	if err != nil {
+		return nil, err
+	}
 
 	p := &Provider{
 		full:           d.Chain,
@@ -129,6 +152,10 @@ func NewProvider(d *deps.Deps) (*Provider, error) {
 		announceURLs:   announceURLs,
 		httpServerBase: baseURL,
 		latest:         make(map[string]cid.Cid),
+		serviceURLs:    serviceURLs,
+		syncClient:     &http.Client{Timeout: 5 * time.Second},
+		syncCache:      must.One(lru.New[cid.Cid, *time.Time](syncCacheSize)),
+		syncCheckSem:   make(chan struct{}, syncCheckConcurrency),
 	}
 
 	if err := p.refreshProviders(ctx); err != nil {
@@ -136,6 +163,18 @@ func NewProvider(d *deps.Deps) (*Provider, error) {
 	}
 
 	return p, nil
+}
+
+func parseURLs(strs []string) ([]*url.URL, error) {
+	urls := make([]*url.URL, len(strs))
+	for i, s := range strs {
+		u, err := url.Parse(s)
+		if err != nil {
+			return nil, xerrors.Errorf("parsing URL %q: %w", s, err)
+		}
+		urls[i] = u
+	}
+	return urls, nil
 }
 
 // insertProvider inserts new providers and updates the providerInfos map
@@ -460,8 +499,6 @@ func (p *Provider) handleGet(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			log.Errorw("failed to write HTTP response", "err", err)
 		}
-		// Log advertisement fetch for indexing status tracking
-		go p.logPDPFetch(providerID, b.String())
 		return
 	case ipnisync.CidSchemaEntryChunk:
 		content = "entry"
@@ -522,23 +559,7 @@ func (p *Provider) handleGet(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			log.Errorw("failed to write HTTP response", "err", err)
 		}
-		// Log advertisement fetch for indexing status tracking
-		go p.logPDPFetch(providerID, b.String())
 		return
-	}
-}
-
-func (p *Provider) logPDPFetch(peer, b string) {
-	p.mu.RLock()
-	info, ok := p.providerInfos[peer]
-	p.mu.RUnlock()
-	if !ok || info.SPID > 0 {
-		return
-	}
-	logCtx := context.Background()
-	_, err := p.db.Exec(logCtx, `INSERT INTO ipni_ad_fetches (ad_cid, fetched_at) VALUES ($1, NOW())`, b)
-	if err != nil {
-		log.Warnw("failed to log ad fetch", "ad_cid", b, "err", err)
 	}
 }
 
@@ -587,22 +608,6 @@ func (p *Provider) startPublishing(ctx context.Context) {
 			return
 		}
 		p.announceURLs = urls
-	}
-
-	// Populated latest head cid from the ipni_head table
-	p.mu.RLock()
-	peers := make([]string, 0, len(p.providerInfos))
-	for pr := range p.providerInfos {
-		peers = append(peers, pr)
-	}
-	p.mu.RUnlock()
-	for _, provider := range peers {
-		c, err := p.getHeadCID(ctx, provider)
-		if err != nil {
-			log.Errorw("failed to get head CID", "provider", provider, "error", err)
-			continue
-		}
-		p.latest[provider] = c
 	}
 
 	ticker := time.NewTicker(PublishInterval)
@@ -657,7 +662,7 @@ func (p *Provider) publishHead(ctx context.Context) {
 
 	for _, provider := range providers {
 		if i > 0 {
-			time.Sleep(time.Second)
+			time.Sleep(interProviderAnnounceDelay)
 		}
 		c, err := p.getHeadCID(ctx, provider)
 		if err != nil {
@@ -770,4 +775,131 @@ func (p *Provider) LastPublishTime(providerPeerID string) *time.Time {
 		return nil
 	}
 	return info.lastPublishTime
+}
+
+// adSyncStatus mirrors storetheindex's GET /sync/status/ad/{adCid} response (ipni/storetheindex#2898).
+type adSyncStatus struct {
+	Ad          string
+	Indexed     bool
+	IndexedTime *time.Time
+	Skipped     bool
+	SkippedTime *time.Time
+}
+
+// SyncedAt returns the cached indexed time for adCid, or nil on a cache miss.
+func (p *Provider) SyncedAt(adCid cid.Cid, provider string) *time.Time {
+	if indexedAt, ok := p.syncCache.Get(adCid); ok {
+		return indexedAt
+	}
+	p.checkAdSyncStatusAsync(adCid, provider)
+	return nil
+}
+
+// checkAdSyncStatusAsync queries the indexer services for adCid in the background.
+func (p *Provider) checkAdSyncStatusAsync(adCid cid.Cid, provider string) {
+	if _, alreadyChecking := p.syncChecksInFlight.LoadOrStore(adCid, struct{}{}); alreadyChecking {
+		return
+	}
+
+	select {
+	case p.syncCheckSem <- struct{}{}:
+	default:
+		p.syncChecksInFlight.Delete(adCid)
+		return
+	}
+
+	go func() {
+		defer p.syncChecksInFlight.Delete(adCid)
+		defer func() { <-p.syncCheckSem }()
+
+		ctx := context.Background()
+		checkStart := time.Now()
+
+		service, status, ok := p.queryAdSyncStatus(ctx, adCid)
+		if !ok {
+			return // still pending
+		}
+		checkTook := time.Since(checkStart)
+
+		switch {
+		case status.Indexed:
+			indexedAt := time.Now().UTC() // fallback when IndexedTime is nil
+			var latency *time.Duration
+			if status.IndexedTime != nil {
+				indexedAt = status.IndexedTime.UTC()
+				// Only a real, indexer-reported IndexedTime is a trustworthy
+				latency = p.observeSyncLatency(ctx, adCid, provider, indexedAt)
+			}
+			p.syncCache.Add(adCid, &indexedAt)
+			log.Infow("IPNI advertisement confirmed indexed", "provider", provider, "ad_cid", adCid.String(), "service", service, "indexed_at", indexedAt, "check_took", checkTook, "latency", latency)
+		case status.Skipped:
+			log.Warnw("indexer permanently skipped ad, it will never be indexed", "ad_cid", adCid.String(), "service", service, "check_took", checkTook)
+			p.syncCache.Add(adCid, nil)
+		}
+	}()
+}
+
+// queryAdSyncStatus checks each configured service in turn for a definitive answer.
+func (p *Provider) queryAdSyncStatus(ctx context.Context, adCid cid.Cid) (service string, status adSyncStatus, ok bool) {
+	for _, svc := range p.serviceURLs {
+		u := *svc
+		u.Path = path.Join(u.Path, "sync", "status", "ad", adCid.String())
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+		if err != nil {
+			log.Warnw("failed to build ad sync status request", "service", svc.String(), "ad_cid", adCid.String(), "err", err)
+			continue
+		}
+
+		resp, err := p.syncClient.Do(req)
+		if err != nil {
+			log.Debugw("failed to query ad sync status", "service", svc.String(), "ad_cid", adCid.String(), "err", err)
+			continue
+		}
+
+		if resp.StatusCode == http.StatusNotFound {
+			log.Debugw("indexer service does not support ad sync status endpoint, skipping", "service", svc.String())
+			_ = resp.Body.Close()
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			log.Debugw("unexpected ad sync status response", "service", svc.String(), "ad_cid", adCid.String(), "status", resp.StatusCode)
+			_ = resp.Body.Close()
+			continue
+		}
+
+		var s adSyncStatus
+		err = json.NewDecoder(resp.Body).Decode(&s)
+		_ = resp.Body.Close()
+		if err != nil {
+			log.Warnw("failed to decode ad sync status response", "service", svc.String(), "ad_cid", adCid.String(), "err", err)
+			continue
+		}
+
+		if s.Indexed || s.Skipped {
+			return svc.String(), s, true
+		}
+	}
+	return "", adSyncStatus{}, false
+}
+
+// observeSyncLatency records the sync-latency metric, estimating announce
+// time as ipni.created_at + PublishInterval. Returns nil if latency can't be computed.
+func (p *Provider) observeSyncLatency(ctx context.Context, adCid cid.Cid, provider string, indexedAt time.Time) *time.Duration {
+	var createdAt sql.NullTime
+	err := p.db.QueryRow(ctx, `SELECT created_at FROM ipni WHERE ad_cid = $1`, adCid.String()).Scan(&createdAt)
+	if err != nil || !createdAt.Valid {
+		log.Debugw("no ipni.created_at to compute sync latency", "ad_cid", adCid.String(), "err", err)
+		return nil
+	}
+
+	announcedAt := createdAt.Time.Add(PublishInterval)
+	if indexedAt.Before(announcedAt) {
+		return nil // avoid a negative duration
+	}
+
+	latency := indexedAt.Sub(announcedAt)
+	observeIndexedLatency(provider, latency)
+	return &latency
 }

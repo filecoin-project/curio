@@ -31,6 +31,9 @@ var (
 	ErrPDPVerifierDataSetNotLive             abi.Error
 	ErrPDPVerifierInsufficientChallengeDelay abi.Error
 
+	ErrPDPVerifierPendingPieceDeletions abi.Error
+	ErrPDPVerifierNoPiecesToProve       abi.Error
+
 	// Unexpected proving invariant errors. Curio should not produce these in
 	// normal PDPv0 initPP/nextPP/prove flow; classify them explicitly so they
 	// alert and require investigation instead of entering recovery/backoff paths.
@@ -75,6 +78,16 @@ func init() {
 	ErrPDPVerifierExcessiveChallengeDelay, ok = parsedPDPVerifier.Errors["ExcessiveChallengeDelay"]
 	if !ok {
 		panic("PDPVerifier ABI missing ExcessiveChallengeDelay error")
+	}
+
+	ErrPDPVerifierPendingPieceDeletions, ok = parsedPDPVerifier.Errors["PendingPieceDeletions"]
+	if !ok {
+		panic("PDPVerifier removal ABI missing PendingPieceDeletions error")
+	}
+
+	ErrPDPVerifierNoPiecesToProve, ok = parsedPDPVerifier.Errors["NoPiecesToProve"]
+	if !ok {
+		panic("PDPVerifier removal ABI missing NoPiecesToProve error")
 	}
 
 	parsedFWSS, err := FWSS.FilecoinWarmStorageServiceMetaData.GetAbi()
@@ -218,7 +231,27 @@ func IsNextProvingPeriodEmptyDatasetError(err error) bool {
 	if err == nil {
 		return false
 	}
-	return strings.Contains(strings.ToLower(err.Error()), strings.ToLower(provingRevertNoLeavesForProvingPeriod))
+	errStr := strings.ToLower(err.Error())
+	return strings.Contains(errStr, strings.ToLower(provingRevertNoLeavesForProvingPeriod)) ||
+		strings.Contains(errStr, contractErrorSelector(ErrPDPVerifierNoPiecesToProve))
+}
+
+// IsPendingPieceDeletionsError returns true when nextProvingPeriod (or initPP)
+// refuses to roll over because the data set still has scheduled removals
+// queued. This is recoverable: the process deletions task processes the queue and the
+// proving-period task retries.
+func IsPendingPieceDeletionsError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), contractErrorSelector(ErrPDPVerifierPendingPieceDeletions))
+}
+
+func IsPDPVerifierDataSetNotLive(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), contractErrorSelector(ErrPDPVerifierDataSetNotLive))
 }
 
 // IsRefreshProvingStateError returns true when initPP/nextPP selected a

@@ -12,7 +12,6 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -45,8 +44,9 @@ func validateExtraData(extraDataHexStr string) error {
 	if err != nil {
 		return fmt.Errorf("failed to decode hex in extra-data: %w", err)
 	}
-	if len(decoded) > 2048 {
-		return fmt.Errorf("decoded extra-data exceeds maximum size of 2048 bytes (decoded length: %d)", len(decoded))
+	// 8192 bytes is the size of the largest extradata (for addPieces). Individual smaller limits are checked later
+	if len(decoded) > 8192 {
+		return fmt.Errorf("decoded extra-data exceeds maximum size of 8192 bytes (decoded length: %d)", len(decoded))
 	}
 	return nil
 }
@@ -375,50 +375,7 @@ var piecePrepareCmd = &cli.Command{
 	},
 }
 
-func startLocalNotifyServer() (string, chan struct{}, error) {
-	var notifyReceived chan struct{}
-	var server *http.Server
-	var ln net.Listener
-
-	notifyReceived = make(chan struct{})
-	var err error
-	ln, err = net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return "", nil, fmt.Errorf("failed to start local HTTP server: %v", err)
-	}
-	serverAddr := fmt.Sprintf("http://%s/notify", ln.Addr().String())
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("/notify", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Println("Received notification from server.")
-		b, err := io.ReadAll(r.Body)
-		if err != nil {
-			fmt.Printf("Failed to read notification body: %v\n", err)
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-		fmt.Printf("Notification body: %s\n", string(b))
-		w.WriteHeader(http.StatusOK)
-		// Signal that notification was received
-		close(notifyReceived)
-	})
-
-	server = &http.Server{Handler: mux}
-
-	go func() {
-		if err := server.Serve(ln); err != nil && err != http.ErrServerClosed {
-			fmt.Printf("HTTP server error: %v\n", err)
-		}
-	}()
-
-	defer func() {
-		_ = server.Close()
-		_ = ln.Close()
-	}()
-	return serverAddr, notifyReceived, nil
-}
-
-func uploadOnePiece(client *http.Client, serviceURL string, reqBody []byte, jwtToken string, r io.ReadSeeker, pieceSize int64, localNotifWait bool, notifyReceived chan struct{}, verbose bool) error {
+func uploadOnePiece(client *http.Client, serviceURL string, reqBody []byte, jwtToken string, r io.ReadSeeker, pieceSize int64, verbose bool) error {
 	req, err := http.NewRequest("POST", serviceURL+"/pdp/piece", bytes.NewReader(reqBody))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %v", err)
@@ -491,13 +448,6 @@ func uploadOnePiece(client *http.Client, serviceURL string, reqBody []byte, jwtT
 			body, _ := io.ReadAll(uploadResp.Body)
 			return fmt.Errorf("upload failed with status code %d: %s", uploadResp.StatusCode, string(body))
 		}
-		if localNotifWait {
-			if verbose {
-				fmt.Println("Waiting for server notification...")
-			}
-			<-notifyReceived
-		}
-
 		return nil
 	default:
 		body, _ := io.ReadAll(resp.Body)
@@ -524,18 +474,9 @@ var pieceUploadCmd = &cli.Command{
 			Usage: "Service Name to include in the JWT token (used if --jwt-token is not provided)",
 		},
 		&cli.StringFlag{
-			Name:     "notify-url",
-			Usage:    "Notification URL",
-			Required: false,
-		},
-		&cli.StringFlag{
 			Name:  "hash-type",
 			Usage: "Hash type to use for verification (sha256 or commp)",
 			Value: "sha256",
-		},
-		&cli.BoolFlag{
-			Name:  "local-notif-wait",
-			Usage: "Wait for server notification by spawning a temporary local HTTP server",
 		},
 	},
 	Action: func(cctx *cli.Context) error {
@@ -546,10 +487,8 @@ var pieceUploadCmd = &cli.Command{
 
 		serviceURL := cctx.String("service-url")
 		jwtToken := cctx.String("jwt-token")
-		notifyURL := cctx.String("notify-url")
 		serviceName := cctx.String("service-name")
 		hashType := cctx.String("hash-type")
-		localNotifWait := cctx.Bool("local-notif-wait")
 
 		if jwtToken == "" {
 			if serviceName == "" {
@@ -566,19 +505,7 @@ var pieceUploadCmd = &cli.Command{
 			return fmt.Errorf("invalid hash type: %s", hashType)
 		}
 
-		if localNotifWait && notifyURL != "" {
-			return fmt.Errorf("cannot specify both --notify-url and --local-notif-wait")
-		}
-
-		var notifyReceived chan struct{}
 		var err error
-
-		if localNotifWait {
-			notifyURL, notifyReceived, err = startLocalNotifyServer()
-			if err != nil {
-				return fmt.Errorf("failed to start local HTTP server: %v", err)
-			}
-		}
 
 		// Open input file
 		file, err := os.Open(inputFile)
@@ -626,15 +553,12 @@ var pieceUploadCmd = &cli.Command{
 			return fmt.Errorf("unsupported hash type: %s", hashType)
 		}
 
-		if notifyURL != "" {
-			reqData["notify"] = notifyURL
-		}
 		reqBody, err = json.Marshal(reqData)
 		if err != nil {
 			return fmt.Errorf("failed to marshal request data: %v", err)
 		}
 		client := &http.Client{}
-		if err := uploadOnePiece(client, serviceURL, reqBody, jwtToken, file, pieceSize, localNotifWait, notifyReceived, true); err != nil {
+		if err := uploadOnePiece(client, serviceURL, reqBody, jwtToken, file, pieceSize, true); err != nil {
 			return fmt.Errorf("failed to upload piece: %v", err)
 		}
 
@@ -663,18 +587,9 @@ var uploadFileCmd = &cli.Command{
 			Usage: "Service Name to include in the JWT token (used if --jwt-token is not provided)",
 		},
 		&cli.StringFlag{
-			Name:     "notify-url",
-			Usage:    "Notification URL",
-			Required: false,
-		},
-		&cli.StringFlag{
 			Name:  "hash-type",
 			Usage: "Hash type to use for verification (sha256 or commp)",
 			Value: "sha256",
-		},
-		&cli.BoolFlag{
-			Name:  "local-notif-wait",
-			Usage: "Wait for server notification by spawning a temporary local HTTP server",
 		},
 		&cli.BoolFlag{
 			Name:  "verbose",
@@ -702,8 +617,6 @@ var uploadFileCmd = &cli.Command{
 		jwtToken := cctx.String("jwt-token")
 		serviceName := cctx.String("service-name")
 		hashType := cctx.String("hash-type")
-		localNotifWait := cctx.Bool("local-notif-wait")
-		notifyURL := cctx.String("notify-url")
 		verbose := cctx.Bool("verbose")
 		dryRun := cctx.Bool("dry-run")
 		chunkFileName := cctx.String("chunk-file")
@@ -752,15 +665,6 @@ var uploadFileCmd = &cli.Command{
 		bar := progressbar.NewOptions(1, progressbar.OptionSetDescription("Uploading..."))
 		if int(fileSize/chunkSize) > 0 {
 			bar = progressbar.NewOptions(int(fileSize/chunkSize), progressbar.OptionSetDescription("Uploading..."))
-		}
-
-		// Setup local server if needed
-		var notifyReceived chan struct{}
-		if localNotifWait {
-			notifyURL, notifyReceived, err = startLocalNotifyServer()
-			if err != nil {
-				return fmt.Errorf("failed to start local HTTP server: %v", err)
-			}
 		}
 
 		// group piece aggregations for tracking as onchain pieces into sector size chunks
@@ -820,16 +724,13 @@ var uploadFileCmd = &cli.Command{
 					return fmt.Errorf("unsupported hash type: %s", hashType)
 				}
 
-				if notifyURL != "" {
-					reqData["notify"] = notifyURL
-				}
 				reqBody, err = json.Marshal(reqData)
 				if err != nil {
 					return fmt.Errorf("failed to marshal request data: %v", err)
 				}
 
 				// Upload the piece
-				err = uploadOnePiece(client, serviceURL, reqBody, jwtToken, chunkReader, int64(n), localNotifWait, notifyReceived, verbose)
+				err = uploadOnePiece(client, serviceURL, reqBody, jwtToken, chunkReader, int64(n), verbose)
 				if err != nil {
 					return fmt.Errorf("failed to upload piece: %v", err)
 				}
@@ -1531,18 +1432,9 @@ var streamingPieceUploadCmd = &cli.Command{
 			Usage: "Service Name to include in the JWT token (used if --jwt-token is not provided)",
 		},
 		&cli.StringFlag{
-			Name:     "notify-url",
-			Usage:    "Notification URL",
-			Required: false,
-		},
-		&cli.StringFlag{
 			Name:  "hash-type",
 			Usage: "Hash type to use for verification (sha256 or commp)",
 			Value: "commp",
-		},
-		&cli.BoolFlag{
-			Name:  "local-notif-wait",
-			Usage: "Wait for server notification by spawning a temporary local HTTP server",
 		},
 	},
 	Action: func(cctx *cli.Context) error {
@@ -1553,10 +1445,8 @@ var streamingPieceUploadCmd = &cli.Command{
 
 		serviceURL := cctx.String("service-url")
 		jwtToken := cctx.String("jwt-token")
-		notifyURL := cctx.String("notify-url")
 		serviceName := cctx.String("service-name")
 		hashType := cctx.String("hash-type")
-		localNotifWait := cctx.Bool("local-notif-wait")
 
 		if jwtToken == "" {
 			if serviceName == "" {
@@ -1573,19 +1463,7 @@ var streamingPieceUploadCmd = &cli.Command{
 			return fmt.Errorf("invalid hash type: %s", hashType)
 		}
 
-		if localNotifWait && notifyURL != "" {
-			return fmt.Errorf("cannot specify both --notify-url and --local-notif-wait")
-		}
-
-		var notifyReceived chan struct{}
 		var err error
-
-		if localNotifWait {
-			notifyURL, notifyReceived, err = startLocalNotifyServer()
-			if err != nil {
-				return fmt.Errorf("failed to start local HTTP server: %v", err)
-			}
-		}
 
 		// Open the input file
 		file, err := os.Open(inputFile)
@@ -1715,15 +1593,10 @@ var streamingPieceUploadCmd = &cli.Command{
 
 		type finalize struct {
 			PieceCID string `json:"pieceCid"`
-			Notify   string `json:"notify,omitempty"`
 		}
 
 		bd := finalize{
 			PieceCID: pcid2.String(),
-		}
-
-		if notifyURL != "" {
-			bd.Notify = notifyURL
 		}
 
 		bodyBytes, err := json.Marshal(bd)
@@ -1758,10 +1631,6 @@ var streamingPieceUploadCmd = &cli.Command{
 
 		fmt.Printf("Piece CID: %s\n", pcid2.String())
 		fmt.Println("Piece uploaded successfully.")
-		if localNotifWait {
-			fmt.Println("Waiting for server notification...")
-			<-notifyReceived
-		}
 		return nil
 	},
 }

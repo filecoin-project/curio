@@ -125,7 +125,7 @@ func processPendingTransactions(ctx context.Context, db *harmonydb.DB, ethClient
 	}
 
 	for _, settle := range goodSettles {
-		err := verifySettle(ctx, db, ethClient, fwssv, serviceAddr, settle)
+		err := verifySettle(ctx, db, ethClient, fwssv, serviceAddr, settle, al)
 		if err != nil {
 			log.Errorw("failed to verify settle, skipping", "txHash", settle.Hash, "error", err)
 		}
@@ -134,7 +134,7 @@ func processPendingTransactions(ctx context.Context, db *harmonydb.DB, ethClient
 	return nil
 }
 
-func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, fwssv *FWSS.FilecoinWarmStorageServiceStateView, fwssAddr common.Address, settle settled) error {
+func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, fwssv *FWSS.FilecoinWarmStorageServiceStateView, fwssAddr common.Address, settle settled, al curioalerting.AlertingInterface) error {
 	paymentContractAddr, err := filecoinpayment.PaymentContractAddress()
 	if err != nil {
 		return fmt.Errorf("failed to get payment contract address: %w", err)

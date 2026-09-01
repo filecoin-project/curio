@@ -44,7 +44,7 @@ type PeerHTTP struct {
 	localAddr string // this node's address, sent in X-Peer-ID header
 	onConnect func(peerAddr string, conn harmonytask.PeerConnection)
 
-	connMu      sync.RWMutex
+	connMu      sync.RWMutex // connections and onConnect
 	connections map[string]*peerHTTPConnection
 }
 
@@ -63,7 +63,9 @@ func New(localAddr string) *PeerHTTP {
 // provides. It is called when the first message arrives from a new peer,
 // establishing the bidirectional "connection" for that peer.
 func (p *PeerHTTP) SetOnConnect(onConnect func(peerAddr string, conn harmonytask.PeerConnection)) {
+	p.connMu.Lock()
 	p.onConnect = onConnect
+	p.connMu.Unlock()
 }
 
 // ServeHTTP handles incoming peer HTTP POST messages. Mount this at
@@ -107,9 +109,8 @@ func (p *PeerHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	log.Debugw("received peer message", "peer", peerAddr, "size", len(body))
 
-	// connMu only guards the connections map. Look up or create the connection,
-	// then release the lock before touching the connection's channel so we never
-	// hold the shared lock during delivery.
+	// Look up or create the connection and snapshot onConnect, then release
+	// the lock before delivery so we never hold the shared lock on the channel.
 	p.connMu.Lock()
 	conn, exists := p.connections[peerAddr]
 	if !exists {
@@ -121,13 +122,14 @@ func (p *PeerHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		p.connections[peerAddr] = conn
 	}
+	onConnect := p.onConnect
 	p.connMu.Unlock()
 
 	// Only fire OnConnect for a freshly-created connection; reusing an existing
 	// connection must not re-run the peering handshake.
-	if !exists && p.onConnect != nil {
+	if !exists && onConnect != nil {
 		log.Infow("new peer connection via HTTP", "peer", peerAddr)
-		go p.onConnect(peerAddr, conn)
+		go onConnect(peerAddr, conn)
 	}
 
 	// Deliver without holding connMu. incoming is never closed (drops are

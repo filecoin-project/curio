@@ -57,14 +57,12 @@ All endpoints are rooted at `/pdp`.
 
 ```json
 {
-  "pieceCid": "<CommP-v2-CID>",
-  "notify": "<optional-notification-URL>"
+  "pieceCid": "<CommP-v2-CID>"
 }
 ```
 
 - **Fields:**
     - `pieceCid`: The Piece CID in CommP **v2** format (CIDv1 with `fil-commitment-unsealed` codec and raw size encoded). This uniquely identifies the piece and encodes size information.
-    - `notify`: *(Optional)* A URL to be notified when the piece has been processed successfully.
 
 #### Responses
 
@@ -162,24 +160,33 @@ All endpoints are rooted at `/pdp`.
   "pieceCid": "<piece-CID-v2>",
   "status": "<status>",
   "indexed": <boolean>,
+  "indexedAt": "<RFC3339-timestamp-or-omitted>",
+  "adCreated": <boolean>,
+  "adCreatedAt": "<RFC3339-timestamp-or-omitted>",
+  "adCid": "<ad-CID-or-omitted>",
   "advertised": <boolean>,
-  "retrieved": <boolean>,
-  "retrievedAt": "<RFC3339-timestamp-or-omitted>"
+  "advertisedAt": "<RFC3339-timestamp-or-omitted>",
+  "synced": <boolean>,
+  "syncedAt": "<RFC3339-timestamp-or-omitted>"
 }
 ```
 
 - **Fields:**
     - `pieceCid`: The Piece CID in v2 format.
     - `status`: Overall status string. One of:
-        - `"pending"` – Not yet indexed.
-        - `"indexing"` – CAR indexing task is in progress.
+        - `"pending"` – Not yet locally indexed.
+        - `"indexing"` – Local CAR indexing task is in progress.
         - `"creating_ad"` – IPNI advertisement is being created.
-        - `"announced"` – Advertisement published to IPNI network.
-        - `"retrieved"` – Piece has been retrieved by a client.
-    - `indexed`: Whether the piece has been indexed and is ready for IPNI.
-    - `advertised`: Whether an IPNI advertisement has been published.
-    - `retrieved`: Whether the piece has been retrieved by a client.
-    - `retrievedAt`: Timestamp of last retrieval (omitted if never retrieved).
+        - `"announced"` – The advertisement row exists, the terminal status. Not a guarantee it's been broadcast (see `advertised`) or indexed externally (see `synced`).
+    - `indexed`: Whether the piece has been indexed locally and is ready for IPNI.
+    - `indexedAt`: Timestamp when local CAR indexing completed (omitted if not yet indexed).
+    - `adCreated`: Whether an IPNI advertisement has been created for this piece.
+    - `adCreatedAt`: Timestamp the advertisement was created (omitted if not yet created).
+    - `adCid`: This piece's advertisement CID, once created. Callers who want to double-check independently can query an IPNI instance directly (e.g., `GET https://cid.contact/sync/status/ad/{adCid}`).
+    - `advertised`: Whether the provider has sent an HTTP announce covering this ad.
+    - `advertisedAt`: `adCreatedAt` plus the announce publish interval - a fixed estimate, not the provider's raw last-announce time, so it doesn't drift on later calls as the provider announces newer ads.
+    - `synced`: Whether an IPNI instance has confirmed it fully processed this ad, per an in-memory (not persisted) cache checked on demand. A cache miss triggers a background check against the configured IPNI instance and returns `false` for this call - a later call for the same piece will see the result once that check completes. `true` is a confirmed signal - callers can act on it right away. `false` is inconclusive rather than proof the ad isn't indexed: it can also show up on the first call after a Curio restart (cache cleared) or if a later call catches an IPNI instance resync, without the ad actually losing its indexed state - poll again if that matters for your workflow.
+    - `syncedAt`: When `synced` becomes true, this stores the IPNI instance's reported processing time.
 
 #### Errors
 
@@ -197,7 +204,7 @@ The streaming upload API provides a way to upload large pieces in a streaming fa
 2. Stream the data via `PUT`.
 3. Finalize the upload with the pieceCid to link and validate.
 
-> **Note:** Each streaming upload chunk is limited to **1 GiB** (unpadded). The server computes the CommP on-the-fly.
+> **Note:** Each streaming upload is limited to **1,065,353,216 raw bytes** (1 GiB padded). The server writes it once directly to piece storage while computing CommP on-the-fly.
 
 #### 3.1. Create Streaming Upload Session
 
@@ -236,6 +243,7 @@ The streaming upload API provides a way to upload large pieces in a streaming fa
 - `400 Bad Request`: Invalid UUID.
 - `401 Unauthorized`: Missing or invalid JWT token.
 - `404 Not Found`: Upload session not found.
+- `409 Conflict`: The upload session or calculated piece is already being written.
 - `413 Payload Too Large`: Data exceeds size limit.
 
 ---
@@ -251,8 +259,7 @@ The streaming upload API provides a way to upload large pieces in a streaming fa
 
 ```json
 {
-  "pieceCid": "<CommP-v2-CID>",
-  "notify": "<optional-notification-URL>"
+  "pieceCid": "<CommP-v2-CID>"
 }
 ```
 
@@ -265,50 +272,13 @@ The streaming upload API provides a way to upload large pieces in a streaming fa
 - `400 Bad Request`: Invalid pieceCid, size mismatch, or CID does not match the uploaded data.
 - `401 Unauthorized`: Missing or invalid JWT token.
 - `404 Not Found`: Upload session not found.
+- `409 Conflict`: The PUT has not completed final storage yet.
 
 ---
 
-### 4. Notifications
+### 4. Upload Completion
 
-When you initiate an upload with the `notify` field specified, the PDP Service will send a notification to the provided URL once the piece has been successfully processed and stored.
-
-#### 4.1. Notification Request
-
-- **Method:** `POST`
-- **URL:** The `notify` URL provided during the upload initiation (`POST /pdp/piece`).
-- **Headers:**
-    - `Content-Type`: `application/json`
-- **Request Body:**
-
-```json
-{
-  "id": "<upload-ID>",
-  "service": "<service-name>",
-  "pieceCID": "<piece-CID or null>",
-  "notify_url": "<original-notify-URL>",
-  "check_hash_codec": "<hash-function-name>",
-  "check_hash": "<byte-array-of-hash>"
-}
-```
-
-- **Fields:**
-    - `id`: The upload ID.
-    - `service`: The service name.
-    - `pieceCID`: The Piece CID of the stored piece (may be `null` if not applicable).
-    - `notify_url`: The original notification URL provided.
-    - `check_hash_codec`: The hash function used (e.g., `"sha2-256-trunc254-padded"`).
-    - `check_hash`: The byte array of the original hash provided in the upload initiation.
-
-#### 4.2. Expected Response from Your Server
-
-- **Status Code:** `200 OK` to acknowledge receipt.
-- **Response Body:** (Optional) Can be empty or contain a message.
-
-#### 4.3. Notes
-
-- The PDP Service may retry the notification if it fails.
-- Ensure that your server is accessible from the PDP Service and can handle incoming POST requests.
-- The notification does not include the piece data; it confirms that the piece has been successfully stored.
+Uploads complete synchronously. A `204 No Content` response from the known-CID PUT means the piece is stored and registered for PDP. For streaming uploads, the PUT stores the piece and a `200 OK` response from finalize registers it for PDP. The service does not send upload callback requests.
 
 ---
 
@@ -1014,8 +984,7 @@ Error responses typically include an error message in the response body.
    Content-Type: application/json
 
    {
-     "pieceCid": "<CommP-v2-CID>",
-     "notify": "https://example.com/notify"
+     "pieceCid": "<CommP-v2-CID>"
    }
    ```
 
@@ -1056,31 +1025,6 @@ Error responses typically include an error message in the response body.
 
    ```http
    HTTP/1.1 204 No Content
-   ```
-
-3. **Receive Notification (if `notify` was provided):**
-
-   **Server's Notification Request:**
-
-   ```http
-   POST /notify HTTP/1.1
-   Host: example.com
-   Content-Type: application/json
-
-   {
-     "id": "<upload-ID>",
-     "service": "<service-name>",
-     "pieceCID": "<piece-CID>",
-     "notify_url": "https://example.com/notify",
-     "check_hash_codec": "sha2-256-trunc254-padded",
-     "check_hash": "<b64-byte-array-of-hash>"
-   }
-   ```
-
-   **Your Response:**
-
-   ```http
-   HTTP/1.1 200 OK
    ```
 
 ### Uploading a Piece (Streaming)

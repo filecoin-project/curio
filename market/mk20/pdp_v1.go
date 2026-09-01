@@ -18,7 +18,7 @@ const (
 	MaxAddPiecesExtraDataSize = 8192
 
 	// MaxDeletePieceExtraDataSize defines the limit for extraData size in DeletePiece calls (256B).
-	MaxDeletePieceExtraDataSize = 256
+	MaxDeletePieceExtraDataSize = 1024
 
 	// MaxPieceLimit defines the maximum number of pieces that can be added in a sinle deal
 	MaxPieceLimit = 1024

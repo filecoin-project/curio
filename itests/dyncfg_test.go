@@ -101,12 +101,18 @@ func TestMarketDynamicConfigMinerUpdate(t *testing.T) {
 
 	full, miner, db, maddr1 := helpers.BootstrapNetworkWithNewMiner(t, ctx, "2KiB")
 
+	// Must happen before Curio starts: the running node sends worker-key messages
+	// (peer-id / multiaddr updates) that collide on nonce with CreateStorageMiner.
+	maddr2, err := helpers.CreateStorageMiner(ctx, full, miner.OwnerKey.Address, "2KiB", 0)
+	require.NoError(t, err)
+
 	baseCfg, err := helpers.SetBaseConfigWithDefaults(t, ctx, db)
 	require.NoError(t, err)
 
 	require.NotNil(t, baseCfg.Addresses)
 	require.GreaterOrEqual(t, len(baseCfg.Addresses.Get()), 1)
 	require.Contains(t, baseCfg.Addresses.Get()[0].MinerAddresses, maddr1.String())
+	require.NotContains(t, baseCfg.Addresses.Get()[0].MinerAddresses, maddr2.String())
 
 	dir, err := os.MkdirTemp(os.TempDir(), "curio")
 	require.NoError(t, err)
@@ -132,9 +138,7 @@ func TestMarketDynamicConfigMinerUpdate(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, machineDetails, "machine details should exist")
 	require.Contains(t, machineDetails[0].Miners, maddr1.String(), "first miner should be in machine details")
-
-	maddr2, err := helpers.CreateStorageMiner(ctx, full, miner.OwnerKey.Address, "2KiB", 0)
-	require.NoError(t, err)
+	require.NotContains(t, machineDetails[0].Miners, maddr2.String(), "second miner should not be in machine details before config update")
 
 	updatedCfg, err := helpers.LoadBaseConfigFromDB(ctx, db)
 	require.NoError(t, err)

@@ -24,7 +24,7 @@ func jsonRoundTrip(m map[string]any, dst any) error {
 }
 
 func uiSchemaRoot() any {
-	return depsconfig.UnwrapDynamics(depsconfig.SkiffConfig{})
+	return depsconfig.SkiffConfig{}
 }
 
 func uiDefaultJSON() (map[string]any, error) {
@@ -59,5 +59,5 @@ func uiPrepareLayerSave(layer string, submitted map[string]any, existingToml str
 		return "", err
 	}
 
-	return formatLayerTOML(layer, curioCfg)
+	return formatLayerTOML(curioCfg)
 }

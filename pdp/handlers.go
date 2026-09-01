@@ -19,15 +19,17 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/ipfs/go-cid"
 	"github.com/yugabyte/pgx/v5"
 
 	"github.com/filecoin-project/curio/alertmanager"
 	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/ethchain"
-	"github.com/filecoin-project/curio/lib/paths"
+	"github.com/filecoin-project/curio/lib/piecestore"
 	ipni_provider "github.com/filecoin-project/curio/market/ipni/ipni-provider"
 	"github.com/filecoin-project/curio/pdp/contract"
+	pdpwallet "github.com/filecoin-project/curio/pdp/wallet"
 	"github.com/filecoin-project/curio/tasks/indexing"
 
 	types2 "github.com/filecoin-project/lotus/chain/types"
@@ -58,8 +60,8 @@ const (
 	// call to reject early rather than revert on-chain.
 	MaxAddPiecesBatchSize = 40
 
-	// MaxDeletePieceExtraDataSize defines the limit for extraData size in DeletePiece calls (256B).
-	MaxDeletePieceExtraDataSize = 256
+	// MaxDeletePieceExtraDataSize defines the limit for extraData size in DeletePiece calls (1KiB).
+	MaxDeletePieceExtraDataSize = 1024
 
 	MaxDeletePiecesBatchSize = contract.ConservativeEnqueuedRemovalsLimit
 )
@@ -74,7 +76,7 @@ type ETHTxSender interface {
 type PDPService struct {
 	Auth
 	db      *harmonydb.DB
-	storage paths.StashStore
+	pieceIO piecestore.PieceIO
 
 	sender    ETHTxSender
 	ethClient ethchain.EthClient
@@ -100,7 +102,7 @@ type PDPServiceNodeApi interface {
 func NewPDPService(
 	ctx context.Context,
 	db *harmonydb.DB,
-	stor paths.StashStore,
+	pieceIO piecestore.PieceIO,
 	ec ethchain.EthClient,
 	fc PDPServiceNodeApi,
 	sn ETHTxSender,
@@ -114,7 +116,7 @@ func NewPDPService(
 	p := &PDPService{
 		Auth:    auth,
 		db:      db,
-		storage: stor,
+		pieceIO: pieceIO,
 
 		sender:    sn,
 		ethClient: ec,
@@ -238,9 +240,21 @@ func (p *PDPService) handlePing(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if p.alertTask != nil && p.alertTask.Problems() {
-		httpServerError(w, http.StatusServiceUnavailable, "Service Unavailable", nil)
+	status, err := pdpwallet.PDPKeyStatus(r.Context(), p.db)
+	if err != nil {
+		httpServerError(w, http.StatusServiceUnavailable, "Service Unavailable", err)
 		return
+	}
+	if !status.Configured {
+		httpServerError(w, http.StatusServiceUnavailable, "PDP wallet not configured", nil)
+		return
+	}
+
+	if p.alertTask != nil {
+		if detail := p.alertTask.ProblemDetail(); detail != "" {
+			httpServerError(w, http.StatusServiceUnavailable, "Service Unavailable", errors.New(detail))
+			return
+		}
 	}
 
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -276,18 +290,16 @@ func (p *PDPService) handleGetPieceStatus(w http.ResponseWriter, r *http.Request
 
 	// Query status from database
 	var results []struct {
-		PieceCID                 string         `db:"piece_cid"`
-		PieceRawSize             uint64         `db:"piece_raw_size"`
-		CreatedAt                time.Time      `db:"created_at"`
-		Indexed                  bool           `db:"indexed"`
-		IndexedAt                sql.NullTime   `db:"indexed_at"`
-		AdvertisementCreated     bool           `db:"advertisement_created"`
-		AdvertisementCreatedAt   sql.NullTime   `db:"advertisement_created_at"`
-		AdCID                    sql.NullString `db:"ad_cid"`
-		AdvertisementRetrieved   bool           `db:"advertisement_retrieved"`
-		AdvertisementRetrievedAt sql.NullTime   `db:"advertisement_retrieved_at"`
-		Status                   string         `db:"status"`
-		Provider                 sql.NullString `db:"provider"`
+		PieceCID               string         `db:"piece_cid"`
+		PieceRawSize           uint64         `db:"piece_raw_size"`
+		CreatedAt              time.Time      `db:"created_at"`
+		Indexed                bool           `db:"indexed"`
+		IndexedAt              sql.NullTime   `db:"indexed_at"`
+		AdvertisementCreated   bool           `db:"advertisement_created"`
+		AdvertisementCreatedAt sql.NullTime   `db:"advertisement_created_at"`
+		AdCID                  sql.NullString `db:"ad_cid"`
+		Status                 string         `db:"status"`
+		Provider               sql.NullString `db:"provider"`
 	}
 
 	err = p.db.Select(ctx, &results, `
@@ -305,33 +317,27 @@ func (p *PDPService) handleGetPieceStatus(w http.ResponseWriter, r *http.Request
 			pr.advertisement_created_at as advertisement_created_at,
 			ia.ad_cid,
 
-			-- Advertisement Fetch status
-			ia.fetched_at IS NOT NULL as advertisement_retrieved,
-			ia.fetched_at as advertisement_retrieved_at,
-
-			-- Determine overall status
 			CASE
-				WHEN ia.fetched_at IS NOT NULL THEN 'retrieved'
 				WHEN ia.ad_cid IS NOT NULL THEN 'announced'
 				WHEN pr.ipni_task_id IS NOT NULL THEN 'creating_ad'
 				WHEN pr.indexing_task_id IS NOT NULL THEN 'indexing'
 				ELSE 'pending'
 			END as status,
-		
+
 			ia.provider
 
 		FROM pdp_piecerefs pr
 		JOIN parked_piece_refs pprf ON pprf.ref_id = pr.piece_ref
 		JOIN parked_pieces pp ON pp.id = pprf.piece_id
 		LEFT JOIN LATERAL (
-			SELECT
-				MIN(i.ad_cid) as ad_cid,
-				MIN(i.provider) as provider,
-				MIN((SELECT MIN(af.fetched_at) FROM ipni_ad_fetches af WHERE af.ad_cid = i.ad_cid)) as fetched_at
+			-- created_at is the primary sort; order_number only breaks ties.
+			SELECT i.ad_cid, i.provider
 			FROM ipni i
 			WHERE i.piece_cid = pr.piece_cid
 				AND i.provider = (SELECT peer_id FROM ipni_peerid WHERE sp_id = $3)
 				AND i.is_rm = FALSE
+			ORDER BY i.created_at DESC, i.order_number DESC
+			LIMIT 1
 		) ia ON true
 		WHERE pr.piece_cid = $1 AND pr.service = $2
 		LIMIT 1
@@ -363,96 +369,54 @@ func (p *PDPService) handleGetPieceStatus(w http.ResponseWriter, r *http.Request
 		IndexedAt    *time.Time `json:"indexedAt,omitempty"`
 		AdCreated    bool       `json:"adCreated"`
 		AdCreatedAt  *time.Time `json:"adCreatedAt,omitempty"`
+		AdCid        *string    `json:"adCid,omitempty"`
 		Advertised   bool       `json:"advertised"`
 		AdvertisedAt *time.Time `json:"advertisedAt,omitempty"`
-		Retrieved    bool       `json:"retrieved"`
-		RetrievedAt  *time.Time `json:"retrievedAt,omitempty"`
+		Synced       bool       `json:"synced"`
+		SyncedAt     *time.Time `json:"syncedAt,omitempty"`
 	}{
 		PieceCID:  pieceInfo.CidV2.String(),
 		Status:    result.Status,
 		Indexed:   result.Indexed,
 		AdCreated: result.AdvertisementCreated,
-		Retrieved: result.AdvertisementRetrieved,
 	}
 
 	if !result.IndexedAt.Valid {
 		response.IndexedAt = nil
 	} else {
-		response.IndexedAt = &result.IndexedAt.Time
+		response.IndexedAt = new(result.IndexedAt.Time.UTC())
 	}
 
 	if !result.AdvertisementCreatedAt.Valid {
 		response.AdCreatedAt = nil
 	} else {
-		response.AdCreatedAt = &result.AdvertisementCreatedAt.Time
+		response.AdCreatedAt = new(result.AdvertisementCreatedAt.Time.UTC())
 	}
 
-	if !result.AdvertisementRetrievedAt.Valid {
-		response.RetrievedAt = nil
-	} else {
-		response.RetrievedAt = &result.AdvertisementRetrievedAt.Time
+	if result.AdCID.Valid {
+		response.AdCid = &result.AdCID.String
 	}
 
-	// Advertised and AdvertisedAt are derived from three signals, in order:
-	// 1. A recorded fetch of this ad in ipni_ad_fetches is the strongest per-ad
-	//    signal. If an indexer fetched the ad, it must have been advertised
-	//    already. Since we do not store the actual first publish time for each
-	//    ad, AdvertisedAt is estimated as the earlier of
-	//    advertisement_created_at + PublishInterval and the first fetch time.
-	//    This keeps AdvertisedAt from appearing after RetrievedAt.
-	// 2. The in-process IPNI provider exposes LastPublishTime per provider, not
-	//    per ad. It is useful only when there is no fetch record and we know
-	//    when this ad was created. A provider publish after this ad was created
-	//    means the ad should have been included in the announced head; an older
-	//    provider publish means it was not, and we do not fall through to the
-	//    timing heuristic.
-	// 3. Without either signal, fall back to the old timing heuristic: after
-	//    PublishInterval has elapsed from ad creation, assume the ad was
-	//    announced.
-	if result.AdvertisementRetrieved {
-		response.Advertised = true
-		if result.AdvertisementRetrievedAt.Valid {
-			advertisedAt := result.AdvertisementRetrievedAt.Time
-			if result.AdvertisementCreatedAt.Valid {
-				createdAtEstimate := result.AdvertisementCreatedAt.Time.Add(ipni_provider.PublishInterval)
-				if createdAtEstimate.Before(advertisedAt) {
-					advertisedAt = createdAtEstimate
-				}
-			}
-			response.AdvertisedAt = &advertisedAt
-		} else {
-			response.AdvertisedAt = nil
-		}
-	}
-
-	advertisedFromProvider := false
-	if !response.Advertised && result.AdvertisementCreatedAt.Valid && p.ipp != nil && result.Provider.Valid {
-		publishedAt := p.ipp.LastPublishTime(result.Provider.String)
-		if publishedAt != nil {
-			advertisedFromProvider = true
-			if publishedAt.After(result.AdvertisementCreatedAt.Time) {
-				response.Advertised = true
-				response.AdvertisedAt = new(*publishedAt)
-				if publishedAt.After(time.Now().Add(ipni_provider.PublishInterval)) {
-					response.AdvertisedAt = new(result.AdvertisementCreatedAt.Time.Add(ipni_provider.PublishInterval))
-				}
-			} else {
-				response.Advertised = false
-				response.AdvertisedAt = nil
+	if result.AdCID.Valid && p.ipp != nil {
+		if adCid, err := cid.Parse(result.AdCID.String); err == nil {
+			if syncedAt := p.ipp.SyncedAt(adCid, result.Provider.String); syncedAt != nil {
+				response.Synced = true
+				response.SyncedAt = syncedAt
 			}
 		}
 	}
 
-	if !advertisedFromProvider && !response.Advertised {
-		if result.AdvertisementCreated && result.AdvertisementCreatedAt.Valid {
-			if time.Since(result.AdvertisementCreatedAt.Time) > ipni_provider.PublishInterval {
-				// More than 5 seconds since advertisement was created, assume it's published
-				response.Advertised = true
-				response.AdvertisedAt = new(result.AdvertisementCreatedAt.Time.Add(ipni_provider.PublishInterval))
-			} else {
-				response.Advertised = false
-				response.AdvertisedAt = nil
-			}
+	// LastPublishTime is per-provider, so it's only used to confirm a push
+	// happened, not as the displayed time - AdvertisedAt is always the fixed
+	// formula below, so it doesn't drift as the provider announces later ads.
+	if result.AdvertisementCreatedAt.Valid {
+		var publishedAt *time.Time
+		if p.ipp != nil && result.Provider.Valid {
+			publishedAt = p.ipp.LastPublishTime(result.Provider.String)
+		}
+		if publishedAt != nil && publishedAt.After(result.AdvertisementCreatedAt.Time) {
+			response.Advertised = true
+			response.AdvertisedAt = new(result.AdvertisementCreatedAt.Time.Add(ipni_provider.PublishInterval).UTC())
 		}
 	}
 
@@ -1138,7 +1102,7 @@ func (p *PDPService) handleDeleteDataSetPiece(w http.ResponseWriter, r *http.Req
 		return
 	}
 	if len(queued) >= contract.ConservativeEnqueuedRemovalsLimit {
-		http.Error(w, fmt.Sprintf("data set %d already has %d scheduled removals queued (limit %d); retry after the next proving period flushes the queue",
+		http.Error(w, fmt.Sprintf("data set %d already has %d scheduled removals queued (limit %d); retry once they have been processed",
 			dataSetId, len(queued), contract.ConservativeEnqueuedRemovalsLimit), http.StatusTooManyRequests)
 		return
 	}
@@ -1222,6 +1186,7 @@ func (p *PDPService) handleDeleteDataSetPiece(w http.ResponseWriter, r *http.Req
 			log.Errorw("Failed to update rm_message_hash in pdp_data_set_pieces", "dataSetId", dataSetId, "pieceIDs", pieceIDsI64, "error", err)
 			return false, err
 		}
+
 		log.Infow("scheduled user requested deletion", "dataSetId", dataSetId, "pieceIDs", pieceIDsI64, "txHash", txHashLower)
 
 		return true, nil
@@ -1347,21 +1312,32 @@ func (p *PDPService) handleGetDataSetPiece(w http.ResponseWriter, r *http.Reques
 
 func (p *PDPService) cleanup(ctx context.Context) {
 	rm := func(ctx context.Context, db *harmonydb.DB) {
-		var RefIDs []int64
-
-		err := db.QueryRow(ctx, `SELECT COALESCE(array_agg(piece_ref), '{}') AS ref_ids
-												FROM pdp_piece_streaming_uploads
-												WHERE complete = TRUE
-												  AND completed_at <= TIMEZONE('UTC', NOW()) - INTERVAL '60 minutes';`).Scan(&RefIDs)
-		if err != nil {
-			log.Errorw("failed to get non-finalized uploads", "error", err)
+		if err := p.cleanupExpiredDirectUploadClaims(ctx); err != nil {
+			log.Errorw("failed to clean up expired direct upload claims", "error", err)
+		}
+		if err := p.cleanupExpiredStreamingUploadClaims(ctx); err != nil {
+			log.Errorw("failed to clean up expired streaming upload claims", "error", err)
 		}
 
-		if len(RefIDs) > 0 {
-			_, err := db.Exec(ctx, `DELETE FROM parked_piece_refs WHERE ref_id = ANY($1);`, RefIDs)
-			if err != nil {
-				log.Errorw("failed to delete non-finalized uploads", "error", err)
-			}
+		_, err := db.Exec(ctx, `
+			WITH expired AS (
+				DELETE FROM pdp_piece_streaming_uploads su
+				WHERE su.complete = TRUE
+				  AND su.completed_at <= NOW() - INTERVAL '60 minutes'
+				  AND NOT EXISTS (
+					  SELECT 1 FROM pdp_piecerefs pr WHERE pr.piece_ref = su.piece_ref
+				  )
+				RETURNING su.piece_ref
+			)
+			DELETE FROM parked_piece_refs ppr
+			USING expired
+			WHERE ppr.ref_id = expired.piece_ref
+			  AND NOT EXISTS (
+				  SELECT 1 FROM pdp_piecerefs pr WHERE pr.piece_ref = ppr.ref_id
+			  )
+		`)
+		if err != nil {
+			log.Errorw("failed to delete non-finalized uploads", "error", err)
 		}
 
 		// Clean up old piece pull records (older than 5 days). Pull items only

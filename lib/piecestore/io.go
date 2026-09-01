@@ -123,39 +123,19 @@ func (s *Store) WriteUploadPiece(ctx context.Context, pieceID storiface.PieceNum
 	}()
 
 	copyStart := time.Now()
-
-	wr := new(commp.Calc)
-	defer wr.Reset()
-	writers := io.MultiWriter(wr, destFile)
-
-	n, err := io.CopyBuffer(writers, io.LimitReader(data, size), make([]byte, 8<<20))
+	pieceInfo, rawSize, err := writeUploadPieceData(destFile, size, data, verifySize)
 	if err != nil {
 		_ = destFile.Close()
-		return abi.PieceInfo{}, 0, xerrors.Errorf("copying piece data: %w", err)
+		return abi.PieceInfo{}, 0, err
 	}
 
 	if err := destFile.Close(); err != nil {
 		return abi.PieceInfo{}, 0, xerrors.Errorf("closing temp piece file: %w", err)
 	}
 
-	if verifySize && n != size {
-		return abi.PieceInfo{}, 0, xerrors.Errorf("short write: %d", n)
-	}
-
-	digest, pieceSize, err := wr.Digest()
-	if err != nil {
-		return abi.PieceInfo{}, 0, xerrors.Errorf("computing piece digest: %w", err)
-	}
-
-	pcid, err := commcid.DataCommitmentV1ToCID(digest)
-	if err != nil {
-		return abi.PieceInfo{}, 0, xerrors.Errorf("computing piece CID: %w", err)
-	}
-	psize := abi.PaddedPieceSize(pieceSize)
-
 	copyEnd := time.Now()
 
-	log.Infow("wrote piece", "piece", pieceID, "size", n, "duration", copyEnd.Sub(copyStart), "dest", dest, "MiB/s", float64(size)/(1<<20)/copyEnd.Sub(copyStart).Seconds())
+	log.Infow("wrote piece", "piece", pieceID, "size", rawSize, "duration", copyEnd.Sub(copyStart), "dest", dest, "MiB/s", float64(rawSize)/(1<<20)/copyEnd.Sub(copyStart).Seconds())
 
 	if err := os.Rename(tempDest, dest); err != nil {
 		return abi.PieceInfo{}, 0, xerrors.Errorf("rename temp piece to dest %s -> %s: %w", tempDest, dest, err)
@@ -168,5 +148,40 @@ func (s *Store) WriteUploadPiece(ctx context.Context, pieceID storiface.PieceNum
 		return abi.PieceInfo{}, 0, xerrors.Errorf("ensure one copy: %w", err)
 	}
 
-	return abi.PieceInfo{PieceCID: pcid, Size: psize}, uint64(n), nil
+	return pieceInfo, rawSize, nil
+}
+
+func writeUploadPieceData(destFile *os.File, size int64, data io.Reader, verifySize bool) (abi.PieceInfo, uint64, error) {
+	copyLimit := size
+	if !verifySize {
+		// Read one byte beyond the maximum so an oversized stream cannot be
+		// silently accepted as a truncated piece.
+		copyLimit++
+	}
+
+	wr := new(commp.Calc)
+	defer wr.Reset()
+	writers := io.MultiWriter(wr, destFile)
+
+	n, err := io.CopyBuffer(writers, io.LimitReader(data, copyLimit), make([]byte, 8<<20))
+	if err != nil {
+		return abi.PieceInfo{}, 0, xerrors.Errorf("copying piece data: %w", err)
+	}
+	if verifySize && n != size {
+		return abi.PieceInfo{}, 0, xerrors.Errorf("short write: %d", n)
+	}
+	if !verifySize && n > size {
+		return abi.PieceInfo{}, 0, xerrors.Errorf("%w: limit %d bytes", ErrPieceTooLarge, size)
+	}
+
+	digest, pieceSize, err := wr.Digest()
+	if err != nil {
+		return abi.PieceInfo{}, 0, xerrors.Errorf("computing piece digest: %w", err)
+	}
+	pcid, err := commcid.DataCommitmentV1ToCID(digest)
+	if err != nil {
+		return abi.PieceInfo{}, 0, xerrors.Errorf("computing piece CID: %w", err)
+	}
+
+	return abi.PieceInfo{PieceCID: pcid, Size: abi.PaddedPieceSize(pieceSize)}, uint64(n), nil
 }

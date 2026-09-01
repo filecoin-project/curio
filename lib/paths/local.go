@@ -629,13 +629,16 @@ func (st *Local) declareSectors(ctx context.Context, p string, id storiface.ID, 
 		}
 
 		for _, ent := range ents {
-			if ent.Name() == FetchTempSubdir {
+			info, err := ent.Info()
+			if err != nil {
+				log.Warnw("skipping unreadable storage entry", "path", p, "type", t, "name", ent.Name(), "err", err)
 				continue
 			}
 
-			sid, err := storiface.ParseSectorID(ent.Name())
-			if err != nil {
-				return xerrors.Errorf("parse sector id %s: %w", ent.Name(), err)
+			sid, ok := declareableSectorEntry(ent.Name(), t, info)
+			if !ok {
+				log.Warnw("skipping unreadable storage entry", "path", p, "type", t, "name", ent.Name(), "info", info)
+				continue
 			}
 
 			delete(indexed, storiface.Decl{
@@ -674,6 +677,29 @@ func (st *Local) declareSectors(ctx context.Context, p string, id storiface.ID, 
 
 	return nil
 }
+
+func declareableSectorEntry(name string, t storiface.SectorFileType, info os.FileInfo) (abi.SectorID, bool) {
+	if name == FetchTempSubdir || strings.HasSuffix(name, storiface.TempSuffix) {
+		return abi.SectorID{}, false
+	}
+
+	sid, err := storiface.ParseSectorID(name)
+	if err != nil {
+		return abi.SectorID{}, false
+	}
+
+	if t.IsDirectory() {
+		if !info.IsDir() {
+			return abi.SectorID{}, false
+		}
+		return sid, true
+	}
+	if !info.Mode().IsRegular() || info.Size() == 0 {
+		return abi.SectorID{}, false
+	}
+	return sid, true
+}
+
 func (st *Local) reportHealth(ctx context.Context) {
 	// randomize interval by ~10%
 	interval := (HeartbeatInterval*100_000 + time.Duration(rand.Int63n(10_000))) / 100_000

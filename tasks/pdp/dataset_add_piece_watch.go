@@ -33,7 +33,7 @@ type DataSetPieceAdd struct {
 // NewWatcherPieceAdd sets up the watcher for data set piece additions
 func NewWatcherPieceAdd(db *harmonydb.DB, pcs *chainsched.CurioChainSched, ethClient ethchain.EthClient) {
 	if err := pcs.AddHandler(func(ctx context.Context, revert, apply *chainTypes.TipSet) error {
-		err := processPendingDataSetPieceAdds(ctx, db, ethClient)
+		err := processPendingDataSetPieceAdds(ctx, db)
 		if err != nil {
 			log.Errorf("Failed to process pending data set piece adds: %s", err)
 		}
@@ -45,7 +45,7 @@ func NewWatcherPieceAdd(db *harmonydb.DB, pcs *chainsched.CurioChainSched, ethCl
 }
 
 // processPendingDataSetPieceAdds processes piece additions that have been confirmed on-chain
-func processPendingDataSetPieceAdds(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient) error {
+func processPendingDataSetPieceAdds(ctx context.Context, db *harmonydb.DB) error {
 	// Query for pdp_dataset_piece_adds entries where add_message_ok = TRUE
 	var pieceAdds []DataSetPieceAdd
 
@@ -65,7 +65,7 @@ func processPendingDataSetPieceAdds(ctx context.Context, db *harmonydb.DB, ethCl
 
 	// Process each piece addition
 	for _, pieceAdd := range pieceAdds {
-		err := processDataSetPieceAdd(ctx, db, pieceAdd, ethClient)
+		err := processDataSetPieceAdd(ctx, db, pieceAdd)
 		if err != nil {
 			log.Errorf("Failed to process piece add for tx %s: %s", pieceAdd.AddMessageHash, err)
 			continue
@@ -75,7 +75,7 @@ func processPendingDataSetPieceAdds(ctx context.Context, db *harmonydb.DB, ethCl
 	return nil
 }
 
-func processDataSetPieceAdd(ctx context.Context, db *harmonydb.DB, pieceAdd DataSetPieceAdd, ethClient ethchain.EthClient) error {
+func processDataSetPieceAdd(ctx context.Context, db *harmonydb.DB, pieceAdd DataSetPieceAdd) error {
 	// Retrieve the tx_receipt from message_waits_eth
 	var txReceiptJSON []byte
 	var txSuccess bool
@@ -128,68 +128,24 @@ func processDataSetPieceAdd(ctx context.Context, db *harmonydb.DB, pieceAdd Data
 		return nil
 	}
 
-	// Get the ABI from the contract metadata
-	pdpABI, err := contract.PDPVerifierMetaData.GetAbi()
-	if err != nil {
-		return fmt.Errorf("failed to get PDP ABI: %w", err)
-	}
-
-	// Get the event definition
-	event, exists := pdpABI.Events["PiecesAdded"]
-	if !exists {
-		return fmt.Errorf("PiecesAdded event not found in ABI")
-	}
-
-	var pieceIds []uint64
-	var pieceCids [][]byte
-	eventFound := false
-
 	pcid2, err := cid.Parse(pieceAdd.PieceCID2)
 	if err != nil {
 		return fmt.Errorf("failed to parse piece CID: %w", err)
 	}
 
-	parser, err := contract.NewPDPVerifierFilterer(contract.ContractAddresses().PDPVerifier, ethClient)
+	pieces, err := contract.PiecesFromReceipt(&txReceipt)
 	if err != nil {
-		return fmt.Errorf("failed to create PDPVerifierFilterer: %w", err)
+		return fmt.Errorf("failed to extract pieces from receipt: %w", err)
+	}
+	if pieceAdd.AddMessageIndex < 0 || int(pieceAdd.AddMessageIndex) >= len(pieces) {
+		return fmt.Errorf("add_message_index %d out of bounds for %d pieces in receipt",
+			pieceAdd.AddMessageIndex, len(pieces))
 	}
 
-	// Iterate over the logs in the receipt
-	for _, vLog := range txReceipt.Logs {
-		// Check if the log corresponds to the PiecesAdded event
-		if len(vLog.Topics) > 0 && vLog.Topics[0] == event.ID {
-			// The setId is an indexed parameter in Topics[1], but we don't need it here
-			// as we already have the dataset ID from the database
+	piece := pieces[pieceAdd.AddMessageIndex]
+	pieceId := piece.PieceID
 
-			parsed, err := parser.ParsePiecesAdded(*vLog)
-			if err != nil {
-				return fmt.Errorf("failed to parse event log: %w", err)
-			}
-
-			pieceIds = make([]uint64, len(parsed.PieceIds))
-			for i := range parsed.PieceIds {
-				pieceIds[i] = parsed.PieceIds[i].Uint64()
-			}
-
-			pieceCids = make([][]byte, len(parsed.PieceCids))
-			for i := range parsed.PieceCids {
-				pieceCids[i] = parsed.PieceCids[i].Data
-			}
-
-			eventFound = true
-			// We found the event, so we can break the loop
-			break
-		}
-	}
-
-	if !eventFound {
-		return fmt.Errorf("PiecesAdded event not found in receipt")
-	}
-
-	pieceId := pieceIds[pieceAdd.AddMessageIndex]
-	pieceCid := pieceCids[pieceAdd.AddMessageIndex]
-
-	apcid2, err := cid.Cast(pieceCid)
+	apcid2, err := cid.Cast(piece.CID)
 	if err != nil {
 		return fmt.Errorf("failed to cast piece CID: %w", err)
 	}

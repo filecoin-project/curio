@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"math/big"
 
 	"github.com/ethereum/go-ethereum/core/types"
 	"golang.org/x/xerrors"
@@ -121,61 +120,10 @@ func extractAndInsertPiecesFromReceipt(ctx context.Context, db *harmonydb.DB, re
 			return fmt.Errorf("data set %d not found in pdp_data_sets", pieceAdd.DataSet.Int64)
 		}
 	}
-	// Get the ABI from the contract metadata
-	pdpABI, err := contract.PDPVerifierMetaData.GetAbi()
+	pieces, err := contract.PiecesFromReceipt(receipt)
 	if err != nil {
-		return fmt.Errorf("failed to get PDP ABI: %w", err)
+		return fmt.Errorf("failed to extract pieces from receipt: %w", err)
 	}
-
-	// Get the event definition
-	event, exists := pdpABI.Events["PiecesAdded"]
-	if !exists {
-		return fmt.Errorf("PiecesAdded event not found in ABI")
-	}
-
-	var pieceIds []uint64
-	eventFound := false
-
-	// Iterate over the logs in the receipt
-	for _, vLog := range receipt.Logs {
-		// Check if the log corresponds to the PiecesAdded event
-		if len(vLog.Topics) > 0 && vLog.Topics[0] == event.ID {
-			// The setId is an indexed parameter in Topics[1], but we don't need it here
-			// as we already have the data set ID from the database
-
-			// Parse the non-indexed parameter (pieceIds array) from the data
-			unpacked, err := event.Inputs.Unpack(vLog.Data)
-			if err != nil {
-				return fmt.Errorf("failed to unpack log data: %w", err)
-			}
-
-			// Extract the pieceIds array
-			if len(unpacked) == 0 {
-				return fmt.Errorf("no unpacked data found in log")
-			}
-
-			// Convert the unpacked pieceIds ([]interface{} containing *big.Int) to []uint64
-			bigIntPieceIds, ok := unpacked[0].([]*big.Int)
-			if !ok {
-				return fmt.Errorf("failed to convert unpacked data to array")
-			}
-
-			pieceIds = make([]uint64, len(bigIntPieceIds))
-			for i := range bigIntPieceIds {
-				pieceIds[i] = bigIntPieceIds[i].Uint64()
-			}
-
-			eventFound = true
-			// We found the event, so we can break the loop
-			break
-		}
-	}
-
-	if !eventFound {
-		return fmt.Errorf("PiecesAdded event not found in receipt")
-	}
-
-	// Now we have the firstAdded pieceId, proceed with database operations
 
 	// Begin a database transaction
 	_, err = db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
@@ -206,16 +154,16 @@ func extractAndInsertPiecesFromReceipt(ctx context.Context, db *harmonydb.DB, re
 
 		// For each entry, use the corresponding pieceId from the event
 		for _, entry := range pieceAddEntries {
-			if entry.AddMessageIndex >= uint64(len(pieceIds)) {
-				return false, fmt.Errorf("index out of bounds: entry index %d exceeds pieceIds length %d",
-					entry.AddMessageIndex, len(pieceIds))
+			if entry.AddMessageIndex >= uint64(len(pieces)) {
+				return false, fmt.Errorf("index out of bounds: entry index %d exceeds pieces length %d",
+					entry.AddMessageIndex, len(pieces))
 			}
 			if entry.DataSet.Valid && entry.DataSet.Int64 != pieceAdd.DataSet.Int64 {
 				return false, fmt.Errorf("data set mismatch: expected %d but got %d", pieceAdd.DataSet.Int64, entry.DataSet.Int64)
 			}
 			entry.DataSet = pieceAdd.DataSet // just so we don't use wrong value accidentally
 
-			pieceId := pieceIds[entry.AddMessageIndex]
+			pieceId := pieces[entry.AddMessageIndex].PieceID
 			// Insert into pdp_data_set_pieces
 			_, err := tx.Exec(`
                 INSERT INTO pdp_data_set_pieces (

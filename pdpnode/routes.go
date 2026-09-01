@@ -17,7 +17,7 @@ import (
 func MountPDPRoutes(ctx context.Context, r chi.Router, d *Deps, sd *servicedeps.Deps, ipp *ipni_provider.Provider) error {
 	return pdp.MountRoutes(ctx, r, pdp.MountDeps{
 		DB:               d.DB,
-		LocalStore:       d.LocalStore,
+		PieceIO:          d.PieceIO,
 		EthClient:        must.One(d.EthClient.Val()),
 		Chain:            d.Chain,
 		EthSender:        sd.EthSender,

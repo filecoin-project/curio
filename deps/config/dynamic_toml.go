@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"reflect"
 	"strings"
 
@@ -30,6 +31,11 @@ func TransparentUnmarshal(data []byte, v any) error {
 // with default values (e.g., types.MustParseFIL("0")) before calling this function.
 // NOTE: FixTOML should be called BEFORE this function to ensure proper slice lengths and FIL initialization.
 func TransparentDecode(data string, v any) (toml.MetaData, error) {
+	data, err := StripEmptyDynamicTables(data, v)
+	if err != nil {
+		return toml.MetaData{}, err
+	}
+
 	// Create a shadow struct to decode into
 	shadow := createShadowStruct(v)
 
@@ -331,6 +337,170 @@ func wrapDynamics(shadow, target any) error {
 	return nil
 }
 
+// StripEmptyDynamicTables drops empty tables left by raw toml.Encode of Dynamic[T].
+// Prefer this for in-memory decode paths; use RepairEmptyDynamicTablesText when
+// persisting a cleaned layer so comments and surrounding formatting are kept.
+func StripEmptyDynamicTables(text string, sample any) (string, error) {
+	fixed, _, err := RepairEmptyDynamicTablesText(text, sample)
+	return fixed, err
+}
+
+// RepairEmptyDynamicTablesText removes empty Dynamic[T] wrapper tables from TOML
+// while preserving comments and non-corrupt content. changed is true when any
+// empty wrapper table header was dropped.
+func RepairEmptyDynamicTablesText(text string, sample any) (string, bool, error) {
+	if strings.TrimSpace(text) == "" || sample == nil {
+		return text, false, nil
+	}
+
+	var raw map[string]any
+	if err := toml.Unmarshal([]byte(text), &raw); err != nil {
+		// Leave unloadable TOML alone for callers that handle decode errors.
+		return text, false, nil
+	}
+
+	var empty [][]string
+	for _, path := range collectDynamicTOMLPaths(reflect.TypeOf(sample), nil) {
+		if emptyMapAtPath(raw, path) {
+			empty = append(empty, path)
+		}
+	}
+	if len(empty) == 0 {
+		return text, false, nil
+	}
+
+	fixed := removeTOMLTableHeaders(text, empty)
+	if fixed == text {
+		// Header lines were not found (unusual encoding); fall back to re-encode.
+		for _, path := range empty {
+			_ = deleteEmptyMapAtPath(raw, path)
+		}
+		var buf bytes.Buffer
+		if err := toml.NewEncoder(&buf).Encode(raw); err != nil {
+			return "", false, err
+		}
+		return buf.String(), true, nil
+	}
+	return fixed, true, nil
+}
+
+func emptyMapAtPath(m map[string]any, path []string) bool {
+	if len(path) == 0 || m == nil {
+		return false
+	}
+	_, val, ok := mapLookupCI(m, path[0])
+	if !ok {
+		return false
+	}
+	child, isMap := val.(map[string]any)
+	if !isMap {
+		return false
+	}
+	if len(path) > 1 {
+		return emptyMapAtPath(child, path[1:])
+	}
+	return len(child) == 0
+}
+
+// removeTOMLTableHeaders drops plain table header lines whose dotted names match
+// paths (case-insensitive). Array tables ([[...]]) are left untouched.
+func removeTOMLTableHeaders(text string, paths [][]string) string {
+	want := make(map[string]struct{}, len(paths))
+	for _, path := range paths {
+		want[strings.ToLower(strings.Join(path, "."))] = struct{}{}
+	}
+
+	lines := strings.Split(text, "\n")
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") && !strings.HasPrefix(trimmed, "[[") {
+			inner := strings.TrimSpace(trimmed[1 : len(trimmed)-1])
+			if _, ok := want[strings.ToLower(inner)]; ok {
+				continue
+			}
+		}
+		out = append(out, line)
+	}
+	return strings.Join(out, "\n")
+}
+
+func collectDynamicTOMLPaths(t reflect.Type, prefix []string) [][]string {
+	if t == nil {
+		return nil
+	}
+	if t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	if t.Kind() != reflect.Struct {
+		return nil
+	}
+
+	var out [][]string
+	for field := range t.Fields() {
+		if !field.IsExported() {
+			continue
+		}
+		name := tomlFieldName(field)
+		if name == "-" {
+			continue
+		}
+		path := append(append([]string{}, prefix...), name)
+		if isDynamicTypeForMarshal(field.Type) {
+			out = append(out, path)
+			continue
+		}
+		out = append(out, collectDynamicTOMLPaths(field.Type, path)...)
+	}
+	return out
+}
+
+func tomlFieldName(f reflect.StructField) string {
+	tag := f.Tag.Get("toml")
+	if tag == "" {
+		return f.Name
+	}
+	name, _, _ := strings.Cut(tag, ",")
+	if name == "" {
+		return f.Name
+	}
+	return name
+}
+
+func deleteEmptyMapAtPath(m map[string]any, path []string) bool {
+	if len(path) == 0 || m == nil {
+		return false
+	}
+	key, val, ok := mapLookupCI(m, path[0])
+	if !ok {
+		return false
+	}
+	child, isMap := val.(map[string]any)
+	if !isMap {
+		return false
+	}
+	if len(path) > 1 {
+		return deleteEmptyMapAtPath(child, path[1:])
+	}
+	if len(child) > 0 {
+		return false
+	}
+	delete(m, key)
+	return true
+}
+
+func mapLookupCI(m map[string]any, key string) (string, any, bool) {
+	if v, ok := m[key]; ok {
+		return key, v, true
+	}
+	for k, v := range m {
+		if strings.EqualFold(k, key) {
+			return k, v, true
+		}
+	}
+	return "", nil, false
+}
+
 // isDynamicTypeForMarshal checks if a type is Dynamic[T]
 // (renamed to avoid conflict with isDynamicType in dynamic.go)
 func isDynamicTypeForMarshal(t reflect.Type) bool {
@@ -397,6 +567,14 @@ func extractDynamicValue(v reflect.Value) reflect.Value {
 	}
 
 	return results[0]
+}
+
+// DynamicInnerType returns T from Dynamic[T] or *Dynamic[T].
+func DynamicInnerType(t reflect.Type) (reflect.Type, bool) {
+	if !isDynamicTypeForMarshal(t) {
+		return nil, false
+	}
+	return extractDynamicInnerType(t), true
 }
 
 // extractDynamicInnerType gets the T from Dynamic[T]

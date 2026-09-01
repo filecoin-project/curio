@@ -5,6 +5,7 @@ import (
 	"context"
 	"io"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/ipfs/go-cid"
@@ -12,6 +13,7 @@ import (
 
 	commcid "github.com/filecoin-project/go-fil-commcid"
 
+	"github.com/filecoin-project/curio/lib/ffiselect"
 	"github.com/filecoin-project/curio/lib/proof"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/lib/supraffi"
@@ -71,14 +73,12 @@ func (sb *SealCalls) checkCommR(ctx context.Context, s storiface.SectorRef, seal
 		_ = os.RemoveAll(path)
 	}(tmpDir)
 
-	// Run TreeR on the sealed file
-	// For sealed sectors, we pass empty string for data_filename (CC semantics - zeros)
-	res := supraffi.TreeRFile(sealedPath /* data_filename: empty => CC semantics (zeros) */, "", tmpDir, uint64(ssize))
-	if res != 0 {
-		if res == -1 {
-			return cid.Undef, xerrors.Errorf("supraseal not available (missing CPU/GPU features)")
-		}
-		return cid.Undef, xerrors.Errorf("tree_r_file failed with code %d", res)
+	// Empty data_filename hashes the replica as-is (CC / already-encoded).
+	ctx = ffiselect.WithLogCtx(ctx, "sector", s.ID, "sealed", sealedPath, "tmpDir", tmpDir, "sectorSize", ssize)
+	treeCtx, cancel := context.WithTimeout(ctx, TreeRTimeout)
+	defer cancel()
+	if err := ffiselect.FFISelect.TreeRFile(treeCtx, sealedPath, "", tmpDir, uint64(ssize)); err != nil {
+		return cid.Undef, xerrors.Errorf("tree r file: %w", err)
 	}
 
 	// Read computed comm_r_last from generated tree files
@@ -115,8 +115,11 @@ func (sb *SealCalls) getSectorFilePath(ctx context.Context, s storiface.SectorRe
 	if err == nil {
 		localPath := storiface.PathByType(paths, ft)
 		if localPath != "" {
-			// File is available locally
-			return localPath, func() {}, nil
+			if verr := validateSectorFile(localPath, ssize); verr == nil {
+				return localPath, func() {}, nil
+			} else {
+				log.Warnw("local sector file unusable, falling back to remote", "sector", s.ID, "type", ft, "path", localPath, "err", verr)
+			}
 		}
 	}
 
@@ -166,8 +169,11 @@ func (sb *SealCalls) getCachePath(ctx context.Context, s storiface.SectorRef, ft
 	if err == nil {
 		localPath := storiface.PathByType(paths, ft)
 		if localPath != "" {
-			// Cache is available locally
-			return localPath, func() {}, nil
+			if verr := validateCacheDir(localPath); verr == nil {
+				return localPath, func() {}, nil
+			} else {
+				log.Warnw("local cache unusable, falling back to remote", "sector", s.ID, "type", ft, "path", localPath, "err", verr)
+			}
 		}
 	}
 
@@ -199,4 +205,32 @@ func (sb *SealCalls) getCachePath(ctx context.Context, s storiface.SectorRef, ft
 	log.Infow("fetched minimal cache from remote", "sector", s.ID, "type", ft, "dest", tmpDir)
 
 	return tmpDir, cleanup, nil
+}
+
+func validateSectorFile(path string, ssize uint64) error {
+	st, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if !st.Mode().IsRegular() {
+		return xerrors.Errorf("%s is not a regular file", path)
+	}
+	if uint64(st.Size()) != ssize {
+		return xerrors.Errorf("%s size %d != expected %d", path, st.Size(), ssize)
+	}
+	return nil
+}
+
+func validateCacheDir(path string) error {
+	st, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if !st.IsDir() {
+		return xerrors.Errorf("%s is not a directory", path)
+	}
+	if _, err := os.Stat(filepath.Join(path, "p_aux")); err != nil {
+		return xerrors.Errorf("failed to stat p_aux in %x: %w", path, err)
+	}
+	return nil
 }

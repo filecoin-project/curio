@@ -30,12 +30,14 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/apiconn"
 	"github.com/filecoin-project/curio/lib/lists"
+	pdpwallet "github.com/filecoin-project/curio/pdp/wallet"
 	"github.com/filecoin-project/curio/tasks/tasknames"
 
 	"github.com/filecoin-project/lotus/blockstore"
 	"github.com/filecoin-project/lotus/chain/actors/adt"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/types"
+	"github.com/filecoin-project/lotus/chain/types/ethtypes"
 )
 
 type AlertNow struct {
@@ -138,14 +140,53 @@ func balanceCheck(al *alerts) {
 		balance, err := al.api.WalletBalance(al.ctx, addr)
 		if err != nil {
 			al.alertMap[Name].err = err
+			return
 		}
 
 		if abi.TokenAmount(al.cfg.MinimumWalletBalance).GreaterThanEqual(balance) {
 			fmt.Fprintf(&ret, "Balance for wallet %s (%s) is below %s. ", addr, keyAddr, al.cfg.MinimumWalletBalance.Short())
 		}
 	}
+
+	pdpBalanceCheck(al, &ret)
+
 	if ret.String() != "" {
 		al.alertMap[Name].alertString = ret.String()
+	}
+}
+
+// pdpBalanceCheck checks the PDP wallet (used to pay gas for PDP on-chain
+// transactions) against the same MinimumWalletBalance threshold as the other
+// wallets.
+func pdpBalanceCheck(al *alerts, ret *strings.Builder) {
+	status, err := pdpwallet.PDPKeyStatus(al.ctx, al.db)
+	if err != nil {
+		fmt.Fprintf(ret, "Could not check PDP wallet: %s. ", err)
+		return
+	}
+	if !status.Configured {
+		return
+	}
+
+	ea, err := ethtypes.ParseEthAddress(status.Address)
+	if err != nil {
+		fmt.Fprintf(ret, "Could not parse PDP wallet address %s: %s. ", status.Address, err)
+		return
+	}
+	filAddr, err := ea.ToFilecoinAddress()
+	if err != nil {
+		fmt.Fprintf(ret, "Could not derive fil address for PDP wallet %s: %s. ", status.Address, err)
+		return
+	}
+
+	balance, err := al.api.WalletBalance(al.ctx, filAddr)
+	if err != nil {
+		fmt.Fprintf(ret, "Could not get balance for PDP wallet %s: %s. ", filAddr, err)
+		return
+	}
+
+	if abi.TokenAmount(al.cfg.MinimumWalletBalance).GreaterThanEqual(balance) {
+		fmt.Fprintf(ret, "Balance for PDP wallet %s (%s) is below %s. ", status.Address, filAddr, al.cfg.MinimumWalletBalance.Short())
 	}
 }
 
@@ -173,17 +214,13 @@ var pdpTasks = []string{
 	tasknames.PDPDelDataSet,
 	tasknames.PDPInitPP,
 	tasknames.PDPProvingPeriod,
-	tasknames.PDPNotify,
 	tasknames.PDPCommP,
 	tasknames.PDPSaveCache,
 	tasknames.AggregatePDPDeal,
 	// PDP v0
 	tasknames.PDPv0_Prove,
-	tasknames.PDPv0_PullPiece,
-	tasknames.PDPv0_SaveCache,
 	tasknames.PDPv0_InitPP,
 	tasknames.PDPv0_ProvPeriod,
-	tasknames.PDPv0_Notify,
 }
 
 // taskFailureCheckWith is the parameterized core shared by taskFailureCheck
@@ -323,9 +360,9 @@ func permanentStorageCheck(al *alerts) {
 
 		sectorMap[key] = false
 
-		for _, strg := range storages {
-			if space <= strg.Available {
-				strg.Available -= space
+		for i := range storages {
+			if space <= storages[i].Available {
+				storages[i].Available -= space
 				sectorMap[key] = true
 				break
 			}
@@ -335,7 +372,7 @@ func permanentStorageCheck(al *alerts) {
 	missingSpace := big.NewInt(0)
 	for sec, accounted := range sectorMap {
 		if !accounted {
-			big.Add(missingSpace, big.NewInt(sec.size))
+			missingSpace = big.Add(missingSpace, big.NewInt(sec.size))
 		}
 	}
 
