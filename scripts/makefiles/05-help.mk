@@ -8,7 +8,7 @@ help:
 	@echo "  make deps         Build external/native dependencies only (ffi/blst/supraseal as needed)"
 	@echo "  make build        Build default binaries: curio + sptool"
 	@echo "  make curio-pdp    Build PDP-only curio (synonym: make skiff)"
-	@echo "  make docker/curio-pdp  Build Curio-PDP image curiostorage/curio-pdp:dev"
+	@echo "  make docker/curio-pdp  Build Curio-PDP image filecoin/curio-pdp:dev"
 	@echo "  make docker/curio-pdp-calibnet  Build Curio-PDP calibnet image :calibnet-dev"
 	@echo "  make skiff/up     Build and start Curio-PDP docker stack (mainnet)"
 	@echo "  make skiff/calibnet/up  Build and start Curio-PDP docker stack (calibnet)"

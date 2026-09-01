@@ -27,14 +27,14 @@ The compose stack ships with Forest. You can still point `FULLNODE_API_INFO` at 
 
 ## Published image
 
-Release builds publish to Docker Hub as **`curiostorage/curio-pdp`**:
+Release builds publish to Docker Hub as **`filecoin/curio-pdp`**:
 
 | Tag | Network |
 |-----|---------|
-| `curiostorage/curio-pdp:<version>` / `:latest` | Mainnet |
-| `curiostorage/curio-pdp:<version>-calibnet` / `:calibnet` | Calibration |
+| `filecoin/curio-pdp:<version>` / `:latest` | Mainnet |
+| `filecoin/curio-pdp:<version>-calibnet` / `:calibnet` | Calibration |
 
-Local builds use `curiostorage/curio-pdp:dev` (`make docker/curio-pdp` / `make skiff/up`).
+Local builds use `filecoin/curio-pdp:dev` (`make docker/curio-pdp` / `make skiff/up`).
 
 ## First-time setup
 

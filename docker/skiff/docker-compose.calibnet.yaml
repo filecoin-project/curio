@@ -13,7 +13,7 @@ services:
       - --save-token=/forest-token/token
 
   skiff:
-    image: ${SKIFF_IMAGE:-curiostorage/curio-pdp:calibnet-dev}
+    image: ${SKIFF_IMAGE:-filecoin/curio-pdp:calibnet-dev}
     build:
       context: ../..
       dockerfile: docker/skiff/Dockerfile

@@ -86,8 +86,8 @@ devnet/down:
 	docker compose -f ./docker/docker-compose.yaml down --rmi=local && sleep 2 && rm -rf ./docker/data
 
 ##################### Curio-PDP (skiff) docker stack ##################
-# Published image: curiostorage/curio-pdp. Local builds default to :dev tags.
-curio_pdp_docker_user ?= curiostorage
+# Published image: filecoin/curio-pdp. Local builds default to :dev tags.
+curio_pdp_docker_user ?= filecoin
 curio_pdp_image ?= $(curio_pdp_docker_user)/curio-pdp
 skiff_compose = docker compose -f ./docker/skiff/docker-compose.yaml
 skiff_compose_calibnet = $(skiff_compose) -f ./docker/skiff/docker-compose.calibnet.yaml
