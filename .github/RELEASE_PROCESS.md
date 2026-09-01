@@ -298,10 +298,10 @@ Publishing a GitHub release triggers `.github/workflows/docker-curio-pdp.yml`, w
 
 ### GitHub Actions secrets
 
-Repository configuration (already set for Lotus image publish; reused here):
+Repository secrets (already configured for this workflow):
 
-- `DOCKERHUB_USERNAME` (repository variable) — Docker Hub username for the account that owns the access token
-- `DOCKERHUB_TOKEN` (repository secret) — Docker Hub access token with **Read & Write** (not the account password)
+- `DOCKERHUB_USERNAME` — Docker Hub username for the account that owns the access token
+- `DOCKERHUB_TOKEN` — Docker Hub access token with **Read & Write** (not the account password)
 
 No other GitHub secrets are required for Curio-PDP image publish.
 
