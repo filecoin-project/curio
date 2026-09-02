@@ -44,9 +44,37 @@ services:
     networks:
       - skiff-net
 
+  forest:
+    container_name: skiff-forest
+    hostname: forest
+    image: ${FOREST_IMAGE:-ghcr.io/chainsafe/forest:v0.35.0}
+    init: true
+    restart: unless-stopped
+    logging: *default-logging
+    volumes:
+      - ${FOREST_DATA:-./data/forest}:/root/.local/share/forest
+      - ${FOREST_TOKEN_DATA:-./data/forest-token}:/forest-token
+    command:
+      - --chain=${FOREST_CHAIN:-mainnet}
+      - --auto-download-snapshot
+      - --rpc-address=0.0.0.0:2345
+      - --healthcheck-address=0.0.0.0:2346
+      - --save-token=/forest-token/token
+      - --encrypt-keystore
+      - "false"
+    healthcheck:
+      # RPC accepting connections is enough to start Curio; full sync continues in the background.
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/2345'"]
+      interval: 15s
+      timeout: 5s
+      retries: 60
+      start_period: 60s
+    networks:
+      - skiff-net
+
   skiff:
     container_name: skiff
-    image: ${SKIFF_IMAGE:-curio/skiff:dev}
+    image: ${SKIFF_IMAGE:-filecoin/curio-pdp:dev}
     build:
       context: ../..
       dockerfile: docker/skiff/Dockerfile
@@ -55,6 +83,8 @@ services:
     init: true
     depends_on:
       yugabyte:
+        condition: service_healthy
+      forest:
         condition: service_healthy
     environment:
       - SKIFF_DOCKER=1
@@ -65,9 +95,14 @@ services:
       - CURIO_DB_NAME=yugabyte
       - CURIO_DB_USER=yugabyte
       - CURIO_DB_PASSWORD=yugabyte
+      - CURIO_DB_LOAD_BALANCE=false
       - CURIO_REPO_PATH=/var/lib/skiff
       - SKIFF_DATA=/data
-      - FULLNODE_API_INFO=${FULLNODE_API_INFO:?set FULLNODE_API_INFO to a Lotus-compatible chain RPC endpoint}
+      # Optional override. When empty, entrypoint builds FULLNODE_API_INFO from the bundled Forest token.
+      - FULLNODE_API_INFO=${FULLNODE_API_INFO:-}
+      - FOREST_HOST=${FOREST_HOST:-forest}
+      - FOREST_RPC_PORT=${FOREST_RPC_PORT:-2345}
+      - FOREST_TOKEN_FILE=${FOREST_TOKEN_FILE:-/forest-token/token}
     restart: unless-stopped
     logging: *default-logging
     labels:
@@ -79,6 +114,7 @@ services:
     volumes:
       - ${SKIFF_REPO_DATA:-./data/skiff}:/var/lib/skiff
       - ${SKIFF_STORAGE:-./data}:/data
+      - ${FOREST_TOKEN_DATA:-./data/forest-token}:/forest-token:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:

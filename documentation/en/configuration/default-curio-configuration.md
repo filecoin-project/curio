@@ -280,9 +280,9 @@ description: The default curio configuration
   # type: bool
   #EnablePDP = false
 
-  # DataPath is the root directory Curio-PDP scans for writable storage locations.
-  # The node treats this directory and every subdirectory as a candidate store path.
-  # Overridden by the DATA_STORAGE env var and the --data CLI flag. (Default: /data)
+  # DataPath is the preferred root for Curio-PDP storage folder candidates in the admin GUI.
+  # Operators can also attach any existing path via the Storage page. Candidate scanning is
+  # overridden by the DATA_STORAGE env var and the --data CLI flag. (Default: /data)
   #
   # type: string
   #DataPath = ""

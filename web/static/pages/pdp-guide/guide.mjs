@@ -447,7 +447,7 @@ customElements.define('pdp-guide', class PDPGuideElement extends LitElement {
     renderStorage(storage) {
         const warn = storage?.meetsMinimum && !storage?.meetsRecommended;
         const ok = !!storage?.ok;
-        return this.wrapItem('storage', ok, 'Have 20 GiB on /data or mounted storage', html`
+        return this.wrapItem('storage', ok, 'Have 20 GiB of attached storage', html`
             <p class="item-detail" style="margin-left: 30px;">${storage?.detail || ''}</p>
             <ul class="subs">
                 <li class="sub">
@@ -475,9 +475,11 @@ customElements.define('pdp-guide', class PDPGuideElement extends LitElement {
             ${!storage?.ok ? html`
                 <div class="actions">
                     <p class="hint">
-                        Curio-PDP scans writable mounts under <span class="mono">/data</span>
-                        (or <span class="mono">DATA_STORAGE</span> / <span class="mono">[Subsystems].DataPath</span>).
+                        Attach any directory on the <a href="/pages/storage_paths/">Storage</a> page
+                        (suggested candidates under <span class="mono">/data</span>, or enter a custom path;
+                        optional <span class="mono">DATA_STORAGE</span> / <span class="mono">[Subsystems].DataPath</span>).
                     </p>
+                    <a class="btn btn-primary btn-sm" href="/pages/storage_paths/">Select storage folders</a>
                     <a class="btn btn-secondary btn-sm" href=${storage?.docsURL || 'https://docs.curiostorage.org/curio-pdp#storage'} target="_blank" rel="noopener">
                         Storage docs for Curio-PDP
                     </a>
@@ -485,6 +487,7 @@ customElements.define('pdp-guide', class PDPGuideElement extends LitElement {
             ` : warn ? html`
                 <div class="actions">
                     <div class="banner warn">Available capacity is under 100 GiB. PDP will work, but add storage before taking significant load.</div>
+                    <a class="btn btn-secondary btn-sm" href="/pages/storage_paths/">Manage storage</a>
                 </div>
             ` : ''}
         `, warn);

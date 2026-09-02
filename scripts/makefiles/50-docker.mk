@@ -85,26 +85,39 @@ devnet/up:
 devnet/down:
 	docker compose -f ./docker/docker-compose.yaml down --rmi=local && sleep 2 && rm -rf ./docker/data
 
-##################### Skiff docker stack ##################
+##################### Curio-PDP (skiff) docker stack ##################
+# Published image: filecoin/curio-pdp. Local builds default to :dev tags.
+curio_pdp_docker_user ?= filecoin
+curio_pdp_image ?= $(curio_pdp_docker_user)/curio-pdp
 skiff_compose = docker compose -f ./docker/skiff/docker-compose.yaml
+skiff_compose_calibnet = $(skiff_compose) -f ./docker/skiff/docker-compose.calibnet.yaml
 skiff_git_commit = $(shell git log -1 --format=%h_%cI 2>/dev/null || echo unknown)
 
-docker/skiff:
+docker/curio-pdp:
 	DOCKER_BUILDKIT=1 docker build -f docker/skiff/Dockerfile \
 		--build-arg SKIFF_MAKE_TARGET=skiff \
 		--build-arg CURIO_BUILD_COMMIT=$(skiff_git_commit) \
-		-t $(curio_docker_user)/skiff:dev .
-.PHONY: docker/skiff
+		--build-arg BUILD_VERSION=$(CURIO_BUILD_VERSION)-dev \
+		-t $(curio_pdp_image):dev .
+.PHONY: docker/curio-pdp
 
-docker/skiff-calibnet:
+docker/curio-pdp-calibnet:
 	DOCKER_BUILDKIT=1 docker build -f docker/skiff/Dockerfile \
 		--build-arg SKIFF_MAKE_TARGET=calibnet-skiff \
 		--build-arg CURIO_BUILD_COMMIT=$(skiff_git_commit) \
-		-t $(curio_docker_user)/skiff:calibnet-dev .
+		--build-arg BUILD_VERSION=$(CURIO_BUILD_VERSION)-calibnet-dev \
+		-t $(curio_pdp_image):calibnet-dev .
+.PHONY: docker/curio-pdp-calibnet
+
+# Synonyms kept for existing scripts/docs.
+docker/skiff: docker/curio-pdp
+.PHONY: docker/skiff
+
+docker/skiff-calibnet: docker/curio-pdp-calibnet
 .PHONY: docker/skiff-calibnet
 
-skiff/up: docker/skiff
-	SKIFF_MAKE_TARGET=skiff SKIFF_IMAGE=$(curio_docker_user)/skiff:dev \
+skiff/up: docker/curio-pdp
+	SKIFF_MAKE_TARGET=skiff SKIFF_IMAGE=$(curio_pdp_image):dev \
 		$(skiff_compose) up -d
 .PHONY: skiff/up
 
@@ -112,13 +125,13 @@ skiff/down:
 	$(skiff_compose) down
 .PHONY: skiff/down
 
-skiff/calibnet/up: docker/skiff-calibnet
-	SKIFF_MAKE_TARGET=calibnet-skiff SKIFF_IMAGE=$(curio_docker_user)/skiff:calibnet-dev \
-		$(skiff_compose) up -d
+skiff/calibnet/up: docker/curio-pdp-calibnet
+	SKIFF_MAKE_TARGET=calibnet-skiff SKIFF_IMAGE=$(curio_pdp_image):calibnet-dev \
+		$(skiff_compose_calibnet) up -d
 .PHONY: skiff/calibnet/up
 
 skiff/calibnet/down:
-	SKIFF_IMAGE=$(curio_docker_user)/skiff:calibnet-dev $(skiff_compose) down
+	SKIFF_IMAGE=$(curio_pdp_image):calibnet-dev $(skiff_compose_calibnet) down
 .PHONY: skiff/calibnet/down
 
 # Wipe local skiff/yugabyte state after changing yugabyte advertise/listen settings.
@@ -127,7 +140,7 @@ skiff/reset-db:
 	rm -rf ./docker/skiff/data/yugabyte
 .PHONY: skiff/reset-db
 
-# Wipe all local skiff stack state (database, repo, and storage).
+# Wipe all local skiff stack state (database, repo, forest, and storage).
 # Restart with `make skiff/calibnet/up` (or `make skiff/up`) afterward.
 skiff/reset-all:
 	rm -rf ./docker/skiff/data

@@ -279,10 +279,45 @@ Before publishing:
 
 After publishing:
 
+- Confirm the **Docker Curio-PDP** Actions workflow succeeded (mainnet + calibnet tags on Docker Hub; see [Docker Hub images](#docker-hub-images-curio-pdp)).
 - Monitor GitHub issues.
 - Monitor Curio support Slack.
 - Monitor installation, packaging, migration, and upgrade failures.
 - Do not shorten release cadence for non-urgent follow-up releases.
+
+## Docker Hub images (Curio-PDP)
+
+Publishing a GitHub release triggers `.github/workflows/docker-curio-pdp.yml`, which builds `docker/skiff/Dockerfile` and pushes. Release tags come from the GitHub release name. Manual `workflow_dispatch` with an empty version reads `BuildVersionArray` from `build/version.go` (same source as `curio --version`). An explicit version input still overrides that, for test tags.
+
+Image tags:
+
+| Image tag | Build target | When |
+| :--- | :--- | :--- |
+| `filecoin/curio-pdp:<version>` | `skiff` (mainnet) | Every published release |
+| `filecoin/curio-pdp:latest` | `skiff` | Stable releases only |
+| `filecoin/curio-pdp:<version>-calibnet` | `calibnet-skiff` | Every published release |
+| `filecoin/curio-pdp:calibnet` | `calibnet-skiff` | Stable releases only |
+
+### GitHub Actions secrets
+
+Repository secrets (already configured for this workflow):
+
+- `DOCKERHUB_USERNAME` — Docker Hub username for the account that owns the access token
+- `DOCKERHUB_TOKEN` — Docker Hub access token with **Read & Write** (not the account password)
+
+No other GitHub secrets are required for Curio-PDP image publish.
+
+### Docker Hub side
+
+Before the first release publish can succeed:
+
+1. Ensure the Docker Hub org **`filecoin`** exists and your token account can push to it.
+2. Create the repository **`filecoin/curio-pdp`** (or allow create-on-first-push for that org).
+3. Confirm the access token is not expired and has push rights to that repo.
+
+After each published release, open the **Docker Curio-PDP** Actions run and confirm both mainnet and calibnet pushes succeeded, then spot-check Hub tags.
+
+Operators pull these images via `docker/skiff/docker-compose.yaml` (`SKIFF_IMAGE`). Local development continues to use `make docker/curio-pdp` → `filecoin/curio-pdp:dev`.
 
 ## Common Release Mistakes
 
@@ -297,3 +332,4 @@ After publishing:
 - Shipping rapid back-to-back releases without accounting for PoRep operator upgrade cost.
 - Publishing a release without announcing it, leaving operators to infer the current version from the tag list.
 - Announcing a stable release without noting that a preceding RC is superseded.
+- Docker Hub login succeeds but push fails because `filecoin/curio-pdp` does not exist or the token lacks write access to the `filecoin` org.

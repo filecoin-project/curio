@@ -155,7 +155,7 @@ func (a *WebRPC) pdpGuideStorage(ctx context.Context) PDPGuideStorageStatus {
 
 	switch {
 	case out.PathCount == 0:
-		out.Detail = "No store-capable storage paths found. Mount writable disks under /data (Curio-PDP) or add storage paths."
+		out.Detail = "No store-capable storage paths found. Mount disks under /data and select folders on the Storage page."
 	case !out.MeetsMinimum:
 		out.Detail = fmt.Sprintf("Only %s available (need at least 20 GiB).", out.AvailableHuman)
 	case !out.MeetsRecommended:
