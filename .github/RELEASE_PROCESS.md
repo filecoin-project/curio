@@ -143,6 +143,8 @@ Before merging the version upgrade PR, verify:
 
 Release notes must describe Storage Provider impact, not only list merged PRs.
 
+Curio's release audience is not limited to Storage Providers running the binary. It also includes developers building against Curio's APIs, for example the Synapse SDK or ad hoc integrations against the PDP or market APIs. Historically release notes have focused on why an SP should install a release; they have not reliably called out new or changed API capabilities those integrators now have available. Every release that adds, changes, or deprecates an API surface must call that out explicitly (see [API Changes](#api-changes-in-release-notes)), not bury it inside a generic improvements list.
+
 Start with an overview that explains:
 
 - What changed.
@@ -171,6 +173,10 @@ Short release summary and upgrade recommendation.
 ## Highlights
 
 Major user-visible changes.
+
+## API Changes
+
+New, changed, or deprecated API capabilities for developers integrating with Curio (for example the Synapse SDK, PDP clients, or other ad hoc builders), not just Storage Providers. Include this section whenever the release touches an API surface; omit it otherwise.
 
 ## Upgrade prep for Storage Providers
 
@@ -205,12 +211,17 @@ Full changelog, issue tracker, and support links.
 
 The `Upgrade prep for Storage Providers` section is optional. Include it only when operators need to prepare before upgrading or need to know about a specific upgrade risk. Do not include an empty or generic prep section.
 
+## API Changes in Release Notes
+
+Curio ships APIs that developers build against directly (for example the Synapse SDK, PDP clients, and other ad hoc integrations), not only a binary that Storage Providers install. When scoping a release, check merged PRs for API additions, behavior changes, or deprecations across the PDP API, market API, and core API, and surface them in the `API Changes` section of the release notes even if they have no direct SP-facing impact. Do not fold API changes into the general `Improvements` section where an integrator would have to hunt for them.
+
 ## Release Notes Review
 
 Before publishing, review the notes with the team for:
 
 - Incorrect upgrade guidance.
 - Missing operator-impacting changes.
+- Missing API changes affecting integrators (see [API Changes in Release Notes](#api-changes-in-release-notes)).
 - Missing migration or schema notes.
 - Missing config default changes.
 - Missing build requirement changes.
