@@ -6,9 +6,10 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Image version without v prefix (e.g. 1.28.0-dockery)
-        required: true
+        description: Image version without v prefix (empty reads build/version.go). Example override 1.28.6-dockery
+        required: false
         type: string
+        default: ""
       prerelease:
         description: If true, do not also tag latest/calibnet
         type: boolean
@@ -47,6 +48,9 @@ jobs:
             IS_PRE="${{ github.event.release.prerelease }}"
           else
             RAW="${{ inputs.version }}"
+            if [[ -z "$RAW" ]]; then
+              RAW="$(scripts/curio-version.sh)"
+            fi
             IS_PRE="${{ inputs.prerelease }}"
           fi
           VERSION="${RAW#v}"

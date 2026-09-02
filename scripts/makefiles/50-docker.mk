@@ -97,6 +97,7 @@ docker/curio-pdp:
 	DOCKER_BUILDKIT=1 docker build -f docker/skiff/Dockerfile \
 		--build-arg SKIFF_MAKE_TARGET=skiff \
 		--build-arg CURIO_BUILD_COMMIT=$(skiff_git_commit) \
+		--build-arg BUILD_VERSION=$(CURIO_BUILD_VERSION)-dev \
 		-t $(curio_pdp_image):dev .
 .PHONY: docker/curio-pdp
 
@@ -104,6 +105,7 @@ docker/curio-pdp-calibnet:
 	DOCKER_BUILDKIT=1 docker build -f docker/skiff/Dockerfile \
 		--build-arg SKIFF_MAKE_TARGET=calibnet-skiff \
 		--build-arg CURIO_BUILD_COMMIT=$(skiff_git_commit) \
+		--build-arg BUILD_VERSION=$(CURIO_BUILD_VERSION)-calibnet-dev \
 		-t $(curio_pdp_image):calibnet-dev .
 .PHONY: docker/curio-pdp-calibnet
 

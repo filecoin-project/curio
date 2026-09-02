@@ -287,7 +287,9 @@ After publishing:
 
 ## Docker Hub images (Curio-PDP)
 
-Publishing a GitHub release triggers `.github/workflows/docker-curio-pdp.yml`, which builds `docker/skiff/Dockerfile` and pushes:
+Publishing a GitHub release triggers `.github/workflows/docker-curio-pdp.yml`, which builds `docker/skiff/Dockerfile` and pushes. Release tags come from the GitHub release name. Manual `workflow_dispatch` with an empty version reads `BuildVersionArray` from `build/version.go` (same source as `curio --version`). An explicit version input still overrides that, for test tags.
+
+Image tags:
 
 | Image tag | Build target | When |
 | :--- | :--- | :--- |

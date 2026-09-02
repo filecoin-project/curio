@@ -26,6 +26,9 @@ UNAME_S := $(shell uname)
 # Git commit embedded in binary version (override when .git is unavailable, e.g. docker build).
 CURIO_BUILD_COMMIT ?= $(shell git log -1 --format=%h_%cI 2>/dev/null || echo unknown)
 
+# Dotted release from build/version.go (BuildVersionArray + optional -rcN).
+CURIO_BUILD_VERSION ?= $(shell scripts/curio-version.sh)
+
 # CUDA library path setup for Linux hosts with nvcc present.
 ifeq ($(UNAME_S),Linux)
 NVCC_PATH := $(shell which nvcc 2>/dev/null)
