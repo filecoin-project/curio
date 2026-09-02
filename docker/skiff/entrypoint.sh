@@ -73,8 +73,16 @@ if [[ -z "${FULLNODE_API_INFO:-}" ]]; then
     echo "Forest token file ${FOREST_TOKEN_FILE} is empty" >&2
     exit 1
   fi
-  export FULLNODE_API_INFO="${TOKEN}:/ip4/${FOREST_HOST}/tcp/${FOREST_RPC_PORT}/http"
-  echo "Using bundled Forest for FULLNODE_API_INFO (/ip4/${FOREST_HOST}/tcp/${FOREST_RPC_PORT}/http)."
+  # Compose uses the service DNS name "forest". /ip4/<name> is not a valid
+  # multiaddr and fails with: unknown url scheme ''.
+  forest_ma="/dns4/${FOREST_HOST}/tcp/${FOREST_RPC_PORT}/http"
+  if [[ "${FOREST_HOST}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    forest_ma="/ip4/${FOREST_HOST}/tcp/${FOREST_RPC_PORT}/http"
+  elif [[ "${FOREST_HOST}" == *:* ]]; then
+    forest_ma="/ip6/${FOREST_HOST}/tcp/${FOREST_RPC_PORT}/http"
+  fi
+  export FULLNODE_API_INFO="${TOKEN}:${forest_ma}"
+  echo "Using bundled Forest for FULLNODE_API_INFO (${forest_ma})."
 else
   echo "Using operator-provided FULLNODE_API_INFO."
 fi

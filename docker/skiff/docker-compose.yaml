@@ -60,6 +60,8 @@ services:
       - --rpc-address=0.0.0.0:2345
       - --healthcheck-address=0.0.0.0:2346
       - --save-token=/forest-token/token
+      - --encrypt-keystore
+      - "false"
     healthcheck:
       # RPC accepting connections is enough to start Curio; full sync continues in the background.
       test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/2345'"]
@@ -93,6 +95,7 @@ services:
       - CURIO_DB_NAME=yugabyte
       - CURIO_DB_USER=yugabyte
       - CURIO_DB_PASSWORD=yugabyte
+      - CURIO_DB_LOAD_BALANCE=false
       - CURIO_REPO_PATH=/var/lib/skiff
       - SKIFF_DATA=/data
       # Optional override. When empty, entrypoint builds FULLNODE_API_INFO from the bundled Forest token.

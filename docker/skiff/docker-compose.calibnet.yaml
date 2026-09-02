@@ -11,6 +11,8 @@ services:
       - --rpc-address=0.0.0.0:2345
       - --healthcheck-address=0.0.0.0:2346
       - --save-token=/forest-token/token
+      - --encrypt-keystore
+      - "false"
 
   skiff:
     image: ${SKIFF_IMAGE:-filecoin/curio-pdp:calibnet-dev}
