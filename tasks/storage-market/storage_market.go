@@ -1071,3 +1071,31 @@ type MarketDirectDeal struct {
 	FastRetrieval  bool      `db:"fast_retrieval"`
 	AnnounceToIpni bool      `db:"announce_to_ipni"`
 }
+
+func checkExpiry(ctx context.Context, db *harmonydb.DB, api headAPI, deal string, sealDuration abi.ChainEpoch) (bool, error) {
+	var starts []struct {
+		StartEpoch int64 `db:"start_epoch"`
+	}
+	err := db.Select(ctx, &starts, `SELECT start_epoch FROM market_mk12_deals WHERE uuid = $1
+										UNION ALL
+										SELECT start_epoch FROM market_direct_deals WHERE uuid = $1
+										LIMIT 1`, deal)
+	if err != nil {
+		return false, xerrors.Errorf("failed to get start epoch from DB: %w", err)
+	}
+	if len(starts) != 1 {
+		return false, xerrors.Errorf("expected 1 row but got %d", len(starts))
+	}
+	startEPoch := abi.ChainEpoch(starts[0].StartEpoch)
+	head, err := api.ChainHead(ctx)
+	if err != nil {
+		return false, err
+	}
+
+	if head.Height()+sealDuration > startEPoch {
+		err = failDeal(ctx, db, deal, true, fmt.Sprintf("deal proposal must be proven on chain by deal proposal start epoch %d, but it has expired: current chain height: %d",
+			startEPoch, head.Height()))
+		return true, err
+	}
+	return false, nil
+}
