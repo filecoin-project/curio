@@ -206,18 +206,9 @@ func (a *AlertTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwne
 		if !ok || out == nil || (out.err == nil && out.alertString == "") {
 			continue
 		}
-		// Only say unhealthy if PDP IPNI sync is failing, PoRep provider should not fail health check
-		if name == Name_IPNISync {
-			if strings.Contains(out.alertString, "PDP") {
-				log.Warnf("Ping health check problem: %s %v %s", name, out.err, out.alertString)
-				detail = fmt.Sprintf("%s: %v %s", name, out.err, out.alertString)
-				break
-			}
-		} else {
-			log.Warnf("Ping health check problem: %s %v %s", name, out.err, out.alertString)
-			detail = fmt.Sprintf("%s: %v %s", name, out.err, out.alertString)
-			break
-		}
+		log.Warnf("Ping health check problem: %s %v %s", name, out.err, out.alertString)
+		detail = fmt.Sprintf("%s: %v %s", name, out.err, out.alertString)
+		break
 	}
 	a.pingMu.Lock()
 	a.pingProblemDetail = detail
