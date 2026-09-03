@@ -835,13 +835,13 @@ description: The default curio configuration
       # The network indexer web UI URL for viewing published announcements
       #
       # type: []string
-      #ServiceURL = ["https://cid.contact", "https://filecoinpin.contact"]
+      #ServiceURL = ["https://cid.contact"]
 
       # The list of URLs of indexing nodes to announce to. This is a list of hosts we talk to tell them about new
       # heads.
       #
       # type: []string
-      #DirectAnnounceURLs = ["https://cid.contact/ingest/announce", "https://filecoinpin.contact/announce"]
+      #DirectAnnounceURLs = ["https://cid.contact/ingest/announce"]
 
     # Indexing configuration for deal indexing
     #

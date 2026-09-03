@@ -576,7 +576,6 @@ func Routes(r *chi.Mux, p *Provider) {
 
 const (
 	CIDContactFilter = "cid.contact"
-	PinFilter        = "filecoinpin.contact"
 )
 
 func FilterAnnounceURLs(slice []*url.URL, filter []string) []*url.URL {
@@ -602,7 +601,7 @@ func (p *Provider) startPublishing(ctx context.Context) {
 
 	// Remove cid.contact from announceURLs if the build is debug or testnet
 	if build.BuildType == build.Build2k || build.BuildType == build.BuildDebug {
-		urls := FilterAnnounceURLs(p.announceURLs, []string{CIDContactFilter, PinFilter})
+		urls := FilterAnnounceURLs(p.announceURLs, []string{CIDContactFilter})
 		if len(urls) == 0 {
 			log.Warn("Not starting IPNI provider publishing as there are no other URLs except cid.contact for testnet build")
 			return
@@ -728,10 +727,6 @@ func (p *Provider) publishhttp(ctx context.Context, adCid cid.Cid, peer string) 
 
 	if !infoOk {
 		return fmt.Errorf("no details found for peer %s", peer)
-	}
-
-	if info.SPID > 0 {
-		a = FilterAnnounceURLs(a, []string{PinFilter})
 	}
 
 	httpSender, err := httpsender.New(a, info.ID, httpsender.WithClient(c))
