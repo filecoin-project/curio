@@ -354,6 +354,10 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	if p.refuseUnallowlistedAuthorizer(w, ctx, dataSetIdUint64) {
+		return
+	}
+
 	// Convert dataSetId to *big.Int
 	dataSetId := new(big.Int).SetUint64(dataSetIdUint64)
 
@@ -392,6 +396,11 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 	fromAddress, err := p.getSenderAddress(ctx)
 	if err != nil {
 		httpServerError(w, http.StatusInternalServerError, "Failed to get sender address: "+err.Error(), err)
+		return
+	}
+
+	if err := p.preflightAuthorizerCall(ctx, fromAddress, contract.ContractAddresses().PDPVerifier, data, nil); err != nil {
+		httpServerError(w, http.StatusBadRequest, "addPieces validation failed: "+err.Error(), err)
 		return
 	}
 
