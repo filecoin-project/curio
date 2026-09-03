@@ -39,31 +39,6 @@ class SingletonTaskDetails extends LitElement {
         }
     }
 
-    async disable() {
-        const reason = window.prompt(`Disable scheduling for "${this.taskName}"? This stops it fleet-wide until re-enabled.\n\nOptional reason:`, '');
-        if (reason === null) {
-            return;
-        }
-        try {
-            await RPCCall('SingletonTaskDisable', [this.taskName, reason]);
-            await this.loadInfo();
-        } catch (error) {
-            console.error('Error disabling singleton task:', error);
-        }
-    }
-
-    async enable() {
-        if (!confirm(`Re-enable scheduling for "${this.taskName}"?`)) {
-            return;
-        }
-        try {
-            await RPCCall('SingletonTaskEnable', [this.taskName]);
-            await this.loadInfo();
-        } catch (error) {
-            console.error('Error enabling singleton task:', error);
-        }
-    }
-
     static get styles() {
         return css`
             .singleton-card {
@@ -152,11 +127,6 @@ class SingletonTaskDetails extends LitElement {
                     @click=${() => this.runNow()}>
                     ${runNowPending ? 'Run Requested...' : 'Run Now'}
                 </button>
-                ${isDisabled
-                    ? html`<button class="btn btn-outline-success btn-sm run-btn" @click=${() => this.enable()}>Enable</button>`
-                    : this.info.CanDisable
-                        ? html`<button class="btn btn-outline-danger btn-sm run-btn" @click=${() => this.disable()}>Disable</button>`
-                        : ''}
             </div>
         `;
     }
