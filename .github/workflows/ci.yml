@@ -219,6 +219,8 @@ jobs:
             target: "./itests/dyncfg_test.go"
           - name: test-itest-harmonyDB
             target: "./itests/harmonydb_test.go"
+          - name: test-itest-ipni-summary
+            target: "./itests/ipni_summary_test.go"
           - name: test-itest-park-piece
             target: "./itests/park_piece_test.go"
           - name: test-itest-pdp-prove
