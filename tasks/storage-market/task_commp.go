@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -379,61 +378,42 @@ var _ = harmonytask.Reg(&CommpTask{})
 var _ harmonytask.TaskInterface = &CommpTask{}
 
 func failDeal(ctx context.Context, db *harmonydb.DB, deal string, updatePipeline bool, reason string) error {
-	n, err := db.Exec(ctx, `WITH updated AS (
-									UPDATE market_mk12_deals
-									SET error = $1
-									WHERE uuid = $2
-									RETURNING uuid
-								)
-								UPDATE market_direct_deals
-								SET error = $1
-								WHERE uuid = $2 AND NOT EXISTS (SELECT 1 FROM updated)`, reason, deal)
-	if err != nil {
-		return xerrors.Errorf("store deal failure: updating deal pipeline: %w", err)
-	}
-	if n != 1 {
-		return xerrors.Errorf("store deal failure: updated %d rows", n)
-	}
-	if updatePipeline {
-		n, err := db.Exec(ctx, `DELETE FROM market_mk12_deal_pipeline WHERE uuid = $1`, deal)
+	committed, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		n, err := tx.Exec(`UPDATE market_mk12_deals SET error = $1 WHERE uuid = $2`, reason, deal)
 		if err != nil {
-			return xerrors.Errorf("store deal pipeline cleanup: updating deal pipeline: %w", err)
+			return false, xerrors.Errorf("store deal failure: updating MK1.2 deal: %w", err)
+		}
+		if n == 0 {
+			n, err = tx.Exec(`UPDATE market_direct_deals SET error = $1 WHERE uuid = $2`, reason, deal)
+			if err != nil {
+				return false, xerrors.Errorf("store deal failure: updating direct deal: %w", err)
+			}
 		}
 		if n != 1 {
-			return xerrors.Errorf("store deal pipeline cleanup: updated %d rows", n)
+			return false, xerrors.Errorf("store deal failure: updated %d rows", n)
 		}
+
+		if updatePipeline {
+			n, err = tx.Exec(`DELETE FROM market_mk12_deal_pipeline WHERE uuid = $1`, deal)
+			if err != nil {
+				return false, xerrors.Errorf("store deal pipeline cleanup: updating deal pipeline: %w", err)
+			}
+			if n != 1 {
+				return false, xerrors.Errorf("store deal pipeline cleanup: updated %d rows", n)
+			}
+		}
+
+		return true, nil
+	}, harmonydb.OptionRetry())
+	if err != nil {
+		return err
+	}
+	if !committed {
+		return xerrors.Errorf("store deal failure: transaction did not commit")
 	}
 	return nil
 }
 
 type headAPI interface {
 	ChainHead(context.Context) (*types.TipSet, error)
-}
-
-func checkExpiry(ctx context.Context, db *harmonydb.DB, api headAPI, deal string, sealDuration abi.ChainEpoch) (bool, error) {
-	var starts []struct {
-		StartEpoch int64 `db:"start_epoch"`
-	}
-	err := db.Select(ctx, &starts, `SELECT start_epoch FROM market_mk12_deals WHERE uuid = $1
-										UNION ALL
-										SELECT start_epoch FROM market_direct_deals WHERE uuid = $1
-										LIMIT 1`, deal)
-	if err != nil {
-		return false, xerrors.Errorf("failed to get start epoch from DB: %w", err)
-	}
-	if len(starts) != 1 {
-		return false, xerrors.Errorf("expected 1 row but got %d", len(starts))
-	}
-	startEPoch := abi.ChainEpoch(starts[0].StartEpoch)
-	head, err := api.ChainHead(ctx)
-	if err != nil {
-		return false, err
-	}
-
-	if head.Height()+sealDuration > startEPoch {
-		err = failDeal(ctx, db, deal, true, fmt.Sprintf("deal proposal must be proven on chain by deal proposal start epoch %d, but it has expired: current chain height: %d",
-			startEPoch, head.Height()))
-		return true, err
-	}
-	return false, nil
 }
