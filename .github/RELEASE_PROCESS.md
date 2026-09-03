@@ -141,7 +141,7 @@ Before merging the version upgrade PR, verify:
 
 ## Release Notes
 
-Release notes must describe Storage Provider impact, not only list merged PRs.
+Release notes must describe Storage Provider impact and new functionality for Curio clients, not only list merged PRs.
 
 Start with an overview that explains:
 
@@ -150,6 +150,8 @@ Start with an overview that explains:
 - Whether the release is stable or RC.
 - Any build requirement changes.
 - Any schema, migration, config, protocol, market, PDP, PoRep, retrieval, or packaging impact.
+
+Curio's release audience is not limited to Storage Providers running the binary. It also includes developers building against Curio's APIs, for example the Synapse SDK or ad hoc integrations against the PDP or market APIs. Every release that adds, changes, or deprecates an API surface should call that out explicitly.
 
 Use this general structure:
 
@@ -184,6 +186,10 @@ Fixes grouped by operator impact where possible.
 
 User-visible improvements and operational changes.
 
+## API Changes
+
+New, changed, or deprecated API capabilities for developers integrating with Curio (for example the Synapse SDK, PDP clients, or other ad hoc builders), not just Storage Providers. Include this section whenever the release touches an API surface; omit it otherwise.
+
 ## Dependencies
 
 Important dependency updates.
@@ -211,6 +217,7 @@ Before publishing, review the notes with the team for:
 
 - Incorrect upgrade guidance.
 - Missing operator-impacting changes.
+- Missing API changes affecting integrators (see [API Changes in Release Notes](#api-changes-in-release-notes)).
 - Missing migration or schema notes.
 - Missing config default changes.
 - Missing build requirement changes.
