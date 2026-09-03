@@ -325,17 +325,27 @@ func (i *IndexStore) RemoveIndexes(ctx context.Context, pieceCidv2 cid.Cid) erro
 		}
 	}
 
-	if len(batch.Entries) >= 0 {
+	if len(batch.Entries) > 0 {
 		if err := i.executeBatchWithRetry(ctx, batch, pieceCidv2); err != nil {
 			return xerrors.Errorf("executing batch delete for PayloadToPieces for piece %s: %w", pieceCidv2, err)
 		}
 	}
 
 	// Delete from PieceBlockOffsetSize
-	delPieceBlockOffsetSizeQry := `DELETE FROM PieceBlockOffsetSize WHERE PieceCid = ?`
-	err := i.session.Query(delPieceBlockOffsetSizeQry, pieceCidBytes).WithContext(ctx).Exec()
-	if err != nil {
-		return xerrors.Errorf("deleting PieceBlockOffsetSize for piece %s: %w", pieceCidv2, err)
+	delPieceBlockOffsetSizeRowQry := `DELETE FROM PieceBlockOffsetSize WHERE PieceCid = ? AND PayloadMultihash = ?`
+	batch = i.session.NewBatch(gocql.UnloggedBatch).WithContext(ctx)
+	for idx, payloadMH := range payloadMultihashes {
+		batch.Entries = append(batch.Entries, gocql.BatchEntry{
+			Stmt:       delPieceBlockOffsetSizeRowQry,
+			Args:       []any{pieceCidBytes, payloadMH},
+			Idempotent: true,
+		})
+		if len(batch.Entries) >= batchSize || idx == len(payloadMultihashes)-1 {
+			if err := i.executeBatchWithRetry(ctx, batch, pieceCidv2); err != nil {
+				return xerrors.Errorf("executing batch delete for PieceBlockOffsetSize for piece %s: %w", pieceCidv2, err)
+			}
+			batch = i.session.NewBatch(gocql.UnloggedBatch).WithContext(ctx)
+		}
 	}
 
 	return nil
