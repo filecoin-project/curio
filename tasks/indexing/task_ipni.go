@@ -524,6 +524,7 @@ func (I *IPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFun
 												FROM piece_cleanup
 												WHERE after_cleanup = TRUE
 												  AND complete = FALSE
+												  AND pdp = FALSE
 											)
 											SELECT *
 											FROM unioned
