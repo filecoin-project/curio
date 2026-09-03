@@ -234,7 +234,11 @@ func (cpr *CachedPieceReader) getPieceReaderFromMarketPieceDeal(ctx context.Cont
 				return nil, 0, fmt.Errorf("failed to query pdp_piecerefs for piece cid %s: %w", pieceCid, err)
 			}
 			if !isPDP {
-				return nil, 0, fmt.Errorf("piece cid %s: %w", pieceCid, ErrNoDeal)
+				reader, rawSize, err := cpr.getPieceReaderFromLongTermPark(ctx, pieceCid)
+				if err != nil {
+					return nil, 0, fmt.Errorf("piece cid %s: %w", pieceCid, ErrNoDeal)
+				}
+				return reader, rawSize, nil
 			}
 		}
 		reader, rawSize, err := cpr.getPieceReaderFromPiecePark(ctx, nil, &pieceCid, &pieceSize)
@@ -348,6 +352,34 @@ func (cpr *CachedPieceReader) getPieceReaderFromPiecePark(ctx context.Context, p
 	}
 
 	reader, err := cpr.pieceParkReader.ReadPiece(ctx, storiface.PieceNumber(pd[0].ID), pd[0].PieceRawSize, pcid)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to read piece from piece park: %w", err)
+	}
+
+	return reader, uint64(pd[0].PieceRawSize), nil
+}
+
+func (cpr *CachedPieceReader) getPieceReaderFromLongTermPark(ctx context.Context, pieceCid cid.Cid) (storiface.Reader, uint64, error) {
+	var pd []struct {
+		ID           int64  `db:"id"`
+		PieceCid     string `db:"piece_cid"`
+		PieceRawSize int64  `db:"piece_raw_size"`
+	}
+
+	err := cpr.db.Select(ctx, &pd, `SELECT
+										  id,
+										  piece_cid,
+										  piece_raw_size
+										FROM parked_pieces WHERE piece_cid = $1 AND long_term = TRUE AND complete = TRUE;`, pieceCid.String())
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to query parked_pieces for piece cid %s: %w", pieceCid, err)
+	}
+
+	if len(pd) == 0 {
+		return nil, 0, fmt.Errorf("failed to find long-term complete piece in parked_pieces for piece cid %s", pieceCid)
+	}
+
+	reader, err := cpr.pieceParkReader.ReadPiece(ctx, storiface.PieceNumber(pd[0].ID), pd[0].PieceRawSize, pieceCid)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to read piece from piece park: %w", err)
 	}
