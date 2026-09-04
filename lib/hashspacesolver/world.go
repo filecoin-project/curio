@@ -13,14 +13,18 @@ const (
 	cutSuffix
 )
 
-type world struct {
-	disks  []int64
+type spaceWorld struct {
 	ranges []Range
 	owner  []int
+}
+
+type world struct {
+	disks  []int64
+	spaces []spaceWorld
 	used   []int64
 	frozen []bool
-	moves  []Move
 	bytes  int64
+	diff   []Transfer
 }
 
 func newWorld(state State) (*world, error) {
@@ -29,16 +33,21 @@ func newWorld(state State) (*world, error) {
 	}
 	w := &world{
 		disks:  append([]int64(nil), state.Disks...),
-		ranges: cloneRanges(state.Ranges),
-		owner:  append([]int(nil), state.Owner...),
+		spaces: make([]spaceWorld, len(state.Spaces)),
 		used:   make([]int64, len(state.Disks)),
 		frozen: make([]bool, len(state.Disks)),
 	}
-	for i, r := range w.ranges {
-		w.used[w.owner[i]] += r.Size
+	for s, sp := range state.Spaces {
+		w.spaces[s] = spaceWorld{
+			ranges: cloneRanges(sp.Ranges),
+			owner:  append([]int(nil), sp.Owner...),
+		}
+		w.sortSpace(s)
+		w.mergeSpace(s)
+		for i, r := range w.spaces[s].ranges {
+			w.used[w.spaces[s].owner[i]] += r.Size
+		}
 	}
-	w.sortRanges()
-	w.merge()
 	return w, nil
 }
 
@@ -50,20 +59,29 @@ func cloneRanges(in []Range) []Range {
 	return out
 }
 
-func (w *world) snapshot() State {
-	return State{
-		Disks:  append([]int64(nil), w.disks...),
-		Ranges: cloneRanges(w.ranges),
-		Owner:  append([]int(nil), w.owner...),
+func cloneSpace(sp Space) Space {
+	return Space{
+		Ranges: cloneRanges(sp.Ranges),
+		Owner:  append([]int(nil), sp.Owner...),
 	}
 }
 
-func (w *world) plan() Plan {
-	return Plan{Moves: append([]Move(nil), w.moves...), BytesMoved: w.bytes}
+func (w *world) snapshot() State {
+	spaces := make([]Space, len(w.spaces))
+	for i, sp := range w.spaces {
+		spaces[i] = Space{
+			Ranges: cloneRanges(sp.ranges),
+			Owner:  append([]int(nil), sp.owner...),
+		}
+	}
+	return State{
+		Disks:  append([]int64(nil), w.disks...),
+		Spaces: spaces,
+	}
 }
 
-func (w *world) startHash(i int) []byte {
-	return StartHash(w.ranges, i)
+func (w *world) startHash(space, i int) []byte {
+	return StartHash(w.spaces[space].ranges, i)
 }
 
 func (w *world) free(d int) int64 {
@@ -72,8 +90,10 @@ func (w *world) free(d int) int64 {
 
 func (w *world) totalUsed() int64 {
 	var s int64
-	for _, r := range w.ranges {
-		s += r.Size
+	for _, sp := range w.spaces {
+		for _, r := range sp.ranges {
+			s += r.Size
+		}
 	}
 	return s
 }
@@ -96,9 +116,9 @@ func (w *world) fairShare(d int) int64 {
 	return w.totalUsed() * w.disks[d] / cap
 }
 
-func (w *world) rangeCount(d int) int {
+func (w *world) rangeCount(space, d int) int {
 	n := 0
-	for _, o := range w.owner {
+	for _, o := range w.spaces[space].owner {
 		if o == d {
 			n++
 		}
@@ -106,9 +126,9 @@ func (w *world) rangeCount(d int) int {
 	return n
 }
 
-func (w *world) rangeIndexes(d int) []int {
+func (w *world) rangeIndexes(space, d int) []int {
 	var out []int
-	for i, o := range w.owner {
+	for i, o := range w.spaces[space].owner {
 		if o == d {
 			out = append(out, i)
 		}
@@ -126,18 +146,19 @@ func (w *world) activeDisks() []int {
 	return out
 }
 
-func (w *world) destDelta(idx, kind, dest int) int {
-	n := len(w.ranges)
+func (w *world) destDelta(space, idx, kind, dest int) int {
+	sp := &w.spaces[space]
+	n := len(sp.ranges)
 	if n == 0 {
 		return 1
 	}
 	if n == 1 && kind == cutWhole {
-		return 1 - w.rangeCount(dest)
+		return 1 - w.rangeCount(space, dest)
 	}
 	prev := (idx - 1 + n) % n
 	next := (idx + 1) % n
-	left := n > 1 && w.owner[prev] == dest && kind != cutSuffix
-	right := n > 1 && w.owner[next] == dest && kind != cutPrefix
+	left := n > 1 && sp.owner[prev] == dest && kind != cutSuffix
+	right := n > 1 && sp.owner[next] == dest && kind != cutPrefix
 	switch {
 	case left && right:
 		return -1
@@ -148,59 +169,63 @@ func (w *world) destDelta(idx, kind, dest int) int {
 	}
 }
 
-func (w *world) canAccept(dest int, size int64, delta int) bool {
+func (w *world) canAccept(space, dest int, size int64, delta int) bool {
 	if dest < 0 || dest >= len(w.disks) || w.frozen[dest] {
 		return false
 	}
 	if w.used[dest]+size > w.disks[dest] {
 		return false
 	}
-	return w.rangeCount(dest)+delta <= MAX_RANGES_PER_DISK
+	return w.rangeCount(space, dest)+delta <= MAX_RANGES_PER_DISK
 }
 
-func (w *world) canTake(idx, kind, dest int, size int64) bool {
-	if dest == w.owner[idx] {
+func (w *world) canTake(space, idx, kind, dest int, size int64) bool {
+	if dest == w.spaces[space].owner[idx] {
 		return false
 	}
-	return w.canAccept(dest, size, w.destDelta(idx, kind, dest))
+	return w.canAccept(space, dest, size, w.destDelta(space, idx, kind, dest))
 }
 
-func (w *world) applyCut(idx, kind, dest int, size int64) {
-	r := w.ranges[idx]
-	from := w.owner[idx]
+func (w *world) applyCut(space, idx, kind, dest int, size int64) {
+	sp := &w.spaces[space]
+	r := sp.ranges[idx]
+	from := sp.owner[idx]
 	if size <= 0 {
 		return
 	}
 	if size >= r.Size || kind == cutWhole {
-		w.moveWhole(idx, dest)
+		w.moveWhole(space, idx, dest)
 		return
 	}
-	split, moved := w.cutActual(idx, kind, size)
+	split, moved := w.cutActual(space, idx, kind, size)
 	if moved <= 0 || moved >= r.Size {
 		return
 	}
 	if w.used[dest]+moved > w.disks[dest] {
 		return
 	}
+	start := w.startHash(space, idx)
 	if kind == cutPrefix {
-		w.ranges[idx].Size -= moved
+		w.recordTransfer(space, start, split, from, dest, moved)
+		sp.ranges[idx].Size -= moved
 		w.used[from] -= moved
-		w.insert(idx, Range{EndHash: split, Size: moved}, dest)
-		w.record(from, dest, r.EndHash, split, true, moved)
+		w.insert(space, idx, Range{EndHash: split, Size: moved}, dest)
 	} else {
 		end := cloneHash(r.EndHash)
-		w.ranges[idx].EndHash = split
-		w.ranges[idx].Size = r.Size - moved
+		w.recordTransfer(space, split, end, from, dest, moved)
+		sp.ranges[idx].EndHash = split
+		sp.ranges[idx].Size = r.Size - moved
 		w.used[from] -= moved
-		w.insert(idx+1, Range{EndHash: end, Size: moved}, dest)
-		w.record(from, dest, end, split, false, moved)
+		w.insert(space, idx+1, Range{EndHash: end, Size: moved}, dest)
 	}
-	w.merge()
+	w.bytes += moved
+	w.mergeSpace(space)
 }
 
-func (w *world) cutActual(idx, kind int, want int64) ([]byte, int64) {
-	r := w.ranges[idx]
-	start := w.startHash(idx)
+func (w *world) cutActual(space, idx, kind int, want int64) ([]byte, int64) {
+	sp := &w.spaces[space]
+	r := sp.ranges[idx]
+	start := w.startHash(space, idx)
 	if want <= 0 {
 		return cloneHash(start), 0
 	}
@@ -231,33 +256,39 @@ func (w *world) cutActual(idx, kind int, want int64) ([]byte, int64) {
 	return split, moved
 }
 
-func (w *world) moveWhole(idx, dest int) {
-	from := w.owner[idx]
+func (w *world) moveWhole(space, idx, dest int) {
+	sp := &w.spaces[space]
+	from := sp.owner[idx]
 	if from == dest {
 		return
 	}
-	sz := w.ranges[idx].Size
-	w.owner[idx] = dest
+	sz := sp.ranges[idx].Size
+	start := w.startHash(space, idx)
+	end := cloneHash(sp.ranges[idx].EndHash)
+	w.recordTransfer(space, start, end, from, dest, sz)
+	sp.owner[idx] = dest
 	w.used[from] -= sz
 	w.used[dest] += sz
-	w.record(from, dest, w.ranges[idx].EndHash, nil, false, sz)
-	w.merge()
+	w.bytes += sz
+	w.mergeSpace(space)
 }
 
-func (w *world) record(from, to int, end, split []byte, prefix bool, size int64) {
-	w.moves = append(w.moves, Move{
-		From:    from,
-		To:      to,
-		EndHash: cloneHash(end),
-		Split:   cloneHash(split),
-		Prefix:  prefix,
-		Size:    size,
+func (w *world) recordTransfer(space int, start, end []byte, from, to int, size int64) {
+	if size <= 0 || from == to {
+		return
+	}
+	w.diff = append(w.diff, Transfer{
+		Space:     space,
+		StartHash: cloneHash(start),
+		EndHash:   cloneHash(end),
+		From:      from,
+		To:        to,
+		Size:      size,
 	})
-	w.bytes += size
 }
 
-func (w *world) find(end []byte) int {
-	for i, r := range w.ranges {
+func (w *world) find(space int, end []byte) int {
+	for i, r := range w.spaces[space].ranges {
 		if hashEq(r.EndHash, end) {
 			return i
 		}
@@ -265,48 +296,48 @@ func (w *world) find(end []byte) int {
 	return -1
 }
 
-func (w *world) insert(i int, r Range, dest int) {
-	w.ranges = slices.Insert(w.ranges, i, r)
-	w.owner = slices.Insert(w.owner, i, dest)
+func (w *world) insert(space, i int, r Range, dest int) {
+	sp := &w.spaces[space]
+	sp.ranges = slices.Insert(sp.ranges, i, r)
+	sp.owner = slices.Insert(sp.owner, i, dest)
 	w.used[dest] += r.Size
 }
 
-func (w *world) sortRanges() {
+func (w *world) sortSpace(space int) {
+	sp := &w.spaces[space]
 	type pair struct {
 		r Range
 		d int
 	}
-	ps := make([]pair, len(w.ranges))
-	for i := range w.ranges {
-		ps[i] = pair{r: w.ranges[i], d: w.owner[i]}
+	ps := make([]pair, len(sp.ranges))
+	for i := range sp.ranges {
+		ps[i] = pair{r: sp.ranges[i], d: sp.owner[i]}
 	}
 	slices.SortFunc(ps, func(a, b pair) int {
 		return bytes.Compare(a.r.EndHash, b.r.EndHash)
 	})
 	for i, p := range ps {
-		w.ranges[i] = p.r
-		w.owner[i] = p.d
+		sp.ranges[i] = p.r
+		sp.owner[i] = p.d
 	}
 }
 
-func (w *world) merge() {
-	if len(w.ranges) < 2 {
+func (w *world) mergeSpace(space int) {
+	sp := &w.spaces[space]
+	if len(sp.ranges) < 2 {
 		return
 	}
 	for {
-		n := len(w.ranges)
+		n := len(sp.ranges)
 		merged := false
 		for i := 0; i < n; i++ {
 			j := (i + 1) % n
-			if w.owner[i] != w.owner[j] {
+			if sp.owner[i] != sp.owner[j] || i == j {
 				continue
 			}
-			if i == j {
-				continue
-			}
-			w.ranges[j].Size += w.ranges[i].Size
-			w.ranges = append(w.ranges[:i], w.ranges[i+1:]...)
-			w.owner = append(w.owner[:i], w.owner[i+1:]...)
+			sp.ranges[j].Size += sp.ranges[i].Size
+			sp.ranges = append(sp.ranges[:i], sp.ranges[i+1:]...)
+			sp.owner = append(sp.owner[:i], sp.owner[i+1:]...)
 			merged = true
 			break
 		}
@@ -316,14 +347,15 @@ func (w *world) merge() {
 	}
 }
 
-func (w *world) neighbors(idx int) (left, right int, okL, okR bool) {
-	n := len(w.ranges)
+func (w *world) neighbors(space, idx int) (left, right int, okL, okR bool) {
+	sp := &w.spaces[space]
+	n := len(sp.ranges)
 	if n < 2 {
 		return 0, 0, false, false
 	}
-	src := w.owner[idx]
-	l := w.owner[(idx-1+n)%n]
-	r := w.owner[(idx+1)%n]
+	src := sp.owner[idx]
+	l := sp.owner[(idx-1+n)%n]
+	r := sp.owner[(idx+1)%n]
 	if l != src && !w.frozen[l] {
 		left, okL = l, true
 	}
@@ -334,35 +366,37 @@ func (w *world) neighbors(idx int) (left, right int, okL, okR bool) {
 }
 
 func checkStructure(state State) error {
-	if len(state.Owner) != len(state.Ranges) {
-		return xerrors.Errorf("owner length %d != ranges length %d", len(state.Owner), len(state.Ranges))
-	}
-	var hlen int
-	seen := make(map[string]struct{}, len(state.Ranges))
-	for i, r := range state.Ranges {
-		if r.Size < 0 {
-			return xerrors.Errorf("range %d has negative size", i)
-		}
-		if len(r.EndHash) == 0 {
-			return xerrors.Errorf("range %d has empty EndHash", i)
-		}
-		if hlen == 0 {
-			hlen = len(r.EndHash)
-		} else if len(r.EndHash) != hlen {
-			return xerrors.Errorf("range %d EndHash length %d != %d", i, len(r.EndHash), hlen)
-		}
-		key := string(r.EndHash)
-		if _, ok := seen[key]; ok {
-			return xerrors.Errorf("duplicate EndHash at range %d", i)
-		}
-		seen[key] = struct{}{}
-		if state.Owner[i] < 0 || state.Owner[i] >= len(state.Disks) {
-			return xerrors.Errorf("range %d owner %d out of range", i, state.Owner[i])
-		}
-	}
 	for i, sz := range state.Disks {
 		if sz < 0 {
 			return xerrors.Errorf("disk %d has negative size", i)
+		}
+	}
+	for s, sp := range state.Spaces {
+		if len(sp.Owner) != len(sp.Ranges) {
+			return xerrors.Errorf("space %d: owner length %d != ranges length %d", s, len(sp.Owner), len(sp.Ranges))
+		}
+		var hlen int
+		seen := make(map[string]struct{}, len(sp.Ranges))
+		for i, r := range sp.Ranges {
+			if r.Size < 0 {
+				return xerrors.Errorf("space %d range %d has negative size", s, i)
+			}
+			if len(r.EndHash) == 0 {
+				return xerrors.Errorf("space %d range %d has empty EndHash", s, i)
+			}
+			if hlen == 0 {
+				hlen = len(r.EndHash)
+			} else if len(r.EndHash) != hlen {
+				return xerrors.Errorf("space %d range %d EndHash length %d != %d", s, i, len(r.EndHash), hlen)
+			}
+			key := string(r.EndHash)
+			if _, ok := seen[key]; ok {
+				return xerrors.Errorf("space %d: duplicate EndHash at range %d", s, i)
+			}
+			seen[key] = struct{}{}
+			if sp.Owner[i] < 0 || sp.Owner[i] >= len(state.Disks) {
+				return xerrors.Errorf("space %d range %d owner %d out of range", s, i, sp.Owner[i])
+			}
 		}
 	}
 	return nil
