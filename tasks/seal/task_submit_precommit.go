@@ -45,11 +45,108 @@ type SubmitPrecommitTaskApi interface {
 	ctladdr.NodeApi
 }
 
+type precommitMessageSender interface {
+	Send(context.Context, *types.Message, *api.MessageSendSpec, string) (cid.Cid, error)
+}
+
+type precommitSectorParams struct {
+	SpID                     int64                   `db:"sp_id"`
+	SectorNumber             int64                   `db:"sector_number"`
+	RegSealProof             abi.RegisteredSealProof `db:"reg_seal_proof"`
+	UserSectorDurationEpochs sql.NullInt64           `db:"user_sector_duration_epochs"`
+	TicketEpoch              abi.ChainEpoch          `db:"ticket_epoch"`
+	SealedCID                string                  `db:"tree_r_cid"`
+	UnsealedCID              string                  `db:"tree_d_cid"`
+	Failed                   bool                    `db:"failed"`
+}
+
+type precommitPiece struct {
+	PieceIndex     int64  `db:"piece_index"`
+	PieceCID       string `db:"piece_cid"`
+	PieceSize      int64  `db:"piece_size"`
+	DealStartEpoch int64  `db:"deal_start_epoch"`
+	DealEndEpoch   int64  `db:"deal_end_epoch"`
+}
+
+type precommitTaskStore interface {
+	loadSectors(context.Context, harmonytask.TaskID) ([]precommitSectorParams, error)
+	detachFailedSector(context.Context, harmonytask.TaskID, int64, int64) error
+	loadPieces(context.Context, int64, int64) ([]precommitPiece, error)
+	setMessageCID(context.Context, harmonytask.TaskID, int64, []int64, cid.Cid) error
+	addMessageWait(context.Context, cid.Cid) error
+}
+
+type harmonyPrecommitTaskStore struct {
+	db *harmonydb.DB
+}
+
+const SUBMIT_PRECOMMIT_LOAD_SECTORS_SQL = `
+	SELECT sp_id, sector_number, reg_seal_proof, user_sector_duration_epochs,
+		ticket_epoch, tree_r_cid, tree_d_cid, failed
+	FROM sectors_sdr_pipeline
+	WHERE task_id_precommit_msg = $1
+	ORDER BY sector_number ASC`
+
+const SUBMIT_PRECOMMIT_DETACH_FAILED_SECTOR_SQL = `
+	UPDATE sectors_sdr_pipeline
+	SET task_id_precommit_msg = NULL
+	WHERE task_id_precommit_msg = $1
+		AND sp_id = $2
+		AND sector_number = $3
+		AND failed = TRUE`
+
+const SUBMIT_PRECOMMIT_LOAD_PIECES_SQL = `
+	SELECT piece_index,
+		piece_cid,
+		piece_size,
+		COALESCE(f05_deal_end_epoch, direct_end_epoch, 0) AS deal_end_epoch,
+		COALESCE(f05_deal_start_epoch, direct_start_epoch, 0) AS deal_start_epoch
+	FROM sectors_sdr_initial_pieces
+	WHERE sp_id = $1 AND sector_number = $2
+	ORDER BY piece_index ASC`
+
+const SUBMIT_PRECOMMIT_SET_MESSAGE_CID_SQL = `
+	UPDATE sectors_sdr_pipeline
+	SET precommit_msg_cid = $1, after_precommit_msg = TRUE, task_id_precommit_msg = NULL
+	WHERE task_id_precommit_msg = $2
+		AND sp_id = $3
+		AND sector_number = ANY($4::bigint[])
+		AND after_precommit_msg = FALSE
+		AND failed = FALSE`
+
+func (h *harmonyPrecommitTaskStore) loadSectors(ctx context.Context, taskID harmonytask.TaskID) ([]precommitSectorParams, error) {
+	var sectors []precommitSectorParams
+	err := h.db.Select(ctx, &sectors, SUBMIT_PRECOMMIT_LOAD_SECTORS_SQL, taskID)
+	return sectors, err
+}
+
+func (h *harmonyPrecommitTaskStore) detachFailedSector(ctx context.Context, taskID harmonytask.TaskID, spID, sectorNumber int64) error {
+	_, err := h.db.Exec(ctx, SUBMIT_PRECOMMIT_DETACH_FAILED_SECTOR_SQL, taskID, spID, sectorNumber)
+	return err
+}
+
+func (h *harmonyPrecommitTaskStore) loadPieces(ctx context.Context, spID, sectorNumber int64) ([]precommitPiece, error) {
+	var pieces []precommitPiece
+	err := h.db.Select(ctx, &pieces, SUBMIT_PRECOMMIT_LOAD_PIECES_SQL, spID, sectorNumber)
+	return pieces, err
+}
+
+func (h *harmonyPrecommitTaskStore) setMessageCID(ctx context.Context, taskID harmonytask.TaskID, spID int64, sectors []int64, mcid cid.Cid) error {
+	_, err := h.db.Exec(ctx, SUBMIT_PRECOMMIT_SET_MESSAGE_CID_SQL, mcid, taskID, spID, sectors)
+	return err
+}
+
+func (h *harmonyPrecommitTaskStore) addMessageWait(ctx context.Context, mcid cid.Cid) error {
+	_, err := h.db.Exec(ctx, `INSERT INTO message_waits (signed_message_cid) VALUES ($1)`, mcid)
+	return err
+}
+
 type SubmitPrecommitTask struct {
 	sp     *SealPoller
 	db     *harmonydb.DB
+	store  precommitTaskStore
 	api    SubmitPrecommitTaskApi
-	sender *message.Sender
+	sender precommitMessageSender
 	as     *multictladdr.MultiAddressSelector
 	feeCfg *config.CurioFees
 }
@@ -58,6 +155,7 @@ func NewSubmitPrecommitTask(sp *SealPoller, db *harmonydb.DB, api SubmitPrecommi
 	return &SubmitPrecommitTask{
 		sp:     sp,
 		db:     db,
+		store:  &harmonyPrecommitTaskStore{db: db},
 		api:    api,
 		sender: sender,
 		as:     as,
@@ -92,26 +190,31 @@ func (s *SubmitPrecommitTask) Do(ctx context.Context, taskID harmonytask.TaskID,
 
 	// 1. Load sector info
 
-	var sectorParamsArr []struct {
-		SpID                     int64                   `db:"sp_id"`
-		SectorNumber             int64                   `db:"sector_number"`
-		RegSealProof             abi.RegisteredSealProof `db:"reg_seal_proof"`
-		UserSectorDurationEpochs sql.NullInt64           `db:"user_sector_duration_epochs"`
-		TicketEpoch              abi.ChainEpoch          `db:"ticket_epoch"`
-		SealedCID                string                  `db:"tree_r_cid"`
-		UnsealedCID              string                  `db:"tree_d_cid"`
-	}
-
-	err = s.db.Select(ctx, &sectorParamsArr, `
-		SELECT sp_id, sector_number, reg_seal_proof, user_sector_duration_epochs, ticket_epoch, tree_r_cid, tree_d_cid
-		FROM sectors_sdr_pipeline
-		WHERE task_id_precommit_msg = $1 ORDER BY sector_number ASC`, taskID)
+	sectorParamsArr, err := s.store.loadSectors(ctx, taskID)
 	if err != nil {
 		return false, xerrors.Errorf("getting sector params: %w", err)
 	}
 
 	if len(sectorParamsArr) == 0 {
 		return true, xerrors.Errorf("expected at least 1 sector params, got 0")
+	}
+
+	activeSectors := make([]precommitSectorParams, 0, len(sectorParamsArr))
+	for _, sectorParams := range sectorParamsArr {
+		if !sectorParams.Failed {
+			activeSectors = append(activeSectors, sectorParams)
+			continue
+		}
+
+		if err := s.store.detachFailedSector(ctx, taskID, sectorParams.SpID, sectorParams.SectorNumber); err != nil {
+			return false, xerrors.Errorf("detaching failed sector from precommit task: %w", err)
+		}
+	}
+	sectorParamsArr = activeSectors
+
+	if len(sectorParamsArr) == 0 {
+		log.Warnw("no non-failed sectors to precommit", "task_id", taskID)
+		return true, nil
 	}
 
 	head, err := s.api.ChainHead(ctx)
@@ -146,6 +249,7 @@ func (s *SubmitPrecommitTask) Do(ctx context.Context, taskID harmonytask.TaskID,
 		Sectors: make([]miner.SectorPreCommitInfo, 0, len(sectorParamsArr)),
 	}
 	collateral := big.Zero()
+	includedSectors := make([]int64, 0, len(sectorParamsArr))
 
 	// 2. Prepare preCommit info and PreCommitSectorBatchParams
 	for _, sectorParams := range sectorParamsArr {
@@ -202,22 +306,7 @@ func (s *SubmitPrecommitTask) Do(ctx context.Context, taskID harmonytask.TaskID,
 			expiration = sectorParams.TicketEpoch + abi.ChainEpoch(sectorParams.UserSectorDurationEpochs.Int64)
 		}
 
-		var pieces []struct {
-			PieceIndex     int64  `db:"piece_index"`
-			PieceCID       string `db:"piece_cid"`
-			PieceSize      int64  `db:"piece_size"`
-			DealStartEpoch int64  `db:"deal_start_epoch"`
-			DealEndEpoch   int64  `db:"deal_end_epoch"`
-		}
-
-		err = s.db.Select(ctx, &pieces, `
-               SELECT piece_index,
-                      piece_cid,
-                      piece_size,
-                      COALESCE(f05_deal_end_epoch, direct_end_epoch, 0) AS deal_end_epoch,
-                      COALESCE(f05_deal_start_epoch, direct_start_epoch, 0) AS deal_start_epoch
-				FROM sectors_sdr_initial_pieces
-				WHERE sp_id = $1 AND sector_number = $2 ORDER BY piece_index ASC`, sectorParams.SpID, sectorParams.SectorNumber)
+		pieces, err := s.store.loadPieces(ctx, sectorParams.SpID, sectorParams.SectorNumber)
 		if err != nil {
 			return false, xerrors.Errorf("getting pieces: %w", err)
 		}
@@ -259,6 +348,7 @@ func (s *SubmitPrecommitTask) Do(ctx context.Context, taskID harmonytask.TaskID,
 		collateral = big.Add(collateral, collateralPerSector)
 
 		params.Sectors = append(params.Sectors, param)
+		includedSectors = append(includedSectors, sectorParams.SectorNumber)
 	}
 
 	// Check if we have any valid sectors
@@ -333,16 +423,13 @@ func (s *SubmitPrecommitTask) Do(ctx context.Context, taskID harmonytask.TaskID,
 		return false, xerrors.Errorf("sending message: %w", err)
 	}
 
-	// set precommit_msg_cid
-	_, err = s.db.Exec(ctx, `UPDATE sectors_sdr_pipeline
-		SET precommit_msg_cid = $1, after_precommit_msg = TRUE, task_id_precommit_msg = NULL
-		WHERE task_id_precommit_msg = $2`, mcid, taskID)
-	if err != nil {
+	// Set precommit_msg_cid only on non-failed sectors included in this message
+	// which are still assigned to this task.
+	if err := s.store.setMessageCID(ctx, taskID, sectorParamsArr[0].SpID, includedSectors, mcid); err != nil {
 		return false, xerrors.Errorf("updating precommit_msg_cid: %w", err)
 	}
 
-	_, err = s.db.Exec(ctx, `INSERT INTO message_waits (signed_message_cid) VALUES ($1)`, mcid)
-	if err != nil {
+	if err := s.store.addMessageWait(ctx, mcid); err != nil {
 		return false, xerrors.Errorf("inserting into message_waits: %w", err)
 	}
 
