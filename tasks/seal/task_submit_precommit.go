@@ -72,6 +72,7 @@ type precommitTaskStore interface {
 	loadSectors(context.Context, harmonytask.TaskID) ([]precommitSectorParams, error)
 	detachFailedSector(context.Context, harmonytask.TaskID, int64, int64) error
 	loadPieces(context.Context, int64, int64) ([]precommitPiece, error)
+	failSector(context.Context, harmonytask.TaskID, int64, int64, string, string) error
 	setMessageCID(context.Context, harmonytask.TaskID, int64, []int64, cid.Cid) error
 	addMessageWait(context.Context, cid.Cid) error
 }
@@ -105,6 +106,15 @@ const SUBMIT_PRECOMMIT_LOAD_PIECES_SQL = `
 	WHERE sp_id = $1 AND sector_number = $2
 	ORDER BY piece_index ASC`
 
+const SUBMIT_PRECOMMIT_FAIL_SECTOR_SQL = `
+	UPDATE sectors_sdr_pipeline
+	SET failed = TRUE, failed_at = NOW(), failed_reason = $1,
+		failed_reason_msg = $2, task_id_precommit_msg = NULL
+	WHERE task_id_precommit_msg = $3
+		AND sp_id = $4
+		AND sector_number = $5
+		AND failed = FALSE`
+
 const SUBMIT_PRECOMMIT_SET_MESSAGE_CID_SQL = `
 	UPDATE sectors_sdr_pipeline
 	SET precommit_msg_cid = $1, after_precommit_msg = TRUE, task_id_precommit_msg = NULL
@@ -131,6 +141,11 @@ func (h *harmonyPrecommitTaskStore) loadPieces(ctx context.Context, spID, sector
 	return pieces, err
 }
 
+func (h *harmonyPrecommitTaskStore) failSector(ctx context.Context, taskID harmonytask.TaskID, spID, sectorNumber int64, reason, message string) error {
+	_, err := h.db.Exec(ctx, SUBMIT_PRECOMMIT_FAIL_SECTOR_SQL, reason, message, taskID, spID, sectorNumber)
+	return err
+}
+
 func (h *harmonyPrecommitTaskStore) setMessageCID(ctx context.Context, taskID harmonytask.TaskID, spID int64, sectors []int64, mcid cid.Cid) error {
 	_, err := h.db.Exec(ctx, SUBMIT_PRECOMMIT_SET_MESSAGE_CID_SQL, mcid, taskID, spID, sectors)
 	return err
@@ -143,7 +158,6 @@ func (h *harmonyPrecommitTaskStore) addMessageWait(ctx context.Context, mcid cid
 
 type SubmitPrecommitTask struct {
 	sp     *SealPoller
-	db     *harmonydb.DB
 	store  precommitTaskStore
 	api    SubmitPrecommitTaskApi
 	sender precommitMessageSender
@@ -154,7 +168,6 @@ type SubmitPrecommitTask struct {
 func NewSubmitPrecommitTask(sp *SealPoller, db *harmonydb.DB, api SubmitPrecommitTaskApi, sender *message.Sender, as *multictladdr.MultiAddressSelector, cfg *config.CurioConfig) *SubmitPrecommitTask {
 	return &SubmitPrecommitTask{
 		sp:     sp,
-		db:     db,
 		store:  &harmonyPrecommitTaskStore{db: db},
 		api:    api,
 		sender: sender,
@@ -271,11 +284,9 @@ func (s *SubmitPrecommitTask) Do(ctx context.Context, taskID harmonytask.TaskID,
 
 		// Skip sectors where ticket has already expired
 		if sectorParams.TicketEpoch < ticketEarliest {
-			_, perr := s.db.Exec(ctx, `UPDATE sectors_sdr_pipeline
-					SET failed = TRUE, failed_at = NOW(), failed_reason = 'precommit-check', failed_reason_msg = $1, task_id_precommit_msg = NULL
-					WHERE task_id_precommit_msg = $2 AND sp_id = $3 AND sector_number = $4`,
-				fmt.Sprintf("ticket expired: seal height: %d, head: %d", sectorParams.TicketEpoch+policy.SealRandomnessLookback, head.Height()),
-				taskID, sectorParams.SpID, sectorParams.SectorNumber)
+			perr := s.store.failSector(ctx, taskID, sectorParams.SpID, sectorParams.SectorNumber,
+				"precommit-check",
+				fmt.Sprintf("ticket expired: seal height: %d, head: %d", sectorParams.TicketEpoch+policy.SealRandomnessLookback, head.Height()))
 			if perr != nil {
 				return false, xerrors.Errorf("persisting precommit check error: %w", perr)
 			}
@@ -311,23 +322,27 @@ func (s *SubmitPrecommitTask) Do(ctx context.Context, taskID harmonytask.TaskID,
 			return false, xerrors.Errorf("getting pieces: %w", err)
 		}
 
+		sectorFailed := false
 		if len(pieces) > 0 {
 			var endEpoch abi.ChainEpoch
 			param.UnsealedCid = &unsealedCID
 			for _, p := range pieces {
 				if p.DealStartEpoch > 0 && abi.ChainEpoch(p.DealStartEpoch) < head.Height() {
-					// deal start epoch is in the past, can't precommit this sector anymore
-					_, perr := s.db.Exec(ctx, `UPDATE sectors_sdr_pipeline
-					SET failed = TRUE, failed_at = NOW(), failed_reason = 'past-start-epoch', failed_reason_msg = 'precommit: start epoch is in the past', task_id_precommit_msg = NULL
-					WHERE task_id_precommit_msg = $1`, taskID)
+					perr := s.store.failSector(ctx, taskID, sectorParams.SpID, sectorParams.SectorNumber,
+						"past-start-epoch", "precommit: start epoch is in the past")
 					if perr != nil {
 						return false, xerrors.Errorf("persisting precommit start epoch expiry: %w", perr)
 					}
-					return true, xerrors.Errorf("deal start epoch is in the past")
+					log.Errorw("deal start epoch is in the past", "task_id", taskID, "sp_id", sectorParams.SpID, "sector_number", sectorParams.SectorNumber, "deal_start_epoch", p.DealStartEpoch, "chain_height", head.Height())
+					sectorFailed = true
+					break
 				}
 				if p.DealEndEpoch > 0 && abi.ChainEpoch(p.DealEndEpoch) > endEpoch {
 					endEpoch = abi.ChainEpoch(p.DealEndEpoch)
 				}
+			}
+			if sectorFailed {
+				continue
 			}
 			if endEpoch != expiration {
 				expiration = endEpoch
@@ -354,8 +369,8 @@ func (s *SubmitPrecommitTask) Do(ctx context.Context, taskID harmonytask.TaskID,
 	// Check if we have any valid sectors
 	if len(params.Sectors) == 0 {
 		log.Warnf("no valid sectors to precommit")
-		// We return true here because only way sectors are 0 is if they were removed due to ticket expiration,
-		// and we have already marked them as failed in pipeline
+		// Every sector was either already failed or failed a sector-local
+		// validation, so there is no chain message to send.
 		return true, nil
 	}
 

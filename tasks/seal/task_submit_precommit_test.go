@@ -34,6 +34,7 @@ type mockPrecommitAPI struct {
 	minerBalance   big.Int
 	head           *types.TipSet
 	minerInfo      api.MinerInfo
+	precommitErr   error
 	chainHeadCalls int
 }
 
@@ -43,6 +44,9 @@ func (m *mockPrecommitAPI) ChainHead(context.Context) (*types.TipSet, error) {
 }
 
 func (m *mockPrecommitAPI) StateMinerPreCommitDepositForPower(context.Context, address.Address, miner.SectorPreCommitInfo, types.TipSetKey) (big.Int, error) {
+	if m.precommitErr != nil {
+		return big.Zero(), m.precommitErr
+	}
 	return big.Zero(), nil
 }
 
@@ -90,11 +94,23 @@ type precommitSectorKey struct {
 	sectorNumber int64
 }
 
+type recordedPrecommitFailure struct {
+	taskID  harmonytask.TaskID
+	reason  string
+	message string
+}
+
 type mockPrecommitTaskStore struct {
 	sectors        []precommitSectorParams
 	pieces         map[precommitSectorKey][]precommitPiece
 	detached       []precommitSectorKey
+	failures       map[precommitSectorKey]recordedPrecommitFailure
+	loadSectorsErr error
 	detachErr      error
+	loadPiecesErr  error
+	failSectorErr  error
+	messageCIDErr  error
+	messageWaitErr error
 	messageSectors []int64
 	messageSPID    int64
 	messageTaskID  harmonytask.TaskID
@@ -103,6 +119,9 @@ type mockPrecommitTaskStore struct {
 }
 
 func (m *mockPrecommitTaskStore) loadSectors(context.Context, harmonytask.TaskID) ([]precommitSectorParams, error) {
+	if m.loadSectorsErr != nil {
+		return nil, m.loadSectorsErr
+	}
 	return append([]precommitSectorParams(nil), m.sectors...), nil
 }
 
@@ -115,10 +134,31 @@ func (m *mockPrecommitTaskStore) detachFailedSector(_ context.Context, _ harmony
 }
 
 func (m *mockPrecommitTaskStore) loadPieces(_ context.Context, spID, sectorNumber int64) ([]precommitPiece, error) {
+	if m.loadPiecesErr != nil {
+		return nil, m.loadPiecesErr
+	}
 	return append([]precommitPiece(nil), m.pieces[precommitSectorKey{spID: spID, sectorNumber: sectorNumber}]...), nil
 }
 
+func (m *mockPrecommitTaskStore) failSector(_ context.Context, taskID harmonytask.TaskID, spID, sectorNumber int64, reason, message string) error {
+	if m.failSectorErr != nil {
+		return m.failSectorErr
+	}
+	if m.failures == nil {
+		m.failures = map[precommitSectorKey]recordedPrecommitFailure{}
+	}
+	m.failures[precommitSectorKey{spID: spID, sectorNumber: sectorNumber}] = recordedPrecommitFailure{
+		taskID:  taskID,
+		reason:  reason,
+		message: message,
+	}
+	return nil
+}
+
 func (m *mockPrecommitTaskStore) setMessageCID(_ context.Context, taskID harmonytask.TaskID, spID int64, sectors []int64, mcid cid.Cid) error {
+	if m.messageCIDErr != nil {
+		return m.messageCIDErr
+	}
 	m.messageTaskID = taskID
 	m.messageSPID = spID
 	m.messageSectors = append([]int64(nil), sectors...)
@@ -127,6 +167,9 @@ func (m *mockPrecommitTaskStore) setMessageCID(_ context.Context, taskID harmony
 }
 
 func (m *mockPrecommitTaskStore) addMessageWait(_ context.Context, mcid cid.Cid) error {
+	if m.messageWaitErr != nil {
+		return m.messageWaitErr
+	}
 	m.messageWaits = append(m.messageWaits, mcid)
 	return nil
 }
@@ -134,9 +177,13 @@ func (m *mockPrecommitTaskStore) addMessageWait(_ context.Context, mcid cid.Cid)
 type mockPrecommitMessageSender struct {
 	messages []*types.Message
 	cid      cid.Cid
+	err      error
 }
 
 func (m *mockPrecommitMessageSender) Send(_ context.Context, msg *types.Message, _ *api.MessageSendSpec, _ string) (cid.Cid, error) {
+	if m.err != nil {
+		return cid.Undef, m.err
+	}
 	m.messages = append(m.messages, msg)
 	return m.cid, nil
 }
@@ -713,4 +760,228 @@ func TestSubmitPrecommitSQLScopesFailedDetachAndMessageAssociation(t *testing.T)
 	messageSQL := normalize(SUBMIT_PRECOMMIT_SET_MESSAGE_CID_SQL)
 	require.Contains(t, messageSQL, "where task_id_precommit_msg = $2 and sp_id = $3 and sector_number = any($4::bigint[])")
 	require.Contains(t, messageSQL, "and after_precommit_msg = false and failed = false")
+}
+
+func TestSubmitPrecommitMixedBatchIsolatesPastStartSector(t *testing.T) {
+	taskID := harmonytask.TaskID(60)
+	expired := makePrecommitSector(601)
+	valid := makePrecommitSector(602)
+	task, store, sender, _ := makeSubmitPrecommitTaskForTest(t,
+		[]precommitSectorParams{expired, valid},
+		map[precommitSectorKey][]precommitPiece{
+			{spID: expired.SpID, sectorNumber: expired.SectorNumber}: {{DealStartEpoch: 999, DealEndEpoch: 600000}},
+			{spID: valid.SpID, sectorNumber: valid.SectorNumber}:     {{DealStartEpoch: 1100, DealEndEpoch: 600000}},
+		})
+
+	done, err := task.Do(t.Context(), taskID, func() bool { return true })
+	require.NoError(t, err)
+	require.True(t, done)
+	require.Equal(t, recordedPrecommitFailure{
+		taskID:  taskID,
+		reason:  "past-start-epoch",
+		message: "precommit: start epoch is in the past",
+	}, store.failures[precommitSectorKey{spID: expired.SpID, sectorNumber: expired.SectorNumber}])
+	require.Len(t, sender.messages, 1)
+	params := decodePrecommitParams(t, sender.messages[0])
+	require.Len(t, params.Sectors, 1)
+	require.Equal(t, abi.SectorNumber(valid.SectorNumber), params.Sectors[0].SectorNumber)
+	require.Equal(t, []int64{valid.SectorNumber}, store.messageSectors)
+	require.Equal(t, []cid.Cid{sender.cid}, store.messageWaits)
+}
+
+func TestSubmitPrecommitTicketExpirationRemainsPerSector(t *testing.T) {
+	taskID := harmonytask.TaskID(61)
+	expired := makePrecommitSector(611)
+	expired.TicketEpoch = -10000
+	valid := makePrecommitSector(612)
+	task, store, sender, _ := makeSubmitPrecommitTaskForTest(t, []precommitSectorParams{expired, valid}, nil)
+
+	done, err := task.Do(t.Context(), taskID, func() bool { return true })
+	require.NoError(t, err)
+	require.True(t, done)
+	failure := store.failures[precommitSectorKey{spID: expired.SpID, sectorNumber: expired.SectorNumber}]
+	require.Equal(t, taskID, failure.taskID)
+	require.Equal(t, "precommit-check", failure.reason)
+	require.Contains(t, failure.message, "ticket expired")
+	require.NotContains(t, store.failures, precommitSectorKey{spID: valid.SpID, sectorNumber: valid.SectorNumber})
+	require.Len(t, sender.messages, 1)
+	params := decodePrecommitParams(t, sender.messages[0])
+	require.Len(t, params.Sectors, 1)
+	require.Equal(t, abi.SectorNumber(valid.SectorNumber), params.Sectors[0].SectorNumber)
+	require.Equal(t, []int64{valid.SectorNumber}, store.messageSectors)
+}
+
+func TestSubmitPrecommitMultipleInvalidSectorsKeepValidSubset(t *testing.T) {
+	taskID := harmonytask.TaskID(62)
+	pastStart := makePrecommitSector(621)
+	expiredTicket := makePrecommitSector(622)
+	expiredTicket.TicketEpoch = -10000
+	validA := makePrecommitSector(623)
+	validB := makePrecommitSector(624)
+	task, store, sender, _ := makeSubmitPrecommitTaskForTest(t,
+		[]precommitSectorParams{pastStart, expiredTicket, validA, validB},
+		map[precommitSectorKey][]precommitPiece{
+			{spID: pastStart.SpID, sectorNumber: pastStart.SectorNumber}: {{DealStartEpoch: 999, DealEndEpoch: 600000}},
+		})
+
+	done, err := task.Do(t.Context(), taskID, func() bool { return true })
+	require.NoError(t, err)
+	require.True(t, done)
+	require.Len(t, store.failures, 2)
+	require.Equal(t, "past-start-epoch", store.failures[precommitSectorKey{spID: pastStart.SpID, sectorNumber: pastStart.SectorNumber}].reason)
+	require.Equal(t, "precommit-check", store.failures[precommitSectorKey{spID: expiredTicket.SpID, sectorNumber: expiredTicket.SectorNumber}].reason)
+	require.Len(t, sender.messages, 1)
+	params := decodePrecommitParams(t, sender.messages[0])
+	require.Len(t, params.Sectors, 2)
+	require.Equal(t, []abi.SectorNumber{abi.SectorNumber(validA.SectorNumber), abi.SectorNumber(validB.SectorNumber)}, []abi.SectorNumber{params.Sectors[0].SectorNumber, params.Sectors[1].SectorNumber})
+	require.Equal(t, []int64{validA.SectorNumber, validB.SectorNumber}, store.messageSectors)
+}
+
+func TestSubmitPrecommitPreviouslyFailedAndNewValidationFailure(t *testing.T) {
+	taskID := harmonytask.TaskID(63)
+	previouslyFailed := makePrecommitSector(631)
+	previouslyFailed.Failed = true
+	pastStart := makePrecommitSector(632)
+	valid := makePrecommitSector(633)
+	task, store, sender, _ := makeSubmitPrecommitTaskForTest(t,
+		[]precommitSectorParams{previouslyFailed, pastStart, valid},
+		map[precommitSectorKey][]precommitPiece{
+			{spID: pastStart.SpID, sectorNumber: pastStart.SectorNumber}: {{DealStartEpoch: 999, DealEndEpoch: 600000}},
+		})
+
+	done, err := task.Do(t.Context(), taskID, func() bool { return true })
+	require.NoError(t, err)
+	require.True(t, done)
+	require.Equal(t, []precommitSectorKey{{spID: previouslyFailed.SpID, sectorNumber: previouslyFailed.SectorNumber}}, store.detached)
+	require.Equal(t, "past-start-epoch", store.failures[precommitSectorKey{spID: pastStart.SpID, sectorNumber: pastStart.SectorNumber}].reason)
+	require.Len(t, sender.messages, 1)
+	params := decodePrecommitParams(t, sender.messages[0])
+	require.Len(t, params.Sectors, 1)
+	require.Equal(t, abi.SectorNumber(valid.SectorNumber), params.Sectors[0].SectorNumber)
+	require.Equal(t, []int64{valid.SectorNumber}, store.messageSectors)
+}
+
+func TestSubmitPrecommitAllValidationFailuresCompleteWithoutMessage(t *testing.T) {
+	pastStart := makePrecommitSector(641)
+	expiredTicket := makePrecommitSector(642)
+	expiredTicket.TicketEpoch = -10000
+	task, store, sender, _ := makeSubmitPrecommitTaskForTest(t,
+		[]precommitSectorParams{pastStart, expiredTicket},
+		map[precommitSectorKey][]precommitPiece{
+			{spID: pastStart.SpID, sectorNumber: pastStart.SectorNumber}: {{DealStartEpoch: 999, DealEndEpoch: 600000}},
+		})
+
+	done, err := task.Do(t.Context(), harmonytask.TaskID(64), func() bool { return true })
+	require.NoError(t, err)
+	require.True(t, done)
+	require.Len(t, store.failures, 2)
+	require.Empty(t, sender.messages)
+	require.Empty(t, store.messageSectors)
+	require.Empty(t, store.messageWaits)
+}
+
+func TestSubmitPrecommitInfrastructureErrorsRemainRetryable(t *testing.T) {
+	valid := makePrecommitSector(701)
+	pastStart := makePrecommitSector(702)
+	pieces := map[precommitSectorKey][]precommitPiece{
+		{spID: pastStart.SpID, sectorNumber: pastStart.SectorNumber}: {{DealStartEpoch: 999, DealEndEpoch: 600000}},
+	}
+
+	tests := []struct {
+		name       string
+		sectors    []precommitSectorParams
+		pieces     map[precommitSectorKey][]precommitPiece
+		configure  func(*mockPrecommitTaskStore, *mockPrecommitMessageSender, *mockPrecommitAPI)
+		errorMatch string
+		wantSent   int
+		wantCID    bool
+	}{
+		{
+			name:    "load sectors",
+			sectors: []precommitSectorParams{valid},
+			configure: func(store *mockPrecommitTaskStore, _ *mockPrecommitMessageSender, _ *mockPrecommitAPI) {
+				store.loadSectorsErr = errors.New("load sectors failed")
+			},
+			errorMatch: "getting sector params",
+		},
+		{
+			name:    "load pieces",
+			sectors: []precommitSectorParams{valid},
+			configure: func(store *mockPrecommitTaskStore, _ *mockPrecommitMessageSender, _ *mockPrecommitAPI) {
+				store.loadPiecesErr = errors.New("load pieces failed")
+			},
+			errorMatch: "getting pieces",
+		},
+		{
+			name:    "persist sector failure",
+			sectors: []precommitSectorParams{pastStart},
+			pieces:  pieces,
+			configure: func(store *mockPrecommitTaskStore, _ *mockPrecommitMessageSender, _ *mockPrecommitAPI) {
+				store.failSectorErr = errors.New("failure update failed")
+			},
+			errorMatch: "persisting precommit start epoch expiry",
+		},
+		{
+			name:    "precommit deposit RPC",
+			sectors: []precommitSectorParams{valid},
+			configure: func(_ *mockPrecommitTaskStore, _ *mockPrecommitMessageSender, testAPI *mockPrecommitAPI) {
+				testAPI.precommitErr = errors.New("precommit deposit failed")
+			},
+			errorMatch: "getting precommit deposit",
+		},
+		{
+			name:    "send message",
+			sectors: []precommitSectorParams{valid},
+			configure: func(_ *mockPrecommitTaskStore, sender *mockPrecommitMessageSender, _ *mockPrecommitAPI) {
+				sender.err = errors.New("send failed")
+			},
+			errorMatch: "sending message",
+		},
+		{
+			name:    "persist message CID",
+			sectors: []precommitSectorParams{valid},
+			configure: func(store *mockPrecommitTaskStore, _ *mockPrecommitMessageSender, _ *mockPrecommitAPI) {
+				store.messageCIDErr = errors.New("CID update failed")
+			},
+			errorMatch: "updating precommit_msg_cid",
+			wantSent:   1,
+		},
+		{
+			name:    "persist message wait",
+			sectors: []precommitSectorParams{valid},
+			configure: func(store *mockPrecommitTaskStore, _ *mockPrecommitMessageSender, _ *mockPrecommitAPI) {
+				store.messageWaitErr = errors.New("message wait failed")
+			},
+			errorMatch: "inserting into message_waits",
+			wantSent:   1,
+			wantCID:    true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			task, store, sender, testAPI := makeSubmitPrecommitTaskForTest(t, test.sectors, test.pieces)
+			test.configure(store, sender, testAPI)
+
+			done, err := task.Do(t.Context(), harmonytask.TaskID(70), func() bool { return true })
+			require.ErrorContains(t, err, test.errorMatch)
+			require.False(t, done)
+			require.Empty(t, store.failures, "infrastructure errors must not become permanent sector failures")
+			require.Len(t, sender.messages, test.wantSent)
+			if test.wantCID {
+				require.NotEmpty(t, store.messageSectors)
+			} else {
+				require.Empty(t, store.messageSectors)
+			}
+		})
+	}
+}
+
+func TestSubmitPrecommitSQLScopesValidationFailure(t *testing.T) {
+	normalize := func(query string) string {
+		return strings.ToLower(strings.Join(strings.Fields(query), " "))
+	}
+
+	failSQL := normalize(SUBMIT_PRECOMMIT_FAIL_SECTOR_SQL)
+	require.Contains(t, failSQL, "where task_id_precommit_msg = $3 and sp_id = $4 and sector_number = $5 and failed = false")
 }
