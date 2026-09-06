@@ -22,7 +22,25 @@ const (
 )
 
 type CachedBackPressure struct {
-	cache *ttlcache.Cache
+	cache             *ttlcache.Cache
+	checkSector       pressureCheckFunc
+	checkMK20Pipeline pressureCheckFunc
+}
+
+type pressureCheckFunc func(context.Context, *config.CurioIngestConfig, *harmonydb.DB) (bool, error)
+
+func (c *CachedBackPressure) runSectorCheck(ctx context.Context, cfg *config.CurioIngestConfig, db *harmonydb.DB) (bool, error) {
+	if c.checkSector != nil {
+		return c.checkSector(ctx, cfg, db)
+	}
+	return c.checkSectorBackpressure(ctx, cfg, db)
+}
+
+func (c *CachedBackPressure) runMK20Check(ctx context.Context, cfg *config.CurioIngestConfig, db *harmonydb.DB) (bool, error) {
+	if c.checkMK20Pipeline != nil {
+		return c.checkMK20Pipeline(ctx, cfg, db)
+	}
+	return c.checkMK20Backpressure(ctx, cfg, db)
 }
 
 func (c *CachedBackPressure) checkSectorBackpressure(ctx context.Context, cfg *config.CurioIngestConfig, db *harmonydb.DB) (bool, error) {
@@ -286,7 +304,7 @@ func (c *CachedBackPressure) SectorPressure(ctx context.Context, cfg *config.Cur
 	if err == nil {
 		return pressure.(bool), nil
 	}
-	p, err := c.checkSectorBackpressure(ctx, cfg, db)
+	p, err := c.runSectorCheck(ctx, cfg, db)
 	if err != nil {
 		return false, err
 	}
@@ -312,10 +330,23 @@ func (c *CachedBackPressure) MK20Pressure(ctx context.Context, cfg *config.Curio
 	if err == nil {
 		return pressure.(bool), nil
 	}
-	p, err := c.checkMK20Backpressure(ctx, cfg, db)
+	p, err := c.runMK20Check(ctx, cfg, db)
 	if err != nil {
 		return false, err
 	}
 	_ = c.cache.SetWithTTL(mk20BackpressureKey, p, time.Minute*2)
 	return p, nil
+}
+
+// MK20ReleasePressure evaluates the existing MK20 pipeline and sector pressure checks
+// without consulting or updating their long-lived caches. Waiting-release callers use this once
+// per controlled release pass so cleared pressure can be observed on the next pass. The cached
+// MK20Pressure and SectorPressure APIs retain their existing TTL behavior for intake callers.
+func (c *CachedBackPressure) MK20ReleasePressure(ctx context.Context, cfg *config.CurioIngestConfig, db *harmonydb.DB) (bool, error) {
+	pressure, err := c.runMK20Check(ctx, cfg, db)
+	if err != nil || pressure {
+		return pressure, err
+	}
+
+	return c.runSectorCheck(ctx, cfg, db)
 }

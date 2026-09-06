@@ -37,6 +37,7 @@
   * [Architecture](market-2.0/architecture.md)
   * [HTTP API](market-2.0/http-api.md)
   * [Deal Processing](market-2.0/deal-processing.md)
+  * [Bounded Waiting Release](market-2.0/mk20-waiting-release.md)
   * [Products](market-2.0/products/README.md)
     * [DDO v1](market-2.0/products/ddo_v1.md)
     * [Retrieval v1](market-2.0/products/retrieval_v1.md)
