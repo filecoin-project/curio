@@ -19,15 +19,56 @@ type AllocAPI interface {
 	StateMinerAllocated(context.Context, address.Address, types.TipSetKey) (*bitfield.BitField, error)
 }
 
+const lockSectorStateSQL = `INSERT INTO sectors_allocated_numbers (sp_id, allocated)
+	VALUES ($1, '[0]'::jsonb)
+	ON CONFLICT (sp_id) DO UPDATE
+	SET allocated = sectors_allocated_numbers.allocated
+	RETURNING sp_id`
+
+// LockSectorState serializes transactions which allocate sector numbers or
+// mutate open-sector state for one storage provider. The self-assignment in
+// the conflict branch preserves the allocation bitfield while establishing a
+// transaction-scoped write-conflict point, including when the row is created
+// concurrently for the first time.
+func LockSectorState(ctx context.Context, tx *harmonydb.Tx, spID int64) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	var lockedSPID int64
+	err := tx.QueryRow(lockSectorStateSQL, spID).Scan(&lockedSPID)
+	if err != nil {
+		return xerrors.Errorf("locking sector state for provider %d: %w", spID, err)
+	}
+	if lockedSPID != spID {
+		return xerrors.Errorf("locked sector state for provider %d, expected %d", lockedSPID, spID)
+	}
+
+	return nil
+}
+
 func AllocateSectorNumbers(ctx context.Context, a AllocAPI, tx *harmonydb.Tx, maddr address.Address, count int) ([]abi.SectorNumber, error) {
 	chainAlloc, err := a.StateMinerAllocated(ctx, maddr, types.EmptyTSK)
 	if err != nil {
 		return nil, xerrors.Errorf("getting on-chain allocated sector numbers: %w", err)
 	}
 
+	return AllocateSectorNumbersFromChain(ctx, tx, maddr, chainAlloc, count)
+}
+
+// AllocateSectorNumbersFromChain allocates sector numbers using an already
+// fetched view of the provider's on-chain allocations. Callers which allocate
+// for multiple providers can fetch chain state before acquiring provider
+// locks, then acquire those locks in a stable order.
+func AllocateSectorNumbersFromChain(ctx context.Context, tx *harmonydb.Tx, maddr address.Address, chainAlloc *bitfield.BitField, count int) ([]abi.SectorNumber, error) {
 	mid, err := address.IDFromAddress(maddr)
 	if err != nil {
 		return nil, xerrors.Errorf("getting miner id: %w", err)
+	}
+	spID := int64(mid)
+
+	if err := LockSectorState(ctx, tx, spID); err != nil {
+		return nil, err
 	}
 
 	var res []abi.SectorNumber
@@ -36,16 +77,9 @@ func AllocateSectorNumbers(ctx context.Context, a AllocAPI, tx *harmonydb.Tx, ma
 	var dbAllocated bitfield.BitField
 	var rawJson []byte
 
-	err = tx.QueryRow("SELECT COALESCE(allocated, '[0]') from sectors_allocated_numbers sa FULL OUTER JOIN (SELECT 1) AS d ON FALSE WHERE sp_id = $1 OR sp_id IS NULL ORDER BY sp_id LIMIT 1", mid).Scan(&rawJson)
+	err = tx.QueryRow("SELECT allocated FROM sectors_allocated_numbers WHERE sp_id = $1", spID).Scan(&rawJson)
 	if err != nil {
 		return res, xerrors.Errorf("querying allocated sector numbers: %w", err)
-	}
-
-	if rawJson != nil {
-		err = dbAllocated.UnmarshalJSON(rawJson)
-		if err != nil {
-			return res, xerrors.Errorf("unmarshaling allocated sector numbers: %w", err)
-		}
 	}
 
 	if err := dbAllocated.UnmarshalJSON(rawJson); err != nil {
@@ -95,9 +129,12 @@ func AllocateSectorNumbers(ctx context.Context, a AllocAPI, tx *harmonydb.Tx, ma
 		return res, xerrors.Errorf("marshaling allocated sector numbers: %w", err)
 	}
 
-	_, err = tx.Exec("INSERT INTO sectors_allocated_numbers(sp_id, allocated) VALUES($1, $2) ON CONFLICT(sp_id) DO UPDATE SET allocated = $2", mid, rawJson)
+	n, err := tx.Exec("UPDATE sectors_allocated_numbers SET allocated = $2 WHERE sp_id = $1", spID, rawJson)
 	if err != nil {
 		return res, xerrors.Errorf("persisting allocated sector numbers: %w", err)
+	}
+	if n != 1 {
+		return res, xerrors.Errorf("persisting allocated sector numbers: updated %d rows", n)
 	}
 
 	return res, nil

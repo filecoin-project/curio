@@ -10,6 +10,7 @@ import (
 	"github.com/filecoin-project/go-state-types/network"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/tasks/seal"
 
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
@@ -45,6 +46,10 @@ func SealNow(ctx context.Context, node SealNowNodeApi, db *harmonydb.DB, act add
 	}
 
 	comm, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+		if err := seal.LockSectorState(ctx, tx, int64(mid)); err != nil {
+			return false, err
+		}
+
 		// Get current open sector pieces from DB
 		var pieces []struct {
 			Sector abi.SectorNumber    `db:"sector_number"`
@@ -71,8 +76,14 @@ func SealNow(ctx context.Context, node SealNowNodeApi, db *harmonydb.DB, act add
 		if len(pieces) < 1 {
 			return false, xerrors.Errorf("sector %d is not waiting to be sealed", sector)
 		}
+		isSnap := pieces[0].IsSnap
+		for _, piece := range pieces[1:] {
+			if piece.IsSnap != isSnap {
+				return false, xerrors.Errorf("sector %d contains mixed normal and snap open pieces", sector)
+			}
+		}
 
-		if pieces[0].IsSnap {
+		if isSnap {
 			// Upgrade
 			upt, err := spt.RegisteredUpdateProof()
 			if err != nil {
