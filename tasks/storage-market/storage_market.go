@@ -238,6 +238,15 @@ func (d *CurioStorageDealMarket) signalNextMK12(ctx context.Context, uuid string
 }
 
 func (d *CurioStorageDealMarket) signalNextMK20(ctx context.Context, id string) {
+	err := runSignalNextMK20(ctx, id, d.loadSignalNextMK20Pieces, d.processMk20Pieces, func(piece MK20PipelinePiece, err error) {
+		log.Errorw("SignalNext MK20: process piece", "error", err, "id", piece.ID)
+	}, d.WakeDealPoller)
+	if err != nil {
+		log.Errorw("SignalNext MK20: process deal", "error", err, "id", id)
+	}
+}
+
+func (d *CurioStorageDealMarket) loadSignalNextMK20Pieces(ctx context.Context, id string) ([]MK20PipelinePiece, error) {
 	var pieces []MK20PipelinePiece
 	err := d.db.Select(ctx, &pieces, `SELECT 
 		id, sp_id, contract, client, piece_cid_v2, piece_cid,
@@ -248,19 +257,35 @@ func (d *CurioStorageDealMarket) signalNextMK20(ctx context.Context, id string) 
 		sector_offset, indexing_created_at, indexing_task_id, indexed
 	FROM market_mk20_pipeline
 	WHERE id = $1 AND complete = false`, id)
-	if err != nil {
-		log.Errorw("SignalNext MK20: select pipeline", "error", err, "id", id)
-		return
-	}
+	return pieces, err
+}
 
+type mk20SignalNextLoader func(context.Context, string) ([]MK20PipelinePiece, error)
+type mk20SignalNextProcessor func(context.Context, MK20PipelinePiece) error
+type mk20SignalNextErrorHandler func(MK20PipelinePiece, error)
+
+func runSignalNextMK20(ctx context.Context, id string, load mk20SignalNextLoader, process mk20SignalNextProcessor, onError mk20SignalNextErrorHandler, wake func()) error {
+	pieces, err := load(ctx, id)
+	if err != nil {
+		return err
+	}
 	for _, piece := range pieces {
-		if err := d.processMk20Pieces(ctx, piece); err != nil {
-			log.Errorw("SignalNext MK20: process piece", "error", err, "id", id)
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := process(ctx, piece); err != nil {
+			onError(piece, err)
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return ctxErr
+			}
 		}
 	}
 
-	d.processMK20DealAggregation(ctx)
-	d.processMK20DealIngestion(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	wake()
+	return nil
 }
 
 func (d *CurioStorageDealMarket) StartMarket(ctx context.Context) error {
