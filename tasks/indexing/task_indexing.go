@@ -508,21 +508,14 @@ func (i *IndexingTask) TypeDetails() harmonytask.TaskTypeDetails {
 	}
 }
 
-func (i *IndexingTask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFunc) error {
-	// schedule submits
-	for {
-		stop := true
-		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-			// Indexing job must be created for every deal to make sure piece details are inserted in DB
-			// even if we don't want to index it. If piece is not supposed to be indexed then it will handled
-			// by the Do()
-			n, err := tx.Exec(`WITH pending AS (
+const indexingMK12AssignSQL = `WITH pending AS (
 					SELECT uuid
 					FROM market_mk12_deal_pipeline
 					WHERE sealed = TRUE
 					  AND indexing_task_id IS NULL
 					  AND indexed = FALSE
 					  AND indexing_created_at IS NOT NULL
+					  AND sector_offset IS NOT NULL
 					ORDER BY indexing_created_at ASC
 					LIMIT 1
 				)
@@ -532,7 +525,39 @@ func (i *IndexingTask) schedule(ctx context.Context, taskFunc harmonytask.AddTas
 				WHERE p.uuid = pending.uuid
 				  AND p.sealed = TRUE
 				  AND p.indexing_task_id IS NULL
-				  AND p.indexed = FALSE`, id)
+				  AND p.indexed = FALSE
+				  AND p.sector_offset IS NOT NULL`
+
+const indexingMK20AssignSQL = `WITH pending AS (
+					SELECT id, aggr_index
+					FROM market_mk20_pipeline
+					WHERE sealed = TRUE
+					  AND indexing_task_id IS NULL
+					  AND indexed = FALSE
+					  AND indexing_created_at IS NOT NULL
+					  AND sector_offset IS NOT NULL
+					ORDER BY indexing_created_at ASC
+					LIMIT 1
+				)
+				UPDATE market_mk20_pipeline p
+				SET indexing_task_id = $1
+				FROM pending
+				WHERE p.id = pending.id
+				  AND p.aggr_index = pending.aggr_index
+				  AND p.sealed = TRUE
+				  AND p.indexing_task_id IS NULL
+				  AND p.indexed = FALSE
+				  AND p.sector_offset IS NOT NULL`
+
+func (i *IndexingTask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFunc) error {
+	// schedule submits
+	for {
+		stop := true
+		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
+			// Indexing job must be created for every deal to make sure piece details are inserted in DB
+			// even if we don't want to index it. If piece is not supposed to be indexed then it will handled
+			// by the Do()
+			n, err := tx.Exec(indexingMK12AssignSQL, id)
 			if err != nil {
 				return false, xerrors.Errorf("updating mk12 indexing task id: %w", err)
 			}
@@ -544,24 +569,7 @@ func (i *IndexingTask) schedule(ctx context.Context, taskFunc harmonytask.AddTas
 				return true, nil
 			}
 
-			n, err = tx.Exec(`WITH pending AS (
-					SELECT id, aggr_index
-					FROM market_mk20_pipeline
-					WHERE sealed = TRUE
-					  AND indexing_task_id IS NULL
-					  AND indexed = FALSE
-					  AND indexing_created_at IS NOT NULL
-					ORDER BY indexing_created_at ASC
-					LIMIT 1
-				)
-				UPDATE market_mk20_pipeline p
-				SET indexing_task_id = $1
-				FROM pending
-				WHERE p.id = pending.id
-				  AND p.aggr_index = pending.aggr_index
-				  AND p.sealed = TRUE
-				  AND p.indexing_task_id IS NULL
-				  AND p.indexed = FALSE`, id)
+			n, err = tx.Exec(indexingMK20AssignSQL, id)
 			if err != nil {
 				return false, xerrors.Errorf("updating mk20 indexing task id: %w", err)
 			}
