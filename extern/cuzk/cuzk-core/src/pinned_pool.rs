@@ -37,6 +37,7 @@ use crate::memory::GIB;
 
 // ─── CUDA FFI ──────────────────────────────────────────────────────────────
 
+#[cfg(feature = "cuda-supraseal")]
 extern "C" {
     fn cudaHostAlloc(
         pHost: *mut *mut std::ffi::c_void,
@@ -45,6 +46,20 @@ extern "C" {
     ) -> std::ffi::c_int;
 
     fn cudaFreeHost(ptr: *mut std::ffi::c_void) -> std::ffi::c_int;
+}
+
+#[cfg(not(feature = "cuda-supraseal"))]
+unsafe fn cudaHostAlloc(
+    _pHost: *mut *mut std::ffi::c_void,
+    _size: usize,
+    _flags: std::ffi::c_uint,
+) -> std::ffi::c_int {
+    -1
+}
+
+#[cfg(not(feature = "cuda-supraseal"))]
+unsafe fn cudaFreeHost(_ptr: *mut std::ffi::c_void) -> std::ffi::c_int {
+    0
 }
 
 /// `cudaHostAllocPortable` — memory is pinned and usable from all CUDA contexts.
@@ -311,5 +326,55 @@ impl PinnedAbcBuffers {
         };
 
         Some(PinnedAbcBuffers { a, b, c })
+    }
+}
+
+#[cfg(test)]
+mod step_p02_pinned_pool_tests {
+    use super::*;
+
+    #[test]
+    fn step_p02_pool_shrink_releases_unused_buffers() {
+        let pool = PinnedPool::new();
+        assert_eq!(pool.shrink(1_000_000_000_000), 0);
+        assert_eq!(pool.free_count(), 0);
+    }
+
+    #[test]
+    fn step_p02_pool_new_has_zero_total_bytes() {
+        let pool = PinnedPool::new();
+        assert_eq!(pool.total_bytes(), 0);
+    }
+
+    #[test]
+    fn step_p02_pool_checkout_returns_none_without_cuda_driver() {
+        let pool = PinnedPool::new();
+        #[cfg(not(feature = "cuda-supraseal"))]
+        {
+            assert!(pool.checkout(4096).is_none());
+        }
+        #[cfg(feature = "cuda-supraseal")]
+        {
+            let Some(buf) = pool.checkout(4096) else {
+                return;
+            };
+            assert!(buf.size() >= 4096);
+            pool.checkin(buf);
+        }
+    }
+
+    #[cfg(feature = "cuda-supraseal")]
+    #[test]
+    fn step_p02_pool_checkin_makes_buffer_reusable() {
+        let pool = PinnedPool::new();
+        let Some(b1) = pool.checkout(2048) else {
+            return;
+        };
+        pool.checkin(b1);
+        let Some(b2) = pool.checkout(2048) else {
+            return;
+        };
+        assert!(b2.size() >= 2048);
+        pool.checkin(b2);
     }
 }

@@ -1,0 +1,109 @@
+// 8-point forward NTT over F_998244353 (matches `cuzk_vk::toy_ntt` CPU reference).
+#version 450
+
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) buffer Data {
+    uint d[8];
+} buf;
+
+const uint MOD = 998244353u;
+// ALPHA = 2^32 mod MOD
+const uint ALPHA = 301989884u;
+
+uint addm(uint a, uint b) {
+    uint s = a + b;
+    return s >= MOD ? s - MOD : s;
+}
+
+uint subm(uint a, uint b) {
+    return a >= b ? a - b : a + MOD - b;
+}
+
+// (hi * ALPHA) mod MOD using bits of hi (no recursion).
+uint mul_hi_alpha_mod(uint hi) {
+    uint tpow = ALPHA;
+    uint acc = 0u;
+    for (uint j = 0u; j < 32u; j++) {
+        if ((hi & (1u << j)) != 0u) {
+            acc = addm(acc, tpow);
+        }
+        tpow = addm(tpow, tpow);
+    }
+    return acc;
+}
+
+// 32×32 → 64 bits as (hi, lo), without umulExtended (naga glsl-in).
+void mul_u32_pair(uint a, uint b, out uint hi, out uint lo) {
+    const uint mask = 0xffffu;
+    uint a0 = a & mask;
+    uint a1 = a >> 16u;
+    uint b0 = b & mask;
+    uint b1 = b >> 16u;
+    uint p0 = a0 * b0;
+    uint p1 = a1 * b0;
+    uint p2 = a0 * b1;
+    uint p3 = a1 * b1;
+    uint carry = (p0 >> 16u) + (p1 & mask) + (p2 & mask);
+    lo = (p0 & mask) | ((carry & mask) << 16u);
+    hi = (p1 >> 16u) + (p2 >> 16u) + p3 + (carry >> 16u);
+}
+
+// (hi*2^32 + lo) mod MOD = (hi*ALPHA + lo) mod MOD; `lo` may be any u32.
+uint combine_hi_lo_mod(uint hi, uint lo) {
+    uint u = mul_hi_alpha_mod(hi);
+    uint s = u + lo;
+    if (s < u) {
+        s = addm(s, ALPHA);
+    }
+    while (s >= MOD) {
+        s -= MOD;
+    }
+    return s;
+}
+
+// (a*b) mod MOD for a,b < MOD
+uint mulm(uint a, uint b) {
+    uint hi;
+    uint lo;
+    mul_u32_pair(a, b, hi, lo);
+    return combine_hi_lo_mod(hi, lo);
+}
+
+void main() {
+    if (gl_GlobalInvocationID.x != 0u) {
+        return;
+    }
+    uint a[8];
+    for (uint i = 0u; i < 8u; i++) {
+        a[i] = buf.d[i];
+    }
+    {
+        uint t = a[1u];
+        a[1u] = a[4u];
+        a[4u] = t;
+        t = a[3u];
+        a[3u] = a[6u];
+        a[6u] = t;
+    }
+    const uint wlen2 = 998244352u;
+    const uint wlen4 = 911660635u;
+    const uint wlen8 = 372528824u;
+    for (uint si = 0u; si < 3u; si++) {
+        uint m = 2u << si;
+        uint wlen = si == 0u ? wlen2 : (si == 1u ? wlen4 : wlen8);
+        for (uint i = 0u; i < 8u; i += m) {
+            uint w = 1u;
+            for (uint j = 0u; j < m / 2u; j++) {
+                uint u = a[i + j];
+                uint v = mulm(a[i + j + m / 2u], w);
+                a[i + j] = addm(u, v);
+                a[i + j + m / 2u] = subm(u, v);
+                w = mulm(w, wlen);
+            }
+        }
+    }
+    for (uint i = 0u; i < 8u; i++) {
+        buf.d[i] = a[i];
+    }
+}

@@ -1,0 +1,80 @@
+// Appended after `glsl_32_bit_field_params::<Fp>()` (build.rs).
+// `(a - b) mod P` for Montgomery limbs. SSBO: `out[12]`, `a[12]`, `b[12]` (`d[36]`).
+// @@FP_T@@, @@FP_P@@
+
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) buffer Data {
+    uint d[36];
+} buf;
+
+bool fp_gte_val(@@FP_T@@ a, @@FP_T@@ b) {
+    for (uint k = 0u; k < 12u; k++) {
+        uint i = 11u - k;
+        if (a.val[i] > b.val[i]) {
+            return true;
+        }
+        if (a.val[i] < b.val[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+@@FP_T@@ fp_load_p() {
+    @@FP_T@@ p;
+    for (uint i = 0u; i < 12u; i++) {
+        p.val[i] = @@FP_P@@[i];
+    }
+    return p;
+}
+
+@@FP_T@@ fp_add_raw(@@FP_T@@ a, @@FP_T@@ b) {
+    uint carry = 0u;
+    for (uint i = 0u; i < 12u; i++) {
+        uint old = a.val[i];
+        a.val[i] = old + b.val[i] + carry;
+        carry = (carry != 0u) ? ((old >= a.val[i]) ? 1u : 0u) : ((old > a.val[i]) ? 1u : 0u);
+    }
+    return a;
+}
+
+@@FP_T@@ fp_sub_raw(@@FP_T@@ a, @@FP_T@@ b) {
+    uint borrow = 0u;
+    for (uint i = 0u; i < 12u; i++) {
+        uint old = a.val[i];
+        a.val[i] = old - b.val[i] - borrow;
+        borrow = (borrow != 0u) ? ((old <= a.val[i]) ? 1u : 0u) : ((old < a.val[i]) ? 1u : 0u);
+    }
+    return a;
+}
+
+@@FP_T@@ fp_sub_mod(@@FP_T@@ a, @@FP_T@@ b) {
+    @@FP_T@@ aa = a;
+    @@FP_T@@ res = fp_sub_raw(aa, b);
+    if (!fp_gte_val(a, b)) {
+        @@FP_T@@ p = fp_load_p();
+        res = fp_add_raw(res, p);
+    }
+    @@FP_T@@ p2 = fp_load_p();
+    if (fp_gte_val(res, p2)) {
+        res = fp_sub_raw(res, p2);
+    }
+    return res;
+}
+
+void main() {
+    if (gl_GlobalInvocationID.x != 0u) {
+        return;
+    }
+    @@FP_T@@ a;
+    @@FP_T@@ b;
+    for (uint i = 0u; i < 12u; i++) {
+        a.val[i] = buf.d[i + 12u];
+        b.val[i] = buf.d[i + 24u];
+    }
+    @@FP_T@@ r = fp_sub_mod(a, b);
+    for (uint i = 0u; i < 12u; i++) {
+        buf.d[i] = r.val[i];
+    }
+}

@@ -1,0 +1,168 @@
+// Shared BLS12-381 Fr helpers (8 × u32 Montgomery). Concat after `glsl_32_bit_field_params::<Scalar>()`.
+// Placeholders: @@FR_T@@, @@FR_P@@, @@FR_INV@@
+
+void mul_u32_pair(uint a, uint b, out uint hi, out uint lo) {
+    const uint mask = 0xffffu;
+    uint a0 = a & mask;
+    uint a1 = a >> 16u;
+    uint b0 = b & mask;
+    uint b1 = b >> 16u;
+    uint p0 = a0 * b0;
+    uint p1 = a1 * b0;
+    uint p2 = a0 * b1;
+    uint p3 = a1 * b1;
+    uint carry = (p0 >> 16u) + (p1 & mask) + (p2 & mask);
+    lo = (p0 & mask) | ((carry & mask) << 16u);
+    hi = (p1 >> 16u) + (p2 >> 16u) + p3 + (carry >> 16u);
+}
+
+struct U64 {
+    uint lo;
+    uint hi;
+};
+
+U64 u64_add_u32(U64 a, uint b) {
+    uint nlo = a.lo + b;
+    uint c0 = (nlo < a.lo) ? 1u : 0u;
+    uint nhi = a.hi + c0;
+    uint c1 = (nhi < a.hi) ? 1u : 0u;
+    return U64(nlo, nhi + c1);
+}
+
+uint mac_with_carry_32(uint a, uint b, uint c, inout uint d) {
+    uint mh;
+    uint ml;
+    mul_u32_pair(a, b, mh, ml);
+    U64 pr = U64(ml, mh);
+    pr = u64_add_u32(pr, c);
+    pr = u64_add_u32(pr, d);
+    d = pr.hi;
+    return pr.lo;
+}
+
+bool fr_gte_val(@@FR_T@@ a, @@FR_T@@ b) {
+    for (uint k = 0u; k < 8u; k++) {
+        uint i = 7u - k;
+        if (a.val[i] > b.val[i]) {
+            return true;
+        }
+        if (a.val[i] < b.val[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+@@FR_T@@ fr_load_p() {
+    @@FR_T@@ p;
+    for (uint i = 0u; i < 8u; i++) {
+        p.val[i] = @@FR_P@@[i];
+    }
+    return p;
+}
+
+@@FR_T@@ fr_add_raw(@@FR_T@@ a, @@FR_T@@ b) {
+    uint carry = 0u;
+    for (uint i = 0u; i < 8u; i++) {
+        uint old = a.val[i];
+        a.val[i] = old + b.val[i] + carry;
+        carry = (carry != 0u) ? ((old >= a.val[i]) ? 1u : 0u) : ((old > a.val[i]) ? 1u : 0u);
+    }
+    return a;
+}
+
+@@FR_T@@ fr_sub_raw(@@FR_T@@ a, @@FR_T@@ b) {
+    uint borrow = 0u;
+    for (uint i = 0u; i < 8u; i++) {
+        uint old = a.val[i];
+        a.val[i] = old - b.val[i] - borrow;
+        borrow = (borrow != 0u) ? ((old <= a.val[i]) ? 1u : 0u) : ((old < a.val[i]) ? 1u : 0u);
+    }
+    return a;
+}
+
+@@FR_T@@ fr_add_mod(@@FR_T@@ a, @@FR_T@@ b) {
+    @@FR_T@@ r = fr_add_raw(a, b);
+    @@FR_T@@ p = fr_load_p();
+    if (fr_gte_val(r, p)) {
+        r = fr_sub_raw(r, p);
+    }
+    return r;
+}
+
+@@FR_T@@ fr_sub_mod(@@FR_T@@ a, @@FR_T@@ b) {
+    @@FR_T@@ aa = a;
+    @@FR_T@@ res = fr_sub_raw(aa, b);
+    if (!fr_gte_val(a, b)) {
+        @@FR_T@@ p = fr_load_p();
+        res = fr_add_raw(res, p);
+    }
+    @@FR_T@@ p2 = fr_load_p();
+    if (fr_gte_val(res, p2)) {
+        res = fr_sub_raw(res, p2);
+    }
+    return res;
+}
+
+uint add_with_carry_32(uint a, inout uint b) {
+    uint lo = a + b;
+    b = (lo < a) ? 1u : 0u;
+    return lo;
+}
+
+@@FR_T@@ fr_mul_mont_cios(@@FR_T@@ a, @@FR_T@@ b) {
+    uint t[10];
+    for (uint k = 0u; k < 10u; k++) {
+        t[k] = 0u;
+    }
+
+    for (uint i = 0u; i < 8u; i++) {
+        uint carry = 0u;
+        for (uint j = 0u; j < 8u; j++) {
+            t[j] = mac_with_carry_32(a.val[j], b.val[i], t[j], carry);
+        }
+        t[8] = add_with_carry_32(t[8], carry);
+        t[9] = carry;
+
+        carry = 0u;
+        uint m = @@FR_INV@@ * t[0];
+        t[0] = mac_with_carry_32(m, @@FR_P@@[0], t[0], carry);
+        for (uint j = 1u; j < 8u; j++) {
+            t[j - 1u] = mac_with_carry_32(m, @@FR_P@@[j], t[j], carry);
+        }
+        t[7] = add_with_carry_32(t[8], carry);
+        t[8] = t[9] + carry;
+    }
+
+    @@FR_T@@ result;
+    for (uint i = 0u; i < 8u; i++) {
+        result.val[i] = t[i];
+    }
+    @@FR_T@@ p = fr_load_p();
+    if (fr_gte_val(result, p)) {
+        result = fr_sub_raw(result, p);
+    }
+    return result;
+}
+
+@@FR_T@@ fr_one() {
+    @@FR_T@@ o;
+    for (uint i = 0u; i < 8u; i++) {
+        o.val[i] = @@FR_ONE@@[i];
+    }
+    return o;
+}
+
+// Montgomery-domain exponentiation (base, exp) for small exp (twiddles).
+@@FR_T@@ fr_pow_u32(@@FR_T@@ base, uint exp) {
+    @@FR_T@@ acc = fr_one();
+    @@FR_T@@ b = base;
+    while (exp > 0u) {
+        if ((exp & 1u) != 0u) {
+            acc = fr_mul_mont_cios(acc, b);
+        }
+        b = fr_mul_mont_cios(b, b);
+        exp >>= 1u;
+    }
+    return acc;
+}

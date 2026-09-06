@@ -1837,3 +1837,31 @@ fn print_result(resp: &pb::AwaitProofResponse, wall_time: std::time::Duration) {
         println!("error:     {}", resp.error_message);
     }
 }
+
+#[cfg(test)]
+mod step_p06_bench_tests {
+    use super::*;
+
+    #[test]
+    fn step_p06_cli_default_daemon_addr() {
+        let cli = Cli::try_parse_from(["cuzk-bench", "status"]).expect("parse");
+        assert_eq!(cli.addr, "http://127.0.0.1:9820");
+    }
+
+    #[test]
+    fn step_p06_proof_kind_from_str_accepts_aliases() {
+        assert_eq!(
+            proof_kind_from_str("porep-c2").unwrap(),
+            pb::ProofKind::PorepSealCommit as i32
+        );
+        assert_eq!(
+            proof_kind_from_str("WinningPost").unwrap(),
+            pb::ProofKind::WinningPost as i32
+        );
+    }
+
+    #[test]
+    fn step_p06_proof_kind_from_str_rejects_unknown() {
+        assert!(proof_kind_from_str("unknown-kind").is_err());
+    }
+}

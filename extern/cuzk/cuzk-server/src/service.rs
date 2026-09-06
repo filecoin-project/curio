@@ -410,3 +410,98 @@ fn detect_gpus() -> Vec<pb::GpuStatus> {
         _ => vec![],
     }
 }
+
+#[cfg(test)]
+mod step_p05_server_tests {
+    use super::*;
+    use cuzk_core::config::Config;
+    use cuzk_proto::cuzk::v1::proving_engine_server::ProvingEngine;
+    use cuzk_proto::cuzk::v1::{
+        AwaitProofRequest, CancelProofRequest, GetStatusRequest, ProofKind as PbProofKind,
+        SubmitProofRequest,
+    };
+
+    fn minimal_submit(request_id: &str, proof_kind: i32) -> SubmitProofRequest {
+        SubmitProofRequest {
+            request_id: request_id.to_string(),
+            proof_kind,
+            sector_size: 34_359_738_368,
+            registered_proof: 8,
+            priority: 0,
+            vanilla_proof: vec![b'{'; 16],
+            vanilla_proofs: vec![],
+            sector_number: 0,
+            miner_id: 100,
+            randomness: vec![],
+            partition_index: 0,
+            comm_r_old: vec![],
+            comm_r_new: vec![],
+            comm_d_new: vec![],
+        }
+    }
+
+    #[tokio::test]
+    async fn step_p05_submit_proof_returns_job_id_matching_request_id() {
+        let eng = Arc::new(Engine::new(Config::default()));
+        let svc = ProvingService::new(eng);
+        let resp = svc
+            .submit_proof(Request::new(minimal_submit(
+                "client-req-42",
+                PbProofKind::PorepSealCommit as i32,
+            )))
+            .await
+            .expect("submit ok");
+        assert_eq!(resp.into_inner().job_id, "client-req-42");
+    }
+
+    #[tokio::test]
+    async fn step_p05_submit_proof_invalid_kind_returns_invalid_argument() {
+        let eng = Arc::new(Engine::new(Config::default()));
+        let svc = ProvingService::new(eng);
+        let err = svc
+            .submit_proof(Request::new(minimal_submit("x", 0)))
+            .await
+            .expect_err("invalid proof_kind");
+        assert_eq!(err.code(), tonic::Code::InvalidArgument);
+    }
+
+    #[tokio::test]
+    async fn step_p05_await_proof_unknown_job_returns_not_found() {
+        let eng = Arc::new(Engine::new(Config::default()));
+        let svc = ProvingService::new(eng);
+        let err = svc
+            .await_proof(Request::new(AwaitProofRequest {
+                job_id: "missing-job".into(),
+                timeout_ms: 0,
+            }))
+            .await
+            .expect_err("not found");
+        assert_eq!(err.code(), tonic::Code::NotFound);
+    }
+
+    #[tokio::test]
+    async fn step_p05_cancel_proof_returns_not_running_placeholder() {
+        let eng = Arc::new(Engine::new(Config::default()));
+        let svc = ProvingService::new(eng);
+        let r = svc
+            .cancel_proof(Request::new(CancelProofRequest {
+                job_id: "any".into(),
+            }))
+            .await
+            .unwrap();
+        assert!(!r.into_inner().was_running);
+    }
+
+    #[tokio::test]
+    async fn step_p05_get_status_returns_zero_counters_before_engine_start() {
+        let eng = Arc::new(Engine::new(Config::default()));
+        let svc = ProvingService::new(eng);
+        let r = svc
+            .get_status(Request::new(GetStatusRequest {}))
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(r.total_proofs_completed, 0);
+        assert_eq!(r.total_proofs_failed, 0);
+    }
+}

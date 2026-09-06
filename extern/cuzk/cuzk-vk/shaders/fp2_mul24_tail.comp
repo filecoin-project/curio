@@ -1,0 +1,34 @@
+// Fp2 multiply: (a0+a1 u)(b0+b1 u) = (a0 b0 - a1 b1) + (a0 b1 + a1 b0) u. Montgomery `Fp` limbs.
+// SSBO: `out` words 0..23, `a` 24..47, `b` 48..71 (`d[72]`). @@FP_T@@ / @@FP_P@@ / @@FP_INV@@ replaced in build.rs.
+
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) buffer Data {
+    uint d[72];
+} buf;
+
+void main() {
+    if (gl_GlobalInvocationID.x != 0u) {
+        return;
+    }
+    @@FP_T@@ a0;
+    @@FP_T@@ a1;
+    @@FP_T@@ b0;
+    @@FP_T@@ b1;
+    for (uint i = 0u; i < 12u; i++) {
+        a0.val[i] = buf.d[24u + i];
+        a1.val[i] = buf.d[36u + i];
+        b0.val[i] = buf.d[48u + i];
+        b1.val[i] = buf.d[60u + i];
+    }
+    @@FP_T@@ t00 = fp_mul_mont_cios(a0, b0);
+    @@FP_T@@ t11 = fp_mul_mont_cios(a1, b1);
+    @@FP_T@@ t01 = fp_mul_mont_cios(a0, b1);
+    @@FP_T@@ t10 = fp_mul_mont_cios(a1, b0);
+    @@FP_T@@ r0 = fp_sub_mod(t00, t11);
+    @@FP_T@@ r1 = fp_add_mod(t01, t10);
+    for (uint i = 0u; i < 12u; i++) {
+        buf.d[i] = r0.val[i];
+        buf.d[12u + i] = r1.val[i];
+    }
+}

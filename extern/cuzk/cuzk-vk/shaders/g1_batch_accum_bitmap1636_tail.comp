@@ -1,0 +1,128 @@
+// Phase G: sum selected affine G1 points (Montgomery) with a 64-bit bitmap (two `u32`).
+//
+// Layout: `d[0]=n`, `d[1]=bitmap_lo`, `d[2]=bitmap_hi`, header 64 words, out Jacobian at
+// words 64..99, affines at word 100 + `idx*24`.
+//
+// Single-invocation kernel. Earlier versions used a workgroup of 8 threads with a shared-
+// memory tree reduction and a `jac_acc_add` helper taking `inout @@FP_T@@` parameters.
+// Both patterns hit Naga + MoltenVK codegen bugs on Apple M2 (large `@@FP_T@@`-typed
+// `inout`/`out` parameters silently corrupted, `if`-body branches dropping writes to
+// large struct locals). The current kernel keeps everything in one straight-line `main`,
+// inlines the addition formula, and uses an integer `mode` register to dispatch among
+// "acc was identity → take new point" vs "real EFD `add-1998-cmo-2` add". With n ≤ 64
+// the linear-cost overhead is negligible.
+
+#define G1_BATCH_MAX_POINTS 64u
+#define G1_BATCH_WG 1u
+#define OFF_N 0u
+#define OFF_BM_LO 1u
+#define OFF_BM_HI 2u
+#define HEADER 64u
+#define OFF_JAC_OUT HEADER
+#define OFF_AFF (HEADER + 36u)
+
+layout(local_size_x = G1_BATCH_WG, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) buffer Data {
+    uint d[HEADER + 36u + G1_BATCH_MAX_POINTS * 24u];
+} buf;
+
+bool bitmap_test(uint pi) {
+    if (pi < 32u) {
+        return ((buf.d[OFF_BM_LO] >> pi) & 1u) != 0u;
+    }
+    return ((buf.d[OFF_BM_HI] >> (pi - 32u)) & 1u) != 0u;
+}
+
+void main() {
+    if (gl_GlobalInvocationID.x != 0u) {
+        return;
+    }
+    uint n = buf.d[OFF_N];
+
+    @@FP_T@@ ax;
+    @@FP_T@@ ay;
+    @@FP_T@@ az;
+    for (uint i = 0u; i < 12u; i++) {
+        ax.val[i] = 0u;
+        ay.val[i] = 0u;
+        az.val[i] = 0u;
+    }
+    @@FP_T@@ bz_one = fp_one();
+
+    for (uint pi = 0u; pi < n && pi < G1_BATCH_MAX_POINTS; pi += 1u) {
+        if (!bitmap_test(pi)) {
+            continue;
+        }
+
+        uint ab = OFF_AFF + pi * 24u;
+        @@FP_T@@ bx;
+        @@FP_T@@ by;
+        for (uint i = 0u; i < 12u; i++) {
+            bx.val[i] = buf.d[ab + i];
+            by.val[i] = buf.d[ab + 12u + i];
+        }
+        @@FP_T@@ bz = bz_one;
+
+        // Snapshot the running accumulator into pure locals so the addition formula reads
+        // from function-scope variables only (avoids Naga's miscompilation of repeated
+        // reads through a long `inout`-style chain).
+        @@FP_T@@ ax0;
+        @@FP_T@@ ay0;
+        @@FP_T@@ az0;
+        uint az_nz = 0u;
+        for (uint i = 0u; i < 12u; i++) {
+            ax0.val[i] = ax.val[i];
+            ay0.val[i] = ay.val[i];
+            az0.val[i] = az.val[i];
+            if (az.val[i] != 0u) { az_nz = az_nz + 1u; }
+        }
+
+        // EFD `add-1998-cmo-2` (a=0). Always computed; result is selected via `mode` below.
+        @@FP_T@@ z1z1 = fp_mul_mont_cios(az0, az0);
+        @@FP_T@@ z2z2 = fp_mul_mont_cios(bz, bz);
+        @@FP_T@@ u1 = fp_mul_mont_cios(ax0, z2z2);
+        @@FP_T@@ u2 = fp_mul_mont_cios(bx, z1z1);
+        @@FP_T@@ ay_bz = fp_mul_mont_cios(ay0, bz);
+        @@FP_T@@ s1 = fp_mul_mont_cios(ay_bz, z2z2);
+        @@FP_T@@ by_az = fp_mul_mont_cios(by, az0);
+        @@FP_T@@ s2 = fp_mul_mont_cios(by_az, z1z1);
+        @@FP_T@@ h = fp_sub_mod(u2, u1);
+        @@FP_T@@ hh = fp_mul_mont_cios(h, h);
+        @@FP_T@@ hhh = fp_mul_mont_cios(h, hh);
+        @@FP_T@@ r = fp_sub_mod(s2, s1);
+        @@FP_T@@ v = fp_mul_mont_cios(u1, hh);
+        @@FP_T@@ r2 = fp_mul_mont_cios(r, r);
+        @@FP_T@@ twov = fp_dbl(v);
+        @@FP_T@@ r2_hhh = fp_sub_mod(r2, hhh);
+        @@FP_T@@ rx = fp_sub_mod(r2_hhh, twov);
+        @@FP_T@@ v_minus_rx = fp_sub_mod(v, rx);
+        @@FP_T@@ ry_a = fp_mul_mont_cios(v_minus_rx, r);
+        @@FP_T@@ s1hhh = fp_mul_mont_cios(s1, hhh);
+        @@FP_T@@ ry = fp_sub_mod(ry_a, s1hhh);
+        @@FP_T@@ az_bz = fp_mul_mont_cios(az0, bz);
+        @@FP_T@@ rz = fp_mul_mont_cios(az_bz, h);
+
+        // mode 0 = acc was identity → copy new point; mode 1 = real EFD addition.
+        uint mode = (az_nz == 0u) ? 0u : 1u;
+        if (mode == 0u) {
+            for (uint i = 0u; i < 12u; i++) {
+                ax.val[i] = bx.val[i];
+                ay.val[i] = by.val[i];
+                az.val[i] = bz.val[i];
+            }
+        } else {
+            for (uint i = 0u; i < 12u; i++) {
+                ax.val[i] = rx.val[i];
+                ay.val[i] = ry.val[i];
+                az.val[i] = rz.val[i];
+            }
+        }
+    }
+
+    for (uint i = 0u; i < 12u; i++) {
+        buf.d[OFF_JAC_OUT + i] = ax.val[i];
+        buf.d[OFF_JAC_OUT + 12u + i] = ay.val[i];
+        buf.d[OFF_JAC_OUT + 24u + i] = az.val[i];
+    }
+}

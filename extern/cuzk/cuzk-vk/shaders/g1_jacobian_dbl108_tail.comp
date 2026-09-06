@@ -1,0 +1,70 @@
+// Jacobian G1 doubling (a=0): standalone kernel using EFD `dbl-2009-l`,
+// which matches `blst_p1_double` for short Weierstrass with a = 0:
+//   A  = X^2
+//   B  = Y^2
+//   C  = B^2
+//   D  = 2*((X+B)^2 - A - C)
+//   E  = 3*A
+//   F  = E^2
+//   X3 = F - 2*D
+//   Y3 = E*(D - X3) - 8*C
+//   Z3 = 2*Y*Z
+//
+// Same SSBO layout as the addition kernel (108 u32s, points at offsets 36/48/60
+// for `a` and 72/.. for `b`), but `b` is ignored — only `a` is doubled. The
+// host dispatches this kernel when it has detected `a == b` (or chooses to
+// double explicitly). Kept straight-line to dodge the Naga + MoltenVK Apple-M2
+// codegen issue documented in the addition kernel.
+
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) buffer Data {
+    uint d[108];
+} buf;
+
+void fp_load_j(uint base, out @@FP_T@@ x) {
+    for (uint i = 0u; i < 12u; i++) {
+        x.val[i] = buf.d[base + i];
+    }
+}
+
+void main() {
+    if (gl_GlobalInvocationID.x != 0u) {
+        return;
+    }
+
+    @@FP_T@@ ax;
+    @@FP_T@@ ay;
+    @@FP_T@@ az;
+    fp_load_j(36u, ax);
+    fp_load_j(48u, ay);
+    fp_load_j(60u, az);
+
+    @@FP_T@@ A = fp_mul_mont_cios(ax, ax);
+    @@FP_T@@ B = fp_mul_mont_cios(ay, ay);
+    @@FP_T@@ C = fp_mul_mont_cios(B, B);
+    @@FP_T@@ x_plus_B = fp_add_mod(ax, B);
+    @@FP_T@@ d0 = fp_mul_mont_cios(x_plus_B, x_plus_B);
+    @@FP_T@@ d1 = fp_sub_mod(d0, A);
+    @@FP_T@@ d2 = fp_sub_mod(d1, C);
+    @@FP_T@@ d_  = fp_dbl(d2);
+    @@FP_T@@ A2 = fp_dbl(A);
+    @@FP_T@@ e_ = fp_add_mod(A2, A);
+    @@FP_T@@ f_ = fp_mul_mont_cios(e_, e_);
+    @@FP_T@@ y_z = fp_mul_mont_cios(ay, az);
+    @@FP_T@@ oz = fp_dbl(y_z);
+    @@FP_T@@ f_minus_d = fp_sub_mod(f_, d_);
+    @@FP_T@@ ox = fp_sub_mod(f_minus_d, d_);
+    @@FP_T@@ d_minus_x3 = fp_sub_mod(d_, ox);
+    @@FP_T@@ e_times    = fp_mul_mont_cios(e_, d_minus_x3);
+    @@FP_T@@ c2 = fp_dbl(C);
+    @@FP_T@@ c4 = fp_dbl(c2);
+    @@FP_T@@ c8 = fp_dbl(c4);
+    @@FP_T@@ oy = fp_sub_mod(e_times, c8);
+
+    for (uint i = 0u; i < 12u; i++) {
+        buf.d[i]       = ox.val[i];
+        buf.d[12u + i] = oy.val[i];
+        buf.d[24u + i] = oz.val[i];
+    }
+}

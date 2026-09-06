@@ -219,3 +219,56 @@ pub enum EngineError {
     #[error("internal error: {0}")]
     Internal(String),
 }
+
+#[cfg(test)]
+mod step_p02_types_tests {
+    use super::*;
+
+    #[test]
+    fn step_p02_proof_kind_circuit_id_format() {
+        assert_eq!(
+            ProofKind::PoRepSealCommit.circuit_id(32),
+            "porep-32g"
+        );
+        assert_eq!(ProofKind::WinningPost.circuit_id(64), "winning-64g");
+    }
+
+    #[test]
+    fn step_p02_proof_kind_metric_label_static() {
+        assert_eq!(ProofKind::PoRepSealCommit.metric_label(), "porep_c2");
+        assert_eq!(ProofKind::WindowPostPartition.metric_label(), "window_post");
+    }
+
+    #[test]
+    fn step_p02_proof_kind_from_proto_unknown_returns_none() {
+        assert_eq!(ProofKind::from_proto(0), None);
+        assert_eq!(ProofKind::from_proto(99), None);
+    }
+
+    #[test]
+    fn step_p02_priority_default_for_kind() {
+        assert_eq!(Priority::default_for(ProofKind::WinningPost), Priority::Critical);
+        assert_eq!(
+            Priority::default_for(ProofKind::WindowPostPartition),
+            Priority::High
+        );
+        assert_eq!(
+            Priority::default_for(ProofKind::PoRepSealCommit),
+            Priority::Normal
+        );
+    }
+
+    #[test]
+    fn step_p02_priority_from_proto_unknown_is_normal() {
+        assert_eq!(Priority::from_proto(0), Priority::Normal);
+        assert_eq!(Priority::from_proto(2), Priority::Normal);
+    }
+
+    #[test]
+    fn step_p02_proof_request_default_zero_state() {
+        let r = ProofRequest::default();
+        assert!(r.job_id.0.is_empty());
+        assert_eq!(r.sector_size, 0);
+        assert_eq!(r.priority, Priority::Normal);
+    }
+}

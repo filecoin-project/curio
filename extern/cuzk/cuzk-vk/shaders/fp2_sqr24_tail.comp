@@ -1,0 +1,28 @@
+// Fp2 square: (a0+a1 u)^2 = (a0^2 - a1^2) + (2 a0 a1) u. Montgomery mul. `d[72]` (a at 24..47, out 0..23).
+
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) buffer Data {
+    uint d[72];
+} buf;
+
+void main() {
+    if (gl_GlobalInvocationID.x != 0u) {
+        return;
+    }
+    @@FP_T@@ a0;
+    @@FP_T@@ a1;
+    for (uint i = 0u; i < 12u; i++) {
+        a0.val[i] = buf.d[24u + i];
+        a1.val[i] = buf.d[36u + i];
+    }
+    @@FP_T@@ t0 = fp_mul_mont_cios(a0, a0);
+    @@FP_T@@ t1 = fp_mul_mont_cios(a1, a1);
+    @@FP_T@@ t01 = fp_mul_mont_cios(a0, a1);
+    @@FP_T@@ two_a0a1 = fp_add_mod(t01, t01);
+    @@FP_T@@ r0 = fp_sub_mod(t0, t1);
+    for (uint i = 0u; i < 12u; i++) {
+        buf.d[i] = r0.val[i];
+        buf.d[12u + i] = two_a0a1.val[i];
+    }
+}

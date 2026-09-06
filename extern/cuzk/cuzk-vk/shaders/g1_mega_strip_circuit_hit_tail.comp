@@ -1,0 +1,35 @@
+// §8.4 **D.1** mega-strip: record `(circuit_id, strip_linear_tid)` per global thread (curve-free hit map).
+// Header: `d[0]=thread_count`, `d[1]=groups_x_per_circuit`, `d[2]=local_x`, `d[3]=batch_circuits`.
+// Payload: `d[64 + 2*tid] = circuit_id`, `d[64 + 2*tid + 1] = tid_in_strip`.
+
+#define HEADER 64u
+#define MAX_THREADS 4096u
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) buffer Data {
+    uint d[HEADER + MAX_THREADS * 2u];
+} buf;
+
+void main() {
+    uint tid = gl_GlobalInvocationID.x;
+    uint total = buf.d[0];
+    uint gxc = buf.d[1];
+    uint lx = buf.d[2];
+    uint batch = buf.d[3];
+    if (tid >= total || tid >= MAX_THREADS) {
+        return;
+    }
+    uint strip = gxc * lx;
+    if (strip == 0u) {
+        strip = 1u;
+    }
+    uint circ = tid / strip;
+    if (circ >= batch) {
+        circ = batch - 1u;
+    }
+    uint in_strip = tid - circ * strip;
+    uint o = HEADER + tid * 2u;
+    buf.d[o] = circ;
+    buf.d[o + 1u] = in_strip;
+}
