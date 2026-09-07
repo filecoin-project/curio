@@ -497,6 +497,7 @@ func (P *PDPIPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTask
 											  FROM piece_cleanup pc
 											  WHERE pc.after_cleanup = TRUE
 												AND pc.complete = FALSE
+												AND pc.pdp = TRUE
 											)
 											SELECT *
 											FROM unioned
