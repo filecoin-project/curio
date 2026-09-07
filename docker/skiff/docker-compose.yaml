@@ -28,28 +28,30 @@ services:
     logging: *default-logging
     volumes:
       - ${YUGABYTE_DATA:-./data/yugabyte}:/home/yugabyte/yb_data
-    # Advertise the skiff-net IP. Do not set hostname: yugabyte — Docker maps that to 127.0.0.2.
-    # Other containers resolve the service name via Compose DNS.
+    # Advertise the skiff-net IP (required by yugabyted). Bind YSQL/YCQL on all
+    # interfaces so Skiff can use Compose DNS and the healthcheck can use loopback.
+    # Do not set hostname: yugabyte — Docker maps that to 127.0.0.2.
     command:
       - /bin/bash
       - -lc
       - |
-        ADDR=$$(hostname -I | tr ' ' '\n' | awk '$$1 !~ /^127\./ {print $$1; exit}')
+        ADDR=$$(hostname -I | tr ' ' '\n' | awk '$$1 ~ /^[0-9]+\./ && $$1 !~ /^127\./ {print $$1; exit}')
         if [ -z "$$ADDR" ]; then
-          echo "yugabyte: no non-loopback IP" >&2
+          echo "yugabyte: no non-loopback IPv4" >&2
           hostname -I >&2
           exit 1
         fi
-        exec bin/yugabyted start --base_dir=/home/yugabyte/yb_data --background=false --advertise_address=$$ADDR
+        exec bin/yugabyted start \
+          --base_dir=/home/yugabyte/yb_data \
+          --background=false \
+          --advertise_address=$$ADDR \
+          --tserver_flags="pgsql_proxy_bind_address=0.0.0.0:5433,cql_proxy_bind_address=0.0.0.0:9042"
     healthcheck:
-      # Probe the advertised skiff-net IP. `-h yugabyte` does not resolve inside this container.
-      test:
-        - CMD-SHELL
-        - ADDR=$$(hostname -I | tr ' ' '\n' | awk '$$1 !~ /^127\./ {print $$1; exit}') && bin/ysqlsh -h "$$ADDR" -U yugabyte -d yugabyte -c 'select 1'
-      interval: 10s
-      timeout: 10s
+      test: ["CMD", "/home/yugabyte/bin/ysqlsh", "-h", "127.0.0.1", "-U", "yugabyte", "-d", "yugabyte", "-c", "select 1"]
+      interval: 5s
+      timeout: 5s
       retries: 30
-      start_period: 30s
+      start_period: 20s
     networks:
       - skiff-net
 
