@@ -61,6 +61,9 @@ services:
     init: true
     restart: unless-stopped
     logging: *default-logging
+    environment:
+      # Default 5 parallel snapshot chunks; R2 often RSTs them and Forest restarts from 0%.
+      - FOREST_DOWNLOAD_CONNECTIONS=${FOREST_DOWNLOAD_CONNECTIONS:-1}
     volumes:
       - ${FOREST_DATA:-./data/forest}:/root/.local/share/forest
       - ${FOREST_TOKEN_DATA:-./data/forest-token}:/forest-token
