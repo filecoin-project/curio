@@ -20,20 +20,27 @@ networks:
 services:
   yugabyte:
     container_name: skiff-yugabyte
-    hostname: yugabyte
     image: ${YUGABYTE_IMAGE:-yugabytedb/yugabyte:2024.1.0.0-b129}
     init: true
     environment:
       - TINI_SUBREAPER=true
-    ports:
-      - "5433:5433"   # YSQL (Postgres wire)
-      - "9042:9042"   # YCQL (Cassandra wire)
-      - "15433:15433" # Yugabyte web UI
     restart: unless-stopped
     logging: *default-logging
     volumes:
       - ${YUGABYTE_DATA:-./data/yugabyte}:/home/yugabyte/yb_data
-    command: ["bin/yugabyted", "start", "--base_dir=/home/yugabyte/yb_data", "--background=false", "--advertise_address=yugabyte"]
+    # Advertise the skiff-net IP. Do not set hostname: yugabyte — Docker maps that to 127.0.0.2.
+    # Other containers resolve the service name via Compose DNS.
+    command:
+      - /bin/bash
+      - -lc
+      - |
+        ADDR=$$(hostname -I | tr ' ' '\n' | awk '$$1 !~ /^127\./ {print $$1; exit}')
+        if [ -z "$$ADDR" ]; then
+          echo "yugabyte: no non-loopback IP" >&2
+          hostname -I >&2
+          exit 1
+        fi
+        exec bin/yugabyted start --base_dir=/home/yugabyte/yb_data --background=false --advertise_address=$$ADDR
     healthcheck:
       # yugabyted status alone is not enough; verify YSQL accepts connections on the docker network.
       test: ["CMD", "bin/ysqlsh", "-h", "yugabyte", "-U", "yugabyte", "-d", "yugabyte", "-c", "select 1"]
@@ -41,34 +48,6 @@ services:
       timeout: 10s
       retries: 30
       start_period: 30s
-    networks:
-      - skiff-net
-
-  forest:
-    container_name: skiff-forest
-    hostname: forest
-    image: ${FOREST_IMAGE:-ghcr.io/chainsafe/forest:v0.35.0}
-    init: true
-    restart: unless-stopped
-    logging: *default-logging
-    volumes:
-      - ${FOREST_DATA:-./data/forest}:/root/.local/share/forest
-      - ${FOREST_TOKEN_DATA:-./data/forest-token}:/forest-token
-    command:
-      - --chain=${FOREST_CHAIN:-mainnet}
-      - --auto-download-snapshot
-      - --rpc-address=0.0.0.0:2345
-      - --healthcheck-address=0.0.0.0:2346
-      - --save-token=/forest-token/token
-      - --encrypt-keystore
-      - "false"
-    healthcheck:
-      # RPC accepting connections is enough to start Curio; full sync continues in the background.
-      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/2345'"]
-      interval: 15s
-      timeout: 5s
-      retries: 60
-      start_period: 60s
     networks:
       - skiff-net
 
@@ -83,8 +62,6 @@ services:
     init: true
     depends_on:
       yugabyte:
-        condition: service_healthy
-      forest:
         condition: service_healthy
     environment:
       - SKIFF_DOCKER=1
