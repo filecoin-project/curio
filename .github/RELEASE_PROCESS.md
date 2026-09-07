@@ -217,7 +217,7 @@ Before publishing, review the notes with the team for:
 
 - Incorrect upgrade guidance.
 - Missing operator-impacting changes.
-- Missing API changes affecting integrators (see [API Changes in Release Notes](#api-changes-in-release-notes)).
+- Missing API changes affecting integrators (see [Release Notes](#release-notes)).
 - Missing migration or schema notes.
 - Missing config default changes.
 - Missing build requirement changes.
