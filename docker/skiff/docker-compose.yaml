@@ -51,6 +51,33 @@ services:
     networks:
       - skiff-net
 
+  forest:
+    container_name: skiff-forest
+    image: ${FOREST_IMAGE:-ghcr.io/chainsafe/forest:v0.35.0}
+    init: true
+    restart: unless-stopped
+    logging: *default-logging
+    volumes:
+      - ${FOREST_DATA:-./data/forest}:/root/.local/share/forest
+      - ${FOREST_TOKEN_DATA:-./data/forest-token}:/forest-token
+    command:
+      - --chain=${FOREST_CHAIN:-mainnet}
+      - --auto-download-snapshot
+      - --rpc-address=0.0.0.0:2345
+      - --healthcheck-address=0.0.0.0:2346
+      - --save-token=/forest-token/token
+      - --encrypt-keystore
+      - "false"
+    healthcheck:
+      # RPC accepting connections is enough to start Curio; full sync continues in the background.
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/2345'"]
+      interval: 15s
+      timeout: 5s
+      retries: 60
+      start_period: 60s
+    networks:
+      - skiff-net
+
   skiff:
     container_name: skiff
     image: ${SKIFF_IMAGE:-filecoin/curio-pdp:dev}
@@ -62,6 +89,8 @@ services:
     init: true
     depends_on:
       yugabyte:
+        condition: service_healthy
+      forest:
         condition: service_healthy
     environment:
       - SKIFF_DOCKER=1
