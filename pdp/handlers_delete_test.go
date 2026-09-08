@@ -29,20 +29,14 @@ func TestNormalizeDeletePieceIDs(t *testing.T) {
 		require.Equal(t, []int64{3, 1, 2}, out)
 	})
 
-	t.Run("batch at the cap is accepted", func(t *testing.T) {
-		ids := make([]uint64, MaxDeletePiecesBatchSize)
+	t.Run("large batches are accepted", func(t *testing.T) {
+		ids := make([]uint64, 5000)
 		for i := range ids {
 			ids[i] = uint64(i)
 		}
 		out, err := normalizeDeletePieceIDs(ids)
 		require.NoError(t, err)
-		require.Len(t, out, MaxDeletePiecesBatchSize)
-	})
-
-	t.Run("batch over the cap is rejected", func(t *testing.T) {
-		ids := make([]uint64, MaxDeletePiecesBatchSize+1)
-		_, err := normalizeDeletePieceIDs(ids)
-		require.Error(t, err)
+		require.Len(t, out, 5000)
 	})
 
 	t.Run("max int64 is accepted", func(t *testing.T) {

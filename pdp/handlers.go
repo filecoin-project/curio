@@ -62,8 +62,6 @@ const (
 
 	// MaxDeletePieceExtraDataSize defines the limit for extraData size in DeletePiece calls (1KiB).
 	MaxDeletePieceExtraDataSize = 1024
-
-	MaxDeletePiecesBatchSize = contract.ConservativeEnqueuedRemovalsLimit
 )
 
 // ETHTxSender enqueues (and eventually sends) an Ethereum transaction.
@@ -952,9 +950,6 @@ func (p *PDPService) handleGetPieceAdditionStatus(w http.ResponseWriter, r *http
 }
 
 func normalizeDeletePieceIDs(ids []uint64) ([]int64, error) {
-	if len(ids) > MaxDeletePiecesBatchSize {
-		return nil, fmt.Errorf("piece count (%d) exceeds the maximum allowed per DeletePiece call (%d)", len(ids), MaxDeletePiecesBatchSize)
-	}
 	seen := make(map[uint64]struct{}, len(ids))
 	out := make([]int64, 0, len(ids))
 	for _, id := range ids {
@@ -1075,24 +1070,6 @@ func (p *PDPService) handleDeleteDataSetPiece(w http.ResponseWriter, r *http.Req
 	}
 	if foundCount != len(pieceIDsI64) {
 		http.Error(w, "One or more piece not found", http.StatusNotFound)
-		return
-	}
-
-	// Soft gate: refuse if the data set's on-chain removal queue is already at our
-	// conservative ceiling. This keeps us well clear of the on-chain MAX_ENQUEUED_REMOVALS.
-	pdpVerifier, err := contract.NewPDPVerifier(contract.ContractAddresses().PDPVerifier, p.ethClient)
-	if err != nil {
-		httpServerError(w, http.StatusInternalServerError, "Failed to instantiate PDPVerifier", err)
-		return
-	}
-	queued, err := pdpVerifier.GetScheduledRemovals(contract.EthCallOpts(ctx), big.NewInt(int64(dataSetId)))
-	if err != nil {
-		httpServerError(w, http.StatusInternalServerError, "Failed to read scheduled removals", err)
-		return
-	}
-	if len(queued) >= contract.ConservativeEnqueuedRemovalsLimit {
-		http.Error(w, fmt.Sprintf("data set %d already has %d scheduled removals queued (limit %d); retry once they have been processed",
-			dataSetId, len(queued), contract.ConservativeEnqueuedRemovalsLimit), http.StatusTooManyRequests)
 		return
 	}
 
