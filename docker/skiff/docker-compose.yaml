@@ -20,37 +20,50 @@ networks:
 services:
   yugabyte:
     container_name: skiff-yugabyte
-    hostname: yugabyte
     image: ${YUGABYTE_IMAGE:-yugabytedb/yugabyte:2024.1.0.0-b129}
     init: true
     environment:
       - TINI_SUBREAPER=true
-    ports:
-      - "5433:5433"   # YSQL (Postgres wire)
-      - "9042:9042"   # YCQL (Cassandra wire)
-      - "15433:15433" # Yugabyte web UI
     restart: unless-stopped
     logging: *default-logging
     volumes:
       - ${YUGABYTE_DATA:-./data/yugabyte}:/home/yugabyte/yb_data
-    command: ["bin/yugabyted", "start", "--base_dir=/home/yugabyte/yb_data", "--background=false", "--advertise_address=yugabyte"]
+    # Advertise the skiff-net IP (required by yugabyted). Bind YSQL/YCQL on all
+    # interfaces so Skiff can use Compose DNS and the healthcheck can use loopback.
+    # Do not set hostname: yugabyte — Docker maps that to 127.0.0.2.
+    command:
+      - /bin/bash
+      - -lc
+      - |
+        ADDR=$$(hostname -I | tr ' ' '\n' | awk '$$1 ~ /^[0-9]+\./ && $$1 !~ /^127\./ {print $$1; exit}')
+        if [ -z "$$ADDR" ]; then
+          echo "yugabyte: no non-loopback IPv4" >&2
+          hostname -I >&2
+          exit 1
+        fi
+        exec bin/yugabyted start \
+          --base_dir=/home/yugabyte/yb_data \
+          --background=false \
+          --advertise_address=$$ADDR \
+          --tserver_flags="pgsql_proxy_bind_address=0.0.0.0:5433,cql_proxy_bind_address=0.0.0.0:9042"
     healthcheck:
-      # yugabyted status alone is not enough; verify YSQL accepts connections on the docker network.
-      test: ["CMD", "bin/ysqlsh", "-h", "yugabyte", "-U", "yugabyte", "-d", "yugabyte", "-c", "select 1"]
-      interval: 10s
-      timeout: 10s
+      test: ["CMD", "/home/yugabyte/bin/ysqlsh", "-h", "127.0.0.1", "-U", "yugabyte", "-d", "yugabyte", "-c", "select 1"]
+      interval: 5s
+      timeout: 5s
       retries: 30
-      start_period: 30s
+      start_period: 20s
     networks:
       - skiff-net
 
   forest:
     container_name: skiff-forest
-    hostname: forest
     image: ${FOREST_IMAGE:-ghcr.io/chainsafe/forest:v0.35.0}
     init: true
     restart: unless-stopped
     logging: *default-logging
+    environment:
+      # Default 5 parallel snapshot chunks; R2 often RSTs them and Forest restarts from 0%.
+      - FOREST_DOWNLOAD_CONNECTIONS=${FOREST_DOWNLOAD_CONNECTIONS:-1}
     volumes:
       - ${FOREST_DATA:-./data/forest}:/root/.local/share/forest
       - ${FOREST_TOKEN_DATA:-./data/forest-token}:/forest-token

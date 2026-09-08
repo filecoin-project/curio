@@ -57,7 +57,7 @@ Use a single `base` config layer. On first start, skiff **auto-seeds `base`** wi
 - `Subsystems.EnableWebGui = true` for the admin UI
 - `HTTP.Enable = true` for the public `/pdp/*` API
 
-See [Enable PDP](experimental-features/Enable-PDP.md) for full-stack Curio deployment, or the [Curio-PDP runbook](curio-pdp.md) for the skiff PDP-only deployment (Dockerized Yugabyte), including [PDP signing wallet setup via the admin GUI](curio-pdp.md#3-pdp-signing-wallet-admin-gui).
+See [Enable PDP](experimental-features/Enable-PDP.md) for full-stack Curio deployment, or the [Curio-PDP runbook](curio-pdp.md) for the skiff PDP-only deployment (Dockerized Yugabyte), including [PDP signing wallet setup via the admin GUI](curio-pdp.md#5-pdp-signing-wallet-admin-gui).
 
 ### Chain API
 

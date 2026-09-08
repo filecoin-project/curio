@@ -38,7 +38,65 @@ Local builds use `filecoin/curio-pdp:dev` (`make docker/curio-pdp` / `make skiff
 
 ## First-time setup
 
-### 1. Configure `docker/skiff/.env` (optional)
+### 1. Clone and start (Docker)
+
+On the host that will run the stack:
+
+```bash
+git clone https://github.com/filecoin-project/curio.git
+docker compose -f curio/docker/skiff/docker-compose.yaml up -d
+docker compose -f curio/docker/skiff/docker-compose.yaml ps
+docker compose -f curio/docker/skiff/docker-compose.yaml logs -f
+```
+
+Stop the stack:
+
+```bash
+docker compose -f curio/docker/skiff/docker-compose.yaml down
+```
+
+`up -d` starts Forest, Yugabyte, and Curio-PDP. `ps` shows health; `logs -f` follows all three (Ctrl-C stops the follow, not the containers).
+
+From a clone, `make skiff/up` also works (builds `filecoin/curio-pdp:dev` locally first).
+
+**Calibration network** (from `docker/skiff/`):
+
+```bash
+docker compose -f docker-compose.yaml -f docker-compose.calibnet.yaml up -d
+# or: make skiff/calibnet/up
+```
+
+This starts:
+
+* **Forest** — Filecoin chain node (official `ghcr.io/chainsafe/forest`); first start downloads a snapshot (mainnet is large)
+* **Yugabyte** — YSQL and YCQL on the Compose network `skiff-net` only (not published on the host)
+* **Curio-PDP (skiff)** — local admin GUI on `127.0.0.1:4701`; public PDP API on `80`/`443` only
+
+Persistent data defaults to `docker/skiff/data/` (Yugabyte, Forest, repo state, and piece storage).
+
+{% hint style="warning" %}
+**Public firewall: open only TCP 80 and 443.** The admin GUI on port `4701` is unauthenticated and for local operator access only — do not publish it to the internet. The Compose file maps host `127.0.0.1:4701` for the same reason. Use SSH port forwarding if you need remote GUI access (see [Admin GUI over SSH](#2-admin-gui-over-ssh)).
+{% endhint %}
+
+HarmonyDB migrations run on connect and create the same `curio` schema as full Curio. The piece `IndexStore` connects to Yugabyte YCQL on the same Compose network (port `9042` by default via `--db-cassandra-port` / `CURIO_DB_CASSANDRA_PORT`).
+
+Curio starts once Forest RPC accepts connections; wallet balance and FWSS registration need Forest to finish syncing.
+
+### 2. Admin GUI over SSH
+
+The GUI is bound to localhost on the Docker host. From your laptop (`$HOST` is that machine):
+
+```bash
+killall ssh   # optional; closes all local SSH sessions, including other tunnels
+ssh -fN -L 4701:127.0.0.1:4701 $USER@$HOST
+ssh $USER@$HOST
+```
+
+`-fN` forwards the port in the background with no remote shell. Then open **http://127.0.0.1:4701** on the laptop. The second `ssh` is a normal session on the host.
+
+On the Docker host itself, browse **http://127.0.0.1:4701** directly.
+
+### 3. Configure `docker/skiff/.env` (optional)
 
 Copy or edit `docker/skiff/.env` before starting the stack. Defaults are enough for a local trial.
 
@@ -56,54 +114,7 @@ See [Skiff binary — Chain API](skiff-binary.md#chain-api) for config-layer alt
 
 **Storage / data paths** default to `./data/` under `docker/skiff/`. Adjust `YUGABYTE_DATA`, `FOREST_DATA`, `SKIFF_REPO_DATA`, and `SKIFF_STORAGE` if needed.
 
-### 2. Start Forest + Yugabyte + Curio-PDP (Docker)
-
-From the repo root:
-
-```bash
-cd docker/skiff
-docker compose up -d
-```
-
-Or from the repo root: `make skiff/up` (builds the image locally first).
-
-**Calibration network:**
-
-```bash
-docker compose -f docker-compose.yaml -f docker-compose.calibnet.yaml up -d
-# or: make skiff/calibnet/up
-```
-
-This starts:
-
-* **Forest** — Filecoin chain node (official `ghcr.io/chainsafe/forest`); first start downloads a snapshot (mainnet is large)
-* **Yugabyte** — YSQL on port `5433`, YCQL on port `9042`, web UI on `15433`
-* **Curio-PDP (skiff)** — local admin GUI on `127.0.0.1:4701`; public PDP API on `80`/`443` only
-
-Persistent data defaults to `docker/skiff/data/` (Yugabyte, Forest, repo state, and piece storage).
-
-{% hint style="warning" %}
-**Public firewall: open only TCP 80 and 443.** The admin GUI on port `4701` is unauthenticated and for local operator access only — do not publish it to the internet. The Compose file maps host `127.0.0.1:4701` for the same reason. Use SSH port forwarding if you need remote GUI access (see [PDP signing wallet](#3-pdp-signing-wallet-admin-gui)).
-{% endhint %}
-
-HarmonyDB migrations run on connect and create the same `curio` schema as full Curio. The piece `IndexStore` connects to Yugabyte YCQL on the same host (port `9042` by default via `--db-cassandra-port` / `CURIO_DB_CASSANDRA_PORT`).
-
-Curio starts once Forest RPC accepts connections; wallet balance and FWSS registration need Forest to finish syncing.
-
-For a native skiff binary against the same Yugabyte stack (without the skiff container), export:
-
-```bash
-export CURIO_DB_HOST=127.0.0.1
-export CURIO_DB_PORT=5433
-export CURIO_DB_USER=yugabyte
-export CURIO_DB_PASSWORD=yugabyte
-export CURIO_DB_NAME=yugabyte
-export CURIO_REPO_PATH=~/.curio
-export SKIFF_MACHINE_HOST=127.0.0.1:skiff
-export FULLNODE_API_INFO=/ip4/127.0.0.1/tcp/2345/http
-```
-
-### 3. Select storage folders (admin GUI)
+### 4. Select storage folders (admin GUI)
 
 Open **http://127.0.0.1:4701** → **Storage** (or **PDP Guide** → Select storage folders).
 
@@ -111,20 +122,9 @@ Open **http://127.0.0.1:4701** → **Storage** (or **PDP Guide** → Select stor
 2. Paths are **not** auto-registered.
 3. Attached paths get a `sectorstore.json` and are persisted in the repo `storage.json`.
 
-### 4. PDP signing wallet (admin GUI)
+### 5. PDP signing wallet (admin GUI)
 
-Skiff needs a **PDP signing key** stored in HarmonyDB (`eth_keys` with `role=pdp`) before FWSS registration. Configure it through the admin GUI — the key is **not** set in `.env`.
-
-**Open the GUI**
-
-* On the Docker host: **http://127.0.0.1:4701**
-* From a remote machine (SSH tunnel):
-
-  ```bash
-  ssh -L 4701:127.0.0.1:4701 user@your-server
-  ```
-
-  Then browse to **http://127.0.0.1:4701** on your laptop.
+Skiff needs a **PDP signing key** stored in HarmonyDB (`eth_keys` with `role=pdp`) before FWSS registration. Configure it through the admin GUI — the key is **not** set in `.env`. Open the GUI as in [Admin GUI over SSH](#2-admin-gui-over-ssh).
 
 Go to **PDP** → wallet section.
 
@@ -141,7 +141,7 @@ The GUI has no login. Anyone who can reach port `4701` can manage keys and confi
 
 The wallet private key is stored in Yugabyte and survives container restarts as long as `YUGABYTE_DATA` is preserved. Back up Yugabyte before redeploying (see [Yugabyte backup](administration/yugabyte-backup.md)).
 
-### 5. Register with FWSS
+### 6. Register with FWSS
 
 In the GUI **Register** tab, complete provider registration, then verify with:
 
@@ -154,8 +154,18 @@ pdptool ping --service-url https://your-domain.com --service-name public
 If running skiff outside Docker, start Yugabyte (and a chain node) first, then:
 
 ```bash
+export CURIO_DB_HOST=127.0.0.1
+export CURIO_DB_PORT=5433
+export CURIO_DB_USER=yugabyte
+export CURIO_DB_PASSWORD=yugabyte
+export CURIO_DB_NAME=yugabyte
+export CURIO_REPO_PATH=~/.curio
+export SKIFF_MACHINE_HOST=127.0.0.1:skiff
+export FULLNODE_API_INFO=/ip4/127.0.0.1/tcp/2345/http
 ./curio   # curio-pdp build
 ```
+
+Compose does not publish Yugabyte on the host. For a native binary against the Compose DB, add host port mappings for `5433`/`9042` or run skiff on `skiff-net`.
 
 On first start, skiff **auto-seeds the `base` config layer** with PDP defaults (`EnablePDP`, `EnableWebGui`, `GuiAddress`, `StorageRPCSecret`). If a separate `pdp` layer already exists from a prior full-Curio setup, it is merged into `base` once at startup. Configure storage and the PDP wallet via the GUI steps above.
 
@@ -207,10 +217,10 @@ There is no dedicated migration tool — Yugabyte backup/restore plus file copy 
 
 | Symptom | Check |
 |---------|--------|
-| Forest still syncing / wallet balance Err | Wait for snapshot import + sync; `docker compose logs forest` |
+| Forest still syncing / wallet balance Err | Wait for snapshot import + sync; `docker compose -f curio/docker/skiff/docker-compose.yaml logs -f forest` |
 | Skiff cannot reach chain node | Bundled Forest: check `forest` health and token volume; external: use `host.docker.internal` or LAN IP, not `127.0.0.1` inside the container |
-| Alert: PDP wallet not configured | [PDP signing wallet](#4-pdp-signing-wallet-admin-gui) → Create or Import; verify `eth_keys` has `role=pdp` |
-| Yugabyte connection errors | `docker compose ps`, `CURIO_DB_*`, YSQL on `5433`, YCQL on `9042`; see [Yugabyte troubleshooting](administration/yugabyte-troubleshooting.md) |
+| Alert: PDP wallet not configured | [PDP signing wallet](#5-pdp-signing-wallet-admin-gui) → Create or Import; verify `eth_keys` has `role=pdp` |
+| Yugabyte connection errors | `docker compose -f curio/docker/skiff/docker-compose.yaml ps`; Skiff uses `CURIO_DB_HOST=yugabyte` on `skiff-net`; see [Yugabyte troubleshooting](administration/yugabyte-troubleshooting.md) |
 | No storage paths | **Storage** → enter a path or Attach a suggested folder; write permissions on selected folders |
 | Registration fails | Wallet funded; `HTTP.DomainName` / TLS; chain node synced and reachable |
 | Startup warning about missing key | Expected until wallet is configured; clears after key insert |
