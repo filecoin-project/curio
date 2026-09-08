@@ -118,7 +118,7 @@ func TestMK20ReleaseDBBoundedCostSample(t *testing.T) {
 			}
 			rows, err := conn.Query(ctx, `SELECT tablename, indexdef FROM pg_indexes WHERE schemaname = $1 ORDER BY tablename, indexname`, dbs.target.schema)
 			require.NoError(t, err)
-			indexes, err := pgx.CollectRows(rows, pgx.RowTo[struct{ Table, Definition string }])
+			indexes, err := pgx.CollectRows(rows, pgx.RowToStructByPos[struct{ Table, Definition string }])
 			require.NoError(t, err)
 			t.Logf("schema=%s active=%d complete=8192 waiting=32108 indexes=%+v", dbs.target.schema, baseline, indexes)
 			var version string
