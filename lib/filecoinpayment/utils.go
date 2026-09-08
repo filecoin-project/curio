@@ -128,11 +128,13 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchai
 	}
 
 	type settleRailTx struct {
-		rail int64
-		upTo int64
+		rail   int64
+		upTo   int64
+		target int64
 	}
 
 	transactionsToSend := make(map[*types.Transaction]settleRailTx)
+
 	for _, detail := range toSettle {
 		settleUpTo, err := calculateSettleUpTo(ctx, pabi, &paymentContractAddr, ethClient, detail.railId, from, detail.settledUpTo, detail.target)
 		if err != nil {
@@ -165,8 +167,9 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchai
 		})
 
 		transactionsToSend[txEth] = settleRailTx{
-			rail: detail.railId.Int64(),
-			upTo: settleUpTo,
+			rail:   detail.railId.Int64(),
+			upTo:   settleUpTo,
+			target: detail.target.Int64(),
 		}
 	}
 
@@ -189,6 +192,8 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchai
 		txHashHex := strings.ToLower(txHash.Hex())
 		log.Infow("sent settle transaction", "txHash", txHashHex, "railIDs", details.rail, "settleUpTo", details.upTo)
 
+		retry := details.upTo < details.target
+
 		// Insert into message_waits_eth and filecoin_payment_transactions atomically
 		committed, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
 			// Insert into message_waits_eth for confirmation tracking
@@ -201,7 +206,7 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchai
 			}
 
 			// Insert into filecoin_payment_transactions
-			n, err = tx.Exec(`INSERT INTO filecoin_payment_transactions (tx_hash, rail_ids) VALUES ($1, $2)`, txHashHex, []int64{details.rail})
+			n, err = tx.Exec(`INSERT INTO filecoin_payment_transactions (tx_hash, rail_ids, retry) VALUES ($1, $2)`, txHashHex, []int64{details.rail}, retry)
 			if err != nil {
 				return false, xerrors.Errorf("failed to insert into filecoin_payment_transactions: %w", err)
 			}

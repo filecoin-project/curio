@@ -7,6 +7,7 @@ import (
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-state-types/builtin"
@@ -31,6 +32,7 @@ const (
 type settled struct {
 	Hash  string  `db:"tx_hash"`
 	Rails []int64 `db:"rail_ids"`
+	Retry bool    `db:"retry"`
 }
 
 type mwe struct {
@@ -61,7 +63,7 @@ func processPendingTransactions(ctx context.Context, db *harmonydb.DB, ethClient
 	// use JOIN or WHERE EXIST clauses.
 	var settles []settled
 	err := db.Select(ctx, &settles, `
-		SELECT tx_hash, rail_ids
+		SELECT tx_hash, rail_ids, retry
 		FROM filecoin_payment_transactions`)
 	if err != nil {
 		return xerrors.Errorf("failed to get settlements from DB: %w", err)
@@ -220,6 +222,14 @@ func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthC
 			threshold := big.NewInt(0).Add(view.SettledUpTo, view.LockupPeriod)
 			thresholdWithGrace := big.NewInt(0).Add(threshold, big.NewInt(temporaryDefaultGraceInEpochs))
 
+			if threshold.Uint64() < current {
+				_ = al.EmitEvent(ctx, curioalerting.AlertEvent{
+					Subsystem: alertName,
+					System:    alertType,
+					Message:   fmt.Sprintf("Rail %d is soon to default, terminating dataSet %d", railId, dataSet.Int64()),
+				})
+			}
+
 			if thresholdWithGrace.Uint64() < current {
 				log.Infow("Rail soon to default, terminating dataSet", "dataSetId", dataSet.Int64(), "railId", railId, "settleTxHash", settle.Hash)
 				if err := FWSS.EnsureServiceTermination(tx, dataSet.Int64()); err != nil {
@@ -227,13 +237,19 @@ func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthC
 					return false, xerrors.Errorf("failed to ensure service termination for defaulting rail: %w", err)
 				}
 			}
-
 		}
 
 		// Delete the settle message from the DB
 		_, err = tx.Exec(`DELETE FROM filecoin_payment_transactions WHERE tx_hash = $1`, settle.Hash)
 		if err != nil {
 			return false, xerrors.Errorf("failed to delete settle message from DB: %w", err)
+		}
+
+		if settle.Retry {
+			_, err = tx.Exec(`UPDATE harmony_task_singletons SET run_now_request = TRUE WHERE task_name = $1 AND run_now_request = FALSE`, tasknames.Settle)
+			if err != nil {
+				return false, xerrors.Errorf("setting run_now_request: %w", err)
+			}
 		}
 
 		return true, nil
