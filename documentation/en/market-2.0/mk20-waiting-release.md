@@ -31,9 +31,13 @@ waiting deals. The two values are read once at the start of a pass. A dynamic
 change applies to the next pass; a transaction already in progress may finish
 using the earlier snapshot.
 
-Production values for these settings have not yet been selected or validated.
+No generally recommended production values have been established. A limited
+operator-reported canary is not capacity sizing or sustained-load validation.
 Operators should not treat a value used in a test fixture as a recommended
-production setting.
+production setting. Compatible positive settings must be applied consistently
+across participating release instances; the default zeros are not operational
+admission protection. The GUI's configuration schema also comes from the
+GUI-serving binary: a different MARKET binary alone does not update that UI.
 
 ## Active-Row Accounting
 
@@ -59,7 +63,8 @@ The following incomplete rows consume slots:
 
 Rows that exist only in the waiting table do not consume slots. A row returns
 its slot only when the existing downstream path marks it `complete = TRUE`,
-normally after storage movement and indexing finish. Lowering the configured
+through the existing storage/indexing and applicable announcement completion
+contract, not merely SDR or PreCommit completion. Lowering the configured
 cap below the current active count stops new releases; it does not delete or
 rewrite existing work to force the count down.
 
@@ -112,6 +117,16 @@ that pass. Existing pipeline work keeps progressing and the next nonempty
 pass checks again. When both settings are zero, this additional fresh pressure
 check is disabled; the existing cached API pressure behavior and its cache
 lifetime are unchanged.
+
+The reused sector-pressure path has a pre-existing `MaxQueueSDR=0` mismatch
+at this branch's base: a nonempty SDR queue can still apply pressure, despite
+zero being documented as unlimited. The independently reviewed correction is
+[hyunmoon/curio#17](https://github.com/hyunmoon/curio/pull/17), head
+`d4297b6daf335ad9c88ac4a92f8632cf456c7dea`. Its code and branch history are
+not included here, and it is not an upstream PR number or a branch dependency.
+This release feature reuses pressure decisions; that companion fix corrects
+the existing zero-limit decision. Do not silently substitute a large new
+default or bypass pressure to hide the distinction.
 
 ## Transaction and Concurrency Model
 
@@ -211,8 +226,8 @@ do not validate a later port. At minimum, validate:
 - release resuming after normal completion returns capacity.
 
 These checks must use separate database connections and the real database
-conflict behavior, not a process-local mutex. Until that YugabyteDB run is
-completed successfully, production concurrency readiness remains unverified.
+conflict behavior, not a process-local mutex. Historical runs do not make a
+new head database-validated; see the evidence boundary below.
 
 The opt-in tests record `SELECT version()`, the session default isolation,
 and the value reported by `SHOW transaction_isolation` inside a HarmonyDB
@@ -248,3 +263,35 @@ fixture-owned completion. The retry test runs the production release core and
 HarmonyDB transaction adapter, forces a real serialization failure after a
 provisional release, and verifies that the retried callback uses fresh
 capacity or waiting state without leaking the rolled-back result.
+
+The aggregate tests use a two-subpiece commitment-only fixture, production
+`DealFromTX`, `mk20PipelineRowCost`, `insertPiecesInTransaction`, and the release
+gate. They check exact fit, insufficient slots, an aggregate larger than the
+entire cap, and rollback after a fixture trigger rejects the second pipeline
+insert after download/reference writes. These are authored SQL assertions,
+not executed database evidence until the operator runs them.
+
+## Evidence Boundary and Finite Cost Check
+
+The operator previously reported release-core/gate/cap tests passing on the
+combined candidate `08500e953d557b7c4a8bb719ebb316a413f280cf` (tree
+`b316b8c4db4d37bc28328b7c75ddb2ab71c82d2e`), using disposable single-node
+YugabyteDB 2025.2.2.2-b11 with Read Committed and wait queues enabled. The
+forced stale-snapshot case requested Repeatable Read. Separately, the operator
+reported a normal one-deal canary and automatic release of the next deal after
+Indexing workers resumed. These are historical operator reports on a combined
+build, not current-head execution or isolated attribution to this PR.
+
+One canary/resumed deal does not establish sustained throughput, multi-MARKET
+production correctness, every aggregate shape, full-backlog completion, or
+zero network bytes. A `pieceref:` URL alone does not prove the last claim.
+The new aggregate tests and finite cost sample have not been run against
+PostgreSQL or YugabyteDB in this follow-up. Compile-only and database-free
+results remain separate from those historical reports.
+
+Use the [finite disposable-database recipe](mk20-release-cost-check.md) for
+the new aggregate cases and query/release cost sample. It has fixed populations,
+sample counts, timeouts, and a retry-evidence requirement. No performance-driven
+index or schema change is proposed before obtaining measurements. The fixture's
+explicit completion UPDATE tests slot accounting/resumption, not execution of
+the full sealing/MoveStorage/Indexing completion lifecycle.

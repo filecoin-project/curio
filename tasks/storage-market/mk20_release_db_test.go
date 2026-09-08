@@ -84,6 +84,8 @@ func newMK20ReleaseITestDB(t *testing.T) mk20ReleaseITestDB {
 	}
 	cfg := opts.HarmonyConfig()
 	cfg.ReadOnly = true
+	cfg.LoadBalance = false
+	cfg.ApplicationName = "mk20-release-itest-" + string(opts.ITestID)
 
 	primary, err := harmonydb.NewFromConfig(cfg)
 	if err != nil {
@@ -136,6 +138,7 @@ func newMK20ReleaseITestDB(t *testing.T) mk20ReleaseITestDB {
 	t.Logf("session default_transaction_isolation=%s", defaultIsolation)
 	t.Logf("HarmonyDB default transaction requested isolation=driver default displayed transaction_isolation=%s effective Yugabyte isolation=UNVERIFIED", transactionIsolation)
 	t.Logf("primary_backend=%d secondary_backend=%d", primaryPID, secondaryPID)
+	t.Logf("owned application_name=%s schema=%s", cfg.ApplicationName, target.schema)
 
 	return mk20ReleaseITestDB{primary: primary, secondary: secondary, target: target}
 }
@@ -159,6 +162,28 @@ func applyMK20ReleaseGateMigration(t *testing.T, ctx context.Context, target mk2
 	// HarmonyDB intentionally accepts only SQL literals. Use a separate pgx
 	// connection to execute the bytes read from the real migration file in the
 	// same loopback-only, random integration-test schema.
+	conn := openMK20ReleaseITestConnection(t, ctx, target)
+	defer func() {
+		if err := conn.Close(context.Background()); err != nil {
+			t.Errorf("closing isolated migration connection: %v", err)
+		}
+	}()
+	if _, err := conn.Exec(ctx, readMK20ReleaseGateMigration(t)); err != nil {
+		t.Fatalf("applying MK20 release gate migration: %v", err)
+	}
+}
+
+func openMK20ReleaseITestConnection(t *testing.T, ctx context.Context, target mk20ReleaseITestTarget) *pgx.Conn {
+	t.Helper()
+	if os.Getenv(mk20ReleaseITestOptInEnv) != "1" {
+		t.Fatal("explicit MK20 release integration opt-in required before connecting")
+	}
+	if err := validateMK20ReleaseITestTarget(target); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(target.schema, "itest_") {
+		t.Fatal("connection requires the fixture-owned schema")
+	}
 	baseConfig, err := pgx.ParseConfig("postgresql://placeholder@127.0.0.1/placeholder?sslmode=disable")
 	if err != nil {
 		t.Fatalf("building isolated migration connection config: %v", err)
@@ -173,18 +198,14 @@ func applyMK20ReleaseGateMigration(t *testing.T, ctx context.Context, target mk2
 	baseConfig.User = target.username
 	baseConfig.Password = target.password
 	baseConfig.RuntimeParams["search_path"] = target.schema
+	baseConfig.RuntimeParams["application_name"] = "mk20-release-itest-plans"
+	baseConfig.RuntimeParams["statement_timeout"] = "10000"
+	baseConfig.RuntimeParams["lock_timeout"] = "2000"
 	conn, err := pgx.ConnectConfig(ctx, baseConfig)
 	if err != nil {
 		t.Fatalf("opening isolated migration connection: %v", err)
 	}
-	defer func() {
-		if err := conn.Close(context.Background()); err != nil {
-			t.Errorf("closing isolated migration connection: %v", err)
-		}
-	}()
-	if _, err := conn.Exec(ctx, readMK20ReleaseGateMigration(t)); err != nil {
-		t.Fatalf("applying MK20 release gate migration: %v", err)
-	}
+	return conn
 }
 
 func readMK20ReleaseITestTarget() (mk20ReleaseITestTarget, error) {
