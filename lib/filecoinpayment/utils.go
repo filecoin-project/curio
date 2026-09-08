@@ -206,7 +206,7 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchai
 			}
 
 			// Insert into filecoin_payment_transactions
-			n, err = tx.Exec(`INSERT INTO filecoin_payment_transactions (tx_hash, rail_ids, retry) VALUES ($1, $2)`, txHashHex, []int64{details.rail}, retry)
+			n, err = tx.Exec(`INSERT INTO filecoin_payment_transactions (tx_hash, rail_ids, retry) VALUES ($1, $2, $3)`, txHashHex, []int64{details.rail}, retry)
 			if err != nil {
 				return false, xerrors.Errorf("failed to insert into filecoin_payment_transactions: %w", err)
 			}
@@ -281,7 +281,7 @@ func activeRailSettlementDue(rail PaymentsRailView, current uint64) bool {
 	// Active rails are settled before the lockup period becomes the only
 	// remaining guarantee. This protects the SP from a client withdrawing funds
 	// after Filecoin Pay can no longer keep enough account lockup reserved.
-	settleInterval := big.NewInt(builtin.EpochsInDay * 7)
+	settleInterval := big.NewInt(builtin.EpochsInDay * 3)
 
 	// Keep one day of lockup as a safety buffer. Once settlement is this close to
 	// the lockup horizon, every pass should try to settle so the SP does not rely

@@ -113,11 +113,13 @@ Because the full settlement of payments is an important precondition for the ful
 
 ## Settle Task 
 
-The settle task is scheduled twice a day through the IAmBored entrypoint.  Upon waking up the settle task queries the `eth_keys` table for the first keys it finds with role == `pdp`.  The task then queries the provider registry to learn the payee address.  `Settle` task then delegates to the `filecoinpayment` library method `SettleLockupPeriod` to attempt to settle all rails in need of settlement that are paying out to the payee address using the FWSS contract as the rail's operator contract.
+The settle task is scheduled hourly through the IAmBored entrypoint using `SingletonTaskAdder`. The settlement watcher can request an earlier pass after a partial settlement is confirmed. Upon waking up the settle task queries the `eth_keys` table for the first keys it finds with role == `pdp`. The task then queries the provider registry to learn the payee address. `Settle` task then delegates to the `filecoinpayment` library method `SettleLockupPeriod` to attempt to settle all rails in need of settlement that are paying out to the payee address using the FWSS contract as the rail's operator contract.
 
-`SettleLockupPeriod` uses eth call methods on the filecoin-pay contract to lookup all rails operator and payee.  The method's purpose is to periodically settle payment rails paying out to the payee address.  To achieve this gas and local-resource efficiently the method schedules settlement as lazily as safely possible.  It settles rails that have any possibility of client default between this run of the task and the next expected run in 12 hours.  To determine this condition each rail's `settledUpTo` and `lockupPeriod` value is inspected.  When a rail has not been settled for over one `lockupPeriod` the client can be in default.  `SettleLockupPeriod` settles all rails that are within one day of meeting this condition.  Additionally all termianted rails in the process of finishing out their last `lockupPeriod` of life are marked for settlement.  For more about the details of termination and lockup periods and how this exactly determines default risk see the filecoin-pay [documentation](https://github.com/FilOzone/filecoin-pay/blob/main/README.md#per-rail-lockup-the-guarantee-mechanism).
+`SettleLockupPeriod` queries Filecoin Pay for rails paying the provider and selects those managed by a configured operator. An active rail becomes eligible when the chain head is strictly later than `settledUpTo + min(3 days, lockupPeriod - 1 day)`. This normally means more than three days of unsettled epochs, with earlier settlement for shorter lockup periods to preserve a one-day safety buffer. Rails with a lockup period of one day or less are considered on every pass. The interval is measured from `settledUpTo`, the last epoch accounted for by Pay, rather than from the time the last transaction was sent.
 
-Using `multicall.Multicall3Call` the task settles rails in batches of 10 and atomically adds the tx hashes to `message_waits_eth` and the settlement tracking table `filecoin_payment_transactions`.
+Terminated rails are considered on every pass until Filecoin Pay finalizes them. The operator's resolver determines how far a selected rail can settle; it can defer a rail even when the interval has elapsed. For more about termination and lockup periods, see the filecoin-pay [documentation](https://github.com/FilOzone/filecoin-pay/blob/main/README.md#per-rail-lockup-the-guarantee-mechanism).
+
+The task sends a separate `settleRail` transaction for each selected rail and atomically records its hash in `message_waits_eth` and `filecoin_payment_transactions`. If gas estimation requires a smaller settlement range than the resolver's target, the tracking row has `retry = TRUE` so the watcher can request another pass after confirmation.
 
 ## Settle Watcher
 
@@ -130,7 +132,7 @@ If the settle transaction fails on chain then watcher logs an error. Each rail i
 
 For a more complete description of the fwss service termination pipeline see [the section above](#fwss-termination)
 
-After processing a settlement verification without error the watcher removes the associated entry from the `filecoin_payment_transactions` table for single time processing.  In the case of unrecoverable errors the watcher will not remove the transaction from the next processing queue and log an error for very aggressive log signalling that something is wrong.
+After processing a settlement verification without error, the watcher removes the associated entry from `filecoin_payment_transactions`. If the entry has `retry = TRUE`, it also sets `run_now_request` for the `Settle` singleton in the same database transaction. This requests another pass without waiting for the hourly interval. That pass reads current rail state and applies the usual eligibility and resolver checks, so it does not guarantee an immediate transaction for every partially settled rail. If verification returns an error, the tracking entry remains for retry, including when scheduling dataset deletion fails.
 
 # PDP Harmony Tasks
 
@@ -141,7 +143,7 @@ All PDP-related functionality is implemented as harmony tasks and chain-handler 
 Harmony tasks are created through three trigger mechanisms:
 
 - **Chain handlers** — Registered via `chainsched.AddHandler`, these callbacks fire on every chain head change. They inspect on-chain state (e.g. transaction receipts, epoch thresholds) and call `AddTask` to insert work into the harmony_task queue when conditions are met. The proving-cycle tasks (InitPP, ProvPeriod, Prove) use this mechanism so they respond immediately to new tipsets.
-- **IAmBored** — An optional callback in `TaskTypeDetails` that the task engine invokes when a machine has spare capacity and no queued work exists for that task type. A `passcall.Every(duration, ...)` wrapper rate-limits invocations. Tasks like TerminateFWSS (1 min), DeleteDataSet (1 hour), and Settle (12 hours) use IAmBored because they generate work opportunistically rather than in response to chain events.
+- **IAmBored** — An optional callback in `TaskTypeDetails` that the task engine invokes when a machine has spare capacity and no queued work exists for that task type. A `passcall.Every(duration, ...)` wrapper rate-limits invocations. Tasks like TerminateFWSS (1 min) and DeleteDataSet (1 hour) use this mechanism. Settle uses `SingletonTaskAdder` with a one-hour interval and supports earlier runs requested by its watcher.
 - **Polling** — Some tasks use a dedicated poller goroutine that periodically queries the database for pending work and calls `AddTask`. PullPiece uses this pattern because its trigger is a database-backed pull request rather than a chain event.
 
 All three mechanisms funnel through `harmonytask.AddTask()`, which atomically inserts a task record. The main poller loop (every 3s) then discovers unowned tasks and assigns them to machines with available resources.
@@ -159,7 +161,7 @@ All three mechanisms funnel through `harmonytask.AddTask()`, which atomically in
 | `PDPv0_IPNI` | `PDPIPNITask` | `tasks/indexing/task_pdp_v0_ipni.go` | IAmBored (30s) |
 | `PDPv0_TermFWSS` | `TerminateFWSSTask` | `tasks/pdpv0/task_terminate_fwss.go` | IAmBored (1 min) |
 | `PDPv0_DelDataSet` | `DeleteDataSetTask` | `tasks/pdpv0/task_delete_data_set.go` | IAmBored (1 hour) |
-| `Settle` | `SettleTask` | `tasks/pay/settle_task.go` | IAmBored (12 hours) |
+| `Settle` | `SettleTask` | `tasks/pay/settle_task.go` | IAmBored (1 hour, or earlier on a watcher request) |
 
 ## Chain-Handler Watchers
 

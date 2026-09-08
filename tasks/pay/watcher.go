@@ -7,7 +7,6 @@ import (
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/filecoin-project/curio/tasks/tasknames"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-state-types/builtin"
@@ -19,6 +18,7 @@ import (
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/pdp/contract/FWSS"
 	"github.com/filecoin-project/curio/tasks/pdpv0"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 
 	chainTypes "github.com/filecoin-project/lotus/chain/types"
 )
