@@ -51,6 +51,21 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchai
 		return xerrors.Errorf("failed to get USDFC address: %w", err)
 	}
 
+	// Tracking rows remain until the watcher finishes processing the settlement.
+	var pendingTransactions []struct {
+		Rails []int64 `db:"rail_ids"`
+	}
+	err = db.Select(ctx, &pendingTransactions, `SELECT rail_ids FROM filecoin_payment_transactions`)
+	if err != nil {
+		return xerrors.Errorf("failed to get pending settlement rails: %w", err)
+	}
+	pendingRails := make(map[int64]struct{})
+	for _, pending := range pendingTransactions {
+		for _, railID := range pending.Rails {
+			pendingRails[railID] = struct{}{}
+		}
+	}
+
 	var railIds []*big.Int
 
 	current, err := ethClient.BlockNumber(ctx)
@@ -81,6 +96,10 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchai
 	var toSettle []toSettleRail
 	currentEpoch := new(big.Int).SetUint64(current)
 	for _, rail := range railIds {
+		if _, pending := pendingRails[rail.Int64()]; pending {
+			continue
+		}
+
 		railID := new(big.Int).Set(rail)
 		view, err := payment.GetRail(&bind.CallOpts{Context: ctx}, rail)
 		if err != nil {
