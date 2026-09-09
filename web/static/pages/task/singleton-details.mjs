@@ -73,6 +73,10 @@ class SingletonTaskDetails extends LitElement {
                 background: #ffc107;
                 color: black;
             }
+            .status-disabled {
+                background: #6c757d;
+                color: white;
+            }
             .detail {
                 color: #adb5bd;
                 margin: 4px 0;
@@ -82,6 +86,7 @@ class SingletonTaskDetails extends LitElement {
             }
             .run-btn {
                 margin-top: 8px;
+                margin-right: 8px;
             }
         `;
     }
@@ -95,15 +100,16 @@ class SingletonTaskDetails extends LitElement {
         }
 
         const isRunning = this.info.TaskID && this.info.TaskID !== 0;
-        const statusText = isRunning ? 'Running' : 'Idle';
-        const statusClass = isRunning ? 'status-running' : 'status-idle';
+        const isDisabled = this.info.Disabled;
+        const statusText = isDisabled ? 'Disabled' : (isRunning ? 'Running' : 'Idle');
+        const statusClass = isDisabled ? 'status-disabled' : (isRunning ? 'status-running' : 'status-idle');
 
         const lastRun = this.info.LastRunTime
             ? new Date(this.info.LastRunTime).toLocaleString()
             : 'Never';
 
         const runNowPending = this.info.RunNowRequest;
-        const btnDisabled = runNowPending || isRunning;
+        const runBtnDisabled = runNowPending || isRunning || isDisabled;
 
         return html`
             <link rel="stylesheet" href="/ux/vendor/bootstrap.min.css">
@@ -114,9 +120,10 @@ class SingletonTaskDetails extends LitElement {
                     ${isRunning ? html`<span class="detail">Task ID: <a href="/pages/task/id/?id=${this.info.TaskID}">${this.info.TaskID}</a></span>` : ''}
                     ${runNowPending ? html`<span class="status-badge status-pending">Run Requested</span>` : ''}
                 </div>
+                ${isDisabled && this.info.DisabledReason ? html`<div class="detail"><strong>Disabled reason:</strong> ${this.info.DisabledReason}</div>` : ''}
                 <div class="detail"><strong>Last Run:</strong> ${lastRun}</div>
                 <button class="btn btn-primary btn-sm run-btn"
-                    ?disabled=${btnDisabled}
+                    ?disabled=${runBtnDisabled}
                     @click=${() => this.runNow()}>
                     ${runNowPending ? 'Run Requested...' : 'Run Now'}
                 </button>

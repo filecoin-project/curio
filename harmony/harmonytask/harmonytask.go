@@ -110,6 +110,9 @@ type TaskTypeDetails struct {
 	// This does not cause triggering, instead it reduces pipeline latency.
 	// Longest paths' end are ran earliest when the oldest task is in that pipeline.
 	MayFollow []string
+
+	// CanDisable marks the task as safe to turn off at runtime.
+	CanDisable bool
 }
 
 // TaskInterface must be implemented in order to have a task used by harmonytask.

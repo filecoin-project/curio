@@ -49,6 +49,10 @@ func (t *DatasetIdxTask) Do(ctx context.Context, taskID harmonytask.TaskID, stil
 		return false, xerrors.Errorf("selecting data sets with null ipfs_indexing: %w", err)
 	}
 	if len(rows) == 0 {
+		if err := harmonytask.DisableSingleton(ctx, t.db, tasknames.PDPv0_DatasetIdx, "no data sets left with null ipfs_indexing"); err != nil {
+			return false, xerrors.Errorf("disabling completed repair task: %w", err)
+		}
+		log.Infow("no data sets left with null ipfs_indexing; disabling PDPv0_DatasetIdx")
 		return true, nil
 	}
 
@@ -97,6 +101,7 @@ func (t *DatasetIdxTask) TypeDetails() harmonytask.TaskTypeDetails {
 		},
 		MaxFailures: 3,
 		IAmBored:    harmonytask.SingletonTaskAdder(datasetIdxInterval, t),
+		CanDisable:  true,
 	}
 }
 

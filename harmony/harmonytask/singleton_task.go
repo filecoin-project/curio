@@ -1,6 +1,7 @@
 package harmonytask
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"sync/atomic"
@@ -52,6 +53,15 @@ func SingletonTaskAdder(minInterval time.Duration, task TaskInterface) func(AddT
 		lastCall = time.Now()
 
 		add(func(taskID TaskID, tx *harmonydb.Tx) (shouldCommit bool, err error) {
+			var disabled bool
+			err = tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM harmony_task_singleton_disabled WHERE task_name = $1)`, taskName).Scan(&disabled)
+			if err != nil {
+				return false, err
+			}
+			if disabled {
+				return false, nil
+			}
+
 			var existingTaskID *int64
 			var lastRunTime time.Time
 			var runNowRequest bool
@@ -120,4 +130,16 @@ func SingletonTaskAdder(minInterval time.Duration, task TaskInterface) func(AddT
 		})
 		return nil
 	}
+}
+
+// DisableSingleton marks name as disabled. Safe to call repeatedly.
+func DisableSingleton(ctx context.Context, db *harmonydb.DB, name, reason string) error {
+	var r *string
+	if reason != "" {
+		r = &reason
+	}
+	_, err := db.Exec(ctx, `
+		INSERT INTO harmony_task_singleton_disabled (task_name, reason) VALUES ($1, $2)
+		ON CONFLICT (task_name) DO NOTHING`, name, r)
+	return err
 }
