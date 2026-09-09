@@ -44,6 +44,12 @@ import (
 	"github.com/filecoin-project/lotus/chain/types"
 )
 
+func (s *SubmitTask) GetSpids(ctx context.Context, db *harmonydb.DB, taskIDs []int64) ([]harmonytask.TaskSPID, error) {
+	var spids []harmonytask.TaskSPID
+	err := db.Select(ctx, &spids, `SELECT task_id_submit AS task_id, sp_id FROM sectors_snap_pipeline WHERE task_id_submit = ANY($1::BIGINT[])`, taskIDs)
+	return spids, err
+}
+
 var log = logging.Logger("update")
 
 var ImmutableSubmitGate = abi.ChainEpoch(2) // don't submit more than 2 minutes before the deadline becomes immutable

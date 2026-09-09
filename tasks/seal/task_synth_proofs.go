@@ -23,6 +23,12 @@ import (
 	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
+func (s *SyntheticProofTask) GetSpids(ctx context.Context, db *harmonydb.DB, taskIDs []int64) ([]harmonytask.TaskSPID, error) {
+	var spids []harmonytask.TaskSPID
+	err := db.Select(ctx, &spids, `SELECT task_id_synth AS task_id, sp_id FROM sectors_sdr_pipeline WHERE task_id_synth = ANY($1::BIGINT[])`, taskIDs)
+	return spids, err
+}
+
 type SyntheticProofTask struct {
 	sp  *SealPoller
 	db  *harmonydb.DB

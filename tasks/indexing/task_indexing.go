@@ -35,6 +35,14 @@ import (
 	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
+func (i *IndexingTask) GetSpids(ctx context.Context, db *harmonydb.DB, taskIDs []int64) ([]harmonytask.TaskSPID, error) {
+	var spids []harmonytask.TaskSPID
+	err := db.Select(ctx, &spids, `SELECT indexing_task_id AS task_id, sp_id FROM market_mk12_deal_pipeline WHERE indexing_task_id = ANY($1::BIGINT[])
+		UNION ALL
+		SELECT indexing_task_id AS task_id, sp_id FROM market_mk20_pipeline WHERE indexing_task_id = ANY($1::BIGINT[])`, taskIDs)
+	return spids, err
+}
+
 type IndexingTask struct {
 	db                *harmonydb.DB
 	indexStore        *indexstore.IndexStore

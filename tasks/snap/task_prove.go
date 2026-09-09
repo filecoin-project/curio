@@ -24,6 +24,12 @@ import (
 	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
+func (p *ProveTask) GetSpids(ctx context.Context, db *harmonydb.DB, taskIDs []int64) ([]harmonytask.TaskSPID, error) {
+	var spids []harmonytask.TaskSPID
+	err := db.Select(ctx, &spids, `SELECT task_id_prove AS task_id, sp_id FROM sectors_snap_pipeline WHERE task_id_prove = ANY($1::BIGINT[])`, taskIDs)
+	return spids, err
+}
+
 type ProveTask struct {
 	max                int
 	enableRemoteProofs bool

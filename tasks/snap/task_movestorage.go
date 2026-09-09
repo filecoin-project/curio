@@ -25,6 +25,12 @@ import (
 	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
+func (m *MoveStorageTask) GetSpids(ctx context.Context, db *harmonydb.DB, taskIDs []int64) ([]harmonytask.TaskSPID, error) {
+	var spids []harmonytask.TaskSPID
+	err := db.Select(ctx, &spids, `SELECT task_id_move_storage AS task_id, sp_id FROM sectors_snap_pipeline WHERE task_id_move_storage = ANY($1::BIGINT[])`, taskIDs)
+	return spids, err
+}
+
 type MoveStorageTask struct {
 	max int
 

@@ -35,6 +35,12 @@ import (
 	"github.com/filecoin-project/lotus/storage/ctladdr"
 )
 
+func (s *SubmitPrecommitTask) GetSpids(ctx context.Context, db *harmonydb.DB, taskIDs []int64) ([]harmonytask.TaskSPID, error) {
+	var spids []harmonytask.TaskSPID
+	err := db.Select(ctx, &spids, `SELECT task_id_precommit_msg AS task_id, sp_id FROM sectors_sdr_pipeline WHERE task_id_precommit_msg = ANY($1::BIGINT[])`, taskIDs)
+	return spids, err
+}
+
 type SubmitPrecommitTaskApi interface {
 	ChainHead(context.Context) (*types.TipSet, error)
 	StateMinerPreCommitDepositForPower(context.Context, address.Address, miner.SectorPreCommitInfo, types.TipSetKey) (big.Int, error)

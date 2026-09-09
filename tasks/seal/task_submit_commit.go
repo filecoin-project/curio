@@ -41,6 +41,12 @@ import (
 	"github.com/filecoin-project/lotus/storage/ctladdr"
 )
 
+func (s *SubmitCommitTask) GetSpids(ctx context.Context, db *harmonydb.DB, taskIDs []int64) ([]harmonytask.TaskSPID, error) {
+	var spids []harmonytask.TaskSPID
+	err := db.Select(ctx, &spids, `SELECT task_id_commit_msg AS task_id, sp_id FROM sectors_sdr_pipeline WHERE task_id_commit_msg = ANY($1::BIGINT[])`, taskIDs)
+	return spids, err
+}
+
 type SubmitCommitAPI interface {
 	ChainHead(context.Context) (*types.TipSet, error)
 	StateMinerInfo(context.Context, address.Address, types.TipSetKey) (api.MinerInfo, error)

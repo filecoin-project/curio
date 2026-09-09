@@ -26,6 +26,12 @@ import (
 	"github.com/filecoin-project/lotus/chain/types"
 )
 
+func (p *PoRepTask) GetSpids(ctx context.Context, db *harmonydb.DB, taskIDs []int64) ([]harmonytask.TaskSPID, error) {
+	var spids []harmonytask.TaskSPID
+	err := db.Select(ctx, &spids, `SELECT task_id_porep AS task_id, sp_id FROM sectors_sdr_pipeline WHERE task_id_porep = ANY($1::BIGINT[])`, taskIDs)
+	return spids, err
+}
+
 type PoRepAPI interface {
 	ChainHead(context.Context) (*types.TipSet, error)
 	StateGetRandomnessFromBeacon(context.Context, crypto.DomainSeparationTag, abi.ChainEpoch, []byte, types.TipSetKey) (abi.Randomness, error)
