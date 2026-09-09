@@ -1,8 +1,11 @@
 # Indexing Offset Readiness: Operator SQL Verification
 
 This follow-up adds executable SQL assertions to the existing NULL-offset
-readiness fix. PostgreSQL and YugabyteDB execution remains **NOT RUN** until
-an operator runs these tests in a separately authorized disposable database.
+readiness fix. PostgreSQL 16.15 execution passed at follow-up `6dace4e4`
+and current-upstream extraction `ac6bf2dc`, including all six MK12/MK20
+baseline subtests and the candidate-side negative controls described below.
+YugabyteDB execution remains **NOT RUN**. Future execution requires a
+separately authorized disposable database.
 No production target, API, task engine, payload processing, or recovery is used.
 
 ## Statements and Coverage
@@ -135,8 +138,12 @@ at the same commit. Do not edit the review branch or any deployed checkout.
 5. Repeat steps 1–4 for `indexingMK20AssignSQL` and the `MK20` subtest only.
 
 Do not commit/push either mutation or disable the safety guard. This negative
-control has been prepared, **not executed** here. It is different evidence
-from the earlier database-free SQL-shape mutation.
+control was executed on disposable PostgreSQL 16.15 for both MK12 and MK20:
+each candidate-side mutation produced the expected one-versus-zero affected-row
+assertion failure, and the restored baseline passed. Neither mutation was
+committed. This is SQL row-effect evidence, distinct from the earlier
+database-free SQL-shape mutation; it is not Yugabyte execution or proof of an
+impossible interleaving within the single atomic assignment statement.
 
 The previously reported ownerless Indexing canary task was resolved by
 uncordoning workers; it did not reproduce this NULL-offset bug. Existing
