@@ -226,7 +226,7 @@ func TestHandlePull_NoPieces(t *testing.T) {
 	handler.HandlePull(rec, req)
 
 	require.Equal(t, http.StatusBadRequest, rec.Code)
-	require.Contains(t, rec.Body.String(), "at least one piece")
+	require.Contains(t, rec.Body.String(), "at least one source URL is required")
 }
 
 func TestHandlePull_InvalidSourceURL(t *testing.T) {
@@ -317,6 +317,64 @@ func TestHandlePull_NewRequest_Success(t *testing.T) {
 	}
 	require.True(t, cidSet[testCid1])
 	require.True(t, cidSet[testCid2])
+}
+
+func TestHandlePull_AssemblesMultipleSources(t *testing.T) {
+	store := &mockPullStore{}
+	validator := &mockValidator{shouldPass: true}
+	handler := NewPullHandler(&NullAuth{}, store, validator, nil)
+
+	body := PullRequest{
+		ExtraData: testExtraData(t),
+		DataSetId: &testDataSetId,
+		Pieces: []PullPieceRequest{
+			{PieceCid: testCid1, SourceURL: "https://legacy.example/piece/" + testCid1},
+		},
+		URLs:     []string{"https://backup.example/piece/" + testCid1},
+		Provider: &PullProvider{Host: "sp.example.com", CIDs: []string{testCid2}},
+	}
+	bodyBytes := must.One(json.Marshal(body))
+	req := httptest.NewRequest(http.MethodPost, "/pdp/piece/pull", bytes.NewReader(bodyBytes))
+	rec := httptest.NewRecorder()
+
+	handler.HandlePull(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.True(t, store.createPullCalled)
+	require.Len(t, store.createdPieces, 3)
+
+	got := make([]string, len(store.createdPieces))
+	for i, piece := range store.createdPieces {
+		got[i] = piece.SourceURL
+	}
+	require.Equal(t, []string{
+		"https://legacy.example/piece/" + testCid1,
+		"https://backup.example/piece/" + testCid1,
+		"https://sp.example.com/piece/" + testCid2,
+	}, got)
+}
+
+func TestHandlePull_ProviderOnly(t *testing.T) {
+	store := &mockPullStore{}
+	validator := &mockValidator{shouldPass: true}
+	handler := NewPullHandler(&NullAuth{}, store, validator, nil)
+
+	body := PullRequest{
+		ExtraData: testExtraData(t),
+		DataSetId: &testDataSetId,
+		Provider:  &PullProvider{Host: "sp.example.com", CIDs: []string{testCid1, testCid2}},
+	}
+	bodyBytes := must.One(json.Marshal(body))
+	req := httptest.NewRequest(http.MethodPost, "/pdp/piece/pull", bytes.NewReader(bodyBytes))
+	rec := httptest.NewRecorder()
+
+	handler.HandlePull(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.True(t, store.createPullCalled)
+	require.Len(t, store.createdPieces, 2)
+	require.Equal(t, "https://sp.example.com/piece/"+testCid1, store.createdPieces[0].SourceURL)
+	require.Equal(t, "https://sp.example.com/piece/"+testCid2, store.createdPieces[1].SourceURL)
 }
 
 func TestHandlePull_ExistingDataSetUsesFWSSPayer(t *testing.T) {
