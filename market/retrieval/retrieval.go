@@ -26,6 +26,7 @@ import (
 	"github.com/filecoin-project/curio/lib/cachedreader"
 	"github.com/filecoin-project/curio/market/denylist"
 	"github.com/filecoin-project/curio/market/indexstore"
+	"github.com/filecoin-project/curio/market/retrieval/gate"
 	"github.com/filecoin-project/curio/market/retrieval/remoteblockstore"
 
 	"github.com/filecoin-project/lotus/blockstore"
@@ -236,29 +237,38 @@ func metricsMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-func Router(mux *chi.Mux, rp *Provider, df *denylist.Filter) {
+func Router(mux *chi.Mux, rp *Provider, df *denylist.Filter, pieceGate, ipfsGate *gate.Middleware) {
 	// Group retrieval routes with metrics middleware
 	mux.Group(func(r chi.Router) {
 		r.Use(metricsMiddleware)
 
-		// Piece endpoint with denylist and limiter
+		// Piece endpoint with denylist, limiter, and (opt-in) retrieval permissioning
 		r.Group(func(r chi.Router) {
 			r.Use(denylist.Middleware(df))
 			r.Use(limiterMiddleware(pieceRequestLimiter))
+			if pieceGate != nil {
+				r.Use(pieceGate.Handler)
+			}
 			r.Get(piecePrefix+"{cid}", rp.handleByPieceCid)
 			r.Head(piecePrefix+"{cid}", rp.handleByPieceCid)
 		})
 
-		// IPFS endpoints with denylist and limiter
+		// IPFS endpoints with denylist, limiter, and (opt-in) retrieval permissioning
 		r.Group(func(r chi.Router) {
 			r.Use(denylist.Middleware(df))
 			r.Use(limiterMiddleware(ipfsHeadRequestLimiter))
+			if ipfsGate != nil {
+				r.Use(ipfsGate.Handler)
+			}
 			r.Head(ipfsPrefix+"*", rp.fr.ServeHTTP)
 		})
 
 		r.Group(func(r chi.Router) {
 			r.Use(denylist.Middleware(df))
 			r.Use(limiterMiddleware(ipfsRequestLimiter))
+			if ipfsGate != nil {
+				r.Use(ipfsGate.Handler)
+			}
 			r.Get(ipfsPrefix+"*", rp.fr.ServeHTTP)
 		})
 

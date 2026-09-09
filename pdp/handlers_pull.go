@@ -119,30 +119,7 @@ func (v *EthCallValidator) ValidateAddPieces(ctx context.Context, params *AddPie
 }
 
 func (v *EthCallValidator) GetDataSetPayer(ctx context.Context, dataSetId uint64) (common.Address, error) {
-	if dataSetId == 0 {
-		return common.Address{}, fmt.Errorf("dataSetId must be greater than 0")
-	}
-
-	serviceAddr := contract.ContractAddresses().AllowedPublicRecordKeepers.FWSService
-	viewAddr, err := contract.ResolveViewAddress(ctx, serviceAddr, v.ethClient)
-	if err != nil {
-		return common.Address{}, fmt.Errorf("resolve FWSS view address: %w", err)
-	}
-
-	fwssView, err := FWSS.NewFilecoinWarmStorageServiceStateView(viewAddr, v.ethClient)
-	if err != nil {
-		return common.Address{}, fmt.Errorf("bind FWSS state view: %w", err)
-	}
-
-	dataSet, err := fwssView.GetDataSet(contract.EthCallOpts(ctx), new(big.Int).SetUint64(dataSetId))
-	if err != nil {
-		return common.Address{}, fmt.Errorf("get FWSS data set %d: %w", dataSetId, err)
-	}
-	if dataSet.Payer == (common.Address{}) {
-		return common.Address{}, fmt.Errorf("data set %d payer is zero address", dataSetId)
-	}
-
-	return dataSet.Payer, nil
+	return FWSS.DataSetPayer(ctx, v.ethClient, dataSetId)
 }
 
 // PullHandler handles piece pull requests

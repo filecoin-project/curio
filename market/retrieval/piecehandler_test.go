@@ -90,7 +90,13 @@ func TestSetHeadersWritesQuotedETag(t *testing.T) {
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
-	setHeaders(w, pieceCid, "video/mp4")
+	setHeaders(w, pieceCid, "video/mp4", false)
 
 	require.Equal(t, `"`+pieceCid.String()+`"`, w.Header().Get("ETag"))
+	require.Equal(t, "public, max-age=29030400, immutable", w.Header().Get("Cache-Control"))
+
+	// Gated responses must not be shared-cacheable.
+	wg := httptest.NewRecorder()
+	setHeaders(wg, pieceCid, "video/mp4", true)
+	require.Equal(t, "private, no-store", wg.Header().Get("Cache-Control"))
 }
