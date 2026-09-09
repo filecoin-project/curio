@@ -23,7 +23,6 @@ type world struct {
 	spaces []spaceWorld
 	used   []int64
 	frozen []bool
-	bytes  int64
 	diff   []Transfer
 }
 
@@ -88,6 +87,33 @@ func (w *world) free(d int) int64 {
 	return w.disks[d] - w.used[d]
 }
 
+func fillLimitOf(cap int64) int64 {
+	if cap <= 0 {
+		return 0
+	}
+	return cap * FILL_LIMIT_PERCENT / 100
+}
+
+func (w *world) fillLimit(d int) int64 {
+	return fillLimitOf(w.disks[d])
+}
+
+func (w *world) fillHeadroom(d int) int64 {
+	n := w.fillLimit(d) - w.used[d]
+	if n < 0 {
+		return 0
+	}
+	return n
+}
+
+func (w *world) overflow(d int) int64 {
+	n := w.used[d] - w.fillLimit(d)
+	if n < 0 {
+		return 0
+	}
+	return n
+}
+
 func (w *world) totalUsed() int64 {
 	var s int64
 	for _, sp := range w.spaces {
@@ -106,14 +132,6 @@ func (w *world) totalCapacity() int64 {
 		}
 	}
 	return s
-}
-
-func (w *world) fairShare(d int) int64 {
-	cap := w.totalCapacity()
-	if cap == 0 {
-		return 0
-	}
-	return w.totalUsed() * w.disks[d] / cap
 }
 
 func (w *world) rangeCount(space, d int) int {
@@ -218,7 +236,6 @@ func (w *world) applyCut(space, idx, kind, dest int, size int64) {
 		w.used[from] -= moved
 		w.insert(space, idx+1, Range{EndHash: end, Size: moved}, dest)
 	}
-	w.bytes += moved
 	w.mergeSpace(space)
 }
 
@@ -269,7 +286,6 @@ func (w *world) moveWhole(space, idx, dest int) {
 	sp.owner[idx] = dest
 	w.used[from] -= sz
 	w.used[dest] += sz
-	w.bytes += sz
 	w.mergeSpace(space)
 }
 
