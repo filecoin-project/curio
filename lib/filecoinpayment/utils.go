@@ -343,8 +343,9 @@ func calculateSettleUpTo(ctx context.Context, pabi *abi.ABI, paymentContractAddr
 		if err != nil {
 			if isGasEstimateOutOfGas(err) {
 				delta := big.NewInt(0).Sub(next, settledUpTo)
-				halfDelta := big.NewInt(0).Div(delta, big.NewInt(2))
-				next = big.NewInt(0).Add(settledUpTo, halfDelta)
+				reducedDelta := new(big.Int).Mul(delta, big.NewInt(3))
+				reducedDelta.Div(reducedDelta, big.NewInt(4))
+				next = big.NewInt(0).Add(settledUpTo, reducedDelta)
 				if next.Cmp(settledUpTo) <= 0 {
 					return 0, xerrors.Errorf("failed to estimate gas: %w", err)
 				}
