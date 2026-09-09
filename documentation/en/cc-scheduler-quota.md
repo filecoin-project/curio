@@ -25,7 +25,41 @@ scheduling guarantee.
 Database-free tests execute the production planner and debit-result path,
 including capped redistribution, zero/exhausted quota, stable rounding,
 invalid input, overflow-safe share arithmetic, and error propagation. The
-production SQL/call-site assertion is static evidence only. Concurrent
-provider debits and rollback row effects still require execution against an
-explicitly authorized isolated database; unit and race tests are not that
-evidence.
+production SQL/call-site assertion is static evidence only.
+
+## Opt-in SQL regressions
+
+`TestCCQuotaSQLClaimsAndRollback` calls the production
+`claimsFromCCScheduler`, using a metadata-only chain API double. It checks
+quota-capped allocation and rollback of an earlier provider's debit, sector
+number allocations, pipeline rows and the test task when a later provider
+becomes disabled after discovery. That same-transaction invalidation is a
+guard test, not a cross-connection race.
+
+`TestCCQuotaSQLConditionalDebit` executes the production conditional SQL and
+checks insufficient, disabled and missing providers without changing other
+providers. `TestCCQuotaSQLConcurrentDebit` holds a successful quota debit and
+requires linked PostgreSQL blocking before releasing it; the contender must
+then reject the exhausted quota rather than commit a negative count. Every
+participant is released/cancelled and joined before fixture cleanup. This
+observer targets PostgreSQL Read Committed; Yugabyte skips that observer,
+not an assertion of Yugabyte correctness.
+
+Use `cgo,fvm,nosupraseal,integration` with explicit
+`CURIO_CC_QUOTA_ITEST=1` and all dedicated `_HOST`, `_PORT`, `_DATABASE`,
+`_USER` variables (optional `_PASSWORD`). The host must be a literal loopback
+IP. Normal database settings are not target fallbacks; remove inherited
+database variables before setting the dedicated target. Connection load
+balancing is disabled. Each test owns a random `itest_` schema, uses bounded
+contexts, and applies only the actual migration definitions needed for its
+tables. It does not execute native sealing, payload reads or live chain APIs.
+
+```sh
+go test -tags=cgo,fvm,nosupraseal,integration -count=1 -timeout=3m \
+  -run '^TestCCQuotaSQL' -v ./tasks/sealsupra
+```
+
+Local PostgreSQL 16.15 execution passed these groups, including linked
+contention and the complete rollback assertions. Current Yugabyte execution
+is not available evidence. Neither these SQL tests nor the native-free tests
+prove GPU execution, chain acceptance or cluster-wide proportional fairness.
