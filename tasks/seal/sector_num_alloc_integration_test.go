@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -178,4 +179,134 @@ func requireSectorAllocationITestEnv(t *testing.T, name string) string {
 		t.Fatalf("%s must be set explicitly when %s=1", name, sectorAllocationITestOptIn)
 	}
 	return value
+}
+
+// The held transaction deliberately establishes the ordering. Unlike a
+// simultaneous start, linked PostgreSQL blocking proves the real allocator
+// reached the provider write-conflict point before the holder committed.
+func TestSectorStateDBLockBlocksAllocatorUntilCommit(t *testing.T) {
+	dbs := newSectorAllocationIntegrationDBs(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	var version string
+	if err := dbs[0].QueryRow(ctx, `SELECT version()`).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(strings.ToLower(version), "yugabyte") {
+		t.Skip("linked PostgreSQL lock observation is not a Yugabyte observer")
+	}
+	maddr, err := address.NewIDAddress(1100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	type outcome struct {
+		committed bool
+		sectors   []abi.SectorNumber
+		err       error
+	}
+	held := make(chan int, 1)
+	entered := make(chan int, 1)
+	release := make(chan struct{})
+	results := make(chan outcome, 2)
+	var releaseOnce sync.Once
+	var participants sync.WaitGroup
+	unblock := func() { releaseOnce.Do(func() { close(release) }) }
+	defer func() {
+		unblock()
+		cancel()
+		participants.Wait()
+	}()
+	participants.Add(1)
+	go func() {
+		defer participants.Done()
+		var sectors []abi.SectorNumber
+		committed, err := dbs[0].BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+			var err error
+			sectors, err = AllocateSectorNumbers(ctx, emptySectorAllocationAPI{}, tx, maddr, 1)
+			if err != nil {
+				return false, err
+			}
+			var pid int
+			if err := tx.QueryRow(`SELECT pg_backend_pid()`).Scan(&pid); err != nil {
+				return false, err
+			}
+			held <- pid
+			select {
+			case <-release:
+				return true, nil
+			case <-ctx.Done():
+				return false, ctx.Err()
+			}
+		})
+		results <- outcome{committed, sectors, err}
+	}()
+	var holderPID int
+	select {
+	case holderPID = <-held:
+	case result := <-results:
+		t.Fatalf("holder exited before lock: %+v", result)
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	participants.Add(1)
+	go func() {
+		defer participants.Done()
+		var sectors []abi.SectorNumber
+		committed, err := dbs[1].BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+			var pid int
+			if err := tx.QueryRow(`SELECT pg_backend_pid()`).Scan(&pid); err != nil {
+				return false, err
+			}
+			entered <- pid
+			var err error
+			sectors, err = AllocateSectorNumbers(ctx, emptySectorAllocationAPI{}, tx, maddr, 1)
+			return err == nil, err
+		})
+		results <- outcome{committed, sectors, err}
+	}()
+	var waiterPID int
+	select {
+	case waiterPID = <-entered:
+	case result := <-results:
+		t.Fatalf("contender exited before allocator: %+v", result)
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	observation, stopObservation := context.WithTimeout(ctx, 3*time.Second)
+	defer stopObservation()
+	tick := time.NewTicker(10 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		var blocked bool
+		if err := dbs[0].QueryRow(observation, `SELECT $1::int = ANY(pg_blocking_pids($2::int))`, holderPID, waiterPID).Scan(&blocked); err != nil {
+			t.Fatalf("contention not established: %v", err)
+		}
+		if blocked {
+			t.Logf("observed allocator pid=%d blocked by provider-lock holder pid=%d before release", waiterPID, holderPID)
+			break
+		}
+		select {
+		case result := <-results:
+			t.Fatalf("contender completed while provider lock was held: %+v", result)
+		case <-observation.Done():
+			t.Fatal("contention not established before observation deadline")
+		case <-tick.C:
+		}
+	}
+	unblock()
+	seen := make(map[abi.SectorNumber]bool)
+	for range 2 {
+		select {
+		case result := <-results:
+			if result.err != nil || !result.committed || len(result.sectors) != 1 {
+				t.Fatalf("allocation outcome: %+v", result)
+			}
+			seen[result.sectors[0]] = true
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
+		}
+	}
+	if len(seen) != 2 {
+		t.Fatalf("distinct committed sectors=%v, want two", seen)
+	}
 }
