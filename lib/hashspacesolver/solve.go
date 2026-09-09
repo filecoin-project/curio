@@ -114,9 +114,6 @@ func (w *world) applyTransfer(t Transfer) error {
 	r := sp.ranges[idx]
 	start := StartHash(sp.ranges, idx)
 	if hashEq(t.StartHash, start) && hashEq(t.EndHash, r.EndHash) {
-		if t.Size != r.Size && t.Size > 0 {
-			// whole-range move; size should match but tolerate after merges
-		}
 		w.moveWholeSilent(t.Space, idx, t.To)
 		return nil
 	}
@@ -211,37 +208,54 @@ func mergeTransfers(in []Transfer) []Transfer {
 		if t.Size <= 0 || t.From == t.To {
 			continue
 		}
-		merged := false
-		for i := range out {
-			o := &out[i]
-			if o.Space != t.Space || o.From != t.From || o.To != t.To {
-				continue
-			}
-			if hashEq(o.EndHash, t.StartHash) {
-				o.EndHash = cloneHash(t.EndHash)
-				o.Size += t.Size
-				merged = true
+		out = append(out, Transfer{
+			Space:     t.Space,
+			StartHash: cloneHash(t.StartHash),
+			EndHash:   cloneHash(t.EndHash),
+			From:      t.From,
+			To:        t.To,
+			Size:      t.Size,
+		})
+	}
+	for {
+		progress := false
+		for i := 0; i < len(out); i++ {
+			for j := i + 1; j < len(out); j++ {
+				joined, ok := joinAdjacent(out[i], out[j])
+				if !ok {
+					continue
+				}
+				out[i] = joined
+				out = append(out[:j], out[j+1:]...)
+				progress = true
 				break
 			}
-			if hashEq(t.EndHash, o.StartHash) {
-				o.StartHash = cloneHash(t.StartHash)
-				o.Size += t.Size
-				merged = true
+			if progress {
 				break
 			}
 		}
-		if !merged {
-			out = append(out, Transfer{
-				Space:     t.Space,
-				StartHash: cloneHash(t.StartHash),
-				EndHash:   cloneHash(t.EndHash),
-				From:      t.From,
-				To:        t.To,
-				Size:      t.Size,
-			})
+		if !progress {
+			break
 		}
 	}
 	return out
+}
+
+func joinAdjacent(a, b Transfer) (Transfer, bool) {
+	if a.Space != b.Space || a.From != b.From || a.To != b.To {
+		return Transfer{}, false
+	}
+	if hashEq(a.EndHash, b.StartHash) {
+		a.EndHash = cloneHash(b.EndHash)
+		a.Size += b.Size
+		return a, true
+	}
+	if hashEq(b.EndHash, a.StartHash) {
+		a.StartHash = cloneHash(b.StartHash)
+		a.Size += b.Size
+		return a, true
+	}
+	return Transfer{}, false
 }
 
 func (w *world) checkLimits() error {
@@ -266,10 +280,6 @@ func (w *world) checkSolved(event Event) error {
 	case EventVacate:
 		if w.used[event.Disk] != 0 {
 			return xerrors.Errorf("disk %d was not emptied", event.Disk)
-		}
-	case EventFull:
-		if w.used[event.Disk] > w.disks[event.Disk] {
-			return xerrors.Errorf("disk %d still over capacity", event.Disk)
 		}
 	}
 	return nil
@@ -347,20 +357,18 @@ func (w *world) donateRange(space, src int) bool {
 }
 
 func (w *world) arrive(newDisk int) {
-	target := w.fairShare(newDisk)
-	if target <= 0 || w.used[newDisk] >= target {
+	if w.fillHeadroom(newDisk) <= 0 {
 		return
 	}
 	totalRanges := 0
 	for _, sp := range w.spaces {
 		totalRanges += len(sp.ranges)
 	}
-	for guard := 0; guard < totalRanges+4; guard++ {
-		need := target - w.used[newDisk]
-		if need <= 0 {
+	for guard := 0; guard < totalRanges*MAX_RANGES_PER_DISK+len(w.disks)+8; guard++ {
+		if w.overflow(newDisk) == 0 && !w.anyOverflow(newDisk) {
 			return
 		}
-		cut, ok := w.bestSteal(newDisk, need)
+		cut, ok := w.bestSteal(newDisk)
 		if !ok {
 			return
 		}
@@ -368,20 +376,43 @@ func (w *world) arrive(newDisk int) {
 	}
 }
 
-func (w *world) bestSteal(newDisk int, need int64) (candidate, bool) {
+func (w *world) anyOverflow(except int) bool {
+	for _, d := range w.activeDisks() {
+		if d != except && w.overflow(d) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func (w *world) bestSteal(newDisk int) (candidate, bool) {
+	if c, ok := w.pickSteal(newDisk, true); ok {
+		return c, true
+	}
+	return w.pickSteal(newDisk, false)
+}
+
+func (w *world) pickSteal(newDisk int, absorbOnly bool) (candidate, bool) {
+	need := w.fillHeadroom(newDisk)
+	if need <= 0 {
+		return candidate{}, false
+	}
 	var best *candidate
 	for _, src := range w.activeDisks() {
 		if src == newDisk {
 			continue
 		}
-		excess := w.used[src] - w.fairShare(src)
-		if excess <= 0 {
+		over := w.overflow(src)
+		if over <= 0 {
 			continue
 		}
 		for s := range w.spaces {
 			for _, idx := range w.rangeIndexes(s, src) {
-				for _, c := range w.sizedCuts(s, idx, need, excess, newDisk) {
-					c.over = excess
+				for _, c := range w.sizedCuts(s, idx, need, over, newDisk) {
+					if absorbOnly && c.dlt > 0 {
+						continue
+					}
+					c.over = over
 					c.dest = newDisk
 					if best == nil || betterSteal(c, *best, need) {
 						cp := c
@@ -416,6 +447,9 @@ func (w *world) sizedCuts(space, idx int, need, limit int64, dest int) []candida
 		if !w.canTake(space, idx, kind, dest, size) {
 			return
 		}
+		if size > w.fillHeadroom(dest) {
+			return
+		}
 		out = append(out, candidate{
 			space: space,
 			idx:   idx,
@@ -425,13 +459,15 @@ func (w *world) sizedCuts(space, idx int, need, limit int64, dest int) []candida
 			dlt:   w.destDelta(space, idx, kind, dest),
 		})
 	}
-	add(cutWhole, sz)
+	if limit <= 0 || sz <= limit {
+		add(cutWhole, sz)
+	}
 	want := need
 	if limit > 0 && limit < want {
 		want = limit
 	}
-	if destFree := w.free(dest); destFree < want {
-		want = destFree
+	if destHead := w.fillHeadroom(dest); destHead < want {
+		want = destHead
 	}
 	if want > 0 && want < sz {
 		add(cutPrefix, want)
@@ -483,7 +519,7 @@ func (w *world) shed(full int) error {
 		totalRanges += len(sp.ranges)
 	}
 	for guard := 0; guard < totalRanges+4; guard++ {
-		need := w.used[full] - w.disks[full]
+		need := w.overflow(full)
 		if need <= 0 {
 			return nil
 		}
@@ -492,7 +528,10 @@ func (w *world) shed(full int) error {
 			if w.makeRoom(full) {
 				continue
 			}
-			return xerrors.Errorf("cannot shed %d bytes from disk %d", need, full)
+			if w.used[full] > w.disks[full] {
+				return xerrors.Errorf("cannot shed %d bytes from disk %d", need, full)
+			}
+			return nil
 		}
 		w.applyCut(cut.space, cut.idx, cut.kind, cut.dest, cut.size)
 	}

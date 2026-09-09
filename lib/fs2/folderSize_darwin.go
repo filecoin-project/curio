@@ -5,6 +5,7 @@ package fs2
 /*
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -12,6 +13,10 @@ package fs2
 #include <sys/attr.h>
 #include <sys/vnode.h>
 #include <unistd.h>
+
+#ifndef PATH_MAX
+#define PATH_MAX 4096
+#endif
 
 static void set_error(char *dst, size_t dst_len, const char *operation,
 			  const char *name, int error_number) {
@@ -61,28 +66,93 @@ static int parse_size(char **field, const char *end, uint64_t *out) {
 	return 0;
 }
 
-// sum_file_sizes_range scans one directory, selecting regular files whose
-// names compare in the bytewise interval [low, high). An empty bound is open.
-// queue_depth sizes the getattrlistbulk attribute buffer (512 bytes/entry).
+static int join_hash(char *out, size_t out_len, const char *prefix,
+			 const char *name) {
+	size_t prefix_len = strlen(prefix);
+	size_t name_len = strlen(name);
+	if (prefix_len + name_len + 1 > out_len) {
+		return -1;
+	}
+	memcpy(out, prefix, prefix_len);
+	memcpy(out + prefix_len, name, name_len + 1);
+	return 0;
+}
+
+static int join_path(char *out, size_t out_len, const char *dir,
+			 const char *name) {
+	size_t dir_len = strlen(dir);
+	size_t name_len = strlen(name);
+	int need_slash = (dir_len > 0 && dir[dir_len - 1] != '/');
+	if (dir_len + (size_t)need_slash + name_len + 1 > out_len) {
+		return -1;
+	}
+	memcpy(out, dir, dir_len);
+	size_t offset = dir_len;
+	if (need_slash) {
+		out[offset++] = '/';
+	}
+	memcpy(out + offset, name, name_len + 1);
+	return 0;
+}
+
+static int hash_in_range(const char *hash, const char *low, const char *high) {
+	if (low[0] != '\0' && strcmp(hash, low) <= 0) {
+		return 0;
+	}
+	if (high[0] != '\0' && strcmp(hash, high) > 0) {
+		return 0;
+	}
+	return 1;
+}
+
+static int subtree_can_match(const char *prefix, const char *low,
+				 const char *high) {
+	if (prefix[0] == '\0') {
+		return 1;
+	}
+	if (high[0] != '\0' && strcmp(prefix, high) > 0) {
+		return 0;
+	}
+	if (low[0] == '\0' || strcmp(prefix, low) >= 0) {
+		return 1;
+	}
+	return strncmp(low, prefix, strlen(prefix)) == 0;
+}
+
+static int sum_dir(const char *path, const char *prefix, const char *low,
+		       const char *high, unsigned queue_depth, uint64_t *total,
+		       uint64_t *files, uint64_t *vanished, char *err,
+		       size_t err_len);
+
+// sum_file_sizes_range walks the directory tree, selecting regular files whose
+// concatenated hash paths compare in the bytewise interval (low, high]. An
+// empty bound is open. queue_depth sizes the getattrlistbulk attribute buffer
+// (512 bytes/entry).
 static int sum_file_sizes_range(const char *path, const char *low,
 				const char *high, unsigned queue_depth,
 				uint64_t *total, uint64_t *files,
 				uint64_t *vanished, char *err, size_t err_len) {
-	int dirfd = -1;
-	char *buf = NULL;
-	int status = -1;
-	int saved_errno;
-
 	*total = 0;
 	*files = 0;
 	*vanished = 0;
 	if (err != NULL && err_len != 0) {
 		err[0] = '\0';
 	}
-
 	if (queue_depth == 0) {
 		queue_depth = 128;
 	}
+	return sum_dir(path, "", low, high, queue_depth, total, files, vanished,
+		       err, err_len);
+}
+
+static int sum_dir(const char *path, const char *prefix, const char *low,
+		       const char *high, unsigned queue_depth, uint64_t *total,
+		       uint64_t *files, uint64_t *vanished, char *err,
+		       size_t err_len) {
+	int dirfd = -1;
+	char *buf = NULL;
+	int status = -1;
+	int saved_errno;
 
 	size_t buf_len = (size_t)queue_depth * 512;
 	if (buf_len < 8192) {
@@ -208,13 +278,6 @@ static int sum_file_sizes_range(const char *path, const char *low,
 				continue;
 			}
 
-			if (low[0] != '\0' && strcmp(name, low) < 0) {
-				continue;
-			}
-			if (high[0] != '\0' && strcmp(name, high) >= 0) {
-				continue;
-			}
-
 			if ((returned.commonattr & ATTR_CMN_OBJTYPE) == 0) {
 				snprintf(err, err_len, "getattrlistbulk %s: filesystem did not return type",
 					 name);
@@ -227,7 +290,34 @@ static int sum_file_sizes_range(const char *path, const char *low,
 					 name);
 				goto done;
 			}
+
+			char hash[PATH_MAX];
+			if (join_hash(hash, sizeof(hash), prefix, name) != 0) {
+				snprintf(err, err_len, "hash path exceeds PATH_MAX: %s%s",
+					 prefix, name);
+				goto done;
+			}
+
+			if (obj_type == VDIR) {
+				char child_path[PATH_MAX];
+				if (join_path(child_path, sizeof(child_path), path, name) != 0) {
+					snprintf(err, err_len, "path exceeds PATH_MAX under %s: %s",
+						 path, name);
+					goto done;
+				}
+				if (!subtree_can_match(hash, low, high)) {
+					continue;
+				}
+				if (sum_dir(child_path, hash, low, high, queue_depth,
+					    total, files, vanished, err, err_len) != 0) {
+					goto done;
+				}
+				continue;
+			}
 			if (obj_type != VREG) {
+				continue;
+			}
+			if (!hash_in_range(hash, low, high)) {
 				continue;
 			}
 
@@ -271,25 +361,19 @@ import "C"
 
 import (
 	"fmt"
-	"strings"
 	"unsafe"
 )
 
-// SumFileSizesRange sums logical file sizes for regular files immediately
-// within directory whose names compare in the bytewise interval [low, high).
+// SumFileSizesRange sums logical file sizes for regular files under directory
+// whose concatenated hash paths compare in the bytewise interval (low, high].
 // An empty low or high bound leaves that side of the interval open.
 //
 // QueueDepth sizes the getattrlistbulk attribute buffer. Zero selects 128.
 // This function makes one long cgo call; it does not allocate Go objects
 // per directory entry and cannot be canceled midway.
 func SumFileSizesRange(directory, low, high string, queueDepth uint32) (Result, error) {
-	if strings.IndexByte(directory, 0) >= 0 ||
-		strings.IndexByte(low, 0) >= 0 ||
-		strings.IndexByte(high, 0) >= 0 {
-		return Result{}, fmt.Errorf("sum file sizes: path and bounds cannot contain NUL bytes")
-	}
-	if queueDepth > 4096 {
-		return Result{}, fmt.Errorf("sum file sizes: queue depth %d exceeds 4096", queueDepth)
+	if err := checkSumArgs(directory, low, high, queueDepth); err != nil {
+		return Result{}, err
 	}
 
 	cDirectory := C.CString(directory)

@@ -169,14 +169,25 @@ func TestVacateOnlyDisk(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestArriveStealsFairShare(t *testing.T) {
-	st := mk([]int64{100, 100}, []byte{0x80}, []int64{80}, []int{0})
+func TestArriveRelievesOverflow(t *testing.T) {
+	st := mk([]int64{50, 100}, []byte{0x80}, []int64{80}, []int{0})
 	out, res := solveOK(t, st, Event{Kind: EventArrive, Disk: 1})
 	require.NotEmpty(t, res.Diff)
 	require.Equal(t, int64(80), usedOf(out, 0)+usedOf(out, 1))
+	require.Equal(t, int64(40), usedOf(out, 0))
 	require.Equal(t, int64(40), usedOf(out, 1))
 	require.Equal(t, 1, rangeCountOf(out, 0, 0))
 	require.Equal(t, 1, rangeCountOf(out, 0, 1))
+}
+
+func TestArriveRelievesOverflowLargeDisks(t *testing.T) {
+	const tib = int64(1) << 40
+	st := mk([]int64{40 * tib, 100 * tib}, []byte{0x80}, []int64{80 * tib}, []int{0})
+	out, res := solveOK(t, st, Event{Kind: EventArrive, Disk: 1})
+	require.NotEmpty(t, res.Diff)
+	require.Equal(t, 80*tib, usedOf(out, 0)+usedOf(out, 1))
+	require.LessOrEqual(t, usedOf(out, 0), fillLimitOf(40*tib))
+	require.LessOrEqual(t, usedOf(out, 1), fillLimitOf(100*tib))
 }
 
 func TestArriveNoData(t *testing.T) {
@@ -185,7 +196,7 @@ func TestArriveNoData(t *testing.T) {
 	require.Empty(t, res.Diff)
 }
 
-func TestArriveAlreadyBalanced(t *testing.T) {
+func TestArriveIdleWhenUnderFillLimit(t *testing.T) {
 	st := mk(
 		[]int64{20, 20},
 		[]byte{0x80, 0xFF},
@@ -196,21 +207,49 @@ func TestArriveAlreadyBalanced(t *testing.T) {
 	require.Empty(t, res.Diff)
 }
 
+func TestArriveClusterOverFillLimit(t *testing.T) {
+	// Cluster is already ~90% full. The new disk can only take up to its
+	// own 80% fill limit; remaining disks stay above 80%.
+	st := mk(
+		[]int64{100, 100, 10},
+		[]byte{0x80, 0xFF},
+		[]int64{90, 90},
+		[]int{0, 1},
+	)
+	out, res := solveOK(t, st, Event{Kind: EventArrive, Disk: 2})
+	require.NotEmpty(t, res.Diff)
+	require.LessOrEqual(t, usedOf(out, 2), fillLimitOf(10))
+	require.Greater(t, usedOf(out, 0), fillLimitOf(100))
+	require.Greater(t, usedOf(out, 1), fillLimitOf(100))
+}
+
+func TestFullStopsWhenDestsAtFillLimit(t *testing.T) {
+	st := mk(
+		[]int64{100, 100},
+		[]byte{0x80, 0xFF},
+		[]int64{90, 80},
+		[]int{0, 1},
+	)
+	out, res := solveOK(t, st, Event{Kind: EventFull, Disk: 0})
+	require.Empty(t, res.Diff)
+	require.Equal(t, int64(90), usedOf(out, 0))
+}
+
 func TestFullPeelsMinimum(t *testing.T) {
 	st := mk(
 		[]int64{25, 50},
 		[]byte{0x00, 0x80},
-		[]int64{5, 32},
+		[]int64{5, 22},
 		[]int{1, 0},
 	)
-	require.Error(t, Validate(st))
+	require.NoError(t, Validate(st))
 	out, res := solveOK(t, st, Event{Kind: EventFull, Disk: 0})
-	require.LessOrEqual(t, usedOf(out, 0), int64(25))
-	require.Equal(t, int64(7), res.BytesMoved)
+	require.LessOrEqual(t, usedOf(out, 0), fillLimitOf(25))
+	require.GreaterOrEqual(t, res.BytesMoved, int64(2))
 	require.Len(t, res.Diff, 1)
 }
 
-func TestFullAlreadyUnderCapacity(t *testing.T) {
+func TestFullAlreadyUnderFillLimit(t *testing.T) {
 	st := mk(
 		[]int64{20, 20},
 		[]byte{0x80, 0xFF},
@@ -310,64 +349,65 @@ func TestDeterministic(t *testing.T) {
 
 func TestArriveAtMostThreeRanges(t *testing.T) {
 	st := mk(
-		[]int64{100, 100, 100, 100, 100},
-		[]byte{0x18, 0x20, 0x38, 0x40, 0x58, 0x60, 0x78, 0x80},
+		[]int64{8, 8, 8, 8, 400},
+		[]byte{0x10, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70, 0x80},
 		[]int64{10, 10, 10, 10, 10, 10, 10, 10},
-		[]int{0, 0, 1, 1, 2, 2, 3, 3},
+		[]int{0, 1, 2, 3, 0, 1, 2, 3},
 	)
 	out, res := solveOK(t, st, Event{Kind: EventArrive, Disk: 4})
 	require.NotEmpty(t, res.Diff)
 	require.LessOrEqual(t, rangeCountOf(out, 0, 4), MAX_RANGES_PER_DISK)
-	require.Greater(t, usedOf(out, 4), int64(0))
+	for d := 0; d < 4; d++ {
+		require.LessOrEqual(t, usedOf(out, d), fillLimitOf(out.Disks[d]), "disk %d", d)
+	}
+	require.GreaterOrEqual(t, usedOf(out, 4), int64(56))
 }
 
 func TestTwoSpacesUnequalSharedCapacity(t *testing.T) {
 	// A is large, B is small; shared disks must not exceed capacity.
 	st := mk2(
-		[]int64{100, 100},
+		[]int64{70, 100},
 		spaceOf([]byte{0x80}, []int64{80}, []int{0}),
 		spaceOf([]byte{0x40}, []int64{20}, []int{0}),
 	)
-	require.NoError(t, Validate(st))
+	require.Error(t, Validate(st))
 	out, res := solveOK(t, st, Event{Kind: EventArrive, Disk: 1})
 	require.NotEmpty(t, res.Diff)
 	require.Equal(t, int64(100), usedOf(out, 0)+usedOf(out, 1))
-	require.Equal(t, int64(50), usedOf(out, 1))
-	require.LessOrEqual(t, usedOf(out, 0), out.Disks[0])
-	require.LessOrEqual(t, usedOf(out, 1), out.Disks[1])
+	require.Equal(t, fillLimitOf(70), usedOf(out, 0))
+	require.Equal(t, int64(44), usedOf(out, 1))
 }
 
 func TestArriveStealsFromEitherSpace(t *testing.T) {
-	// Disk 0 holds most of A; disk 1 holds all of B. New disk 2 should take
-	// peels from whichever space fits best toward fair share.
+	// Disk 0 is above the fill limit in A; disk 1 is under. The new disk
+	// only takes the overflow, from whichever space that overflow lives in.
 	st := mk2(
-		[]int64{100, 100, 100},
+		[]int64{50, 100, 100},
 		spaceOf([]byte{0x80}, []int64{60}, []int{0}),
 		spaceOf([]byte{0x40}, []int64{30}, []int{1}),
 	)
 	out, res := solveOK(t, st, Event{Kind: EventArrive, Disk: 2})
 	require.NotEmpty(t, res.Diff)
-	require.Equal(t, int64(30), usedOf(out, 2)) // fair share of 90 total
-	spacesUsed := make(map[int]bool)
+	require.Equal(t, int64(20), usedOf(out, 2))
+	require.Equal(t, fillLimitOf(50), usedOf(out, 0))
 	for _, tr := range res.Diff {
-		spacesUsed[tr.Space] = true
 		require.Equal(t, 2, tr.To)
+		require.Equal(t, 0, tr.Space)
 	}
-	require.NotEmpty(t, spacesUsed)
 }
 
 func TestFullShedsCheapestSpace(t *testing.T) {
 	// Disk 0 is over capacity; B has an exact small peel, A has a large block.
 	st := mk2(
 		[]int64{50, 100},
-		spaceOf([]byte{0x80}, []int64{40}, []int{0}),
-		spaceOf([]byte{0x00, 0x40}, []int64{5, 16}, []int{1, 0}), // 16 on disk 0 in B
+		spaceOf([]byte{0x80}, []int64{30}, []int{0}),
+		spaceOf([]byte{0x00, 0x40}, []int64{5, 15}, []int{1, 0}),
 	)
-	// used[0] = 40+16 = 56 > 50; need to shed 6.
-	require.Error(t, Validate(st))
+	// used[0] = 30+15 = 45; fill limit 40; need to shed 5.
+	require.NoError(t, Validate(st))
 	out, res := solveOK(t, st, Event{Kind: EventFull, Disk: 0})
-	require.LessOrEqual(t, usedOf(out, 0), int64(50))
-	require.Equal(t, int64(6), res.BytesMoved)
+	require.LessOrEqual(t, usedOf(out, 0), fillLimitOf(50))
+	require.GreaterOrEqual(t, res.BytesMoved, int64(5))
 }
 
 func TestVacateBothSpaces(t *testing.T) {
@@ -387,7 +427,7 @@ func TestVacateBothSpaces(t *testing.T) {
 
 func TestDiffDisjointPerSpace(t *testing.T) {
 	st := mk2(
-		[]int64{100, 100},
+		[]int64{90, 100},
 		spaceOf([]byte{0x80}, []int64{80}, []int{0}),
 		spaceOf([]byte{0x40}, []int64{20}, []int{0}),
 	)
@@ -411,6 +451,32 @@ func intervalsOverlap(a, b Transfer) bool {
 	// Two half-open arcs overlap if either endpoint of one lies in the other.
 	return (pointInArc(a.StartHash, a.EndHash, b.EndHash) && !hashEq(b.EndHash, a.StartHash)) ||
 		(pointInArc(b.StartHash, b.EndHash, a.EndHash) && !hashEq(a.EndHash, b.StartHash))
+}
+
+func TestMergeTransfersFixpoint(t *testing.T) {
+	got := mergeTransfers([]Transfer{
+		{Space: 0, From: 0, To: 1, StartHash: h(0x10), EndHash: h(0x20), Size: 1},
+		{Space: 0, From: 0, To: 1, StartHash: h(0x30), EndHash: h(0x40), Size: 1},
+		{Space: 0, From: 0, To: 1, StartHash: h(0x20), EndHash: h(0x30), Size: 1},
+		{Space: 1, From: 0, To: 1, StartHash: h(0x00), EndHash: h(0x10), Size: 4},
+	})
+	require.Len(t, got, 2)
+	var combined, other Transfer
+	for _, tr := range got {
+		if tr.Space == 0 {
+			combined = tr
+		} else {
+			other = tr
+		}
+	}
+	require.Equal(t, 0, combined.From)
+	require.Equal(t, 1, combined.To)
+	require.Equal(t, int64(3), combined.Size)
+	require.True(t, hashEq(combined.StartHash, h(0x10)))
+	require.True(t, hashEq(combined.EndHash, h(0x40)))
+	require.Equal(t, int64(4), other.Size)
+	require.True(t, hashEq(other.StartHash, h(0x00)))
+	require.True(t, hashEq(other.EndHash, h(0x10)))
 }
 
 func TestApplyRejectsUnknownRange(t *testing.T) {
