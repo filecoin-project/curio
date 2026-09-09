@@ -231,7 +231,23 @@ func TestPullRequest_Validate(t *testing.T) {
 				},
 			},
 			wantErr:     true,
-			errContains: "provider.host is required",
+			errContains: "provider.cids requires provider.host",
+		},
+		{
+			name: "provider cids without host even with sourceUrl",
+			req: PullRequest{
+				ExtraData: "0x1234",
+				DataSetId: &dataSetId,
+				Pieces: []PullPieceRequest{
+					{
+						PieceCid:  validCid,
+						SourceURL: validURL,
+						Provider:  &PullPieceProvider{CIDs: []string{validCid2}},
+					},
+				},
+			},
+			wantErr:     true,
+			errContains: "provider.cids requires provider.host",
 		},
 		{
 			name: "empty urls entry",
@@ -362,6 +378,29 @@ func TestPullPieceRequest_SourceURLs(t *testing.T) {
 			"https://a.example/piece/" + validCid,
 			"https://sp.example.com/piece/" + v1Cid,
 		}, urls)
+	})
+
+	t.Run("cids without host", func(t *testing.T) {
+		p := PullPieceRequest{
+			PieceCid: validCid,
+			Provider: &PullPieceProvider{CIDs: []string{v1Cid}},
+		}
+		_, err := p.SourceURLs()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "provider.cids requires provider.host")
+	})
+
+	t.Run("json cids without host", func(t *testing.T) {
+		raw := `{
+			"pieceCid": "` + validCid + `",
+			"sourceUrl": "https://legacy.example/piece/` + validCid + `",
+			"provider": {"cids": ["` + v1Cid + `"]}
+		}`
+		var p PullPieceRequest
+		require.NoError(t, json.Unmarshal([]byte(raw), &p))
+		_, err := p.SourceURLs()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "provider.cids requires provider.host")
 	})
 }
 

@@ -115,7 +115,7 @@ func (p PullPieceRequest) SourceURLs() ([]string, error) {
 			return urls, nil
 		}
 		if host == "" {
-			return nil, fmt.Errorf("provider.host is required")
+			return nil, fmt.Errorf("provider.cids requires provider.host")
 		}
 		cids := p.Provider.CIDs
 		if len(cids) == 0 {
