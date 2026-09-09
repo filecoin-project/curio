@@ -121,9 +121,9 @@ lifetime are unchanged.
 The reused sector-pressure path has a pre-existing `MaxQueueSDR=0` mismatch
 at this branch's base: a nonempty SDR queue can still apply pressure, despite
 zero being documented as unlimited. The independently reviewed correction is
-[hyunmoon/curio#17](https://github.com/hyunmoon/curio/pull/17), head
-`d4297b6daf335ad9c88ac4a92f8632cf456c7dea`. Its code and branch history are
-not included here, and it is not an upstream PR number or a branch dependency.
+[filecoin-project/curio#1505](https://github.com/filecoin-project/curio/pull/1505).
+Its code and branch history are not included in the independent release topic;
+it is a companion correction, not a branch dependency.
 This release feature reuses pressure decisions; that companion fix corrects
 the existing zero-limit decision. Do not silently substitute a large new
 default or bypass pressure to hide the distinction.
@@ -268,8 +268,8 @@ The aggregate tests use a two-subpiece commitment-only fixture, production
 `DealFromTX`, `mk20PipelineRowCost`, `insertPiecesInTransaction`, and the release
 gate. They check exact fit, insufficient slots, an aggregate larger than the
 entire cap, and rollback after a fixture trigger rejects the second pipeline
-insert after download/reference writes. These are authored SQL assertions,
-not executed database evidence until the operator runs them.
+insert after download/reference writes. These SQL assertions passed on
+disposable PostgreSQL 16.15; their YugabyteDB execution is still NOT RUN.
 
 ## Evidence Boundary and Finite Cost Check
 
@@ -285,9 +285,19 @@ build, not current-head execution or isolated attribution to this PR.
 One canary/resumed deal does not establish sustained throughput, multi-MARKET
 production correctness, every aggregate shape, full-backlog completion, or
 zero network bytes. A `pieceref:` URL alone does not prove the last claim.
-The new aggregate tests and finite cost sample have not been run against
-PostgreSQL or YugabyteDB in this follow-up. Compile-only and database-free
-results remain separate from those historical reports.
+The aggregate tests and finite cost sample passed on disposable PostgreSQL
+16.15 at source `55261b9f8bc4dcd287b8452d997c985da45f0166`, then again on
+the current-upstream extraction `b22e8131f8646f3fea3708813dee364f7749f79b`.
+The latter run also passed the release core's forced serialization/retry
+test and all storage-market release correctness groups. New aggregate/cost
+tests on YugabyteDB remain NOT RUN. Cost-sample attributable retry counts
+remain NOT MEASURED, not zero; isolated fixture timings are not production
+benchmarks or cap-sizing recommendations.
+
+The operator separately reports ongoing normal sealing on the latest personal
+integration. This is current normal-path compatibility evidence, not proof of
+every cap, aggregate, rollback, contention, or completion scenario. No database
+result on an older head is relabeled as execution on a newer integration.
 
 Use the [finite disposable-database recipe](mk20-release-cost-check.md) for
 the new aggregate cases and query/release cost sample. It has fixed populations,

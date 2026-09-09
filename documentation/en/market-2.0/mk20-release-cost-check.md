@@ -1,7 +1,11 @@
 # Finite MK20 Release Check (Operator Only)
 
-This recipe is prepared and compiled, **NOT RUN**. Run it later only with
-separate authorization against disposable PostgreSQL and, separately,
+This finite recipe passed on disposable PostgreSQL 16.15, including its
+aggregate assertions and cost sample, at follow-up source `55261b9f` and
+current-upstream extraction `b22e8131`. The YugabyteDB sample is **NOT RUN**;
+attributable retry counts are **NOT MEASURED**. These are fixture observations,
+not production benchmarks. Repeat only with separate authorization against
+disposable PostgreSQL and, separately,
 YugabyteDB **2025.2.2.2-b11**. No production target, shared operational schema,
 payload, download, sealing, live API, or full-backlog drain is involved.
 It is a small diagnostic sample, not a benchmark framework or cap-sizing rule.
@@ -36,7 +40,7 @@ It is a small diagnostic sample, not a benchmark framework or cap-sizing rule.
 - Have the disposable server's existing statement/error evidence available,
   scoped by the logged `mk20-release-itest-...` application name, backend/session,
   and `release_begin`/`release_end` timestamps. This is needed for retry counts;
-  absent evidence makes that measurement **INCOMPLETE**, not zero retries.
+  absent evidence makes that measurement **NOT MEASURED**, not zero retries.
   Do not enable broad logging or gather operational logs as part of this task.
 
 ## Exact Groups and Commands
