@@ -24,6 +24,7 @@ test('actual page uses the filter without hiding RPC rows or falsifying totals',
     assert.match(page, /visibleSectors\.map\(/);
     assert.match(page, /of \$\{this\.data\.length\}/);
     assert.match(page, /this\.hidePendingSDR = false;/);
+    assert.match(page, /attribute: 'hide-pending-sdr'/);
     const api = readFileSync(new URL('../api/webrpcporep/pipeline_porep.go', import.meta.url), 'utf8');
     assert.match(api, /ht_sdr_owner\.id = sp\.task_id_sdr AND ht_sdr_owner\.owner_id > 0\) AS sdr_owned/);
     assert.doesNotMatch(api, /WHERE sp\.failed\s+OR sp\.after_sdr/);

@@ -75,7 +75,7 @@ export const pipelineStyles = css`
 class PipelinePorepSectors extends LitElement {
     static properties = {
         data: { type: Array },
-        hidePendingSDR: { type: Boolean },
+        hidePendingSDR: { type: Boolean, attribute: 'hide-pending-sdr' },
     };
 
     constructor() {
