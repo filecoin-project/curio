@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -262,5 +263,143 @@ func insertMK20AssignmentITestCandidate(t *testing.T, ctx context.Context, db *h
 		(id, aggr_index, sp_id, aggregated) VALUES ($1, $2, $3, TRUE)`,
 		candidate.ID, candidate.AggregationIndex, candidate.SPID); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// The first production attempt holds its provider and deal locks inside the
+// real allocation callback. The second production attempt must visibly wait,
+// then reread the committed assignment and skip without calling its allocator.
+func TestMK20AssignmentDBWaitsForCommittedProviderState(t *testing.T) {
+	db, peerCfg := mk20AssignmentITestDB(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	var version, isolation string
+	if err := db.QueryRow(ctx, `SELECT version()`).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(strings.ToLower(version), "yugabyte") {
+		t.Skip("linked PostgreSQL lock observation is not a Yugabyte observer")
+	}
+	if err := db.QueryRow(ctx, `SHOW transaction_isolation`).Scan(&isolation); err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("database_version=%q requested isolation=driver default; SQL reported isolation=%q; effective Yugabyte isolation=UNVERIFIED", version, isolation)
+	peerCfg.ApplicationName = "assignment-" + peerCfg.Schema
+	peerDB, err := harmonydb.NewFromConfig(peerCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate := mk20IngestCandidate{ID: "01JTESTMK20HELDASSIGN0000000", SPID: 2100, AggregationIndex: 7}
+	insertMK20AssignmentITestCandidate(t, ctx, db, candidate)
+	type outcome struct {
+		first     bool
+		committed bool
+		err       error
+	}
+	held := make(chan int, 1)
+	release := make(chan struct{})
+	results := make(chan outcome, 2)
+	var releaseOnce sync.Once
+	var participants sync.WaitGroup
+	var allocations, wakes atomic.Int64
+	unblock := func() { releaseOnce.Do(func() { close(release) }) }
+	defer func() {
+		unblock()
+		cancel()
+		participants.Wait()
+	}()
+	participants.Add(1)
+	go func() {
+		defer participants.Done()
+		committed, err := ingestMK20Candidate(ctx, db, candidate, func(tx *harmonydb.Tx) (mk20SectorAssignment, error) {
+			allocations.Add(1)
+			if _, err := tx.Exec(`INSERT INTO open_sector_pieces
+				(sp_id, sector_number, piece_index, piece_cid, piece_size, data_url, data_raw_size, data_delete_on_finalize)
+				VALUES ($1, 42, 0, 'piece', 2048, 'pieceref:test', 2032, FALSE)`, candidate.SPID); err != nil {
+				return mk20SectorAssignment{}, err
+			}
+			var pid int
+			if err := tx.QueryRow(`SELECT pg_backend_pid()`).Scan(&pid); err != nil {
+				return mk20SectorAssignment{}, err
+			}
+			held <- pid
+			select {
+			case <-release:
+				return mk20SectorAssignment{sector: 42, proof: abi.RegisteredSealProof_StackedDrg2KiBV1_1}, nil
+			case <-ctx.Done():
+				return mk20SectorAssignment{}, ctx.Err()
+			}
+		}, func() { wakes.Add(1) })
+		results <- outcome{true, committed, err}
+	}()
+	var holderPID int
+	select {
+	case holderPID = <-held:
+	case result := <-results:
+		t.Fatalf("holder exited before allocation barrier: %+v", result)
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	participants.Add(1)
+	go func() {
+		defer participants.Done()
+		committed, err := ingestMK20Candidate(ctx, peerDB, candidate, func(*harmonydb.Tx) (mk20SectorAssignment, error) {
+			allocations.Add(1)
+			return mk20SectorAssignment{sector: 99, proof: abi.RegisteredSealProof_StackedDrg2KiBV1_1}, nil
+		}, func() { wakes.Add(1) })
+		results <- outcome{false, committed, err}
+	}()
+	observation, stopObservation := context.WithTimeout(ctx, 3*time.Second)
+	defer stopObservation()
+	tick := time.NewTicker(10 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		var blocked bool
+		if err := db.QueryRow(observation, `SELECT EXISTS (
+			SELECT 1 FROM pg_stat_activity
+			WHERE datname = current_database() AND application_name = $1
+			  AND $2::int = ANY(pg_blocking_pids(pid)))`, peerCfg.ApplicationName, holderPID).Scan(&blocked); err != nil {
+			t.Fatalf("contention not established: %v", err)
+		}
+		if blocked {
+			t.Logf("observed production assignment contender blocked by holder pid=%d before release", holderPID)
+			break
+		}
+		select {
+		case result := <-results:
+			t.Fatalf("assignment contender completed while holder was unreleased: %+v", result)
+		case <-observation.Done():
+			t.Fatal("contention not established before observation deadline")
+		case <-tick.C:
+		}
+	}
+	unblock()
+	for range 2 {
+		select {
+		case result := <-results:
+			if result.err != nil || result.committed != result.first {
+				t.Fatalf("assignment outcome: %+v", result)
+			}
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
+		}
+	}
+	if allocations.Load() != 1 || wakes.Load() != 1 {
+		t.Fatalf("allocations=%d wakes=%d, want one committed assignment", allocations.Load(), wakes.Load())
+	}
+	var sector int64
+	if err := db.QueryRow(ctx, `SELECT sector FROM market_mk20_pipeline
+		WHERE id = $1 AND aggr_index = $2 AND sp_id = $3`, candidate.ID, candidate.AggregationIndex, candidate.SPID).Scan(&sector); err != nil {
+		t.Fatal(err)
+	}
+	if sector != 42 {
+		t.Fatalf("committed assignment=%d, want 42", sector)
+	}
+	var pieces int
+	if err := db.QueryRow(ctx, `SELECT COUNT(*) FROM open_sector_pieces WHERE sp_id = $1`, candidate.SPID).Scan(&pieces); err != nil {
+		t.Fatal(err)
+	}
+	if pieces != 1 {
+		t.Fatalf("committed open pieces=%d, want one", pieces)
 	}
 }
