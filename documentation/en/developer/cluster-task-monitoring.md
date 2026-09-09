@@ -7,7 +7,10 @@ older migrations remain unknown. No historical task rows are backfilled.
 
 `ClusterTaskSummaryLimited` provides a bounded snapshot (at most 500 rows),
 filtering before selection, running/pending counts, a database observation time,
-and nullable ages. The generic view orders each section by ownership/posting age
+and nullable ages. Owned rows display current-attempt Took, with an explicit
+awaiting-start/unknown state; Pending rows display posted-based Waiting. See
+[current-attempt monitoring](task-attempt-monitoring.md) for worker instrumentation,
+mixed-version compatibility and failure behavior. The generic view orders each section by ownership/posting age
 then task ID, without a task-type priority policy. Pending rows can use whatever
 capacity remains after running rows. Controls can reduce that preview to zero.
 The row bound is not a bound on database scan cost.
@@ -28,5 +31,6 @@ unknown ages and filter-mismatch notices survive ordinary refreshes. Site-specif
 task priorities and shorter preview defaults are not part of this generic policy.
 
 Database-free Go and JavaScript tests exercise response orchestration, null-time
-provenance, provider batching, request lifecycle and display clocks. SQL-shape
+provenance, provider batching, request lifecycle and display clocks. Opt-in SQL
+tests execute the actual snapshot query and migration/attempt adapters. SQL-shape
 assertions are not PostgreSQL/Yugabyte execution or browser layout validation.

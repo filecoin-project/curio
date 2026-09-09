@@ -388,9 +388,9 @@ test('sections are Running then Pending and coalesce only inside each section', 
   const coalesced = buildClusterTaskSections(response, true);
   assert.deepEqual(coalesced[0].groups.map((group) => group.map((entry) => entry.ID)), [[1, 2]]);
   assert.deepEqual(coalesced[1].groups.map((group) => group.map((entry) => entry.ID)), [[3, 4]]);
-  assert.equal(coalesced[0].ageLabel, 'Owned');
+  assert.equal(coalesced[0].ageLabel, 'Took');
   assert.equal(coalesced[1].ageLabel, 'Waiting');
-  assert.match(RUNNING_AGE_TOOLTIP, /ownership|Ownership/);
+  assert.match(RUNNING_AGE_TOOLTIP, /Do attempt/);
   assert.match(PENDING_AGE_TOOLTIP, /posted/);
   assert.equal(
       CLUSTER_TASK_ORDER_POLICY,

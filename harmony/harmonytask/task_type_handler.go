@@ -99,6 +99,17 @@ const (
 // availability, but that's safe — resources can only increase, never
 // invalidating a "fits" decision made moments earlier.
 func (h *taskTypeHandler) considerWork(from string, tasks []task, eventEmitter eventEmitter) (workAccepted bool) {
+	return h.considerWorkWithOwnership(from, tasks, eventEmitter, h.claimTaskOwnership, h.releaseTaskOwnership)
+}
+
+// The ownership callbacks keep failure paths testable without changing the
+// production SQL or requiring a live database for admission lifecycle tests.
+func (h *taskTypeHandler) considerWorkWithOwnership(from string, tasks []task, eventEmitter eventEmitter,
+	claim func([]TaskID, int) ([]TaskID, error), release func([]TaskID) error, attemptStores ...taskAttemptStore) (workAccepted bool) {
+	var attemptStore taskAttemptStore
+	if len(attemptStores) > 0 {
+		attemptStore = attemptStores[0]
+	}
 	if len(tasks) == 0 {
 		return true
 	}
@@ -161,23 +172,7 @@ func (h *taskTypeHandler) considerWork(from string, tasks []task, eventEmitter e
 	tIDs = reorderTaskIDsByPostedOrder(tasks, tIDs)
 
 	if from != workSourceRecover {
-		var tasksAccepted []TaskID
-		err := h.TaskEngine.cfg.db.Select(h.TaskEngine.cfg.ctx, &tasksAccepted, `
-		WITH candidates AS (
-			SELECT t.id
-			FROM harmony_task t
-			JOIN unnest($2::bigint[]) AS x(id) ON x.id = t.id
-			WHERE t.owner_id IS NULL
-			ORDER BY array_position($2, t.id::bigint)
-			LIMIT $3
-			FOR UPDATE SKIP LOCKED
-		)
-		UPDATE harmony_task t
-		SET owner_id = $1
-		FROM candidates c
-		WHERE t.id = c.id
-		RETURNING t.id;`, h.TaskEngine.cfg.ownerID, tIDs, maxAcceptable)
-
+		tasksAccepted, err := claim(tIDs, maxAcceptable)
 		if err != nil {
 			log.Error(err)
 			return false
@@ -196,6 +191,14 @@ func (h *taskTypeHandler) considerWork(from string, tasks []task, eventEmitter e
 			h.accept.Add(toInt64s(remainder))
 			tIDs = tasksAccepted
 		}
+	}
+
+	if attemptStore == nil {
+		attemptStore = harmonyTaskAttemptStore{db: h.TaskEngine.cfg.db, owner: int(h.TaskEngine.cfg.ownerID)}
+	}
+	tIDs, attemptTokens := prepareTaskAttempts(h.TaskEngine.cfg.ctx, attemptStore, tIDs)
+	if len(tIDs) == 0 {
+		return false
 	}
 
 	releaseStorage := make([]func(), len(tIDs))
@@ -221,7 +224,7 @@ func (h *taskTypeHandler) considerWork(from string, tasks []task, eventEmitter e
 		if len(failedTIDs) > 0 {
 			tIDs = goodTIDs
 			log.Errorw("did not accept task", "task_ids", failedTIDs, "reason", "storage claim failed", "name", h.Name)
-			_, err := h.TaskEngine.cfg.db.Exec(h.TaskEngine.cfg.ctx, `UPDATE harmony_task SET owner_id = NULL WHERE id = ANY($1)`, failedTIDs)
+			err := release(failedTIDs)
 			if err != nil {
 				log.Errorw("Could not reset failed tasks", "error", err)
 			}
@@ -324,34 +327,38 @@ func (h *taskTypeHandler) considerWork(from string, tasks []task, eventEmitter e
 
 			defer taskCancel()
 
-			done, doErr = h.Do(taskCtx, tID, func() bool {
-				if taskCtx.Err() != nil {
-					return false
-				}
-				if taskhelp.IsBackgroundTask(h.Name) || h.CanYield {
-					if h.TaskEngine.atomics.yieldBackground.Load() {
-						log.Infow("yielding background task", "name", h.Name, "id", tID)
+			done, doErr = runWithAttemptStart(taskCtx, attemptStore, tID, attemptTokens[tID], nil, time.Now, func(start time.Time) {
+				workStart = start
+			}, func() (bool, error) {
+				return h.Do(taskCtx, tID, func() bool {
+					if taskCtx.Err() != nil {
 						return false
 					}
-				}
-				// Uninterruptible work (e.g. Send*) calls stillOwned before
-				// taking a per-sender lock. During shutdown drain, fail that
-				// check so hundreds of waiters can exit without starting a new
-				// critical section; in-flight holders do not call stillOwned
-				// and are waited on via Active() in GracefullyTerminate.
-				if h.Uninterruptible && h.TaskEngine.atomics.draining.Load() {
-					log.Infow("yielding uninterruptible task during shutdown drain", "name", h.Name, "id", tID)
-					return false
-				}
+					if taskhelp.IsBackgroundTask(h.Name) || h.CanYield {
+						if h.TaskEngine.atomics.yieldBackground.Load() {
+							log.Infow("yielding background task", "name", h.Name, "id", tID)
+							return false
+						}
+					}
+					// Uninterruptible work (e.g. Send*) calls stillOwned before
+					// taking a per-sender lock. During shutdown drain, fail that
+					// check so hundreds of waiters can exit without starting a new
+					// critical section; in-flight holders do not call stillOwned
+					// and are waited on via Active() in GracefullyTerminate.
+					if h.Uninterruptible && h.TaskEngine.atomics.draining.Load() {
+						log.Infow("yielding uninterruptible task during shutdown drain", "name", h.Name, "id", tID)
+						return false
+					}
 
-				var owner int
-				err := h.TaskEngine.cfg.db.QueryRow(taskCtx,
-					`SELECT owner_id FROM harmony_task WHERE id=$1`, tID).Scan(&owner)
-				if err != nil {
-					log.Error("Cannot determine ownership: ", err)
-					return false
-				}
-				return owner == h.TaskEngine.cfg.ownerID
+					var owner int
+					err := h.TaskEngine.cfg.db.QueryRow(taskCtx,
+						`SELECT owner_id FROM harmony_task WHERE id=$1`, tID).Scan(&owner)
+					if err != nil {
+						log.Error("Cannot determine ownership: ", err)
+						return false
+					}
+					return owner == h.TaskEngine.cfg.ownerID
+				})
 			})
 			if doErr != nil {
 				log.Errorw("Do() returned error", "type", h.Name, "id", strconv.Itoa(int(tID)), "error", doErr)
@@ -360,6 +367,31 @@ func (h *taskTypeHandler) considerWork(from string, tasks []task, eventEmitter e
 		i++
 	}
 	return true
+}
+
+func (h *taskTypeHandler) claimTaskOwnership(ids []TaskID, maxAcceptable int) ([]TaskID, error) {
+	var accepted []TaskID
+	err := h.TaskEngine.cfg.db.Select(h.TaskEngine.cfg.ctx, &accepted, `
+		WITH candidates AS (
+			SELECT t.id
+			FROM harmony_task t
+			JOIN unnest($2::bigint[]) AS x(id) ON x.id = t.id
+			WHERE t.owner_id IS NULL
+			ORDER BY array_position($2, t.id::bigint)
+			LIMIT $3
+			FOR UPDATE SKIP LOCKED
+		)
+		UPDATE harmony_task t
+		SET owner_id = $1
+		FROM candidates c
+		WHERE t.id = c.id
+		RETURNING t.id;`, h.TaskEngine.cfg.ownerID, ids, maxAcceptable)
+	return accepted, err
+}
+
+func (h *taskTypeHandler) releaseTaskOwnership(ids []TaskID) error {
+	_, err := h.TaskEngine.cfg.db.Exec(h.TaskEngine.cfg.ctx, `UPDATE harmony_task SET owner_id = NULL WHERE id = ANY($1)`, ids)
+	return err
 }
 
 // emitRetryTask re-adds a failed or preempted task to the scheduler after

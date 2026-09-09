@@ -58,6 +58,9 @@ type ClusterTaskSummaryLimitedTask struct {
 	Miner                string
 	State                string
 	AgeSeconds           *int64
+	TookSeconds          *int64
+	TookState            string
+	AttemptID            *string
 	Owner                *string
 	OwnerID              *int64
 }
@@ -77,14 +80,17 @@ type ClusterTaskSummaryLimitedResponse struct {
 }
 
 type clusterTaskSummaryLimitedRow struct {
-	ID              int64
-	Name            string
-	PostedTime      time.Time
-	WorkStart       sql.NullTime
-	WorkStartSource sql.NullString
-	Owner           *string
-	OwnerID         *int64
-	State           string
+	ID                 int64
+	Name               string
+	PostedTime         time.Time
+	WorkStart          sql.NullTime
+	WorkStartSource    sql.NullString
+	AttemptStartedAt   sql.NullTime
+	AttemptID          sql.NullString
+	AttemptStartSource sql.NullString
+	Owner              *string
+	OwnerID            *int64
+	State              string
 }
 
 type clusterTaskSummarySnapshot struct {
@@ -104,17 +110,20 @@ type harmonyClusterTaskSummarySource struct {
 }
 
 type clusterTaskSummaryDBRow struct {
-	ID              sql.NullInt64  `db:"id"`
-	Name            sql.NullString `db:"name"`
-	PostedTime      sql.NullTime   `db:"posted_time"`
-	WorkStart       sql.NullTime   `db:"work_start"`
-	WorkStartSource sql.NullString `db:"work_start_source"`
-	Owner           sql.NullString `db:"owner"`
-	OwnerID         sql.NullInt64  `db:"owner_id"`
-	State           sql.NullString `db:"state"`
-	RunningTotal    int64          `db:"running_total"`
-	PendingTotal    int64          `db:"pending_total"`
-	ObservedAt      time.Time      `db:"observed_at"`
+	ID                 sql.NullInt64  `db:"id"`
+	Name               sql.NullString `db:"name"`
+	PostedTime         sql.NullTime   `db:"posted_time"`
+	WorkStart          sql.NullTime   `db:"work_start"`
+	WorkStartSource    sql.NullString `db:"work_start_source"`
+	AttemptStartedAt   sql.NullTime   `db:"attempt_started_at"`
+	AttemptID          sql.NullString `db:"attempt_id"`
+	AttemptStartSource sql.NullString `db:"attempt_start_source"`
+	Owner              sql.NullString `db:"owner"`
+	OwnerID            sql.NullInt64  `db:"owner_id"`
+	State              sql.NullString `db:"state"`
+	RunningTotal       int64          `db:"running_total"`
+	PendingTotal       int64          `db:"pending_total"`
+	ObservedAt         time.Time      `db:"observed_at"`
 }
 
 const clusterTaskSummaryLimitedQuery = `
@@ -125,6 +134,9 @@ WITH matching AS (
 		t.posted_time,
 		t.work_start,
 		t.work_start_source,
+		t.attempt_started_at,
+		t.attempt_id,
+		t.attempt_start_source,
 		t.owner_id
 	FROM harmony_task t
 	WHERE ($1::BOOLEAN OR t.name NOT LIKE 'bg:%')
@@ -168,6 +180,9 @@ SELECT
 	s.posted_time,
 	s.work_start,
 	s.work_start_source,
+	s.attempt_started_at,
+	s.attempt_id,
+	s.attempt_start_source,
 	hm.host_and_port AS owner,
 	s.owner_id,
 	s.state,
@@ -219,14 +234,17 @@ func (s harmonyClusterTaskSummarySource) LoadSnapshot(ctx context.Context, appli
 		}
 
 		snapshot.Rows = append(snapshot.Rows, clusterTaskSummaryLimitedRow{
-			ID:              row.ID.Int64,
-			Name:            row.Name.String,
-			PostedTime:      row.PostedTime.Time,
-			WorkStart:       row.WorkStart,
-			WorkStartSource: row.WorkStartSource,
-			Owner:           owner,
-			OwnerID:         ownerID,
-			State:           row.State.String,
+			ID:                 row.ID.Int64,
+			Name:               row.Name.String,
+			PostedTime:         row.PostedTime.Time,
+			WorkStart:          row.WorkStart,
+			WorkStartSource:    row.WorkStartSource,
+			AttemptStartedAt:   row.AttemptStartedAt,
+			AttemptID:          row.AttemptID,
+			AttemptStartSource: row.AttemptStartSource,
+			Owner:              owner,
+			OwnerID:            ownerID,
+			State:              row.State.String,
 		})
 	}
 
@@ -386,6 +404,12 @@ func buildLimitedTaskSummary(row clusterTaskSummaryLimitedRow, observedAt time.T
 		if task.AgeSeconds != nil {
 			task.OwnershipStartSource = "claim"
 		}
+	}
+
+	task.TookSeconds, task.TookState = taskTookAge(row, observedAt)
+	if row.AttemptID.Valid {
+		id := row.AttemptID.String
+		task.AttemptID = &id
 	}
 
 	for _, spid := range spids[row.ID] {

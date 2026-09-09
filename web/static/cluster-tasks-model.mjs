@@ -11,7 +11,7 @@ export const CLUSTER_TASK_DEFAULTS = Object.freeze({
 export const CLUSTER_TASK_ORDER_POLICY =
   'Current ownership age first; task ID breaks ties';
 export const RUNNING_AGE_TOOLTIP =
-  'Ownership age starts when the current owner claimed the task; it is not execution runtime.';
+  'Took starts at entry into the current task Do attempt, matching new History records; not at claim or FFI entry.';
 export const PENDING_AGE_TOOLTIP =
   'Waiting time starts when the task was posted.';
 export const UNKNOWN_RUNNING_AGE_TOOLTIP =
@@ -373,7 +373,7 @@ export function buildClusterTaskSections(response, coalesceEntries) {
     {
       key: 'running',
       title: 'Running',
-      ageLabel: 'Owned',
+      ageLabel: 'Took',
       ageTooltip: `${RUNNING_AGE_TOOLTIP} ${INTERPOLATED_AGE_TOOLTIP}`,
       entries: normalized.Running,
       groups: groupsFor(normalized.Running, coalesceEntries),
