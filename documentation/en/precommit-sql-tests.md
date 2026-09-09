@@ -25,7 +25,7 @@ foreign key/cascade, and the upstream removal of task foreign keys.
 
 ```sh
 go test -tags=cgo,fvm,nosupraseal,integration ./tasks/seal \
-  -run '^TestPrecommitSQL(CandidatesAndAssignment|DetachAndCIDMembership)$' \
+  -run '^TestPrecommitSQL(CandidatesAndAssignment|DetachAndCIDMembership|SectorFailureIsolation)$' \
   -count=1 -timeout=2m -v
 ```
 
@@ -36,6 +36,12 @@ included-sector-only CID assignment, and transaction rollback. These are SQL
 row-effect tests, not independent-handle contention tests. The stale discovery
 fixture changes state between the actual distinct selection/update statements;
 it does not invent an interleaving within one atomic statement.
+
+`TestPrecommitSQLSectorFailureIsolation` executes the production sector-local
+failure statement: task/provider/sector identity, preserved prior failure
+evidence, unaffected peers, and rollback with the CID statement. The combined
+rollback is deliberately test-owned, not a claim that the production message
+send/failure/CID operations form one atomic transaction.
 
 Logs identify the database version and reported SQL isolation. Yugabyte effective
 isolation must be independently recorded; `SHOW` alone is not proof of server
