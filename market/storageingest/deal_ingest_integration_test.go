@@ -219,6 +219,49 @@ func TestStorageTransferDBSnapMovesAtomically(t *testing.T) {
 	assertStorageTransferITestCount(t, ctx, db, storageTransferCountSnapInitialSector, 1, spID, sector)
 }
 
+func TestStorageTransferDBLateFailureRollsBackWholeBatch(t *testing.T) {
+	db, _ := storageTransferITestDB(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	const spID = int64(3103)
+	if _, err := db.Exec(ctx, `INSERT INTO sectors_meta (sp_id, sector_num) VALUES ($1, 1), ($1, 2)`, spID); err != nil {
+		t.Fatal(err)
+	}
+	insertStorageTransferOpenSectors(t, ctx, db, spID, 1, 2, true)
+	// This is valid fixture SQL but invalid Snap candidate data. The existing
+	// transfer function raises P0001 for the second sector, after the first
+	// sector's initial-piece INSERT and open-piece DELETE have executed.
+	if _, err := db.Exec(ctx, `UPDATE open_sector_pieces SET f05_deal_id = 1
+		WHERE sp_id = $1 AND sector_number = 2`, spID); err != nil {
+		t.Fatal(err)
+	}
+	params := sealBatchParams{
+		spID:                 spID,
+		proof:                int64(abi.RegisteredUpdateProof_StackedDrg2KiBV1),
+		sectorSize:           storageTransferITestSectorSize,
+		isSnap:               true,
+		maxWaitBefore:        time.Now().Add(-24 * time.Hour),
+		sealBeforeChainEpoch: 0,
+	}
+	if _, err := sealReadyBatch(ctx, db, params, nil, sealBatchSize); err == nil || !isDeterministicSealCandidateError(err) {
+		t.Fatalf("expected candidate-specific transfer failure, got %v", err)
+	}
+	for _, sector := range []int64{1, 2} {
+		assertStorageTransferITestCount(t, ctx, db, storageTransferCountOpenSector, 1, spID, sector)
+		assertStorageTransferITestCount(t, ctx, db, storageTransferCountSnapPipelineSector, 0, spID, sector)
+		assertStorageTransferITestCount(t, ctx, db, storageTransferCountSnapInitialSector, 0, spID, sector)
+	}
+	if err := drainSealProviders(ctx, db, []sealBatchParams{params}); err == nil {
+		t.Fatal("expected the retained invalid candidate to be reported")
+	}
+	assertStorageTransferITestCount(t, ctx, db, storageTransferCountOpenSector, 0, spID, 1)
+	assertStorageTransferITestCount(t, ctx, db, storageTransferCountSnapPipelineSector, 1, spID, 1)
+	assertStorageTransferITestCount(t, ctx, db, storageTransferCountSnapInitialSector, 1, spID, 1)
+	assertStorageTransferITestCount(t, ctx, db, storageTransferCountOpenSector, 1, spID, 2)
+	assertStorageTransferITestCount(t, ctx, db, storageTransferCountSnapPipelineSector, 0, spID, 2)
+	assertStorageTransferITestCount(t, ctx, db, storageTransferCountSnapInitialSector, 0, spID, 2)
+}
+
 func insertStorageTransferOpenSectors(t *testing.T, ctx context.Context, db *harmonydb.DB, spID int64, first, count int, isSnap bool) {
 	t.Helper()
 	committed, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
