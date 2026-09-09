@@ -48,6 +48,12 @@ All endpoints are rooted at `/pdp`.
 
 ### 2. Upload a Piece
 
+PDPv0 accepts pieces up to **64 GiB padded**, which allows at most **68,182,605,824 raw bytes (63.5 GiB)**. This limit applies to classic uploads, streaming uploads, and pulls, and includes CAR framing when uploading a CAR file. A 64 GiB raw payload exceeds the limit after padding.
+
+The HTTP server defaults to a two-hour request read timeout, configurable through `HTTP.ReadTimeout`, and a write timeout of two hours plus one minute. Abandoned active upload claims are cleaned up after three hours. Reverse proxies must allow the same request size and duration.
+
+Pull downloads have a two-hour timeout per attempt and a six-hour item budget, checked at scheduling boundaries. Downloads with no progress for two minutes are cancelled.
+
 #### 2.1. Initiate Upload
 
 - **Endpoint:** `POST /pdp/piece`
@@ -85,7 +91,8 @@ All endpoints are rooted at `/pdp`.
 
 #### Errors
 
-- `400 Bad Request`: Invalid pieceCid format or piece size exceeds the maximum allowed size.
+- `400 Bad Request`: Invalid pieceCid format or piece size below the minimum allowed size.
+- `413 Payload Too Large`: Piece size exceeds the maximum allowed size.
 - `401 Unauthorized`: Missing or invalid JWT token.
 
 ---
@@ -204,7 +211,7 @@ The streaming upload API provides a way to upload large pieces in a streaming fa
 2. Stream the data via `PUT`.
 3. Finalize the upload with the pieceCid to link and validate.
 
-> **Note:** Each streaming upload is limited to **1,065,353,216 raw bytes** (1 GiB padded). The server writes it once directly to piece storage while computing CommP on-the-fly.
+> **Note:** Each streaming upload is limited to **68,182,605,824 raw bytes** (64 GiB padded). The server writes it once directly to piece storage while computing CommP on-the-fly.
 
 #### 3.1. Create Streaming Upload Session
 
