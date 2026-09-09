@@ -249,13 +249,20 @@
 
                     <div class="help-button">
                         <button id="helpBtn">?</button>
-                        <p id="helpText" class="hidden help-text">Checking a box and entering a non default value will uncomment the corresponding configuration variable.
-                            Unchecking a box will reset the value to default.</p>
+                        <p id="helpText" class="hidden help-text">Check a field to include an explicit layer override, even when its value is zero, false, or the default.
+                            Unchecking removes that override; earlier layers or defaults then apply. Save preserves values, not TOML comments.</p>
                     </div>
 
                     <div id="editor"></div>
-                    <script>
+                    <p id="configError" role="alert" class="text-danger"></p>
+                    <script type="module">
+                        import { validateLayerShape, assertLayerLoaded } from './layer-editor.mjs';
                         var editor;
+                        const saveButton = document.getElementById('saveButton');
+                        saveButton.disabled = true;
+                        const showConfigError = error => {
+                            document.getElementById('configError').textContent = String(error.response?.data || error.message || error);
+                        };
                         var urlParams = new URLSearchParams(window.location.search);
                         var layer = urlParams.get('layer');
                         // Make simultaneous GET requests to fetch the existing data and JSON Schema
@@ -267,6 +274,7 @@
                             .then(responses => {
                                 const existingData = responses[0].data;
                                 const schema = responses[1].data;
+                                validateLayerShape(existingData, schema);
 
                                 // Create a JSON Editor instance and pass the schema and existing data
                                 const container = document.getElementById('editor');
@@ -318,7 +326,11 @@
 
                                 // Call after editor is ready and on any changes
                                 editor.on('ready', function() {
-                                    showDescriptions();
+                                    try {
+                                        assertLayerLoaded(existingData, editor.getValue());
+                                        saveButton.disabled = layer === 'default';
+                                        showDescriptions();
+                                    } catch (error) { showConfigError(error); }
                                 });
                                 
                                 // Re-run when editor changes (for dynamic fields)
@@ -338,24 +350,18 @@
                                 });
 
                                 // Attach function to saveButton click event
-                                var saveButton = document.getElementById('saveButton');
                                 saveButton.addEventListener('click', function() {
                                     if (layer === 'default'){
                                         alert('Error: cannot edit defaults');
                                     } else {
                                         const value = editor.getValue();
-                                        function cleanEmptyArrays(json) {
-                                            if (Array.isArray(json)) {
-                                                return json.filter(item => item !== ""); // Remove empty strings from arrays
-                                            } else if (typeof json === "object" && json !== null) {
-                                                Object.keys(json).forEach(key => {
-                                                    json[key] = cleanEmptyArrays(json[key]); // Recursively clean nested structures
-                                                });
-                                            }
-                                            return json;
+                                        try {
+                                            validateLayerShape(value, schema);
+                                            if (editor.validate().length) throw new Error('Correct the highlighted configuration errors before saving.');
+                                        } catch (error) {
+                                            showConfigError(error);
+                                            return;
                                         }
-                                        cleanEmptyArrays(value);
-                                        console.log(value)
                                         axios.post('/api/config/layers/' + layer, value)
                                             .then(response => {
                                                 // Set cookie named 'message' with the value 'Data saved successfully'
@@ -363,7 +369,7 @@
                                                 window.location.href = '/pages/config/list/';
                                             })
                                             .catch(error => {
-                                                alert('Error saving data:', error);
+                                                showConfigError(error);
                                             });
                                     }
                                 });
@@ -503,7 +509,7 @@
                                 }
                             })
                             .catch(error => {
-                                console.error('Error fetching data:', error);
+                                showConfigError(error);
                             });
                     </script>
                 </div>
