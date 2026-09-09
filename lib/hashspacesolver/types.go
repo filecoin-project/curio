@@ -15,6 +15,12 @@ package hashspacesolver
 // hold in one space (fewer than 4). Caps are per disk per space.
 const MAX_RANGES_PER_DISK = 3
 
+// FILL_LIMIT_PERCENT is the rebalance target as a percent of physical
+// capacity. Planning moves data to get disks to or under this fraction.
+// A tight cluster may still sit above it after a best-effort plan; 100%
+// remains the hard physical limit.
+const FILL_LIMIT_PERCENT = 80
+
 // Range is one contiguous hash-space interval. It covers hashes after the
 // previous range's EndHash up to EndHash, and holds Size bytes.
 type Range struct {
@@ -41,10 +47,12 @@ type State struct {
 type EventKind int
 
 const (
-	// EventArrive fills a newly added disk toward its capacity-weighted fair
-	// share, stealing prefixes or suffixes of existing ranges from any space.
+	// EventArrive uses a newly added disk to take overflow off other disks.
+	// Steals grow an existing dest range when possible; a new fragment is
+	// opened only while dest is under MAX_RANGES_PER_DISK.
 	EventArrive EventKind = iota + 1
-	// EventFull sheds the minimum data from an over-capacity disk.
+	// EventFull sheds from a disk that is above FILL_LIMIT_PERCENT of
+	// physical capacity.
 	EventFull
 	// EventVacate empties a disk so it can leave the cluster.
 	EventVacate
