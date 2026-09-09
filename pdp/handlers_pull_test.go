@@ -319,6 +319,46 @@ func TestHandlePull_NewRequest_Success(t *testing.T) {
 	require.True(t, cidSet[testCid2])
 }
 
+func TestHandlePull_AssemblesMultipleSources(t *testing.T) {
+	store := &mockPullStore{}
+	validator := &mockValidator{shouldPass: true}
+	handler := NewPullHandler(&NullAuth{}, store, validator, nil)
+
+	body := PullRequest{
+		ExtraData: testExtraData(t),
+		DataSetId: &testDataSetId,
+		Pieces: []PullPieceRequest{
+			{
+				PieceCid:  testCid1,
+				SourceURL: "https://legacy.example/piece/" + testCid1,
+				URLs:      []string{"https://backup.example/piece/" + testCid1},
+				Provider:  &PullPieceProvider{Host: "sp.example.com", CIDs: []string{testCid2}},
+			},
+		},
+	}
+	bodyBytes := must.One(json.Marshal(body))
+	req := httptest.NewRequest(http.MethodPost, "/pdp/piece/pull", bytes.NewReader(bodyBytes))
+	rec := httptest.NewRecorder()
+
+	handler.HandlePull(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.True(t, store.createPullCalled)
+	require.Len(t, store.createdPieces, 3)
+
+	gotURLs := make([]string, len(store.createdPieces))
+	for i, piece := range store.createdPieces {
+		require.Equal(t, store.createdPieces[0].CidV1, piece.CidV1)
+		require.Equal(t, store.createdPieces[0].RawSize, piece.RawSize)
+		gotURLs[i] = piece.SourceURL
+	}
+	require.Equal(t, []string{
+		"https://legacy.example/piece/" + testCid1,
+		"https://backup.example/piece/" + testCid1,
+		"https://sp.example.com/piece/" + testCid2,
+	}, gotURLs)
+}
+
 func TestHandlePull_ExistingDataSetUsesFWSSPayer(t *testing.T) {
 	store := &mockPullStore{}
 	payer := common.HexToAddress("0x2222222222222222222222222222222222222222")

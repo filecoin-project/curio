@@ -740,7 +740,12 @@ Uploads complete synchronously. A `204 No Content` response from the known-CID P
   "pieces": [
     {
       "pieceCid": "<CommP-v2-CID>",
-      "sourceUrl": "https://example.com/piece/bafy..."
+      "sourceUrl": "https://example.com/piece/bafy...",
+      "urls": ["https://backup.example.com/piece/bafy..."],
+      "provider": {
+        "host": "sp.example.com",
+        "cids": ["<optional-retrieval-CID>"]
+      }
     }
   ]
 }
@@ -752,7 +757,12 @@ Uploads complete synchronously. A `204 No Content` response from the known-CID P
     - `recordKeeper`: *(Required if dataSetId is 0 or omitted)* The contract address that will receive callbacks.
     - `pieces`: Array of pieces to pull. At most 40 entries, since the pull is validated as an `addPieces` batch (larger batches would exceed on-chain event-size limits and are rejected with `400 Bad Request`).
         - `pieceCid`: The piece CID in CommP v2 format.
-        - `sourceUrl`: HTTPS URL ending in `/piece/{pieceCid}` on a public host. Localhost and private IPs are blocked for security.
+        - `sourceUrl`: *(Optional)* A single HTTPS URL. The original single-URL form remains accepted.
+        - `urls`: *(Optional)* Additional HTTPS URLs to try for this piece.
+        - `provider`: *(Optional)* Remote SP used to assemble retrieval URLs on this provider:
+            - `host`: Hostname (optionally with port, or an `https://` URL).
+            - `cids`: *(Optional)* CIDs to fetch from that host. If omitted, `pieceCid` is used.
+        - At least one source URL must result after combining `sourceUrl`, `urls`, and `provider`. Duplicate URLs for the same piece are de-duplicated. The assembled list is stored as one pull item per URL, as before.
 
 #### Response
 
@@ -786,7 +796,7 @@ Returns JSON with an overall status and per-piece status:
 
 #### Errors
 
-- `400 Bad Request`: Validation error, missing parameters, more than 40 pieces in the batch, invalid pieceCid format, or invalid `sourceUrl`.
+- `400 Bad Request`: Validation error, missing parameters, more than 40 pieces in the batch, invalid pieceCid format, or invalid source URL.
 - `401 Unauthorized`: Missing or invalid JWT token.
 - `403 Forbidden`: `recordKeeper` is not allowed.
 - `500 Internal Server Error`: Failed to query or store pull task.

@@ -1,6 +1,7 @@
 package pdp
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -180,7 +181,69 @@ func TestPullRequest_Validate(t *testing.T) {
 				},
 			},
 			wantErr:     true,
-			errContains: "sourceUrl is required",
+			errContains: "at least one source URL is required",
+		},
+		{
+			name: "valid request with urls array",
+			req: PullRequest{
+				ExtraData: "0x1234",
+				DataSetId: &dataSetId,
+				Pieces: []PullPieceRequest{
+					{PieceCid: validCid, URLs: []string{validURL, "https://backup.example.com/piece/" + validCid}},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid request with provider host",
+			req: PullRequest{
+				ExtraData: "0x1234",
+				DataSetId: &dataSetId,
+				Pieces: []PullPieceRequest{
+					{PieceCid: validCid, Provider: &PullPieceProvider{Host: "sp.example.com"}},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid request combining sourceUrl urls and provider",
+			req: PullRequest{
+				ExtraData: "0x1234",
+				DataSetId: &dataSetId,
+				Pieces: []PullPieceRequest{
+					{
+						PieceCid:  validCid,
+						SourceURL: validURL,
+						URLs:      []string{"https://backup.example.com/piece/" + validCid},
+						Provider:  &PullPieceProvider{Host: "other.example.com", CIDs: []string{validCid2}},
+					},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "provider cids without host",
+			req: PullRequest{
+				ExtraData: "0x1234",
+				DataSetId: &dataSetId,
+				Pieces: []PullPieceRequest{
+					{PieceCid: validCid, Provider: &PullPieceProvider{CIDs: []string{validCid}}},
+				},
+			},
+			wantErr:     true,
+			errContains: "provider.host is required",
+		},
+		{
+			name: "empty urls entry",
+			req: PullRequest{
+				ExtraData: "0x1234",
+				DataSetId: &dataSetId,
+				Pieces: []PullPieceRequest{
+					{PieceCid: validCid, URLs: []string{""}},
+				},
+			},
+			wantErr:     true,
+			errContains: "urls[0] is empty",
 		},
 		{
 			name: "invalid sourceUrl",
@@ -210,6 +273,96 @@ func TestPullRequest_Validate(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestPullPieceRequest_SourceURLs(t *testing.T) {
+	const validCid = "bafkzcibf6x7poaqtr2pqm6qki6sgetps74xutpclzrwbux5ow6rw4nsfu6tbf2zfnmnq"
+	const validCid2 = "bafkzcibf6x7poaqtihg2pifeyzwfy3ndaumj3ds6c5ddiqewo2dzfzr7pqlery5dwyba"
+	const v1Cid = "baga6ea4seaqpy7usqklokfx2vxuynmupslkeutzexe2uqurdg5vhtebhxqmpqmy"
+
+	t.Run("legacy sourceUrl", func(t *testing.T) {
+		p := PullPieceRequest{PieceCid: validCid, SourceURL: "https://sp.example.com/piece/" + validCid}
+		urls, err := p.SourceURLs()
+		require.NoError(t, err)
+		require.Equal(t, []string{"https://sp.example.com/piece/" + validCid}, urls)
+	})
+
+	t.Run("urls array", func(t *testing.T) {
+		p := PullPieceRequest{PieceCid: validCid, URLs: []string{
+			"https://a.example/piece/" + validCid,
+			"https://b.example/piece/" + validCid,
+		}}
+		urls, err := p.SourceURLs()
+		require.NoError(t, err)
+		require.Equal(t, []string{
+			"https://a.example/piece/" + validCid,
+			"https://b.example/piece/" + validCid,
+		}, urls)
+	})
+
+	t.Run("provider host uses pieceCid", func(t *testing.T) {
+		p := PullPieceRequest{PieceCid: validCid, Provider: &PullPieceProvider{Host: "sp.example.com"}}
+		urls, err := p.SourceURLs()
+		require.NoError(t, err)
+		require.Equal(t, []string{"https://sp.example.com/piece/" + validCid}, urls)
+	})
+
+	t.Run("provider host with port and cids", func(t *testing.T) {
+		p := PullPieceRequest{
+			PieceCid: validCid,
+			Provider: &PullPieceProvider{Host: "sp.example.com:8080", CIDs: []string{v1Cid, validCid2}},
+		}
+		urls, err := p.SourceURLs()
+		require.NoError(t, err)
+		require.Equal(t, []string{
+			"https://sp.example.com:8080/piece/" + v1Cid,
+			"https://sp.example.com:8080/piece/" + validCid2,
+		}, urls)
+	})
+
+	t.Run("provider host already has scheme", func(t *testing.T) {
+		p := PullPieceRequest{
+			PieceCid: validCid,
+			Provider: &PullPieceProvider{Host: "https://sp.example.com/pdp"},
+		}
+		urls, err := p.SourceURLs()
+		require.NoError(t, err)
+		require.Equal(t, []string{"https://sp.example.com/pdp/piece/" + validCid}, urls)
+	})
+
+	t.Run("combines and dedupes all sources", func(t *testing.T) {
+		legacy := "https://sp.example.com/piece/" + validCid
+		p := PullPieceRequest{
+			PieceCid:  validCid,
+			SourceURL: legacy,
+			URLs:      []string{legacy, "https://backup.example.com/piece/" + validCid},
+			Provider:  &PullPieceProvider{Host: "sp.example.com"},
+		}
+		urls, err := p.SourceURLs()
+		require.NoError(t, err)
+		require.Equal(t, []string{
+			"https://sp.example.com/piece/" + validCid,
+			"https://backup.example.com/piece/" + validCid,
+		}, urls)
+	})
+
+	t.Run("json form", func(t *testing.T) {
+		raw := `{
+			"pieceCid": "` + validCid + `",
+			"sourceUrl": "https://legacy.example/piece/` + validCid + `",
+			"urls": ["https://a.example/piece/` + validCid + `"],
+			"provider": {"host": "sp.example.com", "cids": ["` + v1Cid + `"]}
+		}`
+		var p PullPieceRequest
+		require.NoError(t, json.Unmarshal([]byte(raw), &p))
+		urls, err := p.SourceURLs()
+		require.NoError(t, err)
+		require.Equal(t, []string{
+			"https://legacy.example/piece/" + validCid,
+			"https://a.example/piece/" + validCid,
+			"https://sp.example.com/piece/" + v1Cid,
+		}, urls)
+	})
 }
 
 func TestPullRequest_ValidateBatchLimit(t *testing.T) {

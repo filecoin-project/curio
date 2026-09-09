@@ -191,7 +191,13 @@ func NewPullHandler(auth Auth, store PullStore, validator AddPiecesValidator, db
 //
 //   - pieceCid: PieceCIDv2 format (encodes both CommP and raw size)
 //
-//   - sourceUrl: HTTPS URL ending in /piece/{pieceCid} on a public host
+//   - sourceUrl (optional): a single HTTPS URL
+//
+//   - urls (optional): additional HTTPS URLs
+//
+//   - provider (optional): {host, cids} assembled here into https://{host}/piece/{cid}
+//     URLs. If cids is omitted, pieceCid is used. At least one source URL must
+//     result after combining these fields.
 //
 // # ExtraData and Authorization
 //
@@ -238,8 +244,8 @@ func NewPullHandler(auth Auth, store PullStore, validator AddPiecesValidator, db
 //
 // Several safety measures protect against malicious sources:
 //
-//   - Source URL validation: Must be HTTPS, path must match /piece/{pieceCid},
-//     host must not be localhost/private IP/link-local
+//   - Source URL validation: Must be HTTPS. Hosts are checked against the SSRF
+//     policy at fetch time (localhost/private IP/link-local are blocked).
 //
 //   - Size limits: Piece size (encoded in PieceCIDv2) must not exceed PieceSizeMaxLimit.
 //     Downloads are capped at the declared size to prevent abuse.
@@ -408,13 +414,22 @@ func (h *PullHandler) HandlePull(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Build normalized pull pieces for persistence.
-	pullPieces := make([]PullPiece, len(pieceInfos))
+	// Build normalized pull pieces for persistence. Each request piece may
+	// expand into multiple source URLs (sourceUrl + urls + provider).
+	var pullPieces []PullPiece
 	for i, info := range pieceInfos {
-		pullPieces[i] = PullPiece{
-			CidV1:     info.CidV1,
-			RawSize:   info.RawSize,
-			SourceURL: req.Pieces[i].SourceURL,
+		urls, err := req.Pieces[i].SourceURLs()
+		if err != nil {
+			msg := fmt.Sprintf("Invalid piece[%d] sources: %s", i, err.Error())
+			httpServerError(w, http.StatusBadRequest, msg, err)
+			return
+		}
+		for _, sourceURL := range urls {
+			pullPieces = append(pullPieces, PullPiece{
+				CidV1:     info.CidV1,
+				RawSize:   info.RawSize,
+				SourceURL: sourceURL,
+			})
 		}
 	}
 

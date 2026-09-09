@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -62,10 +63,97 @@ func ValidatePullSourceURL(sourceURL string) error {
 	return nil
 }
 
-// PullPieceRequest represents a single piece in a pull request
+// PullPieceProvider describes a remote SP from which piece URLs are assembled.
+// Host is a hostname (optionally with port or https:// scheme). Each CID is
+// turned into https://{host}/piece/{cid} on this provider.
+type PullPieceProvider struct {
+	Host string   `json:"host"`
+	CIDs []string `json:"cids,omitempty"`
+}
+
+// PullPieceRequest represents a single piece in a pull request.
+// Source locations are optional and combined into one URL list:
+//   - sourceUrl: a single URL (legacy form)
+//   - urls: additional explicit URLs
+//   - provider: host + optional CIDs assembled into /piece/{cid} URLs
 type PullPieceRequest struct {
-	PieceCid  string `json:"pieceCid"`
-	SourceURL string `json:"sourceUrl"`
+	PieceCid  string             `json:"pieceCid"`
+	SourceURL string             `json:"sourceUrl,omitempty"`
+	URLs      []string           `json:"urls,omitempty"`
+	Provider  *PullPieceProvider `json:"provider,omitempty"`
+}
+
+// SourceURLs returns the de-duplicated source URLs for this piece, combining
+// sourceUrl, urls, and provider-assembled URLs. Provider URLs are built here
+// (on the receiving provider) from host + CIDs; if cids is empty the piece's
+// own pieceCid is used.
+func (p PullPieceRequest) SourceURLs() ([]string, error) {
+	urls := make([]string, 0, 1+len(p.URLs))
+	seen := make(map[string]struct{}, 1+len(p.URLs))
+	add := func(u string) {
+		if u == "" {
+			return
+		}
+		if _, ok := seen[u]; ok {
+			return
+		}
+		seen[u] = struct{}{}
+		urls = append(urls, u)
+	}
+
+	add(p.SourceURL)
+	for i, u := range p.URLs {
+		if u == "" {
+			return nil, fmt.Errorf("urls[%d] is empty", i)
+		}
+		add(u)
+	}
+
+	if p.Provider != nil {
+		host := strings.TrimSpace(p.Provider.Host)
+		if host == "" && len(p.Provider.CIDs) == 0 {
+			return urls, nil
+		}
+		if host == "" {
+			return nil, fmt.Errorf("provider.host is required")
+		}
+		cids := p.Provider.CIDs
+		if len(cids) == 0 {
+			if p.PieceCid == "" {
+				return nil, fmt.Errorf("pieceCid is required to assemble provider URLs")
+			}
+			cids = []string{p.PieceCid}
+		}
+		for i, c := range cids {
+			if c == "" {
+				return nil, fmt.Errorf("provider.cids[%d] is empty", i)
+			}
+			assembled, err := assembleProviderPieceURL(host, c)
+			if err != nil {
+				return nil, err
+			}
+			add(assembled)
+		}
+	}
+
+	return urls, nil
+}
+
+func assembleProviderPieceURL(host, pieceCID string) (string, error) {
+	raw := host
+	if !strings.Contains(host, "://") {
+		raw = "https://" + host
+	}
+
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return "", fmt.Errorf("invalid provider host %q: %w", host, err)
+	}
+	if parsed.Host == "" {
+		return "", fmt.Errorf("invalid provider host %q: missing hostname", host)
+	}
+
+	return parsed.JoinPath("piece", pieceCID).String(), nil
 }
 
 // PullRequest represents the incoming pull request body
@@ -110,16 +198,22 @@ func (r *PullRequest) Validate() error {
 		if piece.PieceCid == "" {
 			return fmt.Errorf("piece[%d]: pieceCid is required", i)
 		}
-		if piece.SourceURL == "" {
-			return fmt.Errorf("piece[%d]: sourceUrl is required", i)
-		}
-		key := piece.PieceCid + "\x00" + piece.SourceURL
-		if _, ok := seenPieceSources[key]; ok {
-			return fmt.Errorf("piece[%d]: duplicate pieceCid/sourceUrl", i)
-		}
-		seenPieceSources[key] = struct{}{}
-		if err := ValidatePullSourceURL(piece.SourceURL); err != nil {
+		urls, err := piece.SourceURLs()
+		if err != nil {
 			return fmt.Errorf("piece[%d]: %w", i, err)
+		}
+		if len(urls) == 0 {
+			return fmt.Errorf("piece[%d]: at least one source URL is required", i)
+		}
+		for j, sourceURL := range urls {
+			key := piece.PieceCid + "\x00" + sourceURL
+			if _, ok := seenPieceSources[key]; ok {
+				return fmt.Errorf("piece[%d]: duplicate pieceCid/sourceUrl", i)
+			}
+			seenPieceSources[key] = struct{}{}
+			if err := ValidatePullSourceURL(sourceURL); err != nil {
+				return fmt.Errorf("piece[%d] source[%d]: %w", i, j, err)
+			}
 		}
 	}
 
