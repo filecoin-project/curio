@@ -87,6 +87,58 @@ func TestPullPieceCompleteAlreadyParkedItemsCompletesDuplicateSources(t *testing
 	require.Equal(t, len(urls), pieceRefs)
 }
 
+func TestPullPieceCompletionCacheBoundary(t *testing.T) {
+	ctx := t.Context()
+	db, err := harmonydb.NewFromConfigWithITestID(t)
+	require.NoError(t, err)
+	service := "pull-task-cache-boundary"
+	require.NoError(t, insertPullTaskService(ctx, db, service))
+
+	for i, tc := range []struct {
+		name       string
+		rawSize    int64
+		paddedSize int64
+		needsCache bool
+	}{
+		{name: "32 MiB padded", rawSize: (32 << 20) * 127 / 128, paddedSize: 32 << 20},
+		{name: "32 MiB raw", rawSize: 32 << 20, paddedSize: 64 << 20, needsCache: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pieceCID, _ := testPullPieceCID(t, uint64(100+i))
+			_, err := db.Exec(ctx, `
+				INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, complete, long_term)
+				VALUES ($1, $2, $3, TRUE, TRUE)
+			`, pieceCID, tc.paddedSize, tc.rawSize)
+			require.NoError(t, err)
+
+			var pullID int64
+			err = db.QueryRow(ctx, `
+				INSERT INTO pdp_piece_pulls (service, extra_data_hash, data_set_id, record_keeper, client_address)
+				VALUES ($1, $2, 1, '', '0x1') RETURNING id
+			`, service, []byte(tc.name)).Scan(&pullID)
+			require.NoError(t, err)
+			_, err = db.Exec(ctx, `
+				INSERT INTO pdp_piece_pull_items (fetch_id, piece_cid, piece_raw_size, source_url)
+				VALUES ($1, $2, $3, 'https://cache-boundary.example/piece')
+			`, pullID, pieceCID, tc.rawSize)
+			require.NoError(t, err)
+
+			task := &PDPPullPieceTask{db: db}
+			require.NoError(t, task.completeAlreadyParkedItems(ctx))
+			var complete, needsCache bool
+			err = db.QueryRow(ctx, `
+				SELECT pi.complete, pr.needs_save_cache
+				FROM pdp_piece_pull_items pi
+				JOIN pdp_piecerefs pr ON pr.piece_ref = pi.parked_piece_ref
+				WHERE pi.fetch_id = $1
+			`, pullID).Scan(&complete, &needsCache)
+			require.NoError(t, err)
+			require.True(t, complete)
+			require.Equal(t, tc.needsCache, needsCache)
+		})
+	}
+}
+
 func TestCleanupPullCreatedParkedPieceOnlyDeletesPullRefsAndEnablesParkTask(t *testing.T) {
 	ctx := t.Context()
 	db, err := harmonydb.NewFromConfigWithITestID(t)
@@ -216,11 +268,20 @@ func TestExpireStalePullItemsEnablesParkTaskWhenOtherRefsRemain(t *testing.T) {
 		INSERT INTO pdp_piece_pull_items (
 			fetch_id, piece_cid, piece_raw_size, source_url, created_at, parked_piece_ref, pull_parked_piece_id
 		)
-		VALUES ($1, $2, $3, 'https://pull-expire.example/piece', NOW() - INTERVAL '31 minutes', $4, $5)
+		VALUES ($1, $2, $3, 'https://pull-expire.example/piece', NOW() - INTERVAL '5 hours', $4, $5)
 	`, pullID, pieceCid, rawSize, pullRef, parkedPieceID)
 	require.NoError(t, err)
 
 	task := &PDPPullPieceTask{db: db}
+	require.NoError(t, task.expireStalePullItems(ctx))
+
+	var failed bool
+	var retainedRef int64
+	require.NoError(t, db.QueryRow(ctx, `SELECT failed, parked_piece_ref FROM pdp_piece_pull_items WHERE fetch_id = $1`, pullID).Scan(&failed, &retainedRef))
+	require.False(t, failed)
+	require.Equal(t, pullRef, retainedRef)
+	_, err = db.Exec(ctx, `UPDATE pdp_piece_pull_items SET created_at = NOW() - INTERVAL '7 hours' WHERE fetch_id = $1`, pullID)
+	require.NoError(t, err)
 	require.NoError(t, task.expireStalePullItems(ctx))
 
 	var failedItems int

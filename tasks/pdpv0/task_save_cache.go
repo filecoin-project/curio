@@ -1,11 +1,13 @@
 package pdpv0
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"time"
 
 	"github.com/ipfs/go-cid"
+	pool "github.com/libp2p/go-buffer-pool"
 	"golang.org/x/xerrors"
 
 	commcid "github.com/filecoin-project/go-fil-commcid"
@@ -17,20 +19,12 @@ import (
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/passcall"
+	"github.com/filecoin-project/curio/lib/proof"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
-// MinSizeForCache: sub-pieces with padded size > this get a cached middle
-// merkle layer. Keyed on padded size (not raw) so SaveCache and Prove agree
-// on which pieces qualify (#1204). 32 MiB threshold derived from
-// https://github.com/filecoin-project/curio/pull/997#issuecomment-3960996974
-const MinSizeForCache = uint64(32 * 1024 * 1024)
 const PaddedReadSize = 4 << 20
-
-// MaxRawSizeForSkip is the largest raw size whose padded size is <=
-// MinSizeForCache. Used in SQL, where only raw size is available.
-const MaxRawSizeForSkip = MinSizeForCache * 127 / 128
 
 type TaskPDPSaveCache struct {
 	db  *harmonydb.DB
@@ -69,14 +63,6 @@ func (t *TaskPDPSaveCache) Do(ctx context.Context, taskID harmonytask.TaskID, st
 
 	task := tasks[0]
 
-	n, err := t.db.Exec(ctx, `UPDATE pdp_piecerefs SET caching_task_started = NOW() WHERE id = $1 AND needs_save_cache = TRUE`, task.ID)
-	if err != nil {
-		return false, xerrors.Errorf("failed to mark caching task as started: %w", err)
-	}
-	if n == 0 {
-		return false, xerrors.Errorf("piece ref %d no longer needs save cache", task.ID)
-	}
-
 	log.Debugw("PDPv0_SaveCache starting", "taskID", taskID, "pieceCID", task.PieceCID, "rawSize", task.RawSize)
 
 	pcidV1, err := cid.Parse(task.PieceCID)
@@ -90,21 +76,20 @@ func (t *TaskPDPSaveCache) Do(ctx context.Context, taskID harmonytask.TaskID, st
 		return false, xerrors.Errorf("failed to construct piece cid v2: %w", err)
 	}
 
-	paddedSize := uint64(padreader.PaddedSize(task.RawSize).Padded())
-	if paddedSize <= MinSizeForCache {
-		log.Debugw("PDPv0_SaveCache: piece below cache threshold, skipping layer build", "pieceCID", task.PieceCID, "rawSize", task.RawSize, "paddedSize", paddedSize, "threshold", MinSizeForCache)
+	paddedSize := padreader.PaddedSize(task.RawSize).Padded()
+	if paddedSize <= proof.MIN_PADDED_PIECE_SIZE_FOR_CACHE {
+		log.Debugw("PDPv0_SaveCache: piece below cache threshold, skipping layer build", "pieceCID", task.PieceCID, "rawSize", task.RawSize, "paddedSize", paddedSize, "threshold", proof.MIN_PADDED_PIECE_SIZE_FOR_CACHE)
 	} else {
-		has, _, err := t.idx.GetPDPLayerIndex(ctx, pcidV2)
+		layerIndex := commp.SnapshotLayerIndex(PaddedReadSize)
+		nodes, err := t.idx.GetPDPLayer(ctx, pcidV2, layerIndex)
 		if err != nil {
-			return false, xerrors.Errorf("failed to check if piece has PDP layer: %w", err)
+			return false, xerrors.Errorf("failed to read PDP cache layer: %w", err)
 		}
-
-		if has {
+		if err := validatePDPCacheLayer(pcidV2, layerIndex, nodes); err == nil {
 			log.Debugw("PDPv0_SaveCache: PDP layer already cached, skipping build", "pieceCID", task.PieceCID, "pcidV2", pcidV2)
-		}
-		if !has {
+		} else {
 			log.Debugw("PDPv0_SaveCache: building PDP layer cache", "pieceCID", task.PieceCID, "pcidV2", pcidV2, "rawSize", task.RawSize)
-			cp := commp.NewCalcWithSnapshot(commp.SnapshotLayerIndex(PaddedReadSize))
+			cp := commp.NewCalcWithSnapshot(layerIndex)
 			defer cp.Reset()
 			reader, _, err := t.cpr.GetSharedPieceReader(ctx, pcidV1, false)
 			if err != nil {
@@ -114,7 +99,7 @@ func (t *TaskPDPSaveCache) Do(ctx context.Context, taskID harmonytask.TaskID, st
 				_ = reader.Close()
 			}()
 
-			n, err := io.CopyBuffer(cp, reader, make([]byte, 4<<20))
+			n, err := io.CopyBuffer(cp, reader, make([]byte, PaddedReadSize))
 			if err != nil {
 				return false, xerrors.Errorf("failed to copy piece data to commP: %w", err)
 			}
@@ -128,7 +113,7 @@ func (t *TaskPDPSaveCache) Do(ctx context.Context, taskID harmonytask.TaskID, st
 			}
 
 			if snap == nil {
-				return false, xerrors.Errorf("failed to get piece snapshot: %w", err)
+				return false, xerrors.New("failed to get piece snapshot")
 			}
 
 			computedV2, err := commcid.DataCommitmentToPieceCidv2(digest, uint64(n))
@@ -153,6 +138,13 @@ func (t *TaskPDPSaveCache) Do(ctx context.Context, taskID harmonytask.TaskID, st
 			if err != nil {
 				return false, xerrors.Errorf("failed to add PDP layer cache: %w", err)
 			}
+			nodes, err = t.idx.GetPDPLayer(ctx, pcidV2, layerIndex)
+			if err != nil {
+				return false, xerrors.Errorf("failed to read saved PDP cache layer: %w", err)
+			}
+			if err := validatePDPCacheLayer(pcidV2, layerIndex, nodes); err != nil {
+				return false, xerrors.Errorf("invalid saved PDP cache layer: %w", err)
+			}
 			log.Debugw("PDPv0_SaveCache: PDP layer cache saved", "pieceCID", task.PieceCID, "pcidV2", pcidV2, "layerIdx", snap.LayerIndex, "leafCount", len(leafs))
 		}
 	}
@@ -160,7 +152,7 @@ func (t *TaskPDPSaveCache) Do(ctx context.Context, taskID harmonytask.TaskID, st
 	log.Debugw("PDPv0_SaveCache: marking task complete in DB", "taskID", taskID, "pieceCID", task.PieceCID)
 
 	// Mark task as completed
-	n, err = t.db.Exec(ctx, `UPDATE pdp_piecerefs SET needs_save_cache = FALSE, save_cache_task_id = NULL, caching_task_completed = NOW()
+	n, err := t.db.Exec(ctx, `UPDATE pdp_piecerefs SET needs_save_cache = FALSE, save_cache_task_id = NULL
 								WHERE id = $1 AND save_cache_task_id = $2`, task.ID, taskID)
 	if err != nil {
 		return false, xerrors.Errorf("failed to update pdp_piecerefs: %w", err)
@@ -172,6 +164,48 @@ func (t *TaskPDPSaveCache) Do(ctx context.Context, taskID harmonytask.TaskID, st
 
 	log.Debugw("PDPv0_SaveCache complete", "taskID", taskID, "pieceCID", task.PieceCID)
 	return true, nil
+}
+
+// validatePDPCacheLayer checks the complete snapshot against the piece commitment
+func validatePDPCacheLayer(pieceCidV2 cid.Cid, layerIndex int, nodes []indexstore.NodeDigest) error {
+	pieceCidV1, rawSize, err := commcid.PieceCidV1FromV2(pieceCidV2)
+	if err != nil {
+		return xerrors.Errorf("decoding cached piece CID: %w", err)
+	}
+	if layerIndex != commp.SnapshotLayerIndex(PaddedReadSize) {
+		return xerrors.Errorf("unsupported PDP cache layer %d", layerIndex)
+	}
+
+	paddedSize := uint64(padreader.PaddedSize(rawSize).Padded())
+	expectedNodes := paddedSize / PaddedReadSize
+	if expectedNodes == 0 || expectedNodes > proof.MaxMemtreeSize/proof.NODE_SIZE {
+		return xerrors.Errorf("unsupported PDP cache node count %d", expectedNodes)
+	}
+	if uint64(len(nodes)) != expectedNodes {
+		return xerrors.Errorf("incomplete PDP cache layer: expected %d nodes, got %d", expectedNodes, len(nodes))
+	}
+
+	layer := make([]byte, len(nodes)*proof.NODE_SIZE)
+	for i, node := range nodes {
+		if node.Layer != layerIndex || node.Index != int64(i) {
+			return xerrors.Errorf("invalid PDP cache node %d: layer %d, index %d", i, node.Layer, node.Index)
+		}
+		copy(layer[i*proof.NODE_SIZE:], node.Hash[:])
+	}
+
+	memtree, err := proof.BuildSha254MemtreeFromSnapshot(layer)
+	if err != nil {
+		return xerrors.Errorf("building PDP cache root: %w", err)
+	}
+	defer pool.Put(memtree)
+	commitment, err := commcid.CIDToPieceCommitmentV1(pieceCidV1)
+	if err != nil {
+		return xerrors.Errorf("decoding PDP cache commitment: %w", err)
+	}
+	if !bytes.Equal(memtree[len(memtree)-proof.NODE_SIZE:], commitment) {
+		return xerrors.New("PDP cache root does not match piece commitment")
+	}
+	return nil
 }
 
 func (t *TaskPDPSaveCache) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
@@ -247,7 +281,7 @@ func (t *TaskPDPSaveCache) scheduleMigrationCleanup(_ context.Context, taskFunc 
 	// query bulk updates all pieces that are "need save_cache" but
 	// trivially will not populate the cache because they are too small
 	_, err := t.db.Exec(context.Background(), `
-            UPDATE pdp_piecerefs pr SET needs_save_cache = FALSE, caching_task_completed = NOW()
+            UPDATE pdp_piecerefs pr SET needs_save_cache = FALSE
             WHERE pr.needs_save_cache = TRUE
             AND pr.save_cache_task_id IS NULL
             AND EXISTS (
@@ -255,7 +289,7 @@ func (t *TaskPDPSaveCache) scheduleMigrationCleanup(_ context.Context, taskFunc 
                 JOIN parked_pieces pp ON pp.id = pprf.piece_id
                 WHERE pprf.ref_id = pr.piece_ref
                 AND pp.piece_raw_size <= $1
-            )`, MaxRawSizeForSkip)
+            )`, proof.MIN_PADDED_PIECE_SIZE_FOR_CACHE.Unpadded())
 	if err != nil {
 		return xerrors.Errorf("bulk clearing small pieces: %w", err)
 	}

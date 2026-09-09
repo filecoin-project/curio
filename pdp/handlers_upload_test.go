@@ -21,6 +21,7 @@ import (
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
+	"github.com/filecoin-project/curio/lib/proof"
 	"github.com/filecoin-project/curio/lib/storiface"
 )
 
@@ -179,9 +180,52 @@ func TestExactSizeReader(t *testing.T) {
 }
 
 func TestNeedsSaveCacheBoundary(t *testing.T) {
-	maxRawBelowThreshold := minPaddedPieceSizeForCache * 127 / 256
+	maxRawBelowThreshold := int64(proof.MIN_PADDED_PIECE_SIZE_FOR_CACHE.Unpadded())
 	require.False(t, needsSaveCache(maxRawBelowThreshold))
 	require.True(t, needsSaveCache(maxRawBelowThreshold+1))
+	require.True(t, needsSaveCache(32<<20), "32 MiB raw requires a 64 MiB padded piece")
+}
+
+func TestPieceUploadSizeLimit(t *testing.T) {
+	reader := NewTimeoutLimitReader(bytes.NewReader([]byte("ab")), time.Second)
+	reader.totalBytes = 68182605823
+	buf := make([]byte, 1)
+	n, err := reader.Read(buf)
+	require.NoError(t, err)
+	require.Equal(t, 1, n)
+	require.Equal(t, int64(68182605824), reader.totalBytes)
+	n, err = reader.Read(buf)
+	require.ErrorIs(t, err, ErrPieceTooLarge)
+	require.Zero(t, n)
+}
+
+func TestHandlePiecePostSizeBoundary(t *testing.T) {
+	db, err := harmonydb.NewFromConfigWithITestID(t)
+	require.NoError(t, err)
+	service := &PDPService{Auth: &NullAuth{}, db: db}
+	for _, test := range []struct {
+		name   string
+		raw    uint64
+		status int
+	}{
+		{name: "64 GiB padded", raw: 68182605824, status: http.StatusCreated},
+		{name: "one byte above maximum", raw: 68182605825, status: http.StatusRequestEntityTooLarge},
+		{name: "64 GiB raw", raw: 64 << 30, status: http.StatusRequestEntityTooLarge},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			pieceCID, err := commcid.DataCommitmentToPieceCidv2(make([]byte, 32), test.raw)
+			require.NoError(t, err)
+			req := httptest.NewRequest(http.MethodPost, "/pdp/piece", bytes.NewBufferString(`{"pieceCid":"`+pieceCID.String()+`"}`))
+			rec := httptest.NewRecorder()
+			service.handlePiecePost(rec, req)
+			require.Equal(t, test.status, rec.Code, rec.Body.String())
+			if test.status == http.StatusCreated {
+				var rawSize int64
+				require.NoError(t, db.QueryRow(t.Context(), `SELECT check_size FROM pdp_piece_uploads WHERE id = $1`, path.Base(rec.Header().Get("Location"))).Scan(&rawSize))
+				require.Equal(t, int64(test.raw), rawSize)
+			}
+		})
+	}
 }
 
 func TestHandlePieceUploadWritesDirectlyAndPublishes(t *testing.T) {
@@ -407,13 +451,20 @@ func TestCleanupExpiredStreamingUploadClaims(t *testing.T) {
 	claim, err := service.claimStreamingUpload(t.Context(), uploadID, "public")
 	require.NoError(t, err)
 	require.True(t, claim.created)
-	_, err = db.Exec(t.Context(), `UPDATE pdp_piece_streaming_uploads SET created_at = NOW() - INTERVAL '2 hours' WHERE id = $1`, uploadID)
+	_, err = db.Exec(t.Context(), `UPDATE pdp_piece_streaming_uploads SET created_at = NOW() - INTERVAL '90 minutes' WHERE id = $1`, uploadID)
+	require.NoError(t, err)
+	require.NoError(t, service.cleanupExpiredStreamingUploadClaims(t.Context()))
+	var pieceRef sql.NullInt64
+	require.NoError(t, db.QueryRow(t.Context(), `SELECT piece_ref FROM pdp_piece_streaming_uploads WHERE id = $1`, uploadID).Scan(&pieceRef))
+	require.True(t, pieceRef.Valid)
+	require.Equal(t, claim.pieceRefID, pieceRef.Int64)
+
+	_, err = db.Exec(t.Context(), `UPDATE pdp_piece_streaming_uploads SET created_at = NOW() - INTERVAL '4 hours' WHERE id = $1`, uploadID)
 	require.NoError(t, err)
 
 	require.NoError(t, service.cleanupExpiredStreamingUploadClaims(t.Context()))
 	require.Zero(t, pio.removes)
 
-	var pieceRef sql.NullInt64
 	require.NoError(t, db.QueryRow(t.Context(), `SELECT piece_ref FROM pdp_piece_streaming_uploads WHERE id = $1`, uploadID).Scan(&pieceRef))
 	require.False(t, pieceRef.Valid)
 
@@ -571,7 +622,7 @@ func TestCleanupExpiredDirectUploadClaims(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, claim.created)
 
-	_, err = db.Exec(t.Context(), `UPDATE pdp_piece_uploads SET created_at = NOW() - INTERVAL '2 hours' WHERE id = $1`, uploadID)
+	_, err = db.Exec(t.Context(), `UPDATE pdp_piece_uploads SET created_at = NOW() - INTERVAL '4 hours' WHERE id = $1`, uploadID)
 	require.NoError(t, err)
 	require.NoError(t, service.cleanupExpiredDirectUploadClaims(t.Context()))
 
@@ -605,6 +656,8 @@ func TestCleanupExpiredDirectUploadClaimsLeavesFreshClaim(t *testing.T) {
 	claim, err := service.claimDirectUpload(t.Context(), uploadID, "public", pieceCIDV1, int64(len(body)), paddedSize)
 	require.NoError(t, err)
 
+	_, err = db.Exec(t.Context(), `UPDATE pdp_piece_uploads SET created_at = NOW() - INTERVAL '90 minutes' WHERE id = $1`, uploadID)
+	require.NoError(t, err)
 	require.NoError(t, service.cleanupExpiredDirectUploadClaims(t.Context()))
 
 	var pieceRef sql.NullInt64

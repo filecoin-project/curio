@@ -139,7 +139,7 @@ func DefaultCurioConfig() *CurioConfig {
 		HTTP: HTTPConfig{
 			DomainName:        "",
 			ListenAddress:     "0.0.0.0:12310",
-			ReadTimeout:       time.Minute * 30,
+			ReadTimeout:       time.Hour * 2,
 			IdleTimeout:       time.Minute * 30,
 			ReadHeaderTimeout: time.Second * 5,
 			CORSOrigins:       []string{},
@@ -983,7 +983,7 @@ type HTTPConfig struct {
 	DelegateTLS bool
 
 	// ReadTimeout is the maximum duration for reading the entire or next request, including body, from the client.
-	// Time duration string (e.g., "1h2m3s") in TOML format. (Default: "30m0s")
+	// Time duration string (e.g., "1h2m3s") in TOML format. (Default: "2h0m0s")
 	ReadTimeout time.Duration
 
 	// IdleTimeout is the maximum duration of an idle session. If set, idle connections are closed after this duration.
