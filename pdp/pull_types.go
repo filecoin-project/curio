@@ -63,80 +63,23 @@ func ValidatePullSourceURL(sourceURL string) error {
 	return nil
 }
 
-// PullPieceProvider describes a remote SP from which piece URLs are assembled.
+// PullProvider describes a remote SP from which piece URLs are assembled.
 // Host is a hostname (optionally with port or https:// scheme). Each CID is
 // turned into https://{host}/piece/{cid} on this provider.
-type PullPieceProvider struct {
+type PullProvider struct {
 	Host string   `json:"host"`
 	CIDs []string `json:"cids,omitempty"`
 }
 
-// PullPieceRequest represents a single piece in a pull request.
-// Source locations are optional and combined into one URL list:
-//   - sourceUrl: a single URL (legacy form)
-//   - urls: additional explicit URLs
-//   - provider: host + optional CIDs assembled into /piece/{cid} URLs
+// PullPieceRequest is the current per-piece form: one piece CID and one source URL.
 type PullPieceRequest struct {
-	PieceCid  string             `json:"pieceCid"`
-	SourceURL string             `json:"sourceUrl,omitempty"`
-	URLs      []string           `json:"urls,omitempty"`
-	Provider  *PullPieceProvider `json:"provider,omitempty"`
+	PieceCid  string `json:"pieceCid"`
+	SourceURL string `json:"sourceUrl"`
 }
 
-// SourceURLs returns the de-duplicated source URLs for this piece, combining
-// sourceUrl, urls, and provider-assembled URLs. Provider URLs are built here
-// (on the receiving provider) from host + CIDs; if cids is empty the piece's
-// own pieceCid is used.
-func (p PullPieceRequest) SourceURLs() ([]string, error) {
-	urls := make([]string, 0, 1+len(p.URLs))
-	seen := make(map[string]struct{}, 1+len(p.URLs))
-	add := func(u string) {
-		if u == "" {
-			return
-		}
-		if _, ok := seen[u]; ok {
-			return
-		}
-		seen[u] = struct{}{}
-		urls = append(urls, u)
-	}
-
-	add(p.SourceURL)
-	for i, u := range p.URLs {
-		if u == "" {
-			return nil, fmt.Errorf("urls[%d] is empty", i)
-		}
-		add(u)
-	}
-
-	if p.Provider != nil {
-		host := strings.TrimSpace(p.Provider.Host)
-		if host == "" && len(p.Provider.CIDs) == 0 {
-			return urls, nil
-		}
-		if host == "" {
-			return nil, fmt.Errorf("provider.cids requires provider.host")
-		}
-		cids := p.Provider.CIDs
-		if len(cids) == 0 {
-			if p.PieceCid == "" {
-				return nil, fmt.Errorf("pieceCid is required to assemble provider URLs")
-			}
-			cids = []string{p.PieceCid}
-		}
-		for i, c := range cids {
-			if c == "" {
-				return nil, fmt.Errorf("provider.cids[%d] is empty", i)
-			}
-			assembled, err := assembleProviderPieceURL(host, c)
-			if err != nil {
-				return nil, err
-			}
-			add(assembled)
-		}
-	}
-
-	return urls, nil
+type pullSource struct {
+	PieceCid  string
+	SourceURL string
 }
 
 func assembleProviderPieceURL(host, pieceCID string) (string, error) {
@@ -156,12 +99,107 @@ func assembleProviderPieceURL(host, pieceCID string) (string, error) {
 	return parsed.JoinPath("piece", pieceCID).String(), nil
 }
 
-// PullRequest represents the incoming pull request body
+func pieceCIDFromSourceURL(sourceURL string) (string, error) {
+	parsed, err := url.Parse(sourceURL)
+	if err != nil {
+		return "", fmt.Errorf("invalid URL: %w", err)
+	}
+
+	path := strings.TrimSuffix(parsed.Path, "/")
+	const marker = "/piece/"
+	idx := strings.LastIndex(path, marker)
+	if idx < 0 {
+		return "", fmt.Errorf("URL path must contain /piece/{cid}")
+	}
+	cidPart := path[idx+len(marker):]
+	if cidPart == "" || strings.Contains(cidPart, "/") {
+		return "", fmt.Errorf("URL path must end with /piece/{cid}")
+	}
+	return cidPart, nil
+}
+
+// PullRequest represents the incoming pull request body.
+// pieces, urls, and provider are optional and are assembled into the same
+// per-URL pull item list used today.
 type PullRequest struct {
 	ExtraData    string             `json:"extraData"`
 	DataSetId    *uint64            `json:"dataSetId,omitempty"`    // nil or 0 = create new dataset
 	RecordKeeper *string            `json:"recordKeeper,omitempty"` // required when dataSetId is nil/0
-	Pieces       []PullPieceRequest `json:"pieces"`
+	Pieces       []PullPieceRequest `json:"pieces,omitempty"`
+	URLs         []string           `json:"urls,omitempty"`
+	Provider     *PullProvider      `json:"provider,omitempty"`
+}
+
+// AssembledSources combines the current pieces form, top-level urls, and
+// provider {host, cids} into de-duplicated (pieceCid, sourceUrl) pairs.
+func (r *PullRequest) AssembledSources() ([]pullSource, error) {
+	sources := make([]pullSource, 0, len(r.Pieces)+len(r.URLs))
+	seen := make(map[string]struct{}, len(r.Pieces)+len(r.URLs))
+	var knownCids []string
+	seenCid := make(map[string]struct{}, len(r.Pieces)+len(r.URLs))
+
+	add := func(pieceCid, sourceURL string) {
+		key := pieceCid + "\x00" + sourceURL
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		sources = append(sources, pullSource{PieceCid: pieceCid, SourceURL: sourceURL})
+		if _, ok := seenCid[pieceCid]; !ok {
+			seenCid[pieceCid] = struct{}{}
+			knownCids = append(knownCids, pieceCid)
+		}
+	}
+
+	for i, piece := range r.Pieces {
+		if piece.PieceCid == "" {
+			return nil, fmt.Errorf("piece[%d]: pieceCid is required", i)
+		}
+		if piece.SourceURL == "" {
+			return nil, fmt.Errorf("piece[%d]: sourceUrl is required", i)
+		}
+		key := piece.PieceCid + "\x00" + piece.SourceURL
+		if _, ok := seen[key]; ok {
+			return nil, fmt.Errorf("piece[%d]: duplicate pieceCid/sourceUrl", i)
+		}
+		add(piece.PieceCid, piece.SourceURL)
+	}
+
+	for i, sourceURL := range r.URLs {
+		if sourceURL == "" {
+			return nil, fmt.Errorf("urls[%d] is empty", i)
+		}
+		pieceCid, err := pieceCIDFromSourceURL(sourceURL)
+		if err != nil {
+			return nil, fmt.Errorf("urls[%d]: %w", i, err)
+		}
+		add(pieceCid, sourceURL)
+	}
+
+	if r.Provider != nil {
+		host := strings.TrimSpace(r.Provider.Host)
+		if len(r.Provider.CIDs) > 0 && host == "" {
+			return nil, fmt.Errorf("provider.cids requires provider.host")
+		}
+		if host != "" {
+			cids := r.Provider.CIDs
+			if len(cids) == 0 {
+				cids = knownCids
+			}
+			for i, pieceCid := range cids {
+				if pieceCid == "" {
+					return nil, fmt.Errorf("provider.cids[%d] is empty", i)
+				}
+				assembled, err := assembleProviderPieceURL(host, pieceCid)
+				if err != nil {
+					return nil, err
+				}
+				add(pieceCid, assembled)
+			}
+		}
+	}
+
+	return sources, nil
 }
 
 // IsCreateNew returns true if this pull will create a new dataset (dataSetId is nil or 0)
@@ -182,39 +220,27 @@ func (r *PullRequest) Validate() error {
 		}
 	}
 
-	if len(r.Pieces) == 0 {
-		return fmt.Errorf("at least one piece is required")
+	sources, err := r.AssembledSources()
+	if err != nil {
+		return err
 	}
-	if len(r.Pieces) > MaxAddPiecesBatchSize {
-		return fmt.Errorf("piece count (%d) exceeds the maximum allowed per pull (%d)", len(r.Pieces), MaxAddPiecesBatchSize)
+	if len(sources) == 0 {
+		return fmt.Errorf("at least one source URL is required")
 	}
 
-	// Validate each piece (CID format validation is done later by ParsePieceCidV2).
-	// The same piece may appear more than once with different source URLs so
-	// the server can try all supplied sources. An exact duplicate is not useful
-	// and would collide with the pull item primary key.
-	seenPieceSources := make(map[string]struct{}, len(r.Pieces))
-	for i, piece := range r.Pieces {
-		if piece.PieceCid == "" {
-			return fmt.Errorf("piece[%d]: pieceCid is required", i)
+	// Unique piece CIDs are what addPieces will see. CID format is checked
+	// later by ParsePieceCidV2. The same piece may have several source URLs
+	// so the server can try all of them. An exact duplicate is dropped during
+	// assembly except for repeated pieces[] entries, which are rejected.
+	uniqueCids := make(map[string]struct{}, len(sources))
+	for _, source := range sources {
+		uniqueCids[source.PieceCid] = struct{}{}
+		if err := ValidatePullSourceURL(source.SourceURL); err != nil {
+			return fmt.Errorf("piece %s: %w", source.PieceCid, err)
 		}
-		urls, err := piece.SourceURLs()
-		if err != nil {
-			return fmt.Errorf("piece[%d]: %w", i, err)
-		}
-		if len(urls) == 0 {
-			return fmt.Errorf("piece[%d]: at least one source URL is required", i)
-		}
-		for j, sourceURL := range urls {
-			key := piece.PieceCid + "\x00" + sourceURL
-			if _, ok := seenPieceSources[key]; ok {
-				return fmt.Errorf("piece[%d]: duplicate pieceCid/sourceUrl", i)
-			}
-			seenPieceSources[key] = struct{}{}
-			if err := ValidatePullSourceURL(sourceURL); err != nil {
-				return fmt.Errorf("piece[%d] source[%d]: %w", i, j, err)
-			}
-		}
+	}
+	if len(uniqueCids) > MaxAddPiecesBatchSize {
+		return fmt.Errorf("piece count (%d) exceeds the maximum allowed per pull (%d)", len(uniqueCids), MaxAddPiecesBatchSize)
 	}
 
 	return nil
