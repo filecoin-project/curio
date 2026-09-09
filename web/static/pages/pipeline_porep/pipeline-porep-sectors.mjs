@@ -1,6 +1,7 @@
 import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs';
 import { formatDateTwo } from '/lib/dateutil.mjs';
+import { visiblePoRepSectors } from './visibility.mjs';
 import '/ux/compact-epoch.mjs';
 import '/ux/task.mjs';
 
@@ -74,11 +75,13 @@ export const pipelineStyles = css`
 class PipelinePorepSectors extends LitElement {
     static properties = {
         data: { type: Array },
+        hidePendingSDR: { type: Boolean },
     };
 
     constructor() {
         super();
         this.data = [];
+        this.hidePendingSDR = false;
         this.loadData();
     }
 
@@ -92,6 +95,7 @@ class PipelinePorepSectors extends LitElement {
     static styles = [pipelineStyles];
 
     render() {
+        const visibleSectors = visiblePoRepSectors(this.data, this.hidePendingSDR);
         // Count how many are "waiting for precommit":
         // (PreCommitReadyAt != null && !AfterPrecommitMsg && !TaskPrecommitMsg)
         const waitingForPrecommitCount = this.data.filter(
@@ -120,6 +124,13 @@ class PipelinePorepSectors extends LitElement {
       </div>
 
       <!-- Main table: one row per sector -->
+      <label>
+        <input type="checkbox" .checked=${this.hidePendingSDR}
+          @change=${(event) => { this.hidePendingSDR = event.target.checked; }} />
+        Hide unclaimed, unfinished SDR sectors in this view
+      </label>
+      <p>Showing ${visibleSectors.length} of ${this.data.length} sectors returned by the server.
+        ${this.data.length - visibleSectors.length} hidden locally; counters above include all returned sectors.</p>
       <table class="table table-dark table-striped">
         <thead>
           <tr>
@@ -133,7 +144,7 @@ class PipelinePorepSectors extends LitElement {
           </tr>
         </thead>
         <tbody>
-          ${this.data.map((sector) => this.renderSectorRow(sector))}
+          ${visibleSectors.map((sector) => this.renderSectorRow(sector))}
         </tbody>
       </table>
     `;
