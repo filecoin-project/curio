@@ -340,7 +340,7 @@ Uploads complete synchronously. A `204 No Content` response from the known-CID P
 
 - **Fields:**
     - `recordKeeper`: The Ethereum address of the record keeper (required).
-    - `pieces`: An array of piece entries (same format as `POST /pdp/data-sets/{dataSetId}/pieces`). At most 40 pieces per call (larger batches would exceed on-chain event-size limits and are rejected with `400 Bad Request`).
+    - `pieces`: An array of piece entries (same format as `POST /pdp/data-sets/{dataSetId}/pieces`). The packed Filecoin message must stay under 64 KiB (Lotus `MaxMessageSize`); oversized batches are rejected with `400 Bad Request`.
     - `extraData`: *(Optional)* Hex-encoded additional data. If it contains `withIPFSIndexing` metadata, pieces will be marked for IPFS indexing.
 
 #### Response
@@ -351,7 +351,7 @@ Uploads complete synchronously. A `204 No Content` response from the known-CID P
 
 #### Errors
 
-- `400 Bad Request`: Invalid request body, validation errors, or more than 40 pieces in the batch.
+- `400 Bad Request`: Invalid request body, validation errors, or a batch that exceeds the Filecoin 64 KiB message limit.
 - `401 Unauthorized`: Missing or invalid JWT token.
 - `403 Forbidden`: `recordKeeper` address not allowed for this service.
 - `500 Internal Server Error`: Failed to process the request.
@@ -566,7 +566,7 @@ Uploads complete synchronously. A `204 No Content` response from the known-CID P
 
 #### Constraints and Requirements
 
-- **Batch Size:** At most 40 pieces may be added per call (larger batches would exceed on-chain event-size limits and are rejected with `400 Bad Request`).
+- **Batch Size:** The packed Filecoin message must stay under 64 KiB (Lotus `MaxMessageSize`). The number of pieces that fit depends on piece metadata; oversized batches are rejected with `400 Bad Request`.
 - **SubPieces Ordering:** The `subPieces` must be provided in order **from largest to smallest size** (by padded size). This ensures correct Merkle tree computation.
 - **SubPieces Ownership:** All subPieces must belong to the service making the request and have been previously uploaded.
 - **SubPiece Sizes:** Each subPiece size must be at least 128 bytes.
@@ -581,7 +581,7 @@ Uploads complete synchronously. A `204 No Content` response from the known-CID P
 
 #### Errors
 
-- `400 Bad Request`: Invalid request body, missing fields, validation errors, more than 40 pieces in the batch, subPieces not ordered correctly, or raw size mismatch.
+- `400 Bad Request`: Invalid request body, missing fields, validation errors, Filecoin 64 KiB message limit exceeded, subPieces not ordered correctly, or raw size mismatch.
 - `401 Unauthorized`: Missing or invalid JWT token.
 - `404 Not Found`: Data set not found or subPieces not found.
 - `409 Conflict`: Data set has been terminated due to unrecoverable proving failure.
@@ -750,7 +750,7 @@ Uploads complete synchronously. A `204 No Content` response from the known-CID P
     - `extraData`: *(Required)* Hex-encoded bytes that will be validated against the PDPVerifier contract via `eth_call`. Used for authorization and idempotency.
     - `dataSetId`: *(Optional)* The target dataset ID. If omitted or `0`, validation simulates creating a new dataset.
     - `recordKeeper`: *(Required if dataSetId is 0 or omitted)* The contract address that will receive callbacks.
-    - `pieces`: Array of pieces to pull. At most 40 entries, since the pull is validated as an `addPieces` batch (larger batches would exceed on-chain event-size limits and are rejected with `400 Bad Request`).
+    - `pieces`: Array of pieces to pull. The eventual `addPieces` Filecoin message must stay under 64 KiB; oversized batches are rejected with `400 Bad Request`.
         - `pieceCid`: The piece CID in CommP v2 format.
         - `sourceUrl`: HTTPS URL ending in `/piece/{pieceCid}` on a public host. Localhost and private IPs are blocked for security.
 
@@ -786,7 +786,7 @@ Returns JSON with an overall status and per-piece status:
 
 #### Errors
 
-- `400 Bad Request`: Validation error, missing parameters, more than 40 pieces in the batch, invalid pieceCid format, or invalid `sourceUrl`.
+- `400 Bad Request`: Validation error, missing parameters, Filecoin 64 KiB message limit exceeded, invalid pieceCid format, or invalid `sourceUrl`.
 - `401 Unauthorized`: Missing or invalid JWT token.
 - `403 Forbidden`: `recordKeeper` is not allowed.
 - `500 Internal Server Error`: Failed to query or store pull task.

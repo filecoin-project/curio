@@ -56,10 +56,6 @@ const (
 	// MaxCreateDataSetExtraDataSize defines the limit for extraData size in CreateDataSet calls (4KB).
 	MaxCreateDataSetExtraDataSize = 4096
 
-	// MaxAddPiecesBatchSize caps pieces per AddPieces (or CreateDataSetAndAddPieces)
-	// call to reject early rather than revert on-chain.
-	MaxAddPiecesBatchSize = 40
-
 	// MaxDeletePieceExtraDataSize defines the limit for extraData size in DeletePiece calls (1KiB).
 	MaxDeletePieceExtraDataSize = 1024
 

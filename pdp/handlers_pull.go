@@ -396,6 +396,20 @@ func (h *PullHandler) HandlePull(w http.ResponseWriter, r *http.Request) {
 		pieceData[i] = contract.CidsCid{Data: info.CidV2.Bytes()}
 	}
 
+	abiData, err := contract.PDPVerifierMetaData.GetAbi()
+	if err != nil {
+		httpServerError(w, http.StatusInternalServerError, "Failed to get contract ABI: "+err.Error(), err)
+		return
+	}
+	if _, err := packAddPiecesWithinMessageLimit(abiData, big.NewInt(int64(dataSetId)), recordKeeperAddr, pieceData, extraDataBytes); err != nil {
+		if errors.Is(err, errAddPiecesMessageTooLarge) {
+			httpServerError(w, http.StatusBadRequest, err.Error(), err)
+			return
+		}
+		httpServerError(w, http.StatusInternalServerError, "Failed to pack addPieces: "+err.Error(), err)
+		return
+	}
+
 	// Validate extraData via eth_call
 	validatorParams := &AddPiecesValidatorParams{
 		DataSetId:    big.NewInt(int64(dataSetId)),

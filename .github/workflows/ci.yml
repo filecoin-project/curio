@@ -221,6 +221,8 @@ jobs:
             target: "./itests/harmonydb_test.go"
           - name: test-itest-park-piece
             target: "./itests/park_piece_test.go"
+          - name: test-itest-pdp-message-size
+            target: "./itests/pdp_message_size_test.go"
           - name: test-itest-pdp-prove
             target: "./itests/pdp_prove_test.go"
           - name: test-itest-pieces-unseal
