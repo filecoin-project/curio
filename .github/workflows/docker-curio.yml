@@ -1,9 +1,6 @@
 name: Docker Curio
 
 on:
-  push:
-    branches:
-      - feat/docker-arm
   release:
     types: [published]
   workflow_dispatch:
@@ -49,9 +46,6 @@ jobs:
           if [[ "$EVENT_NAME" == "release" ]]; then
             RAW="$RELEASE_TAG"
             IS_PRE="$RELEASE_PRERELEASE"
-          elif [[ "$EVENT_NAME" == "push" ]]; then
-            RAW="test-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
-            IS_PRE="true"
           else
             RAW="$INPUT_VERSION"
             if [[ -z "$RAW" ]]; then
