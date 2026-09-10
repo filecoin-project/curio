@@ -718,9 +718,6 @@ func (p *Provider) publishhttp(ctx context.Context, adCid cid.Cid, peer string) 
 		Timeout:   1 * time.Minute,
 	}
 
-	// Don't announce PoRep Ads to Filecoin Pin indexer
-	a := p.announceURLs
-
 	p.mu.RLock()
 	info, infoOk := p.providerInfos[peer]
 	p.mu.RUnlock()
@@ -729,7 +726,7 @@ func (p *Provider) publishhttp(ctx context.Context, adCid cid.Cid, peer string) 
 		return fmt.Errorf("no details found for peer %s", peer)
 	}
 
-	httpSender, err := httpsender.New(a, info.ID, httpsender.WithClient(c))
+	httpSender, err := httpsender.New(p.announceURLs, info.ID, httpsender.WithClient(c))
 	if err != nil {
 		return fmt.Errorf("cannot create http announce sender: %w", err)
 	}
