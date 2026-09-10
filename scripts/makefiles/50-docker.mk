@@ -3,7 +3,9 @@
 ##################### Curio devnet images ##################
 build_lotus ?= 0
 curio_docker_user ?= curio
+curio_runtime_image ?= $(curio_docker_user)/curio:debug
 curio_base_image = $(curio_docker_user)/curio-all-in-one:latest-debug
+# Used only when building the Lotus image from source.
 ffi_from_source ?= 0
 lotus_version ?= v1.36.0
 
@@ -11,7 +13,7 @@ ifeq ($(build_lotus),1)
 # v1: building lotus image with provided lotus version
 lotus_info_msg = !!! building lotus base image from github: branch/tag $(lotus_version) !!!
 override lotus_src_dir = /tmp/lotus-$(lotus_version)
-lotus_build_cmd = update/lotus docker/lotus-all-in-one
+lotus_build_cmd = docker/lotus-all-in-one
 lotus_base_image = $(curio_docker_user)/lotus-all-in-one:$(lotus_version)-debug
 else
 # v2 (default): using prebuilt lotus image
@@ -33,50 +35,60 @@ update/lotus: $(lotus_src_dir)
 	cd $(lotus_src_dir) && git pull
 .PHONY: update/lotus
 
-docker/lotus-all-in-one: info/lotus-all-in-one | $(lotus_src_dir)
-	cd $(lotus_src_dir) && $(curio_docker_build_cmd) -f Dockerfile --target lotus-all-in-one \
+docker/lotus-all-in-one: info/lotus-all-in-one update/lotus
+	cd $(lotus_src_dir) && docker build $(docker_args) -f Dockerfile --target lotus-all-in-one \
+		--build-arg FFI_BUILD_FROM_SOURCE=$(ffi_from_source) \
 		-t $(lotus_base_image) --build-arg GOFLAGS=-tags=debug .
 .PHONY: docker/lotus-all-in-one
 
-curio_docker_build_cmd = docker build --build-arg CURIO_TEST_IMAGE=$(curio_base_image) \
-	--build-arg FFI_BUILD_FROM_SOURCE=$(ffi_from_source) --build-arg LOTUS_TEST_IMAGE=$(lotus_base_image) $(docker_args)
+curio_docker_build_cmd = docker build --build-arg CURIO_TEST_IMAGE=$(curio_base_image) $(docker_args)
 
-docker/curio-all-in-one:
-	$(curio_docker_build_cmd) -f Dockerfile --target curio-all-in-one \
-		-t $(curio_base_image) --build-arg CURIO_TAGS="cunative debug nosupraseal" .
+docker/curio-base:
+	DOCKER_BUILDKIT=1 docker build $(docker_args) -f Dockerfile --target curio \
+		--build-arg CURIO_MAKE_TARGET=debug \
+		--build-arg CURIO_BUILD_COMMIT=$(CURIO_BUILD_COMMIT) \
+		--build-arg BUILD_VERSION=$(CURIO_BUILD_VERSION)-debug-dev \
+		-t $(curio_runtime_image) .
+.PHONY: docker/curio-base
+
+docker/curio-all-in-one: docker/curio-base $(lotus_build_cmd)
+	DOCKER_BUILDKIT=1 docker build $(docker_args) -f docker/devnet/Dockerfile --target curio-all-in-one \
+		--build-arg CURIO_BASE_IMAGE=$(curio_runtime_image) \
+		--build-arg LOTUS_TEST_IMAGE=$(lotus_base_image) \
+		-t $(curio_base_image) .
 .PHONY: docker/curio-all-in-one
 
-docker/lotus:
+docker/lotus: docker/curio-all-in-one
 	cd docker/lotus && DOCKER_BUILDKIT=1 $(curio_docker_build_cmd) -t $(curio_docker_user)/lotus-dev:dev \
 		--build-arg BUILD_VERSION=dev .
 .PHONY: docker/lotus
 
-docker/lotus-miner:
+docker/lotus-miner: docker/curio-all-in-one
 	cd docker/lotus-miner && DOCKER_BUILDKIT=1 $(curio_docker_build_cmd) -t $(curio_docker_user)/lotus-miner-dev:dev \
 		--build-arg BUILD_VERSION=dev .
 .PHONY: docker/lotus-miner
 
-docker/curio:
+docker/curio: docker/curio-all-in-one
 	cd docker/curio && DOCKER_BUILDKIT=1 $(curio_docker_build_cmd) -t $(curio_docker_user)/curio-dev:dev \
 		--build-arg BUILD_VERSION=dev .
 .PHONY: docker/curio
 
-docker/contracts-bootstrap:
+docker/contracts-bootstrap: docker/curio-all-in-one
 	cd docker/contracts-bootstrap && DOCKER_BUILDKIT=1 $(curio_docker_build_cmd) -t $(curio_docker_user)/contracts-bootstrap-dev:dev \
 		--build-arg BUILD_VERSION=dev .
 .PHONY: docker/contracts-bootstrap
 
-docker/piece-server:
+docker/piece-server: docker/curio-all-in-one
 	cd docker/piece-server && DOCKER_BUILDKIT=1 $(curio_docker_build_cmd) -t $(curio_docker_user)/piece-server-dev:dev \
 		--build-arg BUILD_VERSION=dev .
 .PHONY: docker/piece-server
 
-docker/indexer:
+docker/indexer: docker/curio-all-in-one
 	cd docker/indexer && DOCKER_BUILDKIT=1 $(curio_docker_build_cmd) -t $(curio_docker_user)/indexer-dev:dev \
 		--build-arg BUILD_VERSION=dev .
 .PHONY: docker/indexer
 
-docker/devnet: $(lotus_build_cmd) docker/curio-all-in-one docker/lotus docker/lotus-miner docker/curio docker/contracts-bootstrap docker/piece-server docker/indexer
+docker/devnet: docker/lotus docker/lotus-miner docker/curio docker/contracts-bootstrap docker/piece-server docker/indexer
 .PHONY: docker/devnet
 
 devnet/up:
