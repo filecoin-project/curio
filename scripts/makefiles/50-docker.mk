@@ -58,37 +58,38 @@ docker/curio-all-in-one: docker/curio-base $(lotus_build_cmd)
 		-t $(curio_base_image) .
 .PHONY: docker/curio-all-in-one
 
-docker/lotus: docker/curio-all-in-one
+docker/lotus:
 	cd docker/lotus && DOCKER_BUILDKIT=1 $(curio_docker_build_cmd) -t $(curio_docker_user)/lotus-dev:dev \
 		--build-arg BUILD_VERSION=dev .
 .PHONY: docker/lotus
 
-docker/lotus-miner: docker/curio-all-in-one
+docker/lotus-miner:
 	cd docker/lotus-miner && DOCKER_BUILDKIT=1 $(curio_docker_build_cmd) -t $(curio_docker_user)/lotus-miner-dev:dev \
 		--build-arg BUILD_VERSION=dev .
 .PHONY: docker/lotus-miner
 
-docker/curio: docker/curio-all-in-one
+docker/curio:
 	cd docker/curio && DOCKER_BUILDKIT=1 $(curio_docker_build_cmd) -t $(curio_docker_user)/curio-dev:dev \
 		--build-arg BUILD_VERSION=dev .
 .PHONY: docker/curio
 
-docker/contracts-bootstrap: docker/curio-all-in-one
+docker/contracts-bootstrap:
 	cd docker/contracts-bootstrap && DOCKER_BUILDKIT=1 $(curio_docker_build_cmd) -t $(curio_docker_user)/contracts-bootstrap-dev:dev \
 		--build-arg BUILD_VERSION=dev .
 .PHONY: docker/contracts-bootstrap
 
-docker/piece-server: docker/curio-all-in-one
+docker/piece-server:
 	cd docker/piece-server && DOCKER_BUILDKIT=1 $(curio_docker_build_cmd) -t $(curio_docker_user)/piece-server-dev:dev \
 		--build-arg BUILD_VERSION=dev .
 .PHONY: docker/piece-server
 
-docker/indexer: docker/curio-all-in-one
+docker/indexer:
 	cd docker/indexer && DOCKER_BUILDKIT=1 $(curio_docker_build_cmd) -t $(curio_docker_user)/indexer-dev:dev \
 		--build-arg BUILD_VERSION=dev .
 .PHONY: docker/indexer
 
-docker/devnet: docker/lotus docker/lotus-miner docker/curio docker/contracts-bootstrap docker/piece-server docker/indexer
+docker/devnet: docker/curio-all-in-one
+	$(MAKE) docker/lotus docker/lotus-miner docker/curio docker/contracts-bootstrap docker/piece-server docker/indexer
 .PHONY: docker/devnet
 
 devnet/up:

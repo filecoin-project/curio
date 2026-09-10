@@ -22,6 +22,8 @@ The root `Dockerfile` builds the standalone Curio image with `curio` and `sptool
 
 To build only the standalone debug image, run `make docker/curio-base`. To build the shared devnet image and its dependencies, run `make docker/curio-all-in-one`. Set `curio_docker_user` to change the image namespace, or `curio_runtime_image` to change the local standalone image tag. The service image names and Compose configuration are unchanged.
 
+Individual service targets, such as `make docker/curio`, build only that service image using the existing `curio_base_image`. Run `make docker/devnet` to build the base images followed by all service images.
+
 *   If you need to build containers using a specific version of lotus then provide the version as a parameter. The version must be a tag of [Lotus git repo](https://github.com/filecoin-project/lotus). We are shipping images  for all releases from Lotus in our [Github image repo](https://github.com/filecoin-shipyard/lotus-containers/pkgs/container/lotus-containers).\
 
 
