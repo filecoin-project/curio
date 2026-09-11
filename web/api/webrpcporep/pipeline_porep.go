@@ -26,6 +26,8 @@ type PipelineTask struct {
 	TaskSDR    NullInt64 `db:"task_id_sdr"` // 16 bytes (41-57, with padding)
 	AfterSDR   bool      `db:"after_sdr"`   // 1 byte
 	StartedSDR bool      `db:"started_sdr"` // 1 byte
+	// SDROwned supports an explicit view filter; it does not mean Do has started.
+	SDROwned bool `db:"sdr_owned"`
 	// Cache line 2 (bytes 64-128): Tree stages (accessed together)
 	TaskTreeD     NullInt64  `db:"task_id_tree_d"`  // 16 bytes
 	TreeD         NullString `db:"tree_d_cid"`      // 24 bytes
@@ -99,6 +101,8 @@ func (a *PoRep) PipelinePorepSectors(ctx context.Context) ([]sectorListEntry, er
 												sp.create_time,
 												sp.task_id_sdr, 
 												sp.after_sdr,
+												EXISTS (SELECT 1 FROM harmony_task ht_sdr_owner
+													WHERE ht_sdr_owner.id = sp.task_id_sdr AND ht_sdr_owner.owner_id > 0) AS sdr_owned,
 												sp.task_id_tree_d, 
 												sp.after_tree_d,
 												sp.task_id_tree_c, 
