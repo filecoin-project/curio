@@ -19,7 +19,9 @@ import (
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/big"
 	"github.com/filecoin-project/go-state-types/builtin"
+	"github.com/filecoin-project/go-state-types/network"
 
+	"github.com/filecoin-project/curio/lib/curiochain"
 	"github.com/filecoin-project/curio/lib/reqcontext"
 
 	"github.com/filecoin-project/lotus/api"
@@ -150,7 +152,7 @@ var sectorStatusCmd = &cli.Command{
 		isCC := len(sectorInfo.DeprecatedDealIDs) == 0 && sectorInfo.DealWeight.IsZero() && sectorInfo.VerifiedDealWeight.IsZero()
 		if isCC {
 			fmt.Printf("Sector Type:         %s\n", color.BlueString("CC (Committed Capacity)"))
-		} else if !sectorInfo.VerifiedDealWeight.IsZero() {
+		} else if sectorInfo.Flags&curiochain.FULL_QA_POWER == 0 && !sectorInfo.VerifiedDealWeight.IsZero() {
 			fmt.Printf("Sector Type:         %s\n", color.GreenString("Verified Deals (FIL+)"))
 		} else {
 			fmt.Printf("Sector Type:         %s\n", color.CyanString("Deals"))
@@ -637,7 +639,7 @@ var sectorsListCmd = &cli.Command{
 			tablewriter.Col("Events"),
 			tablewriter.Col("Deals"),
 			tablewriter.Col("DealWeight"),
-			tablewriter.Col("VerifiedPower"),
+			tablewriter.Col("QAPowerBonus"),
 			tablewriter.Col("Pledge"),
 			tablewriter.NewLineCol("Error"),
 			tablewriter.NewLineCol("RecoveryTimeout"))
@@ -649,12 +651,19 @@ var sectorsListCmd = &cli.Command{
 			_, inSSet := commitedIDs[s]
 			_, inASet := activeIDs[s]
 
-			const verifiedPowerGainMul = 9
-			dw, vp := .0, .0
-			{
+			sectorSize, err := st.SealProof.SectorSize()
+			if err != nil {
+				return xerrors.Errorf("getting sector %d size: %w", s, err)
+			}
+			qaPower, err := curiochain.SectorQAPower(st)
+			if err != nil {
+				return xerrors.Errorf("getting sector %d QA power: %w", s, err)
+			}
+			vp := float64(big.Sub(qaPower, big.NewIntUnsigned(uint64(sectorSize))).Uint64())
+			dw := .0
+			if duration := st.Expiration - st.PowerBaseEpoch; duration > 0 {
 				rdw := big.Add(st.DealWeight, st.VerifiedDealWeight)
-				dw = float64(big.Div(rdw, big.NewInt(int64(st.Expiration-st.PowerBaseEpoch))).Uint64())
-				vp = float64(big.Div(big.Mul(st.VerifiedDealWeight, big.NewInt(verifiedPowerGainMul)), big.NewInt(int64(st.Expiration-st.PowerBaseEpoch))).Uint64())
+				dw = float64(big.Div(rdw, big.NewInt(int64(duration))).Uint64())
 			}
 
 			var deals int
@@ -707,9 +716,9 @@ var sectorsListCmd = &cli.Command{
 
 			if !fast && (deals > 0 || !isCC) {
 				m["DealWeight"] = units.BytesSize(dw)
-				if vp > 0 {
-					m["VerifiedPower"] = color.GreenString(units.BytesSize(vp))
-				}
+			}
+			if !fast && vp > 0 {
+				m["QAPowerBonus"] = color.GreenString(units.BytesSize(vp))
 			}
 
 			tw.Write(m)
@@ -848,12 +857,12 @@ Extensions will be clamped at either the maximum sector extension of 3.5 years/1
 			return base + (numMult * abi.ChainEpoch(d)), nil
 		}
 
-		nv, err := fullApi.StateNetworkVersion(ctx, types.EmptyTSK)
+		nv, err := fullApi.StateNetworkVersion(ctx, head.Key())
 		if err != nil {
 			return err
 		}
 
-		activeSet, err := fullApi.StateMinerActiveSectors(ctx, maddr, types.EmptyTSK)
+		activeSet, err := fullApi.StateMinerActiveSectors(ctx, maddr, head.Key())
 		if err != nil {
 			return err
 		}
@@ -863,7 +872,7 @@ Extensions will be clamped at either the maximum sector extension of 3.5 years/1
 			activeSectorsInfo[info.SectorNumber] = info
 		}
 
-		mact, err := fullApi.StateGetActor(ctx, maddr, types.EmptyTSK)
+		mact, err := fullApi.StateGetActor(ctx, maddr, head.Key())
 		if err != nil {
 			return err
 		}
@@ -1042,24 +1051,28 @@ Extensions will be clamped at either the maximum sector extension of 3.5 years/1
 			}
 		}
 
-		verifregAct, err := fullApi.StateGetActor(ctx, builtin.VerifiedRegistryActorAddr, types.EmptyTSK)
-		if err != nil {
-			return xerrors.Errorf("failed to lookup verifreg actor: %w", err)
-		}
+		var claimsMap map[verifreg.ClaimId]verifreg.Claim
+		var claimIdsBySector map[abi.SectorNumber][]verifreg.ClaimId
+		if nv < network.Version29 {
+			verifregAct, err := fullApi.StateGetActor(ctx, builtin.VerifiedRegistryActorAddr, head.Key())
+			if err != nil {
+				return xerrors.Errorf("failed to lookup verifreg actor: %w", err)
+			}
 
-		verifregSt, err := verifreg.Load(adtStore, verifregAct)
-		if err != nil {
-			return xerrors.Errorf("failed to load verifreg state: %w", err)
-		}
+			verifregSt, err := verifreg.Load(adtStore, verifregAct)
+			if err != nil {
+				return xerrors.Errorf("failed to load verifreg state: %w", err)
+			}
 
-		claimsMap, err := verifregSt.GetClaims(maddr)
-		if err != nil {
-			return xerrors.Errorf("failed to lookup claims for miner: %w", err)
-		}
+			claimsMap, err = verifregSt.GetClaims(maddr)
+			if err != nil {
+				return xerrors.Errorf("failed to lookup claims for miner: %w", err)
+			}
 
-		claimIdsBySector, err := verifregSt.GetClaimIdsBySector(maddr)
-		if err != nil {
-			return xerrors.Errorf("failed to lookup claim IDs by sector: %w", err)
+			claimIdsBySector, err = verifregSt.GetClaimIdsBySector(maddr)
+			if err != nil {
+				return xerrors.Errorf("failed to lookup claim IDs by sector: %w", err)
+			}
 		}
 
 		sectorsMax, err := policy.GetAddressedSectorsMax(nv)

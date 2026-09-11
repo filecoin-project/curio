@@ -25,8 +25,10 @@ import (
 	"github.com/filecoin-project/go-state-types/builtin"
 	miner2 "github.com/filecoin-project/go-state-types/builtin/v13/miner"
 	"github.com/filecoin-project/go-state-types/builtin/v9/market"
+	"github.com/filecoin-project/go-state-types/network"
 
 	"github.com/filecoin-project/curio/deps"
+	"github.com/filecoin-project/curio/lib/curiochain"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/web/api/apihelper"
 
@@ -138,6 +140,9 @@ func (c *cfg) getSectors(w http.ResponseWriter, r *http.Request) {
 	minerToAddr := map[int64]address.Address{}
 	head, err := c.Chain.ChainHead(r.Context())
 	apihelper.OrHTTPFail(w, err)
+	nv, err := c.Chain.StateNetworkVersion(r.Context(), head.Key())
+	apihelper.OrHTTPFail(w, err)
+	minerSizes := map[int64]abi.SectorSize{}
 
 	type sectorID struct {
 		mID  int64
@@ -185,6 +190,11 @@ func (c *cfg) getSectors(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for minerID, maddr := range minerToAddr {
+		if nv >= network.Version29 {
+			info, err := c.Chain.StateMinerInfo(r.Context(), maddr, head.Key())
+			apihelper.OrHTTPFail(w, err)
+			minerSizes[minerID] = info.SectorSize
+		}
 		onChainInfo, err := c.getCachedSectorInfo(w, r, maddr, head.Key())
 		apihelper.OrHTTPFail(w, err)
 		for _, chainy := range onChainInfo {
@@ -192,7 +202,7 @@ func (c *cfg) getSectors(w http.ResponseWriter, r *http.Request) {
 			if s, ok := sectorIdx[sectorID{minerID, uint64(st.SectorNumber)}]; ok {
 				s.IsOnChain = true
 				s.ExpiresAt = st.Expiration
-				s.IsFilPlus = st.VerifiedDealWeight.GreaterThan(big.NewInt(0))
+				s.IsFilPlus = st.Flags&curiochain.FULL_QA_POWER == 0 && st.VerifiedDealWeight.GreaterThan(big.NewInt(0))
 				if ss, err := st.SealProof.SectorSize(); err == nil {
 					s.SealInfo = ss.ShortString()
 				}
@@ -217,7 +227,7 @@ func (c *cfg) getSectors(w http.ResponseWriter, r *http.Request) {
 						pi = append(pi, pieces[k])
 					}
 				}
-				estimate := st.Expiration-st.Activation <= 0 || s.HasSnap
+				estimate := st.Expiration-st.PowerBaseEpoch <= 0
 				if estimate {
 					for _, p := range pi {
 						if p.Proposal != nil {
@@ -239,10 +249,19 @@ func (c *cfg) getSectors(w http.ResponseWriter, r *http.Request) {
 							ddo++
 						}
 					}
+					if st.Flags&curiochain.FULL_QA_POWER != 0 {
+						sectorSize, err := st.SealProof.SectorSize()
+						apihelper.OrHTTPFail(w, err)
+						vp = float64(sectorSize) * verifiedPowerGainMul
+					}
 				} else {
 					rdw := big.Add(st.DealWeight, st.VerifiedDealWeight)
 					dw = float64(big.Div(rdw, big.NewInt(int64(st.Expiration-st.PowerBaseEpoch))).Uint64())
-					vp = float64(big.Div(big.Mul(st.VerifiedDealWeight, big.NewInt(verifiedPowerGainMul)), big.NewInt(int64(st.Expiration-st.PowerBaseEpoch))).Uint64())
+					qaPower, err := curiochain.SectorQAPower(st)
+					apihelper.OrHTTPFail(w, err)
+					sectorSize, err := st.SealProof.SectorSize()
+					apihelper.OrHTTPFail(w, err)
+					vp = float64(big.Sub(qaPower, big.NewIntUnsigned(uint64(sectorSize))).Uint64())
 					// DDO sectors don't have deal info on chain
 					for _, p := range pi {
 						if p.Manifest != nil {
@@ -259,6 +278,9 @@ func (c *cfg) getSectors(w http.ResponseWriter, r *http.Request) {
 				}
 				if vp > 0 {
 					s.DealWeight = units.BytesSize(vp)
+					if dw == 0 {
+						s.DealWeight += " (CC)"
+					}
 				}
 				s.Deals = fmt.Sprintf("Market: %d, DDO: %d", f05, ddo)
 			} else {
@@ -272,12 +294,27 @@ func (c *cfg) getSectors(w http.ResponseWriter, r *http.Request) {
 					SectorNum:    int64(chainy.onChain.SectorNumber),
 					IsOnChain:    true,
 					ExpiresAt:    chainy.onChain.Expiration,
-					IsFilPlus:    chainy.onChain.VerifiedDealWeight.GreaterThan(big.NewInt(0)),
+					IsFilPlus:    st.Flags&curiochain.FULL_QA_POWER == 0 && st.VerifiedDealWeight.GreaterThan(big.NewInt(0)),
 					Proving:      chainy.active,
 					Flag:         true, // All such sectors should be flagged to be terminated
 				}
 				if ss, err := chainy.onChain.SealProof.SectorSize(); err == nil {
 					s.SealInfo = ss.ShortString()
+					qaPower, err := curiochain.SectorQAPower(st)
+					apihelper.OrHTTPFail(w, err)
+					bonus := big.Sub(qaPower, big.NewIntUnsigned(uint64(ss)))
+					s.DealWeight = "CC"
+					if !bonus.IsZero() {
+						s.DealWeight = units.BytesSize(float64(bonus.Uint64()))
+						if st.DealWeight.IsZero() && st.VerifiedDealWeight.IsZero() {
+							s.DealWeight += " (CC)"
+						}
+					} else if duration := st.Expiration - st.PowerBaseEpoch; duration > 0 {
+						dw := big.Div(big.Add(st.DealWeight, st.VerifiedDealWeight), big.NewInt(int64(duration)))
+						if !dw.IsZero() {
+							s.DealWeight = units.BytesSize(float64(dw.Uint64()))
+						}
+					}
 				}
 				sectors = append(sectors, s)
 				sectorIdx[sectorID{minerID, uint64(st.SectorNumber)}] = s
@@ -321,13 +358,20 @@ func (c *cfg) getSectors(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 			}
-			sectors[i].IsFilPlus = vp > 0
+			sectors[i].IsFilPlus = nv < network.Version29 && vp > 0
+			if nv >= network.Version29 {
+				vp = float64(minerSizes[sectors[i].MinerID]) * verifiedPowerGainMul
+			}
 			if dw > 0 {
 				sectors[i].DealWeight = units.BytesSize(dw)
-			} else if vp > 0 {
-				sectors[i].DealWeight = units.BytesSize(vp)
 			} else {
 				sectors[i].DealWeight = "CC"
+			}
+			if vp > 0 {
+				sectors[i].DealWeight = units.BytesSize(vp)
+				if dw == 0 {
+					sectors[i].DealWeight += " (CC)"
+				}
 			}
 			sectors[i].Deals = fmt.Sprintf("Market: %d, DDO: %d", f05, ddo)
 		}

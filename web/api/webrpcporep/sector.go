@@ -19,14 +19,13 @@ import (
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/big"
 
+	"github.com/filecoin-project/curio/lib/curiochain"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/storiface"
 
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/types"
 )
-
-const verifiedPowerGainMul = 9
 
 // SectorPartitionState contains the sector's state within its assigned deadline/partition
 type SectorPartitionState struct {
@@ -764,17 +763,30 @@ func (a *PoRep) SectorInfo(ctx context.Context, sp string, intid int64) (*Sector
 	}
 
 	if onChainInfo != nil {
-		dw, vp := .0, .0
+		qaPower, err := curiochain.SectorQAPower(onChainInfo)
+		if err != nil {
+			return nil, xerrors.Errorf("getting sector power: %w", err)
+		}
+		sectorSize, err := onChainInfo.SealProof.SectorSize()
+		if err != nil {
+			return nil, err
+		}
+		dw := .0
 		dealWeight := "CC"
 		{
 			rdw := big.Add(onChainInfo.DealWeight, onChainInfo.VerifiedDealWeight)
-			dw = float64(big.Div(rdw, big.NewInt(int64(onChainInfo.Expiration-onChainInfo.PowerBaseEpoch))).Uint64())
-			vp = float64(big.Div(big.Mul(onChainInfo.VerifiedDealWeight, big.NewInt(verifiedPowerGainMul)), big.NewInt(int64(onChainInfo.Expiration-onChainInfo.PowerBaseEpoch))).Uint64())
+			if duration := onChainInfo.Expiration - onChainInfo.PowerBaseEpoch; duration > 0 {
+				dw = float64(big.Div(rdw, big.NewInt(int64(duration))).Uint64())
+			}
+			vp := float64(big.Sub(qaPower, big.NewIntUnsigned(uint64(sectorSize))).Uint64())
 			if vp > 0 {
 				dw = vp
 			}
 			if dw > 0 {
 				dealWeight = units.BytesSize(dw)
+				if rdw.IsZero() {
+					dealWeight += " (CC)"
+				}
 			}
 		}
 

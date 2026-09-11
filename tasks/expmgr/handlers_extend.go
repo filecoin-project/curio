@@ -16,6 +16,7 @@ import (
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/big"
 	"github.com/filecoin-project/go-state-types/builtin"
+	"github.com/filecoin-project/go-state-types/network"
 
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/blockstore"
@@ -66,10 +67,11 @@ func (e *ExpMgrTask) handleExtend(ctx context.Context, cfg extendPresetConfig) (
 	}
 	currEpoch := head.Height()
 
-	nv, err := e.chain.StateNetworkVersion(ctx, types.EmptyTSK)
+	nv, err := e.chain.StateNetworkVersion(ctx, head.Key())
 	if err != nil {
 		return false, xerrors.Errorf("getting network version: %w", err)
 	}
+	useClaims := nv < network.Version29
 
 	maxExtension, err := policy.GetMaxSectorExpirationExtension(nv)
 	if err != nil {
@@ -81,14 +83,14 @@ func (e *ExpMgrTask) handleExtend(ctx context.Context, cfg extendPresetConfig) (
 	maxCandidateEpoch := currEpoch + abi.ChainEpoch(cfg.MaxCandidateDays*epochsPerDay)
 
 	// Query candidate sectors: expiration between now and max_candidate_days
-	// Use pre-crawled claim data to filter sectors:
+	// Before NV29, use pre-crawled claim data to filter sectors:
 	// - If drop_claims=false: exclude sectors where min_claim_epoch < target_expiration
 	// - If drop_claims=true: include sectors, we'll check max_claim_epoch later
 	var sectors []SectorMeta
 
 	// Use conditional queries based on CC filter and drop_claims setting
 	// Exclude sectors in snap pipeline or with open pieces (not yet finalized)
-	if cfg.CC != nil && !cfg.DropClaims {
+	if cfg.CC != nil && useClaims && !cfg.DropClaims {
 		// CC filter + claim filter
 		err = e.db.Select(ctx, &sectors, `
 			SELECT sm.sector_num, sm.expiration_epoch, sm.deadline, sm.partition, sm.is_cc, sm.min_claim_epoch, sm.max_claim_epoch
@@ -107,7 +109,7 @@ func (e *ExpMgrTask) handleExtend(ctx context.Context, cfg extendPresetConfig) (
 			  AND NOT EXISTS (SELECT 1 FROM open_sector_pieces osp WHERE osp.sp_id = sm.sp_id AND osp.sector_number = sm.sector_num)
 			ORDER BY sm.deadline, sm.partition, sm.sector_num`,
 			cfg.SpID, int64(currEpoch), int64(maxCandidateEpoch), *cfg.CC, int64(targetExpEpoch))
-	} else if cfg.CC != nil && cfg.DropClaims {
+	} else if cfg.CC != nil {
 		// CC filter only
 		err = e.db.Select(ctx, &sectors, `
 			SELECT sm.sector_num, sm.expiration_epoch, sm.deadline, sm.partition, sm.is_cc, sm.min_claim_epoch, sm.max_claim_epoch
@@ -125,7 +127,7 @@ func (e *ExpMgrTask) handleExtend(ctx context.Context, cfg extendPresetConfig) (
 			  AND NOT EXISTS (SELECT 1 FROM open_sector_pieces osp WHERE osp.sp_id = sm.sp_id AND osp.sector_number = sm.sector_num)
 			ORDER BY sm.deadline, sm.partition, sm.sector_num`,
 			cfg.SpID, int64(currEpoch), int64(maxCandidateEpoch), *cfg.CC)
-	} else if cfg.CC == nil && !cfg.DropClaims {
+	} else if useClaims && !cfg.DropClaims {
 		// Claim filter only
 		err = e.db.Select(ctx, &sectors, `
 			SELECT sm.sector_num, sm.expiration_epoch, sm.deadline, sm.partition, sm.is_cc, sm.min_claim_epoch, sm.max_claim_epoch
@@ -181,13 +183,13 @@ func (e *ExpMgrTask) handleExtend(ctx context.Context, cfg extendPresetConfig) (
 	}
 
 	// Get miner info for max lifetime calculations
-	mi, err := e.chain.StateMinerInfo(ctx, maddr, types.EmptyTSK)
+	mi, err := e.chain.StateMinerInfo(ctx, maddr, head.Key())
 	if err != nil {
 		return false, xerrors.Errorf("getting miner info: %w", err)
 	}
 
 	// Load actor state for sector info
-	mact, err := e.chain.StateGetActor(ctx, maddr, types.EmptyTSK)
+	mact, err := e.chain.StateGetActor(ctx, maddr, head.Key())
 	if err != nil {
 		return false, xerrors.Errorf("getting miner actor: %w", err)
 	}
@@ -223,9 +225,9 @@ func (e *ExpMgrTask) handleExtend(ctx context.Context, cfg extendPresetConfig) (
 	var claimsMap map[verifreg.ClaimId]verifreg.Claim
 	var claimIdsBySector map[abi.SectorNumber][]verifreg.ClaimId
 
-	if needsVerifregState {
+	if useClaims && needsVerifregState {
 		// Get verifreg state (used for both validation and claim processing)
-		verifregAct, err := e.chain.StateGetActor(ctx, builtin.VerifiedRegistryActorAddr, types.EmptyTSK)
+		verifregAct, err := e.chain.StateGetActor(ctx, builtin.VerifiedRegistryActorAddr, head.Key())
 		if err != nil {
 			return false, xerrors.Errorf("getting verifreg actor: %w", err)
 		}
@@ -420,7 +422,7 @@ func (e *ExpMgrTask) handleExtend(ctx context.Context, cfg extendPresetConfig) (
 			}
 
 			// Validate sector metadata against on-chain state
-			if err := validateSectorAgainstChain(sn, dbSector, si, claimsMap, claimIdsBySector); err != nil {
+			if err := validateSectorAgainstChain(sn, dbSector, si, useClaims, claimsMap, claimIdsBySector); err != nil {
 				log.Errorw("sector metadata validation failed, skipping sector",
 					"preset", cfg.Name,
 					"sp_id", cfg.SpID,
@@ -430,8 +432,7 @@ func (e *ExpMgrTask) handleExtend(ctx context.Context, cfg extendPresetConfig) (
 			}
 
 			// Handle claims using pre-crawled data
-			if dbSector.MinClaim == nil && dbSector.MaxClaim == nil {
-				// No claims - simple case
+			if !useClaims || (dbSector.MinClaim == nil && dbSector.MaxClaim == nil) {
 				sectorsWithoutClaims.Set(uint64(sn))
 				numbersToExtend = append(numbersToExtend, sn)
 				totalSectors++
@@ -863,6 +864,7 @@ func validateSectorAgainstChain(
 	sn abi.SectorNumber,
 	dbSector SectorMeta,
 	si *miner.SectorOnChainInfo,
+	useClaims bool,
 	claimsMap map[verifreg.ClaimId]verifreg.Claim,
 	claimIdsBySector map[abi.SectorNumber][]verifreg.ClaimId,
 ) error {
@@ -880,7 +882,7 @@ func validateSectorAgainstChain(
 	}
 
 	// Validate claim terms if sector has claims in DB
-	if dbSector.MinClaim != nil || dbSector.MaxClaim != nil {
+	if useClaims && (dbSector.MinClaim != nil || dbSector.MaxClaim != nil) {
 		if claimsMap == nil || claimIdsBySector == nil {
 			return xerrors.Errorf("sector %d has claims in DB but verifreg state not loaded", sn)
 		}

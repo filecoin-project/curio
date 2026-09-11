@@ -147,15 +147,19 @@ func (s *SubmitCommitTask) Do(ctx context.Context, taskID harmonytask.TaskID, st
 	if err != nil {
 		return false, xerrors.Errorf("getting chain head: %w", err)
 	}
+	nv, err := s.api.StateNetworkVersion(ctx, ts.Key())
+	if err != nil {
+		return false, xerrors.Errorf("getting network version: %w", err)
+	}
 
 	regProof := sectorParamsArr[0].RegSealProof
 
-	balance, err := s.api.StateMinerAvailableBalance(ctx, maddr, types.EmptyTSK)
+	balance, err := s.api.StateMinerAvailableBalance(ctx, maddr, ts.Key())
 	if err != nil {
 		return false, xerrors.Errorf("getting miner balance: %w", err)
 	}
 
-	mi, err := s.api.StateMinerInfo(ctx, maddr, types.EmptyTSK)
+	mi, err := s.api.StateMinerInfo(ctx, maddr, ts.Key())
 	if err != nil {
 		return false, xerrors.Errorf("getting miner info: %w", err)
 	}
@@ -232,25 +236,25 @@ func (s *SubmitCommitTask) Do(ctx context.Context, taskID harmonytask.TaskID, st
 				if err != nil {
 					return false, xerrors.Errorf("marshalling json to deal proposal: %w", err)
 				}
-				alloc, err := s.api.StateGetAllocationIdForPendingDeal(ctx, piece.DealID, types.EmptyTSK)
-				if err != nil {
-					return false, xerrors.Errorf("getting allocation for deal %d: %w", piece.DealID, err)
-				}
-				clid, err := s.api.StateLookupID(ctx, prop.Client, types.EmptyTSK)
-				if err != nil {
-					return false, xerrors.Errorf("getting client address for deal %d: %w", piece.DealID, err)
-				}
-
-				clientId, err := address.IDFromAddress(clid)
-				if err != nil {
-					return false, xerrors.Errorf("getting client address for deal %d: %w", piece.DealID, err)
-				}
-
 				var vac *miner2.VerifiedAllocationKey
-				if alloc != verifregtypes9.NoAllocationID {
-					vac = &miner2.VerifiedAllocationKey{
-						Client: abi.ActorID(clientId),
-						ID:     verifreg13.AllocationId(alloc),
+				if nv < network.Version29 {
+					alloc, err := s.api.StateGetAllocationIdForPendingDeal(ctx, piece.DealID, ts.Key())
+					if err != nil {
+						return false, xerrors.Errorf("getting allocation for deal %d: %w", piece.DealID, err)
+					}
+					if alloc != verifregtypes9.NoAllocationID {
+						clid, err := s.api.StateLookupID(ctx, prop.Client, ts.Key())
+						if err != nil {
+							return false, xerrors.Errorf("getting client address for deal %d: %w", piece.DealID, err)
+						}
+						clientId, err := address.IDFromAddress(clid)
+						if err != nil {
+							return false, xerrors.Errorf("getting client address for deal %d: %w", piece.DealID, err)
+						}
+						vac = &miner2.VerifiedAllocationKey{
+							Client: abi.ActorID(clientId),
+							ID:     verifreg13.AllocationId(alloc),
+						}
 					}
 				}
 
@@ -276,13 +280,16 @@ func (s *SubmitCommitTask) Do(ctx context.Context, taskID harmonytask.TaskID, st
 					return false, xerrors.Errorf("marshalling json to PieceManifest: %w", err)
 				}
 			}
-			unrecoverable, err := AllocationCheck(ctx, s.api, pam, pci.Info.Expiration, abi.ActorID(sectorParams.SpID), ts)
-			if err != nil {
-				if unrecoverable {
-					_, err2 := s.db.Exec(ctx, `UPDATE sectors_sdr_pipeline SET 
+			if nv < network.Version29 {
+				unrecoverable, err := AllocationCheck(ctx, s.api, pam, pci.Info.Expiration, abi.ActorID(sectorParams.SpID), ts)
+				if err != nil {
+					if !unrecoverable {
+						return false, xerrors.Errorf("checking allocation: %w", err)
+					}
+					_, err2 := s.db.Exec(ctx, `UPDATE sectors_sdr_pipeline SET
                                  failed = TRUE, failed_at = NOW(), failed_reason = 'alloc-check', failed_reason_msg = $1,
                                  task_id_commit_msg = NULL, after_commit_msg = FALSE
-                             WHERE task_id_commit_msg = $2 AND sp_id = $3 AND sector_number = $4`, err.Error(), sectorParams.SpID, sectorParams.SectorNumber)
+                             WHERE task_id_commit_msg = $2 AND sp_id = $3 AND sector_number = $4`, err.Error(), taskID, sectorParams.SpID, sectorParams.SectorNumber)
 					if err2 != nil {
 						return false, xerrors.Errorf("allocation check failed with an unrecoverable issue: %w", multierr.Combine(err, err2))
 					}
@@ -290,9 +297,7 @@ func (s *SubmitCommitTask) Do(ctx context.Context, taskID harmonytask.TaskID, st
 					sectorFailed = true
 					break
 				}
-			}
-			if pam.VerifiedAllocationKey != nil {
-				if pam.VerifiedAllocationKey.ID != verifreg13.NoAllocationID {
+				if pam.VerifiedAllocationKey != nil && pam.VerifiedAllocationKey.ID != verifreg13.NoAllocationID {
 					verifiedSize += pam.Size
 				}
 			}
@@ -308,8 +313,12 @@ func (s *SubmitCommitTask) Do(ctx context.Context, taskID harmonytask.TaskID, st
 		if err != nil {
 			return false, xerrors.Errorf("could not get sector size: %w", err)
 		}
+		pledgeSize := uint64(verifiedSize)
+		if nv >= network.Version29 {
+			pledgeSize = uint64(ssize)
+		}
 
-		collateralPerSector, err := s.api.StateMinerInitialPledgeForSector(ctx, pci.Info.Expiration-ts.Height(), ssize, uint64(verifiedSize), ts.Key())
+		collateralPerSector, err := s.api.StateMinerInitialPledgeForSector(ctx, pci.Info.Expiration-ts.Height(), ssize, pledgeSize, ts.Key())
 		if err != nil {
 			return false, xerrors.Errorf("getting initial pledge collateral: %w", err)
 		}
@@ -333,7 +342,7 @@ func (s *SubmitCommitTask) Do(ctx context.Context, taskID harmonytask.TaskID, st
 			RequireNotificationSuccess: s.cfg.RequireNotificationSuccess,
 		}
 
-		err = s.simuateCommitPerSector(ctx, maddr, mi, balance, collateral, ts, simulateSendParam)
+		err = s.simuateCommitPerSector(ctx, maddr, mi, balance, collateralPerSector, ts, simulateSendParam)
 		if err != nil {
 			log.Errorw("failed to simulate commit for sector", "Miner", maddr.String(), "Sector", sectorParams.SectorNumber, "err", err)
 			continue

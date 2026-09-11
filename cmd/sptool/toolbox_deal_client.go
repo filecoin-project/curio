@@ -222,8 +222,6 @@ var mk12Clientcmd = &cli.Command{
 		dealCmd,
 		dealStatusCmd,
 		offlineDealCmd,
-		allocateCmd,
-		listAllocationsCmd,
 		marketAddCmd,
 		marketWithdrawCmd,
 		commpCmd,

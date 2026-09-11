@@ -30,22 +30,26 @@ ExecuteDeal
     -> validateClient(auth)
     -> Products.Validate()
     -> Data.Validate() only if Data != nil
- -> if DDO present: processDDODeal
+ -> if DDO present: reject allocation, sanitize, save, processDDODeal
  -> else if PDP present: processPDPDeal
  -> else reject unsupported product
 ```
 
 ```text
-processDDODeal
- -> sanitizeDDODeal (Data required, retrieval required, provider/client/start-epoch/allocation/size checks)
+DDO admission in ExecuteDeal
+ -> reject allocation-bearing new DDO products
+ -> sanitizeDDODeal (Data required, retrieval required, provider/client/start-epoch/size checks)
+    -> historical allocation checks run only before NV29 (also used during upload finalization)
  -> VerifyMarketDeal (only if market_address != "")
     -> ddo_contracts.allowed must be TRUE
-    -> CurioDealViewV1.version() == 1
-    -> CurioDealViewV1.verifyDeal(CurioDealView{...}) must return TRUE
+    -> version() must be 1 before NV29 and 2 from NV29 onward
+    -> call the corresponding CurioDealViewV1/V2.verifyDeal(CurioDealView{...})
+    -> V1 retains allocationId; V2 has no allocation field
+    -> verifyDeal must return TRUE
     -> DealNotFound revert maps to market rejection
  -> backpressure checks (MK20 + Sector)
  -> SaveToDB
- -> queue
+ -> processDDODeal queues the saved deal
     -> SourceHttpPut: insert market_mk20_upload_waiting
     -> all other data sources: insert market_mk20_pipeline_waiting
 ```
@@ -133,12 +137,17 @@ If deal has `Data` and matching piece already exists in `parked_pieces`, it inse
 If `market_address` is provided:
 1. `market_deal_id` is mandatory.
 2. Contract must be in `ddo_contracts` with `allowed=TRUE`.
-3. ABI call is read-only (`CurioDealViewV1`):
-   - `version()` must be `1`
-   - Curio constructs `CurioDealView` from local deal data and calls `verifyDeal(...)`
+3. ABI calls are read-only (`CurioDealViewV1` or `CurioDealViewV2`):
+   - `version()` must be exactly `1` before NV29 and `2` from NV29 onward; larger integers are not truncated
+   - The network version comes from the same chain head used by `sanitizeDDODeal` for allocation checks
+   - Curio constructs the matching `CurioDealView` from local deal data and calls `verifyDeal(...)`
+   - V1 includes the original `allocationId` for previously accepted deals, or zero when absent
+   - V2 omits `allocationId`; it has a different `verifyDeal` selector, so market contracts must expose V2 from NV29 onward
    - `verifyDeal(...)` must return `true`
    - `getDealState(dealId)` is part of the interface for state queries
 4. `DealNotFound` revert selector maps to market rejection.
+
+New deals and newly added DDO products cannot specify an allocation. Existing DDO products remain unchanged during updates. Upload finalization uses the contract interface required by the current network version, including for previously accepted deals.
 
 ## Upload housekeeping state machine
 1. SQL triggers set `market_mk20_upload_waiting.ready_at` when serial upload is ready or when all chunks become complete.
