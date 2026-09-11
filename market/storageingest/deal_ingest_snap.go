@@ -19,6 +19,7 @@ import (
 	miner2 "github.com/filecoin-project/go-state-types/builtin/v13/miner"
 	verifreg13 "github.com/filecoin-project/go-state-types/builtin/v13/verifreg"
 	"github.com/filecoin-project/go-state-types/builtin/v9/verifreg"
+	"github.com/filecoin-project/go-state-types/network"
 
 	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps/config"
@@ -222,32 +223,37 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, tx *harmo
 		return nil, nil, xerrors.Errorf("json.Marshal(header): %w", err)
 	}
 
-	vd := verifiedDeal{
-		isVerified: false,
+	head, err := p.api.ChainHead(ctx)
+	if err != nil {
+		return nil, nil, xerrors.Errorf("getting chain head: %w", err)
+	}
+	nv, err := p.api.StateNetworkVersion(ctx, head.Key())
+	if err != nil {
+		return nil, nil, xerrors.Errorf("getting network version: %w", err)
 	}
 
+	var vd verifiedDeal
 	if piece.DealProposal != nil {
 		// For snap we convert f05 deals to DDO
-
-		alloc, err := p.api.StateGetAllocationIdForPendingDeal(ctx, piece.DealID, types.EmptyTSK)
-		if err != nil {
-			return nil, nil, xerrors.Errorf("getting allocation for deal %d: %w", piece.DealID, err)
-		}
-		clid, err := p.api.StateLookupID(ctx, piece.DealProposal.Client, types.EmptyTSK)
-		if err != nil {
-			return nil, nil, xerrors.Errorf("getting client address for deal %d: %w", piece.DealID, err)
-		}
-
-		clientId, err := address.IDFromAddress(clid)
-		if err != nil {
-			return nil, nil, xerrors.Errorf("getting client address for deal %d: %w", piece.DealID, err)
-		}
-
 		var vac *miner2.VerifiedAllocationKey
-		if alloc != verifreg.NoAllocationID {
-			vac = &miner2.VerifiedAllocationKey{
-				Client: abi.ActorID(clientId),
-				ID:     verifreg13.AllocationId(alloc),
+		if nv < network.Version29 {
+			alloc, err := p.api.StateGetAllocationIdForPendingDeal(ctx, piece.DealID, head.Key())
+			if err != nil {
+				return nil, nil, xerrors.Errorf("getting allocation for deal %d: %w", piece.DealID, err)
+			}
+			clid, err := p.api.StateLookupID(ctx, piece.DealProposal.Client, head.Key())
+			if err != nil {
+				return nil, nil, xerrors.Errorf("getting client address for deal %d: %w", piece.DealID, err)
+			}
+			clientId, err := address.IDFromAddress(clid)
+			if err != nil {
+				return nil, nil, xerrors.Errorf("getting client address for deal %d: %w", piece.DealID, err)
+			}
+			if alloc != verifreg.NoAllocationID {
+				vac = &miner2.VerifiedAllocationKey{
+					Client: abi.ActorID(clientId),
+					ID:     verifreg13.AllocationId(alloc),
+				}
 			}
 		}
 
@@ -273,19 +279,14 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, tx *harmo
 		piece.PublishCid = nil
 	}
 
-	head, err := p.api.ChainHead(ctx)
-	if err != nil {
-		return nil, nil, xerrors.Errorf("getting chain head: %w", err)
-	}
-
-	var maxExpiration int64
-	vd.isVerified = piece.PieceActivationManifest.VerifiedAllocationKey != nil
+	maxExpiration := int64(piece.DealSchedule.EndEpoch) + MaxEndEpochBufferUnverified
+	vd.isVerified = nv < network.Version29 && piece.PieceActivationManifest.VerifiedAllocationKey != nil
 	if vd.isVerified {
 		client, err := address.NewIDAddress(uint64(piece.PieceActivationManifest.VerifiedAllocationKey.Client))
 		if err != nil {
 			return nil, nil, xerrors.Errorf("getting client address from actor ID: %w", err)
 		}
-		alloc, err := p.api.StateGetAllocation(ctx, client, verifregtypes.AllocationId(piece.PieceActivationManifest.VerifiedAllocationKey.ID), types.EmptyTSK)
+		alloc, err := p.api.StateGetAllocation(ctx, client, verifregtypes.AllocationId(piece.PieceActivationManifest.VerifiedAllocationKey.ID), head.Key())
 		if err != nil {
 			return nil, nil, xerrors.Errorf("getting allocation details for %d: %w", piece.PieceActivationManifest.VerifiedAllocationKey.ID, err)
 		}
@@ -294,10 +295,7 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, tx *harmo
 		}
 		vd.tmin = alloc.TermMin
 		vd.tmax = alloc.TermMax
-
 		maxExpiration = int64(head.Height() + alloc.TermMax)
-	} else {
-		maxExpiration = int64(piece.DealSchedule.EndEpoch) + MaxEndEpochBufferUnverified
 	}
 	propJson, err = json.Marshal(piece.PieceActivationManifest)
 	if err != nil {
@@ -305,7 +303,7 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, tx *harmo
 	}
 
 	// Try to allocate the piece to an open sector
-	allocated, ret, sp, err := p.allocateToExisting(ctx, tx, maddr, piece, psize, rawSize, source, dataHdrJson, propJson, vd)
+	allocated, ret, sp, err := p.allocateToExisting(ctx, tx, maddr, piece, psize, rawSize, source, dataHdrJson, propJson, vd, head)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -490,18 +488,13 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, tx *harmo
 	return new(abi.SectorNumber(uint64(candidate.Sector))), new(abi.RegisteredSealProof(candidate.RegSealProof)), nil
 }
 
-func (p *PieceIngesterSnap) allocateToExisting(ctx context.Context, tx *harmonydb.Tx, maddr address.Address, piece lpiece.PieceDealInfo, psize abi.PaddedPieceSize, rawSize int64, source url.URL, dataHdrJson, propJson []byte, vd verifiedDeal) (bool, *abi.SectorNumber, *abi.RegisteredSealProof, error) {
+func (p *PieceIngesterSnap) allocateToExisting(ctx context.Context, tx *harmonydb.Tx, maddr address.Address, piece lpiece.PieceDealInfo, psize abi.PaddedPieceSize, rawSize int64, source url.URL, dataHdrJson, propJson []byte, vd verifiedDeal, head *types.TipSet) (bool, *abi.SectorNumber, *abi.RegisteredSealProof, error) {
 	var ret abi.SectorNumber
 	var retSp abi.RegisteredSealProof
 	var allocated bool
 	var rerr error
 
 	openSectors, err := p.getOpenSectors(tx, p.addToID[maddr])
-	if err != nil {
-		return false, nil, nil, err
-	}
-
-	head, err := p.api.ChainHead(ctx)
 	if err != nil {
 		return false, nil, nil, err
 	}
@@ -519,14 +512,16 @@ func (p *PieceIngesterSnap) allocateToExisting(ctx context.Context, tx *harmonyd
 			continue
 		}
 		if sec.currentSize+psize <= abi.PaddedPieceSize(p.minerDetails[p.addToID[maddr]].sectorSize) {
-			si, err := p.api.StateSectorGetInfo(ctx, maddr, sec.number, types.EmptyTSK)
+			si, err := p.api.StateSectorGetInfo(ctx, maddr, sec.number, head.Key())
 			if err != nil {
 				log.Errorw("getting sector info", "error", err, "sector", sec.number, "miner", maddr)
 				continue
 			}
+			if piece.DealSchedule.EndEpoch > si.Expiration {
+				continue
+			}
 
 			if vd.isVerified {
-
 				sectorLifeTime := si.Expiration - head.Height()
 				if sectorLifeTime < 0 {
 					log.Errorw("sector lifetime is negative", "sector", sec.number, "miner", maddr, "lifetime", sectorLifeTime)

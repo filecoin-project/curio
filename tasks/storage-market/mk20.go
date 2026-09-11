@@ -26,6 +26,7 @@ import (
 	miner13 "github.com/filecoin-project/go-state-types/builtin/v13/miner"
 	verifreg13 "github.com/filecoin-project/go-state-types/builtin/v13/verifreg"
 	"github.com/filecoin-project/go-state-types/builtin/v9/verifreg"
+	"github.com/filecoin-project/go-state-types/network"
 
 	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -36,7 +37,6 @@ import (
 
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/proofs"
-	"github.com/filecoin-project/lotus/chain/types"
 	lethtypes "github.com/filecoin-project/lotus/chain/types/ethtypes"
 	lpiece "github.com/filecoin-project/lotus/storage/pipeline/piece"
 )
@@ -984,6 +984,11 @@ func (d *CurioStorageDealMarket) processMK20DealIngestion(ctx context.Context) {
 		log.Errorf("getting chain head: %w", err)
 		return
 	}
+	nv, err := d.api.StateNetworkVersion(ctx, head.Key())
+	if err != nil {
+		log.Errorw("getting network version", "error", err)
+		return
+	}
 	sealDuration := d.cfg.Market.StorageMarketConfig.MK20.ExpectedPoRepSealDuration
 	if d.cfg.Ingest.DoSnap {
 		sealDuration = d.cfg.Market.StorageMarketConfig.MK20.ExpectedSnapSealDuration
@@ -1032,22 +1037,24 @@ func (d *CurioStorageDealMarket) processMK20DealIngestion(ctx context.Context) {
 			continue
 		}
 
-		client, err := address.NewFromString(deal.Client)
-		if err != nil {
-			log.Errorw("failed to parse client address", "deal", deal.ID, "error", err)
-			continue
-		}
-
-		clientIdAddr, err := d.api.StateLookupID(ctx, client, types.EmptyTSK)
-		if err != nil {
-			log.Errorw("failed to lookup client id", "deal", deal.ID, "error", err)
-			continue
-		}
-
-		clientId, err := address.IDFromAddress(clientIdAddr)
-		if err != nil {
-			log.Errorw("failed to parse client id", "deal", deal.ID, "error", err)
-			continue
+		var client address.Address
+		var clientId uint64
+		if nv < network.Version29 {
+			client, err = address.NewFromString(deal.Client)
+			if err != nil {
+				log.Errorw("failed to parse client address", "deal", deal.ID, "error", err)
+				continue
+			}
+			clientIdAddr, err := d.api.StateLookupID(ctx, client, head.Key())
+			if err != nil {
+				log.Errorw("failed to lookup client id", "deal", deal.ID, "error", err)
+				continue
+			}
+			clientId, err = address.IDFromAddress(clientIdAddr)
+			if err != nil {
+				log.Errorw("failed to parse client id", "deal", deal.ID, "error", err)
+				continue
+			}
 		}
 
 		aurl, err := url.Parse(deal.Url)
@@ -1090,9 +1097,9 @@ func (d *CurioStorageDealMarket) processMK20DealIngestion(ctx context.Context) {
 		}
 		end := start + abi.ChainEpoch(deal.Duration)
 		var vak *miner.VerifiedAllocationKey
-		if mk20Deal.Products.DDOV1.AllocationId != nil {
+		if nv < network.Version29 && mk20Deal.Products.DDOV1.AllocationId != nil {
 			allocClientID := clientId
-			alloc, err := d.api.StateGetAllocation(ctx, client, verifreg.AllocationId(*mk20Deal.Products.DDOV1.AllocationId), types.EmptyTSK)
+			alloc, err := d.api.StateGetAllocation(ctx, client, verifreg.AllocationId(*mk20Deal.Products.DDOV1.AllocationId), head.Key())
 			if err != nil {
 				log.Errorw("failed to get allocation", "deal", deal.ID, "error", err)
 				continue
@@ -1108,7 +1115,7 @@ func (d *CurioStorageDealMarket) processMK20DealIngestion(ctx context.Context) {
 					log.Errorw("bad market address to filecoin address", "deal", deal.ID, "error", cerr)
 					continue
 				}
-				cAdr, lerr := d.api.StateLookupID(ctx, fc, types.EmptyTSK)
+				cAdr, lerr := d.api.StateLookupID(ctx, fc, head.Key())
 				if lerr != nil {
 					log.Errorw("failed to lookup contract id", "deal", deal.ID, "error", lerr)
 					continue
@@ -1118,7 +1125,7 @@ func (d *CurioStorageDealMarket) processMK20DealIngestion(ctx context.Context) {
 					log.Errorw("failed to parse contract id", "deal", deal.ID, "error", ierr)
 					continue
 				}
-				alloc, err = d.api.StateGetAllocation(ctx, fc, verifreg.AllocationId(*mk20Deal.Products.DDOV1.AllocationId), types.EmptyTSK)
+				alloc, err = d.api.StateGetAllocation(ctx, fc, verifreg.AllocationId(*mk20Deal.Products.DDOV1.AllocationId), head.Key())
 				if err != nil {
 					log.Errorw("failed to get allocation via market", "deal", deal.ID, "error", err)
 					continue

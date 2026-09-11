@@ -26,6 +26,7 @@ import (
 	verifregtypes9 "github.com/filecoin-project/go-state-types/builtin/v9/verifreg"
 	"github.com/filecoin-project/go-state-types/dline"
 	"github.com/filecoin-project/go-state-types/exitcode"
+	"github.com/filecoin-project/go-state-types/network"
 
 	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps/config"
@@ -52,6 +53,7 @@ type SubmitTaskNodeAPI interface {
 	StateSectorPartition(ctx context.Context, maddr address.Address, sectorNumber abi.SectorNumber, tsk types.TipSetKey) (*miner.SectorLocation, error)
 	StateGetAllocation(ctx context.Context, clientAddr address.Address, allocationId verifregtypes9.AllocationId, tsk types.TipSetKey) (*verifregtypes9.Allocation, error)
 	ChainHead(ctx context.Context) (*types.TipSet, error)
+	StateNetworkVersion(context.Context, types.TipSetKey) (network.Version, error)
 
 	WalletBalance(context.Context, address.Address) (types.BigInt, error)
 	WalletHas(context.Context, address.Address) (bool, error)
@@ -175,8 +177,12 @@ func (s *SubmitTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwn
 	if err != nil {
 		return false, xerrors.Errorf("getting chain head: %w", err)
 	}
+	nv, err := s.api.StateNetworkVersion(ctx, ts.Key())
+	if err != nil {
+		return false, xerrors.Errorf("getting network version: %w", err)
+	}
 
-	mi, err := s.api.StateMinerInfo(ctx, maddr, types.EmptyTSK)
+	mi, err := s.api.StateMinerInfo(ctx, maddr, ts.Key())
 	if err != nil {
 		return false, xerrors.Errorf("getting miner info: %w", err)
 	}
@@ -262,7 +268,7 @@ func (s *SubmitTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwn
 			continue // Skip this sector
 		}
 
-		sl, err := s.api.StateSectorPartition(ctx, maddr, snum, types.EmptyTSK)
+		sl, err := s.api.StateSectorPartition(ctx, maddr, snum, ts.Key())
 		if err != nil {
 			return false, xerrors.Errorf("getting sector location: %w", err)
 		}
@@ -317,24 +323,26 @@ func (s *SubmitTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwn
 			if err != nil {
 				return false, xerrors.Errorf("marshalling json to PieceManifest: %w", err)
 			}
-			unrecoverable, err := seal.AllocationCheck(ctx, s.api, pam, onChainInfo.Expiration, abi.ActorID(update.SpID), ts)
-			if err != nil {
-				if unrecoverable {
-					_, err2 := s.db.Exec(ctx, `UPDATE sectors_snap_pipeline SET 
+			if nv < network.Version29 {
+				unrecoverable, err := seal.AllocationCheck(ctx, s.api, pam, onChainInfo.Expiration, abi.ActorID(update.SpID), ts)
+				if err != nil {
+					if unrecoverable {
+						_, err2 := s.db.Exec(ctx, `UPDATE sectors_snap_pipeline SET
                                  failed = TRUE, failed_at = NOW(), failed_reason = 'alloc-check', failed_reason_msg = $1,
                                  task_id_submit = NULL, after_submit = FALSE
                              WHERE sp_id = $2 AND sector_number = $3`, err.Error(), update.SpID, update.SectorNumber)
 
-					log.Errorw("allocation check failed with an unrecoverable issue", "sp", update.SpID, "sector", update.SectorNumber, "err", err)
-					return true, xerrors.Errorf("allocation check failed with an unrecoverable issue: %w", multierr.Combine(err, err2))
+						log.Errorw("allocation check failed with an unrecoverable issue", "sp", update.SpID, "sector", update.SectorNumber, "err", err)
+						return true, xerrors.Errorf("allocation check failed with an unrecoverable issue: %w", multierr.Combine(err, err2))
+					}
+
+					pieceCheckFailed = true
+					break
 				}
 
-				pieceCheckFailed = true
-				break
-			}
-
-			if pam.VerifiedAllocationKey != nil {
-				verifiedSize += piece.Size
+				if pam.VerifiedAllocationKey != nil {
+					verifiedSize += piece.Size
+				}
 			}
 
 			pams = append(pams, *pam)
@@ -364,15 +372,23 @@ func (s *SubmitTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwn
 		}
 
 		duration := onChainInfo.Expiration - ts.Height()
-
-		secCollateral, err := s.api.StateMinerInitialPledgeForSector(ctx, duration, ssize, uint64(verifiedSize), ts.Key())
-		if err != nil {
-			return false, xerrors.Errorf("calculating pledge: %w", err)
+		pledgeSize := uint64(verifiedSize)
+		if nv >= network.Version29 {
+			pledgeSize = uint64(ssize)
 		}
 
-		secCollateral = big.Sub(secCollateral, onChainInfo.InitialPledge)
-		if secCollateral.LessThan(big.Zero()) {
-			secCollateral = big.Zero()
+		alreadyMaxQAP := nv >= network.Version29 && curiochain.SectorIsFullQaPower(onChainInfo)
+		secCollateral := big.Zero()
+		if !alreadyMaxQAP {
+			secCollateral, err = s.api.StateMinerInitialPledgeForSector(ctx, duration, ssize, pledgeSize, ts.Key())
+			if err != nil {
+				return false, xerrors.Errorf("calculating pledge: %w", err)
+			}
+
+			secCollateral = big.Sub(secCollateral, onChainInfo.InitialPledge)
+			if secCollateral.LessThan(big.Zero()) {
+				secCollateral = big.Zero()
+			}
 		}
 
 		collateral = big.Add(collateral, secCollateral)
@@ -402,7 +418,7 @@ func (s *SubmitTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwn
 		if s.cfg.DisableCollateralFallback {
 			collateral = big.Zero()
 		}
-		balance, err := s.api.StateMinerAvailableBalance(ctx, maddr, types.EmptyTSK)
+		balance, err := s.api.StateMinerAvailableBalance(ctx, maddr, ts.Key())
 		if err != nil {
 			if err != nil {
 				return false, xerrors.Errorf("getting miner balance: %w", err)
