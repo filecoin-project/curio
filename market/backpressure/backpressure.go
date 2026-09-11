@@ -109,24 +109,28 @@ func (c *CachedBackPressure) checkSectorBackpressure(ctx context.Context, cfg *c
 		return false, xerrors.Errorf("counting buffered sectors: %w", err)
 	}
 
+	return sdrQueueBackpressure(cfg, bufferedSDR, bufferedTrees, bufferedPoRep, waitDealSectors), nil
+}
+
+func sdrQueueBackpressure(cfg *config.CurioIngestConfig, bufferedSDR, bufferedTrees, bufferedPoRep, waitDealSectors int) bool {
 	if cfg.MaxQueueDealSector.Get() != 0 && waitDealSectors > cfg.MaxQueueDealSector.Get() {
 		log.Infow("backpressure", "reason", "too many wait deal sectors", "wait_deal_sectors", waitDealSectors, "max", cfg.MaxQueueDealSector.Get())
-		return true, nil
+		return true
 	}
 
-	if bufferedSDR > cfg.MaxQueueSDR.Get() {
+	if cfg.MaxQueueSDR.Get() != 0 && bufferedSDR > cfg.MaxQueueSDR.Get() {
 		log.Infow("backpressure", "reason", "too many SDR tasks", "buffered", bufferedSDR, "max", cfg.MaxQueueSDR.Get())
-		return true, nil
+		return true
 	}
 	if cfg.MaxQueueTrees.Get() != 0 && bufferedTrees > cfg.MaxQueueTrees.Get() {
 		log.Infow("backpressure", "reason", "too many tree tasks", "buffered", bufferedTrees, "max", cfg.MaxQueueTrees.Get())
-		return true, nil
+		return true
 	}
 	if cfg.MaxQueuePoRep.Get() != 0 && bufferedPoRep > cfg.MaxQueuePoRep.Get() {
 		log.Infow("backpressure", "reason", "too many PoRep tasks", "buffered", bufferedPoRep, "max", cfg.MaxQueuePoRep.Get())
-		return true, nil
+		return true
 	}
-	return false, nil
+	return false
 }
 
 func (c *CachedBackPressure) checkMK20Backpressure(ctx context.Context, cfg *config.CurioIngestConfig, db *harmonydb.DB) (bool, error) {
