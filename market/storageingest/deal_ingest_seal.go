@@ -8,6 +8,7 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"sync"
 	"time"
 
 	logging "github.com/ipfs/go-log/v2"
@@ -39,6 +40,11 @@ var log = logging.Logger("storage-ingest")
 type Ingester interface {
 	AllocatePieceToSector(ctx context.Context, tx *harmonydb.Tx, maddr address.Address, piece lpiece.PieceDealInfo, rawSize int64, source url.URL, header http.Header) (*abi.SectorNumber, *abi.RegisteredSealProof, error)
 	GetExpectedSealDuration() abi.ChainEpoch
+}
+
+type WakingIngester interface {
+	Ingester
+	Wake()
 }
 
 type PieceIngesterApi interface {
@@ -88,6 +94,8 @@ type PieceIngester struct {
 	minerDetails         map[int64]*mdetails
 	maxWaitTime          *config.Dynamic[time.Duration]
 	expectedSealDuration abi.ChainEpoch
+	sealWake             chan struct{}
+	sealMu               sync.Mutex
 }
 
 type verifiedDeal struct {
@@ -152,6 +160,7 @@ func NewPieceIngester(ctx context.Context, db *harmonydb.DB, api PieceIngesterAp
 		minerDetails:         minerDetails,
 		idToAddr:             idToAddr,
 		expectedSealDuration: abi.ChainEpoch(int64(expectedEpochs)),
+		sealWake:             newSealWake(),
 	}
 
 	go pi.start()
@@ -163,86 +172,41 @@ func (p *PieceIngester) start() {
 	ticker := time.NewTicker(loopFrequency)
 	defer ticker.Stop()
 
-	for {
-		select {
-		case <-p.ctx.Done():
-			return
-		case <-ticker.C:
-			err := p.Seal()
-			if err != nil {
-				log.Error(err)
-			}
-		}
-	}
+	runSealLoop(p.ctx, ticker.C, p.sealWake, p.Seal, func(err error) {
+		log.Errorw("storage ingest seal pass failed", "error", err)
+	})
 }
 
 func (p *PieceIngester) Seal() error {
+	p.sealMu.Lock()
+	defer p.sealMu.Unlock()
+
 	head, err := p.api.ChainHead(p.ctx)
 	if err != nil {
 		return xerrors.Errorf("getting chain head: %w", err)
 	}
 
-	shouldSeal := func(sector *openSector) bool {
-		// Start sealing a sector if
-		// 1. If sector is full
-		// 2. We have been waiting for MaxWaitDuration
-		// 3. StartEpoch is currentEpoch + expectedSealDuration
-		if sector.currentSize == abi.PaddedPieceSize(p.minerDetails[int64(sector.miner)].sectorSize) {
-			log.Debugf("start sealing sector %d of miner %s: %s", sector.number, p.idToAddr[sector.miner].String(), "sector full")
-			return true
-		}
-		if time.Since(*sector.openedAt) > p.maxWaitTime.Get() {
-			log.Debugf("start sealing sector %d of miner %s: %s", sector.number, p.idToAddr[sector.miner].String(), "MaxWaitTime reached")
-			return true
-		}
-		if sector.earliestStartEpoch < head.Height()+p.expectedSealDuration {
-			log.Debugf("start sealing sector %d of miner %s: %s", sector.number, p.idToAddr[sector.miner].String(), "earliest start epoch")
-			return true
-		}
-		return false
+	minerIDs := sortedProviderIDs(p.minerDetails)
+	maxWaitBefore := time.Now().Add(-p.maxWaitTime.Get())
+	params := make([]sealBatchParams, 0, len(minerIDs))
+	for _, mid := range minerIDs {
+		params = append(params, sealBatchParams{
+			spID:                 mid,
+			proof:                int64(p.minerDetails[mid].sealProof),
+			sectorSize:           int64(p.minerDetails[mid].sectorSize),
+			maxWaitBefore:        maxWaitBefore,
+			sealBeforeChainEpoch: head.Height() + p.expectedSealDuration,
+		})
 	}
 
-	comm, err := p.db.BeginTransaction(p.ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
-		for _, mid := range p.addToID {
-			openSectors, err := p.getOpenSectors(tx, mid)
-			if err != nil {
-				return false, err
-			}
+	return drainSealProviders(p.ctx, p.db, params)
+}
 
-			for _, sector := range openSectors {
-				if shouldSeal(sector) {
-					// Start sealing the sector
-					cn, err := tx.Exec(`INSERT INTO sectors_sdr_pipeline (sp_id, sector_number, reg_seal_proof) VALUES ($1, $2, $3);`, mid, sector.number, p.minerDetails[mid].sealProof)
-
-					if err != nil {
-						return false, xerrors.Errorf("adding sector to pipeline: %w", err)
-					}
-
-					if cn != 1 {
-						return false, xerrors.Errorf("adding sector to pipeline: incorrect number of rows returned")
-					}
-
-					_, err = tx.Exec("SELECT transfer_and_delete_sorted_open_piece($1, $2)", mid, sector.number)
-					if err != nil {
-						return false, xerrors.Errorf("adding sector to pipeline: %w", err)
-					}
-				}
-
-			}
-
-		}
-		return true, nil
-	}, harmonydb.OptionRetry())
-
-	if err != nil {
-		return xerrors.Errorf("start sealing sector: %w", err)
+func (p *PieceIngester) Wake() {
+	if p == nil || p.sealWake == nil {
+		return
 	}
-
-	if !comm {
-		return xerrors.Errorf("start sealing sector: commit failed")
-	}
-
-	return nil
+	wakeSealLoop(p.sealWake)
 }
 
 func (p *PieceIngester) AllocatePieceToSector(ctx context.Context, tx *harmonydb.Tx, maddr address.Address, piece lpiece.PieceDealInfo, rawSize int64, source url.URL, header http.Header) (*abi.SectorNumber, *abi.RegisteredSealProof, error) {
@@ -313,6 +277,9 @@ func (p *PieceIngester) AllocatePieceToSector(ctx context.Context, tx *harmonydb
 	mid, ok := p.addToID[maddr]
 	if !ok {
 		return nil, nil, xerrors.Errorf("miner not found")
+	}
+	if err := seal.LockSectorState(ctx, tx, mid); err != nil {
+		return nil, nil, err
 	}
 
 	// Try to allocate the piece to an open sector

@@ -72,7 +72,7 @@ type storageMarketAPI interface {
 type CurioStorageDealMarket struct {
 	cfg         *config.CurioConfig
 	db          *harmonydb.DB
-	pin         storageingest.Ingester
+	pin         storageingest.WakingIngester
 	miners      *config.Dynamic[[]address.Address]
 	api         storageMarketAPI
 	MK12Handler *mk12.MK12
@@ -1067,6 +1067,7 @@ func (d *CurioStorageDealMarket) ingestDeal(ctx context.Context, deal MK12Pipeli
 		return xerrors.Errorf("UUID: %s: failed to commit transaction: %w", deal.UUID, err)
 	}
 
+	d.pin.Wake()
 	log.Infof("Added deal %s to sector %d", deal.UUID, *sector)
 	return nil
 }
