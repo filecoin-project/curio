@@ -307,9 +307,9 @@ Each workflow resolves the version once from the GitHub release tag, with the le
 | `filecoin/curio-pdp:<version>` | `skiff` (mainnet) | `filecoin/curio-pdp:latest` |
 | `filecoin/curio-pdp:<version>-calibnet` | `calibnet-skiff` | `filecoin/curio-pdp:calibnet` |
 
-Builds run natively on separate AMD64 and ARM64 GitHub runners. Each pushes a temporary `build-<run_id>-<attempt>-<network>-<arch>` tag and runs the image's binary with `--version`. Each workflow waits for all its builds and smoke checks to succeed before its publish job combines each architecture pair, verifies that the manifest contains both Linux architectures, and publishes its final tags. It also checks the published version manifest. The attempt component is resolved once so rerunning failed jobs can reuse successful builds from the same run.
+Builds run natively on separate AMD64 and ARM64 GitHub runners. Each pushes an image by digest, runs its binary with `--version` using that digest, and saves the full `sha256` digest in a GitHub Actions artifact scoped to the image, network, and architecture. Rerun builds overwrite their artifacts, allowing failed-job reruns to reuse successful peers from the same workflow run.
 
-Temporary architecture tags remain on Docker Hub for troubleshooting and reruns. They can be removed after a successful publish; automatic deletion is not required, so both workflows continue to use tokens with Read & Write permissions.
+After all builds and smoke checks succeed, each publish job downloads the artifacts for its image and network, combines both architecture digests, and verifies that the manifest contains `linux/amd64` and `linux/arm64` before publishing final tags. It also checks the published version manifest. Builds create no temporary architecture tags; the existing Read & Write Docker Hub credentials remain sufficient.
 
 ### GitHub Actions secrets
 
