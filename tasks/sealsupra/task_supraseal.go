@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
+	"math/bits"
 	"os"
 	"path/filepath"
 	"sort"
@@ -586,41 +588,80 @@ type ccAllocation struct {
 	chainAllocated *bitfield.BitField
 }
 
-// planCCAllocations preserves the scheduler's existing weighted allocation
-// and remainder behavior while making the selected providers known before
-// any provider lock is acquired.
-func planCCAllocations(schedules []ccSchedule, toSeal int64) []ccAllocation {
+// planCCAllocations caps weighted shares by each provider's remaining quota,
+// then distributes rounding and capped-share remainders in schedule order.
+func planCCAllocations(schedules []ccSchedule, toSeal int64) ([]ccAllocation, error) {
+	if toSeal < 0 {
+		return nil, xerrors.Errorf("negative CC allocation request: %d", toSeal)
+	}
+	if toSeal == 0 {
+		return nil, nil
+	}
 	var totalWeight int64
 	for _, schedule := range schedules {
+		if schedule.Weight <= 0 || totalWeight > math.MaxInt64-schedule.Weight {
+			return nil, xerrors.Errorf("invalid CC schedule weight for provider %d: %d", schedule.SpID, schedule.Weight)
+		}
 		totalWeight += schedule.Weight
 	}
-
-	remainingToSeal := toSeal
-	allocations := make([]ccAllocation, 0, len(schedules))
-	for i, schedule := range schedules {
-		if remainingToSeal <= 0 {
-			break
-		}
-
-		var sectorsForSP int64
-		if i == len(schedules)-1 {
-			sectorsForSP = remainingToSeal
-		} else {
-			sectorsForSP = min(min((toSeal*schedule.Weight)/totalWeight, schedule.ToSeal), remainingToSeal)
-		}
-
-		if sectorsForSP == 0 {
-			continue
-		}
-
-		allocations = append(allocations, ccAllocation{
-			schedule: schedule,
-			count:    sectorsForSP,
-		})
-		remainingToSeal -= sectorsForSP
+	if totalWeight == 0 {
+		return nil, xerrors.Errorf("cannot allocate CC sectors without schedules")
 	}
 
-	return allocations
+	counts := make([]int64, len(schedules))
+	remaining := toSeal
+	for i, schedule := range schedules {
+		hi, lo := bits.Mul64(uint64(toSeal), uint64(schedule.Weight))
+		share, _ := bits.Div64(hi, lo, uint64(totalWeight))
+		counts[i] = min(int64(share), max(schedule.ToSeal, int64(0)), remaining)
+		remaining -= counts[i]
+	}
+
+	for remaining > 0 {
+		progressed := false
+		for i, schedule := range schedules {
+			if counts[i] >= max(schedule.ToSeal, int64(0)) {
+				continue
+			}
+			counts[i]++
+			remaining--
+			progressed = true
+			if remaining == 0 {
+				break
+			}
+		}
+		if !progressed {
+			return nil, xerrors.Errorf("insufficient CC quota: %d of %d sectors remain", remaining, toSeal)
+		}
+	}
+
+	allocations := make([]ccAllocation, 0, len(schedules))
+	for i, schedule := range schedules {
+		if counts[i] == 0 {
+			continue
+		}
+		allocations = append(allocations, ccAllocation{
+			schedule: schedule,
+			count:    counts[i],
+		})
+	}
+
+	return allocations, nil
+}
+
+const ccSchedulerDebitSQL = `UPDATE sectors_cc_scheduler
+	SET to_seal = to_seal - $1
+	WHERE sp_id = $2 AND enabled = TRUE AND to_seal >= $1`
+
+func debitCCQuota(allocation ccAllocation, debit func(count, spID int64) (int, error)) error {
+	rows, err := debit(allocation.count, allocation.schedule.SpID)
+	if err != nil {
+		return xerrors.Errorf("updating CC quota for provider %d: %w", allocation.schedule.SpID, err)
+	}
+	if rows != 1 {
+		return xerrors.Errorf("CC quota changed for provider %d: updated %d rows, expected 1", allocation.schedule.SpID, rows)
+	}
+	return nil
 }
 
 func ccProviderLockOrder(allocations []ccAllocation) []int64 {
@@ -695,7 +736,7 @@ func (s *SupraSeal) schedule(taskFunc harmonytask.AddTaskFunc) error {
 func (s *SupraSeal) claimsFromCCScheduler(tx *harmonydb.Tx, toSeal int64) ([]sectorClaim, error) {
 	var enabledSchedules []ccSchedule
 
-	err := tx.Select(&enabledSchedules, `SELECT sp_id, to_seal, weight, duration_days FROM sectors_cc_scheduler WHERE enabled = TRUE AND weight > 0 ORDER BY weight DESC`)
+	err := tx.Select(&enabledSchedules, `SELECT sp_id, to_seal, weight, duration_days FROM sectors_cc_scheduler WHERE enabled = TRUE AND weight > 0 ORDER BY weight DESC, sp_id ASC`)
 	if err != nil {
 		return nil, xerrors.Errorf("getting enabled schedules: %w", err)
 	}
@@ -704,18 +745,20 @@ func (s *SupraSeal) claimsFromCCScheduler(tx *harmonydb.Tx, toSeal int64) ([]sec
 		return nil, nil
 	}
 
-	var totalWeight, totalToSeal int64
+	remainingQuota := toSeal
 	for _, schedule := range enabledSchedules {
-		totalWeight += schedule.Weight
-		totalToSeal += schedule.ToSeal
+		remainingQuota -= min(max(schedule.ToSeal, int64(0)), remainingQuota)
 	}
 
-	if totalToSeal < toSeal {
-		log.Debugw("not enough sectors to fill a batch from CC scheduler", "totalToSeal", totalToSeal, "toSeal", toSeal)
+	if remainingQuota > 0 {
+		log.Debugw("not enough sectors to fill a batch from CC scheduler", "shortfall", remainingQuota, "toSeal", toSeal)
 		return nil, nil
 	}
 
-	allocations := planCCAllocations(enabledSchedules, toSeal)
+	allocations, err := planCCAllocations(enabledSchedules, toSeal)
+	if err != nil {
+		return nil, err
+	}
 
 	// Fetch chain state before acquiring any provider lock. Once the first
 	// provider is locked, this transaction performs database work only.
@@ -778,13 +821,16 @@ func (s *SupraSeal) claimsFromCCScheduler(tx *harmonydb.Tx, toSeal int64) ([]sec
 			}
 		}
 
-		// Update the to_seal count for this SP
-		_, err = tx.Exec(`UPDATE sectors_cc_scheduler SET to_seal = to_seal - $1 WHERE sp_id = $2`, allocation.count, schedule.SpID)
+		// Discovery preceded provider locking. Reject an exhausted or disabled
+		// schedule and roll back this transaction's sector allocations with it.
+		err = debitCCQuota(allocation, func(count, spID int64) (int, error) {
+			return tx.Exec(ccSchedulerDebitSQL, count, spID)
+		})
 		if err != nil {
-			return nil, xerrors.Errorf("updating to_seal for SP %d: %w", schedule.SpID, err)
+			return nil, err
 		}
 
-		log.Debugw("allocated sectors from CC scheduler", "sp_id", schedule.SpID, "count", allocation.count, "totalWeight", totalWeight, "totalToSeal", totalToSeal)
+		log.Debugw("allocated sectors from CC scheduler", "sp_id", schedule.SpID, "count", allocation.count)
 	}
 
 	if len(outClaims) != int(toSeal) {
