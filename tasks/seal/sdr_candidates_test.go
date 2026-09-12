@@ -105,6 +105,42 @@ func TestSDRCandidateReferenceRecheck(t *testing.T) {
 	}
 }
 
+func TestSDRCandidateLostReferenceDoesNotConsumePacing(t *testing.T) {
+	for _, interval := range []time.Duration{1520 * time.Second, 2625 * time.Second} {
+		p, _ := testSDRPacer(t, interval, false)
+		s := &SDRTask{startPacer: p}
+		// Advisory discovery observed two valid references. The first disappears
+		// before the storage reference recheck; only this reservation is canceled.
+		_, cancel, ok := s.ReserveTaskStart(1)
+		if !ok {
+			t.Fatal("reservation denied")
+		}
+		_, err := loadSDRSectorReference(context.Background(), func(context.Context, interface{}, ...interface{}) error { return nil }, 1)
+		if !errors.Is(err, errSDRTaskNotReady) {
+			t.Fatal(err)
+		}
+		cancel()
+		if p.started || p.reserved != 0 {
+			t.Fatal("reference failure spent interval")
+		}
+		start, cancelNext, ok := s.ReserveTaskStart(2)
+		if !ok {
+			t.Fatal("valid following candidate blocked")
+		}
+		cancel() // stale cleanup cannot release task 2's token
+		if err := start(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		cancelNext()
+		if !p.started || p.reserved != 0 {
+			t.Fatal("Do-entry did not commit")
+		}
+		if _, _, ok := s.ReserveTaskStart(2); ok {
+			t.Fatal("failure after actual start refunded pacing")
+		}
+	}
+}
+
 func TestSDRCandidateProductionSQLAndCallSites(t *testing.T) {
 	// SQL-shape coverage, not SQL execution: no copied eligibility evaluator.
 	want := `SELECT task_id_sdr FROM sectors_sdr_pipeline WHERE task_id_sdr = ANY($1::bigint[])

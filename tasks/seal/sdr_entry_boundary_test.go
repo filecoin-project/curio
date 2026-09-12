@@ -3,9 +3,68 @@ package seal
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 )
+
+func TestSDRStartReadinessIsReadOnly(t *testing.T) {
+	if (&SDRTask{}).TaskStartBlocked() {
+		t.Fatal("zero/default unexpectedly paced")
+	}
+	for _, interval := range []time.Duration{2625 * time.Second, 1520 * time.Second} {
+		p, n := testSDRPacer(t, interval, true)
+		s := &SDRTask{startPacer: p}
+		p.observer.sink = func(sdrPacingEvent) { _ = p.snapshot() }
+		// No active phase yet: the first real reservation must still choose it.
+		before := p.snapshot()
+		for range 10 {
+			if s.TaskStartBlocked() {
+				t.Fatal("unlatched phase treated as known wait")
+			}
+		}
+		if p.phaseSet || p.sequence != 0 || !reflect.DeepEqual(before, p.snapshot()) {
+			t.Fatal("peek changed admission state")
+		}
+		p.phaseSet = true
+		p.phaseWait = time.Second
+		before = p.snapshot()
+		for range 10 {
+			if !s.TaskStartBlocked() {
+				t.Fatal("latched phase not blocked")
+			}
+		}
+		if !reflect.DeepEqual(before, p.snapshot()) {
+			t.Fatal("latched deadline moved")
+		}
+		n.elapsed = time.Second
+		start, cancel, ok := s.ReserveTaskStart(1)
+		if !ok {
+			t.Fatal("due reservation denied")
+		}
+		if !s.TaskStartBlocked() {
+			t.Fatal("provisional reservation not protected")
+		}
+		if err := start(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		awaitSDREntryLog(t, p)
+		cancel()
+		before = p.snapshot()
+		for range 10 {
+			if !s.TaskStartBlocked() {
+				t.Fatal("committed interval not protected")
+			}
+		}
+		if !reflect.DeepEqual(before, p.snapshot()) {
+			t.Fatal("diagnostics changed committed interval")
+		}
+		n.elapsed += interval
+		if s.TaskStartBlocked() {
+			t.Fatal("exact interval remains blocked")
+		}
+	}
+}
 
 func TestSDRSectorDiagnosticLookupContext(t *testing.T) {
 	for _, mode := range []string{"success", "error", "cancelled", "deadline"} {
