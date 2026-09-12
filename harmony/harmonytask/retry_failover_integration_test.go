@@ -22,7 +22,7 @@ func TestRetrySQLNewNotificationDoesNotRequireInventedTimestamp(t *testing.T) {
 	// New-task and legacy notifications have no authoritative update_time.
 	// Retry zero has no backoff. Receipt time must not become a false CAS value.
 	row := taskFromSchedulerEvent(schedulerEvent{TaskID: 1, Retries: 0})
-	ids, err := h.claimTaskOwnership([]TaskID{1}, 1, row)
+	ids, err := h.claimTaskOwnership([]TaskID{1}, 1, map[TaskID]int64{}, row)
 	require.NoError(t, err)
 	require.Equal(t, []TaskID{1}, ids, "new task must not wait for a DB poll merely to learn update_time")
 }
@@ -41,7 +41,7 @@ func TestRetrySQLAuthoritativeClaimAndCompletion(t *testing.T) {
 		return row
 	}
 	row := snapshot()
-	ids, err := hs[0].claimTaskOwnership([]TaskID{1}, 1, row)
+	ids, err := hs[0].claimTaskOwnership([]TaskID{1}, 1, map[TaskID]int64{}, row)
 	require.NoError(t, err)
 	require.Empty(t, ids, "DB deadline must be enforced")
 	_, err = db.Exec(ctx, `UPDATE harmony_task SET update_time=CURRENT_TIMESTAMP-INTERVAL '5 seconds' WHERE id=1`)
@@ -49,7 +49,7 @@ func TestRetrySQLAuthoritativeClaimAndCompletion(t *testing.T) {
 	stale := snapshot()
 	_, err = db.Exec(ctx, `UPDATE harmony_task SET retries=2,update_time=CURRENT_TIMESTAMP-INTERVAL '5 seconds' WHERE id=1`)
 	require.NoError(t, err)
-	ids, err = hs[0].claimTaskOwnership([]TaskID{1}, 1, stale)
+	ids, err = hs[0].claimTaskOwnership([]TaskID{1}, 1, map[TaskID]int64{}, stale)
 	require.NoError(t, err)
 	require.Empty(t, ids, "stale retry generation must not claim")
 	row = snapshot()
@@ -66,7 +66,7 @@ func TestRetrySQLAuthoritativeClaimAndCompletion(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-			got, e := h.claimTaskOwnership([]TaskID{1}, 1, row)
+			got, e := h.claimTaskOwnership([]TaskID{1}, 1, map[TaskID]int64{}, row)
 			results <- got
 			errs <- e
 		}()
@@ -88,10 +88,10 @@ func TestRetrySQLAuthoritativeClaimAndCompletion(t *testing.T) {
 	retry := hs[owner-101].recordCompletion(1, nil, time.Now(), false, errors.New("sector failure"), false)
 	require.NotNil(t, retry)
 	require.Equal(t, snapshot(), *retry, "emitter must use the DB timestamp, not local Now")
-	ids, err = hs[1].claimTaskOwnership([]TaskID{1}, 1, row)
+	ids, err = hs[1].claimTaskOwnership([]TaskID{1}, 1, map[TaskID]int64{}, row)
 	require.NoError(t, err)
 	require.Empty(t, ids)
-	ids, err = hs[1].claimTaskOwnership([]TaskID{1}, 1, *retry)
+	ids, err = hs[1].claimTaskOwnership([]TaskID{1}, 1, map[TaskID]int64{}, *retry)
 	require.NoError(t, err)
 	require.Empty(t, ids, "completion backoff must not be bypassed")
 }

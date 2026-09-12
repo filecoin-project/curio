@@ -56,7 +56,7 @@ func TestRetrySQLTimeZoneMatrix(t *testing.T) {
 	for _, pair := range [][2]string{{"UTC", "UTC"}, {"Asia/Seoul", "Asia/Seoul"}, {"UTC", "Asia/Seoul"}, {"Asia/Seoul", "UTC"}} {
 		t.Run(strings.ReplaceAll(pair[0]+"_to_"+pair[1], "/", "-"), func(t *testing.T) {
 			var cfg harmonydb.Config
-			ctx, _, _, admin := retrySQLFixture(t, func(c harmonydb.Config) { cfg = c })
+			ctx, _, _, admin := attemptSQLFixtureSchema(t, true, func(c harmonydb.Config) { cfg = c })
 			writer := retryZonePool(t, ctx, admin, cfg, "writer", pair[0])
 			claimant := retryZonePool(t, ctx, admin, cfg, "claimant", pair[1])
 			hs := make([]*taskTypeHandler, 2)
@@ -77,7 +77,7 @@ func TestRetrySQLTimeZoneMatrix(t *testing.T) {
 				return rows[0]
 			}
 			row := poll(hs[1])
-			ids, err := hs[1].claimTaskOwnership([]TaskID{1}, 1, row)
+			ids, err := hs[1].claimTaskOwnership([]TaskID{1}, 1, map[TaskID]int64{}, row)
 			require.NoError(t, err)
 			require.Empty(t, ids, "future positive retry must not claim")
 			_, err = writer.Exec(ctx, `UPDATE harmony_task SET update_time=CURRENT_TIMESTAMP-INTERVAL '2 hours' WHERE id=1`)
@@ -90,10 +90,10 @@ func TestRetrySQLTimeZoneMatrix(t *testing.T) {
 			require.NoError(t, p.handlePeerMessage("fixture.example", 1, wire))
 			peer := taskFromSchedulerEvent(<-ch)
 			require.True(t, peer.UpdateTime.Equal(row.UpdateTime))
-			ids, err = hs[1].claimTaskOwnership([]TaskID{1}, 1, peer)
+			ids, err = hs[1].claimTaskOwnership([]TaskID{1}, 1, map[TaskID]int64{}, peer)
 			require.NoError(t, err)
 			require.Equal(t, []TaskID{1}, ids, "due peer snapshot must claim across session zones")
-			ids, err = hs[0].claimTaskOwnership([]TaskID{1}, 1, row)
+			ids, err = hs[0].claimTaskOwnership([]TaskID{1}, 1, map[TaskID]int64{}, row)
 			require.NoError(t, err)
 			require.Empty(t, ids, "second owner must not overwrite the winner")
 			retry := hs[1].recordCompletion(1, nil, time.Now(), false, errors.New("synthetic sector failure"), false)
@@ -101,25 +101,27 @@ func TestRetrySQLTimeZoneMatrix(t *testing.T) {
 			actual := poll(hs[0])
 			require.True(t, retry.UpdateTime.Equal(actual.UpdateTime), "completion RETURNING shifted the instant")
 			require.Equal(t, 2, retry.Retries)
-			ids, err = hs[0].claimTaskOwnership([]TaskID{1}, 1, row)
+			ids, err = hs[0].claimTaskOwnership([]TaskID{1}, 1, map[TaskID]int64{}, row)
 			require.NoError(t, err)
 			require.Empty(t, ids, "stale retry must not claim")
-			ids, err = hs[0].claimTaskOwnership([]TaskID{1}, 1, *retry)
+			ids, err = hs[0].claimTaskOwnership([]TaskID{1}, 1, map[TaskID]int64{}, *retry)
 			require.NoError(t, err)
 			require.Empty(t, ids, "ordinary failure still has backoff")
 			_, err = writer.Exec(ctx, `UPDATE harmony_task SET update_time=CURRENT_TIMESTAMP-INTERVAL '2 hours' WHERE id=1`)
 			require.NoError(t, err)
 			row = poll(hs[0])
-			ids, err = hs[0].claimTaskOwnership([]TaskID{1}, 1, row)
+			ids, err = hs[0].claimTaskOwnership([]TaskID{1}, 1, map[TaskID]int64{}, row)
 			require.NoError(t, err)
 			require.Equal(t, []TaskID{1}, ids)
-
-			retry = hs[0].recordCompletion(1, nil, time.Now(), false, context.Canceled, true)
+			prepareRetryFixtureAttempt(t, ctx, writer, 101, 1, "preempt-token")
+			retry = hs[0].recordCompletion(1, nil, time.Now(), false, context.Canceled, true, "preempt-token")
 			require.NotNil(t, retry)
 			require.True(t, retry.UpdateTime.Equal(row.UpdateTime), "preemption must retain the already-satisfied instant")
-			ids, err = hs[1].claimTaskOwnership([]TaskID{1}, 1, *retry)
+			ids, err = hs[1].claimTaskOwnership([]TaskID{1}, 1, map[TaskID]int64{}, *retry)
 			require.NoError(t, err)
 			require.Equal(t, []TaskID{1}, ids)
+			prepareRetryFixtureAttempt(t, ctx, claimant, 102, 1, "probe-token")
+			require.Nil(t, hs[0].recordCompletion(1, nil, time.Now(), false, context.Canceled, true, "preempt-token"), "stale preemption cannot release a newer attempt")
 
 		})
 	}
@@ -131,8 +133,8 @@ func TestRetrySQLPositivePreemptionImmediatelyReclaims(t *testing.T) {
  VALUES(1,'PoRep',101,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP-INTERVAL '2 hours',1,101)`)
 	require.NoError(t, err)
 	h := &taskTypeHandler{TaskEngine: &TaskEngine{cfg: taskEngineConfig{ctx: ctx, db: db, ownerID: 101}}, TaskTypeDetails: TaskTypeDetails{Name: "PoRep", Max: taskhelp.Max(1), RetryWait: func(int) time.Duration { return time.Hour }}}
-
-	retry := h.recordCompletion(1, nil, time.Now(), false, context.Canceled, true)
+	prepareRetryFixtureAttempt(t, ctx, db, 101, 1, "preempted-attempt")
+	retry := h.recordCompletion(1, nil, time.Now(), false, context.Canceled, true, "preempted-attempt")
 	require.NotNil(t, retry)
 	require.Equal(t, 1, retry.Retries, "preemption neither consumes nor resets sector failures")
 	ch := make(chan schedulerEvent, 1)
@@ -144,7 +146,7 @@ func TestRetrySQLPositivePreemptionImmediatelyReclaims(t *testing.T) {
 		t.Fatal("positive-retry preemption must re-emit immediately, not wait another hour")
 	}
 	claimant := &taskTypeHandler{TaskEngine: &TaskEngine{cfg: taskEngineConfig{ctx: ctx, db: other, ownerID: 102}}, TaskTypeDetails: h.TaskTypeDetails}
-	ids, err := claimant.claimTaskOwnership([]TaskID{1}, 1, *retry)
+	ids, err := claimant.claimTaskOwnership([]TaskID{1}, 1, map[TaskID]int64{}, *retry)
 	require.NoError(t, err)
 	require.Equal(t, []TaskID{1}, ids, "immediate notification must also be eligible in authoritative SQL")
 	var count int
@@ -152,8 +154,15 @@ func TestRetrySQLPositivePreemptionImmediatelyReclaims(t *testing.T) {
 	require.Equal(t, 1, count)
 }
 
-// This fixture uses only the upstream task/retry schema, without attempt columns.
+func prepareRetryFixtureAttempt(t *testing.T, ctx context.Context, db *harmonydb.DB, owner int, id TaskID, token string) {
+	t.Helper()
+	var generation int64
+	require.NoError(t, db.QueryRow(ctx, `SELECT owner_generation FROM harmony_task WHERE id=$1 AND owner_id=$2`, id, owner).Scan(&generation))
+	store := harmonyTaskAttemptStore{db: db, owner: owner, generations: map[TaskID]int64{id: generation}, token: token}
+	require.NoError(t, store.prepare(ctx, id, token))
+}
+
 func retrySQLDB(t *testing.T) (context.Context, *harmonydb.DB, *harmonydb.DB) {
-	ctx, db, other, _ := retrySQLFixture(t)
+	ctx, db, other, _ := attemptSQLFixture(t)
 	return ctx, db, other
 }

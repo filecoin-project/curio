@@ -124,7 +124,10 @@ func (e *TaskEngine) startScheduler() {
 				if schedulable, err := e.checkNodeFlags(); err != nil {
 					log.Errorw("failed to check node flags", "error", err)
 				} else {
-					e.atomics.yieldBackground.Store(!schedulable)
+					wasCordoned := e.atomics.yieldBackground.Swap(!schedulable)
+					if !schedulable && !wasCordoned {
+						e.cancelPendingAdmissions()
+					}
 				}
 
 				// Pre-compute CanAccept for all task types and write results
@@ -177,6 +180,7 @@ func (e *TaskEngine) startScheduler() {
 	go e.runScheduler()
 }
 
+// runScheduler is the single owner of candidate and admission maps.
 func (e *TaskEngine) runScheduler() {
 	bundleCollector, bundleSleep := bundler(e.cfg.ctx)
 
@@ -187,18 +191,20 @@ func (e *TaskEngine) runScheduler() {
 	for _, h := range e.handlers {
 		availableTasks[h.Name] = &taskSchedule{hasID: make(map[TaskID]task)}
 	}
-	ee := eventEmitter{schedulerChannel: e.schedulerChannel, availableTasks: availableTasks}
+	ee := eventEmitter{schedulerChannel: e.schedulerChannel, availableTasks: availableTasks, ctx: e.cfg.ctx}
 	tryStartNow := func(taskName string) {
 		if err := e.tryStartTask(taskName, taskSourceLocal{availableTasks}, ee); err != nil {
 			log.Errorw("failed to try start task", "taskType", taskName, "error", err)
 		}
 	}
 	ts := taskSourceLocal{availableTasks}
+	defer e.cancelPendingAdmissions()
 	retryTimer := time.NewTimer(time.Hour)
 	defer retryTimer.Stop()
 	var retryArmed time.Time
 
 	for {
+		e.drainRecovery(ee)
 		// A stream of other events must not discard a deadline that became
 		// due between select iterations.
 		if !retryArmed.IsZero() && !time.Now().Before(retryArmed) {
@@ -219,11 +225,19 @@ func (e *TaskEngine) runScheduler() {
 			retryTimer.Reset(max(0, time.Until(next)))
 			retryWake = retryTimer.C
 		}
+
 		select {
 		case <-e.cfg.ctx.Done():
 			log.Infof("scheduler stopped")
 			return
 
+		case <-e.admissionWake:
+			for _, h := range e.handlers {
+				h.drainAdmissions()
+			}
+			if err := e.pollerTryAllWork(ts, ee); err != nil {
+				log.Errorw("admission wake failed", "error", err)
+			}
 		case event := <-e.schedulerChannel:
 			switch event.Source {
 
@@ -409,6 +423,7 @@ func (t taskSourceLocal) GetTasks(taskName string) []task {
 type eventEmitter struct {
 	schedulerChannel chan schedulerEvent
 	availableTasks   map[string]*taskSchedule // nil outside the scheduler loop
+	ctx              context.Context
 }
 
 // NoteClaimed removes claimed IDs from the in-memory available set immediately
@@ -436,24 +451,35 @@ func (ee eventEmitter) EmitTaskStarted(taskName string, taskID TaskID, state ...
 		event.Retries = state[0].Retries
 		event.UpdateTime = state[0].UpdateTime
 	}
-	ee.schedulerChannel <- event
+	ee.emit(event)
 }
 
 func (ee eventEmitter) EmitTaskNew(taskName string, task task) {
-	ee.schedulerChannel <- schedulerEvent{
+	ee.emit(schedulerEvent{
 		TaskID:     task.ID,
 		TaskType:   taskName,
 		Source:     schedulerSourceAdded,
 		Retries:    task.Retries,
 		PostedTime: task.PostedTime,
 		UpdateTime: task.UpdateTime,
-	}
+	})
 }
 func (ee eventEmitter) EmitTaskCompleted(taskName string, success bool) {
-	ee.schedulerChannel <- schedulerEvent{
+	ee.emit(schedulerEvent{
 		TaskType: taskName,
 		Source:   schedulerSourceTaskCompleted,
 		Success:  success,
+	})
+}
+
+func (ee eventEmitter) emit(event schedulerEvent) {
+	var done <-chan struct{}
+	if ee.ctx != nil {
+		done = ee.ctx.Done()
+	}
+	select {
+	case ee.schedulerChannel <- event:
+	case <-done:
 	}
 }
 
@@ -477,9 +503,139 @@ func applyDBTaskSnapshot(available map[string]*taskSchedule, snapshot map[string
 	}
 }
 
-// Notifications are advisory; delayed messages must not rewind an observed retry.
-// Missing legacy timestamps retain the conservative receive-time fallback. The
-// claim also compares the database retry generation and enforces its deadline.
+type polledTask struct {
+	ID         TaskID    `db:"id"`
+	Name       string    `db:"name"`
+	UpdateTime time.Time `db:"update_time"`
+	PostedTime time.Time `db:"posted_time"`
+	Retries    int       `db:"retries"`
+}
+
+// pollAllTaskTypes enumerates unowned tasks on the background poller and then
+// performs the optional task-specific bulk checks.
+//
+// A common query error preserves every type. A task-specific error omits only
+// that type, so successful snapshots still reach the scheduler.
+// Backing-work eligibility is checked before the per-type snapshot bound.
+func (e *TaskEngine) pollAllTaskTypes() map[string][]task {
+	return e.pollAllTaskTypesWithQuery(func(names []string) ([]polledTask, error) {
+		var rows []polledTask
+		err := e.cfg.db.Select(context.Background(), &rows,
+			`SELECT id, name, update_time, posted_time, retries FROM harmony_task WHERE owner_id IS NULL AND name = ANY($1)`, names)
+		return rows, err
+	})
+}
+
+func (e *TaskEngine) pollAllTaskTypesWithQuery(query func([]string) ([]polledTask, error)) map[string][]task {
+	names := make([]string, len(e.handlers))
+	for i, h := range e.handlers {
+		names[i] = h.Name
+	}
+	rows, err := query(names)
+	if err != nil {
+		log.Errorw("failed to poll tasks from db", "error", err)
+		return nil
+	}
+
+	result := make(map[string][]task, len(e.handlers))
+	for _, h := range e.handlers {
+		result[h.Name] = nil
+	}
+	for _, r := range rows {
+		if _, ok := result[r.Name]; !ok {
+			continue
+		}
+		result[r.Name] = append(result[r.Name], task{
+			ID:         r.ID,
+			UpdateTime: r.UpdateTime,
+			PostedTime: r.PostedTime,
+			Retries:    r.Retries,
+		})
+	}
+	for _, h := range e.handlers {
+		selected, err := filterPolledTasks(e.cfg.ctx, h, result[h.Name])
+		if err != nil {
+			log.Errorw("failed to filter task candidates", "name", h.Name, "error", err)
+			delete(result, h.Name)
+			continue
+		}
+		result[h.Name] = selected
+	}
+	return result
+}
+
+// bundleCollectionTimeout is the quiet period the bundler waits before firing.
+// When a burst of events arrives (e.g., 50 tasks added in rapid succession),
+// the bundler resets this timer on each event. Once 10ms passes with no new
+// events for a task type, it fires a single scheduling attempt that considers
+// all accumulated tasks at once. This dramatically reduces redundant
+// CanAccept + DB claim round-trips during batch operations.
+const bundleCollectionTimeout = time.Millisecond * 10
+
+// bundler creates a coalescing timer system for non-TimeSensitive events.
+// The returned bundler func is called from the scheduler thread to register
+// an event; the returned channel fires when the quiet period expires.
+//
+// Thread safety: the bundler func is called from the scheduler goroutine
+// (single-threaded), but the AfterFunc callbacks access the timers map
+// concurrently, hence the mutex.
+//
+// The whole check-and-(reset|create) is done under the lock, closing the
+// window where a callback could delete a timer between the map read and the
+// Reset (which, with a manual <-t.C goroutine, would lose the wake). Using
+// time.AfterFunc means a Reset on an already-fired timer simply re-runs the
+// callback, and the callback only deletes its own entry, so the worst case is
+// a harmless duplicate wake (pollerTryAllWork is idempotent) — never a lost one.
+func bundler(contexts ...context.Context) (bundler func(string), bundleSleep <-chan string) {
+	var done <-chan struct{}
+	if len(contexts) > 0 {
+		done = contexts[0].Done()
+	}
+	timers := make(map[string]*time.Timer)
+	timerMx := sync.Mutex{}
+	output := make(chan string)
+	return func(taskType string) {
+		timerMx.Lock()
+		defer timerMx.Unlock()
+		if t, ok := timers[taskType]; ok {
+			t.Reset(bundleCollectionTimeout)
+			return
+		}
+		var t *time.Timer
+		t = time.AfterFunc(bundleCollectionTimeout, func() {
+			timerMx.Lock()
+			if timers[taskType] == t {
+				delete(timers, taskType)
+			}
+			timerMx.Unlock()
+			select {
+			case output <- taskType:
+			case <-done:
+			}
+		})
+		timers[taskType] = t
+	}, output
+}
+
+// taskLessByPostedTime defines FIFO order for the same task type: older posted_time first; unknown
+// posted_time (zero) is treated as newest so DB-backed ordering wins once polled.
+func taskLessByPostedTime(a, b task) bool {
+	aUnk := a.PostedTime.IsZero()
+	bUnk := b.PostedTime.IsZero()
+	switch {
+	case aUnk && bUnk:
+		return a.ID < b.ID
+	case aUnk:
+		return false
+	case bUnk:
+		return true
+	case a.PostedTime.Equal(b.PostedTime):
+		return a.ID < b.ID
+	default:
+		return a.PostedTime.Before(b.PostedTime)
+	}
+}
+
 func rememberTask(s *taskSchedule, t task) {
 	if old, ok := s.hasID[t.ID]; ok {
 		if old.Retries > t.Retries {
@@ -517,7 +673,6 @@ func retryReady(t task, wait func(int) time.Duration, now time.Time) bool {
 	return !now.Before(retryDeadline(t, wait))
 }
 
-// One timer for known future deadlines, not a timer per task or a DB retry loop.
 func nextRetryDeadline(available map[string]*taskSchedule, handlers map[string]*taskTypeHandler, now time.Time) time.Time {
 	var next time.Time
 	for name, s := range available {
@@ -533,126 +688,4 @@ func nextRetryDeadline(available map[string]*taskSchedule, handlers map[string]*
 		}
 	}
 	return next
-}
-
-// expects single-threaded caller of
-
-// pollAllTaskTypes queries the DB for all unowned tasks across all registered
-// task types in a single round-trip. This is the only DB read in the
-// scheduling hot path, and it runs on the background poller goroutine — never
-// on the scheduler thread.
-//
-// Returns nil on error so the scheduler preserves its existing in-memory state
-// and reservations rather than replacing them with an empty/partial snapshot.
-// Tasks beyond chokePoint per type are dropped to bound memory.
-func (e *TaskEngine) pollAllTaskTypes() map[string][]task {
-	var rows []struct {
-		ID         TaskID    `db:"id"`
-		Name       string    `db:"name"`
-		UpdateTime time.Time `db:"update_time"`
-		PostedTime time.Time `db:"posted_time"`
-		Retries    int       `db:"retries"`
-	}
-	names := make([]string, len(e.handlers))
-	for i, h := range e.handlers {
-		names[i] = h.Name
-	}
-	err := e.cfg.db.Select(context.Background(), &rows,
-		`SELECT id, name, update_time, posted_time, retries FROM harmony_task WHERE owner_id IS NULL AND name = ANY($1)`, names)
-	if err != nil {
-		log.Errorw("failed to poll tasks from db", "error", err)
-		return nil
-	}
-
-	result := make(map[string][]task, len(e.handlers))
-	for _, h := range e.handlers {
-		result[h.Name] = nil
-	}
-	for _, r := range rows {
-		if _, ok := result[r.Name]; !ok {
-			continue
-		}
-		if len(result[r.Name]) >= chokePoint {
-			continue
-		}
-		result[r.Name] = append(result[r.Name], task{
-			ID:         r.ID,
-			UpdateTime: r.UpdateTime,
-			PostedTime: r.PostedTime,
-			Retries:    r.Retries,
-		})
-	}
-	return result
-}
-
-// bundleCollectionTimeout is the quiet period the bundler waits before firing.
-// When a burst of events arrives (e.g., 50 tasks added in rapid succession),
-// the bundler resets this timer on each event. Once 10ms passes with no new
-// events for a task type, it fires a single scheduling attempt that considers
-// all accumulated tasks at once. This dramatically reduces redundant
-// CanAccept + DB claim round-trips during batch operations.
-const bundleCollectionTimeout = time.Millisecond * 10
-
-// bundler creates a coalescing timer system for non-TimeSensitive events.
-// The returned bundler func is called from the scheduler thread to register
-// an event; the returned channel fires when the quiet period expires.
-//
-// Thread safety: the bundler func is called from the scheduler goroutine
-// (single-threaded), but the AfterFunc callbacks access the timers map
-// concurrently, hence the mutex.
-//
-// The whole check-and-(reset|create) is done under the lock, closing the
-// window where a callback could delete a timer between the map read and the
-// Reset (which, with a manual <-t.C goroutine, would lose the wake). Using
-// time.AfterFunc means a Reset on an already-fired timer simply re-runs the
-// callback, and the callback only deletes its own entry, so the worst case is
-// a harmless duplicate wake (pollerTryAllWork is idempotent) — never a lost one.
-func bundler(contexts ...context.Context) (bundler func(string), bundleSleep <-chan string) {
-	ctx := context.Background()
-	if len(contexts) > 0 {
-		ctx = contexts[0]
-	}
-	timers := make(map[string]*time.Timer)
-	timerMx := sync.Mutex{}
-	output := make(chan string)
-	return func(taskType string) {
-		timerMx.Lock()
-		defer timerMx.Unlock()
-		if t, ok := timers[taskType]; ok {
-			t.Reset(bundleCollectionTimeout)
-			return
-		}
-		var t *time.Timer
-		t = time.AfterFunc(bundleCollectionTimeout, func() {
-			timerMx.Lock()
-			if timers[taskType] == t {
-				delete(timers, taskType)
-			}
-			timerMx.Unlock()
-			select {
-			case output <- taskType:
-			case <-ctx.Done():
-			}
-		})
-		timers[taskType] = t
-	}, output
-}
-
-// taskLessByPostedTime defines FIFO order for the same task type: older posted_time first; unknown
-// posted_time (zero) is treated as newest so DB-backed ordering wins once polled.
-func taskLessByPostedTime(a, b task) bool {
-	aUnk := a.PostedTime.IsZero()
-	bUnk := b.PostedTime.IsZero()
-	switch {
-	case aUnk && bUnk:
-		return a.ID < b.ID
-	case aUnk:
-		return false
-	case bUnk:
-		return true
-	case a.PostedTime.Equal(b.PostedTime):
-		return a.ID < b.ID
-	default:
-		return a.PostedTime.Before(b.PostedTime)
-	}
 }
