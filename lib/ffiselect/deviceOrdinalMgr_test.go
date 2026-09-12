@@ -3,7 +3,8 @@ package ffiselect
 import (
 	"context"
 	"io"
-	"sync"
+	"os"
+	"os/exec"
 	"testing"
 	"time"
 
@@ -21,7 +22,7 @@ func TestNoGPUs(t *testing.T) {
 		t.Fatal("should have gotten GPU 0")
 	}
 
-	ch := make(chan int)
+	ch := make(chan int, 1)
 	d.acquireChan <- ch
 	select {
 	case <-ch:
@@ -31,14 +32,29 @@ func TestNoGPUs(t *testing.T) {
 	}
 
 	d.Release(0)
+	select {
+	case <-ch:
+	case <-time.After(time.Second):
+		t.Fatal("queued request not released")
+	}
 }
 
 func TestOverprovisionFactor(t *testing.T) {
-	old := ffigpu.GpuOverprovisionFactor
-	ffigpu.GpuOverprovisionFactor = 2
-	defer func() {
-		ffigpu.GpuOverprovisionFactor = old
-	}()
+	// The production factor is immutable after init. Change it at process
+	// startup, not concurrently with managers left running by other tests.
+	if os.Getenv("CURIO_ORDINAL_FACTOR_CHILD") != "1" {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestOverprovisionFactor$", "-test.timeout=15s")
+		cmd.Env = append(os.Environ(), "CURIO_ORDINAL_FACTOR_CHILD=1", "HARMONY_GPU_OVERPROVISION_FACTOR=2")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("factor subprocess: %v\n%s", err, out)
+		}
+		return
+	}
+	if ffigpu.GpuOverprovisionFactor != 2 {
+		t.Fatal("subprocess factor was not initialized")
+	}
 
 	d := newDeviceOrdinalManager(func() ([]string, error) {
 		return []string{"0", "1", "2"}, nil
@@ -93,23 +109,22 @@ func TestWaitList(t *testing.T) {
 		}
 	}
 
-	m := sync.Mutex{}
-	list := []int{}
-	for i := range expect {
-		go func(i int) {
-			ord := d.Get()
-			m.Lock()
-			list = append(list, ord)
-			m.Unlock()
-		}(i)
+	// Register ordered requests on the real manager channel. Buffered replies
+	// let the manager finish even if an assertion fails; no unjoined readers.
+	waiters := make([]chan int, len(expect))
+	for i := range waiters {
+		waiters[i] = make(chan int, 1)
+		d.acquireChan <- waiters[i]
 	}
-	for i := range expect {
-		d.Release(expect[i])
-		time.Sleep(time.Millisecond * 100)
-	}
-	for i := range expect {
-		if list[i] != i {
-			t.Fatal("waitlist fired out-of-order", list, i)
+	for i, ord := range expect {
+		d.Release(ord)
+		select {
+		case got := <-waiters[i]:
+			if got != ord {
+				t.Fatalf("waiter %d got %d want %d", i, got, ord)
+			}
+		case <-time.After(time.Second):
+			t.Fatalf("waiter %d not released in FIFO order", i)
 		}
 	}
 }
