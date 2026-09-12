@@ -500,6 +500,8 @@ func (h *taskTypeHandler) emitRetryTask(eventEmitter eventEmitter, retry *task) 
 func (h *taskTypeHandler) recordCompletion(tID TaskID, sectorID *abi.SectorID, workStart time.Time, done bool, doErr error, preempted bool, identity completionIdentity) taskCompletion {
 	workEnd := time.Now()
 	retryWait := time.Millisecond * 100
+	var unavailable *taskhelp.WorkerUnavailable
+	workerUnavailable := errors.As(doErr, &unavailable)
 	if !identity.valid {
 		log.Errorw("Ignoring completion without acquisition identity", "task", h.Name, "id", tID)
 		return taskCompletion{}
@@ -568,6 +570,19 @@ retryRecordCompletion:
 				return false, fmt.Errorf("could not release preempted task: %v %v", tID, err)
 			}
 			result = "preempted"
+			changed = 1
+		case workerUnavailable:
+			retry = &task{ID: tID, Retries: int(retries), PostedTime: postedTime}
+			err = tx.QueryRow(`UPDATE harmony_task SET owner_id=NULL, update_time=CURRENT_TIMESTAMP
+ WHERE id=$1 AND owner_id=$2 AND owner_generation=$3 AND attempt_id=$4 AND retries=$5
+ RETURNING update_time`, tID, identity.owner, identity.generation, identity.token, retries).Scan(&retry.UpdateTime)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return false, nil
+			}
+			if err != nil {
+				return false, fmt.Errorf("could not return task from unavailable worker: %w", err)
+			}
+			result = "error: " + doErr.Error()
 			changed = 1
 		default:
 			result = "unspecified error"

@@ -34,7 +34,7 @@ func TestCompletionSQLLateCompletion(t *testing.T) {
 	ctx, db, other, _ := attemptSQLFixture(t)
 	for stageIndex, stage := range []string{tasknames.SDR, tasknames.TreeRC} {
 		t.Run(stage, func(t *testing.T) {
-			for i, mode := range []string{"terminal-failure", "retryable-failure", "success", "preemption"} {
+			for i, mode := range []string{"terminal-failure", "retryable-failure", "success", "preemption", "worker-unavailable"} {
 				t.Run(mode, func(t *testing.T) {
 					id := TaskID(stageIndex*10 + i + 1)
 					_, err := db.Exec(ctx, `INSERT INTO harmony_machines(id,host_and_port,cpu,ram,gpu)
@@ -125,6 +125,9 @@ func TestCompletionSQLLateCompletion(t *testing.T) {
 					}
 					if mode == "preemption" {
 						outcome = context.Canceled
+					}
+					if mode == "worker-unavailable" {
+						outcome = &taskhelp.WorkerUnavailable{Cause: outcome}
 					}
 					result := old.recordCompletion(id, &abi.SectorID{Miner: 1000, Number: abi.SectorNumber(id)}, time.Now().Add(-time.Minute), mode == "success", outcome, mode == "preemption", identity)
 					var taskPresent, failedHistory bool

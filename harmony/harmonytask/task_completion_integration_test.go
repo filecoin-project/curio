@@ -18,7 +18,7 @@ func TestCompletionSQLSameOwnerRecoveryAndMissing(t *testing.T) {
 	ctx, db, other, _ := attemptSQLFixture(t)
 	for _, change := range []string{"same-owner-recovery", "generation-only", "token-only", "missing"} {
 		t.Run(change, func(t *testing.T) {
-			for i, mode := range []string{"success", "retry", "terminal", "preemption"} {
+			for i, mode := range []string{"success", "retry", "terminal", "preemption", "unavailable"} {
 				t.Run(mode, func(t *testing.T) {
 					id := TaskID(i + 1)
 					_, err := db.Exec(ctx, `INSERT INTO harmony_task(id,posted_time,name,added_by,owner_id,retries)
@@ -61,6 +61,9 @@ func TestCompletionSQLSameOwnerRecoveryAndMissing(t *testing.T) {
 					}
 					if mode == "preemption" {
 						outcome = context.Canceled
+					}
+					if mode == "unavailable" {
+						outcome = &taskhelp.WorkerUnavailable{Cause: outcome}
 					}
 					start := time.Now()
 					result := h.recordCompletion(id, nil, time.Now(), mode == "success", outcome, mode == "preemption", identity)

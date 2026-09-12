@@ -15,7 +15,7 @@ import (
 )
 
 func TestRetrySQLNewNotificationDoesNotRequireInventedTimestamp(t *testing.T) {
-	ctx, db, _ := retrySQLDB(t)
+	ctx, db, _ := porepLifecycleDB(t)
 	_, err := db.Exec(ctx, `INSERT INTO harmony_task(id,name,added_by,posted_time,update_time) VALUES(1,'PoRep',101,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP-INTERVAL '1 second')`)
 	require.NoError(t, err)
 	h := &taskTypeHandler{TaskEngine: &TaskEngine{cfg: taskEngineConfig{ctx: ctx, db: db, ownerID: 101}}}
@@ -28,7 +28,7 @@ func TestRetrySQLNewNotificationDoesNotRequireInventedTimestamp(t *testing.T) {
 }
 
 func TestRetrySQLAuthoritativeClaimAndCompletion(t *testing.T) {
-	ctx, db, other := retrySQLDB(t)
+	ctx, db, other := porepLifecycleDB(t)
 	_, err := db.Exec(ctx, `INSERT INTO harmony_task(id,name,added_by,posted_time,update_time,retries) VALUES(1,'PoRep',101,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,1)`)
 	require.NoError(t, err)
 	hs := make([]*taskTypeHandler, 2)
@@ -85,7 +85,7 @@ func TestRetrySQLAuthoritativeClaimAndCompletion(t *testing.T) {
 	require.Equal(t, 1, count, "exactly one committed owner")
 	var owner int
 	require.NoError(t, db.QueryRow(ctx, `SELECT owner_id FROM harmony_task WHERE id=1`).Scan(&owner))
-	identity := prepareRetryFixtureAttempt(t, ctx, db, owner, 1, "failed-attempt")
+	identity := prepareRetryFixtureAttempt(t, ctx, db, owner, 1, "retry-fixture")
 	retry := hs[owner-101].recordCompletion(1, nil, time.Now(), false, errors.New("sector failure"), false, identity).retry
 	require.NotNil(t, retry)
 	require.Equal(t, snapshot(), *retry, "emitter must use the DB timestamp, not local Now")

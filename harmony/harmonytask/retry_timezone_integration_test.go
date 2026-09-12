@@ -96,7 +96,7 @@ func TestRetrySQLTimeZoneMatrix(t *testing.T) {
 			ids, err = hs[0].claimTaskOwnership([]TaskID{1}, 1, map[TaskID]int64{}, row)
 			require.NoError(t, err)
 			require.Empty(t, ids, "second owner must not overwrite the winner")
-			ordinaryID := prepareRetryFixtureAttempt(t, ctx, claimant, 102, 1, "ordinary-failure")
+			ordinaryID := prepareRetryFixtureAttempt(t, ctx, claimant, 102, 1, "ordinary-token")
 			retry := hs[1].recordCompletion(1, nil, time.Now(), false, errors.New("synthetic sector failure"), false, ordinaryID).retry
 			require.NotNil(t, retry)
 			actual := poll(hs[0])
@@ -121,15 +121,19 @@ func TestRetrySQLTimeZoneMatrix(t *testing.T) {
 			ids, err = hs[1].claimTaskOwnership([]TaskID{1}, 1, map[TaskID]int64{}, *retry)
 			require.NoError(t, err)
 			require.Equal(t, []TaskID{1}, ids)
-			prepareRetryFixtureAttempt(t, ctx, claimant, 102, 1, "probe-token")
+			probeID := prepareRetryFixtureAttempt(t, ctx, claimant, 102, 1, "probe-token")
 			require.False(t, hs[0].recordCompletion(1, nil, time.Now(), false, context.Canceled, true, preemptID).applied, "stale preemption cannot release a newer attempt")
-
+			retry = hs[1].recordCompletion(1, nil, time.Now(), false, &taskhelp.WorkerUnavailable{Cause: errors.New("synthetic local C2 unavailable")}, false, probeID).retry
+			require.NotNil(t, retry)
+			actual = poll(hs[0])
+			require.True(t, retry.UpdateTime.Equal(actual.UpdateTime), "worker deferral RETURNING shifted the instant")
+			require.Equal(t, 2, retry.Retries, "typed worker deferral must preserve the budget")
 		})
 	}
 }
 
 func TestRetrySQLPositivePreemptionImmediatelyReclaims(t *testing.T) {
-	ctx, db, other := retrySQLDB(t)
+	ctx, db, other := porepLifecycleDB(t)
 	_, err := db.Exec(ctx, `INSERT INTO harmony_task(id,name,added_by,posted_time,update_time,retries,owner_id)
  VALUES(1,'PoRep',101,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP-INTERVAL '2 hours',1,101)`)
 	require.NoError(t, err)
@@ -162,9 +166,4 @@ func prepareRetryFixtureAttempt(t *testing.T, ctx context.Context, db *harmonydb
 	store := harmonyTaskAttemptStore{db: db, owner: owner, generations: map[TaskID]int64{id: generation}, token: token}
 	require.NoError(t, store.prepare(ctx, id, token))
 	return completionIdentityFor(store, id, token)
-}
-
-func retrySQLDB(t *testing.T) (context.Context, *harmonydb.DB, *harmonydb.DB) {
-	ctx, db, other, _ := attemptSQLFixture(t)
-	return ctx, db, other
 }
