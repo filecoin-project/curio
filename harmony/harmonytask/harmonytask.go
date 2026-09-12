@@ -441,10 +441,11 @@ func (e *TaskEngine) GracefullyTerminate() {
 }
 
 type task struct {
-	ID         TaskID    `db:"id"`
-	UpdateTime time.Time `db:"update_time"`
-	PostedTime time.Time `db:"posted_time"`
-	Retries    int       `db:"retries"`
+	ID                TaskID    `db:"id"`
+	UpdateTime        time.Time `db:"update_time"`
+	PostedTime        time.Time `db:"posted_time"`
+	Retries           int       `db:"retries"`
+	retryClockUnknown bool
 }
 
 // pollerTryAllWork is the "waterfall" that attempts to claim and start tasks
@@ -499,10 +500,7 @@ func (e *TaskEngine) pollerTryAllWork(taskSource taskSource, eventEmitter eventE
 		}
 
 		unownedTasks := lo.Filter(taskSource.GetTasks(v.Name), func(t task, _ int) bool {
-			if v.RetryWait == nil || t.Retries == 0 {
-				return true
-			}
-			if time.Since(t.UpdateTime) > v.RetryWait(t.Retries) {
+			if retryReady(t, v.RetryWait, time.Now()) {
 				return true
 			} else {
 				log.Debugf("Task %d is not ready to retry yet, retries %d, wait: %s", t.ID, t.Retries, v.RetryWait(t.Retries))

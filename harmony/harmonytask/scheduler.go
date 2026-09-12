@@ -28,9 +28,8 @@ type schedulerEvent struct {
 	Success bool // for schedulerSourceTaskCompleted: true = done, false = cancelled/failed
 
 	// DBTasks is populated only for schedulerSourceDBPoll events. It contains
-	// the complete snapshot of unowned tasks from the DB, keyed by task type.
-	// This replaces the scheduler's in-memory available task map, ensuring
-	// stale entries (claimed by others, deleted) are garbage-collected.
+	// the successfully queried snapshots, keyed by task type. Omitted types
+	// preserve their previous state; a present empty slice clears that type.
 	DBTasks map[string][]task
 }
 
@@ -62,7 +61,7 @@ func taskFromSchedulerEvent(event schedulerEvent) task {
 	if ut.IsZero() {
 		ut = time.Now()
 	}
-	return task{ID: event.TaskID, UpdateTime: ut, PostedTime: pt, Retries: event.Retries}
+	return task{ID: event.TaskID, UpdateTime: ut, PostedTime: pt, Retries: event.Retries, retryClockUnknown: event.Retries > 0 && event.UpdateTime.IsZero()}
 }
 
 // chokePoint caps the number of task IDs held in memory per task type.
@@ -175,91 +174,78 @@ func (e *TaskEngine) startScheduler() {
 			}
 		}
 	}()
-	// Goroutine 3: the scheduler event loop (single-threaded, no blocking I/O).
-	go func() {
-		bundleCollector, bundleSleep := bundler()
+	go e.runScheduler()
+}
 
-		// availableTasks is the scheduler's authoritative view of unowned work.
-		// Populated by DB polls and incrementally updated by events.
-		// Only accessed from this goroutine — no locks needed.
-		availableTasks := map[string]*taskSchedule{}
-		for _, h := range e.handlers {
-			availableTasks[h.Name] = &taskSchedule{hasID: make(map[TaskID]task)}
+func (e *TaskEngine) runScheduler() {
+	bundleCollector, bundleSleep := bundler(e.cfg.ctx)
+
+	// availableTasks is the scheduler's authoritative view of unowned work.
+	// Populated by DB polls and incrementally updated by events.
+	// Only accessed from this goroutine — no locks needed.
+	availableTasks := map[string]*taskSchedule{}
+	for _, h := range e.handlers {
+		availableTasks[h.Name] = &taskSchedule{hasID: make(map[TaskID]task)}
+	}
+	ee := eventEmitter{schedulerChannel: e.schedulerChannel, availableTasks: availableTasks}
+	tryStartNow := func(taskName string) {
+		if err := e.tryStartTask(taskName, taskSourceLocal{availableTasks}, ee); err != nil {
+			log.Errorw("failed to try start task", "taskType", taskName, "error", err)
 		}
-		ee := eventEmitter{schedulerChannel: e.schedulerChannel, availableTasks: availableTasks}
-		tryStartNow := func(taskName string) {
-			if err := e.tryStartTask(taskName, taskSourceLocal{availableTasks}, ee); err != nil {
-				log.Errorw("failed to try start task", "taskType", taskName, "error", err)
+	}
+	ts := taskSourceLocal{availableTasks}
+	retryTimer := time.NewTimer(time.Hour)
+	defer retryTimer.Stop()
+	var retryArmed time.Time
+
+	for {
+		// A stream of other events must not discard a deadline that became
+		// due between select iterations.
+		if !retryArmed.IsZero() && !time.Now().Before(retryArmed) {
+			if err := e.pollerTryAllWork(ts, ee); err != nil {
+				log.Errorw("failed retry waterfall", "error", err)
 			}
 		}
-		ts := taskSourceLocal{availableTasks}
-
-		for {
+		retryArmed = time.Time{}
+		if !retryTimer.Stop() {
 			select {
-			case <-e.cfg.ctx.Done():
-				log.Infof("scheduler stopped")
-				return
+			case <-retryTimer.C:
+			default:
+			}
+		}
+		var retryWake <-chan time.Time
+		if next := nextRetryDeadline(availableTasks, e.taskMap, time.Now()); !next.IsZero() {
+			retryArmed = next
+			retryTimer.Reset(max(0, time.Until(next)))
+			retryWake = retryTimer.C
+		}
+		select {
+		case <-e.cfg.ctx.Done():
+			log.Infof("scheduler stopped")
+			return
 
-			case event := <-e.schedulerChannel:
-				switch event.Source {
+		case event := <-e.schedulerChannel:
+			switch event.Source {
 
-				case schedulerSourceDBPoll:
-					// Replace the entire available-tasks map with the DB snapshot.
-					// This garbage-collects stale entries (tasks claimed/deleted by
-					// others). Always re-enter the waterfall afterward: RetryWait
-					// may have elapsed for existing IDs, CanAccept cache was
-					// refreshed, and IAmBored must run when capacity remains with
-					// no claimable work (not only when new IDs appear).
-					for taskName, tasks := range event.DBTasks {
-						sched := availableTasks[taskName]
-						if sched == nil {
-							continue
-						}
-						newHas := lo.Associate(tasks, func(t task) (TaskID, task) {
-							return t.ID, t
-						})
-						availableTasks[taskName] = &taskSchedule{
-							hasID:  newHas,
-							choked: len(tasks) >= chokePoint,
-						}
-					}
+			case schedulerSourceDBPoll:
+				// Replace only the successfully queried task-type snapshots.
+				// This garbage-collects stale entries (tasks claimed/deleted by
+				// others). Always re-enter the waterfall afterward: RetryWait
+				// may have elapsed for existing IDs, CanAccept cache was
+				// refreshed, and IAmBored must run when capacity remains with
+				// no claimable work (not only when new IDs appear).
+				applyDBTaskSnapshot(availableTasks, event.DBTasks)
 
-					if err := e.pollerTryAllWork(ts, ee); err != nil {
-						log.Errorw("failed tryAllWork", "error", err)
-					}
+				if err := e.pollerTryAllWork(ts, ee); err != nil {
+					log.Errorw("failed tryAllWork", "error", err)
+				}
 
-				case schedulerSourceAdded:
-					// Local task addition: insert into available set, broadcast to peers.
-					// TimeSensitive tasks (e.g., WindowPost) skip bundling for
-					// immediate scheduling.
-					if _, ok := availableTasks[event.TaskType]; ok {
-						availableTasks[event.TaskType].hasID[event.TaskID] = taskFromSchedulerEvent(event)
-						if h := e.taskMap[event.TaskType]; h != nil && h.TimeSensitive {
-							if err := e.tryStartTask(event.TaskType, ts, ee); err != nil {
-								log.Errorw("failed tryAllWork", "error", err)
-							}
-						} else {
-							bundleCollector(event.TaskType)
-						}
-					}
-					pt := event.PostedTime
-					if pt.IsZero() {
-						pt = time.Now().UTC()
-					}
-					e.peering.TellNewTask(event.TaskType, event.TaskID, event.Retries, pt)
-				case schedulerSourcePeerNewTask:
-					// A peer added a task. Insert into our available set (if we
-					// handle this type) and schedule. Respects chokePoint to
-					// bound memory.
-					t, ok := availableTasks[event.TaskType]
-					if !ok {
-						continue
-					}
-					if len(t.hasID) >= chokePoint {
-						t.choked = true
-						continue
-					}
-					t.hasID[event.TaskID] = taskFromSchedulerEvent(event)
+			case schedulerSourceAdded:
+				// Local task addition: insert into available set, broadcast to peers.
+				// TimeSensitive tasks (e.g., WindowPost) skip bundling for
+				// immediate scheduling.
+				if _, ok := availableTasks[event.TaskType]; ok {
+					rememberTask(availableTasks[event.TaskType], taskFromSchedulerEvent(event))
 					if h := e.taskMap[event.TaskType]; h != nil && h.TimeSensitive {
 						if err := e.tryStartTask(event.TaskType, ts, ee); err != nil {
 							log.Errorw("failed tryAllWork", "error", err)
@@ -267,62 +253,92 @@ func (e *TaskEngine) startScheduler() {
 					} else {
 						bundleCollector(event.TaskType)
 					}
-
-				case schedulerSourceTaskStarted:
-					// Peer notify (+ idempotent local delete; NoteClaimed usually
-					// already cleared the ID on the claim path).
-					if avail := availableTasks[event.TaskType]; avail != nil {
-						delete(avail.hasID, event.TaskID)
-					}
-					e.peering.TellOthers(messageTypeStarted, event.TaskType, event.TaskID)
-
-				case schedulerSourcePeerStarted:
-					// A peer started a task. Remove from our available set so we
-					// don't try to claim it.
-					avail, ok := availableTasks[event.TaskType]
-					if !ok {
-						continue
-					}
-					delete(avail.hasID, event.TaskID)
-				case schedulerSourceTaskCompleted:
-					// A local task finished (success or failure). Freed resources
-					// may allow previously blocked work to start.
-					if err := e.pollerTryAllWork(ts, ee); err != nil {
-						log.Errorw("failed tryAllWork", "error", err)
-					}
-				case schedulerSourceStartTimeSensitive:
-					h := e.taskMap[event.TaskType]
-					if h == nil {
-						continue
-					}
-					plan := e.computePreemptionPlan(h.Cost)
-					if plan == nil {
-						log.Debugw("preemption plan no longer viable", "task", event.TaskType, "taskID", event.TaskID)
-						continue
-					}
-					e.executePreemption(plan)
-					tasks := taskSourceLocal{availableTasks}.GetTasks(event.TaskType)
-					if len(tasks) > 0 {
-						h.considerWork(workSourcePreempt, tasks, ee)
-						e.atomics.Count_TimeSensitivePreempt.Add(1)
-					}
-				case schedulerSourceInitialPoll:
-					if err := e.pollerTryAllWork(ts, ee); err != nil {
-						log.Errorw("failed tryAllWork", "error", err)
-					}
-				default:
-					log.Errorw("unknown scheduler source", "source", event.Source)
 				}
-			case taskName := <-bundleSleep:
-				tryStartNow(taskName)
-			case <-time.After(idleTryInterval):
-				// Quiet-period tick: IAmBored only. Does not claim known work
-				// or query the DB — discovery/claims stay on events + the rare
-				// background poller. Per-task passcall.Every throttles work.
-				e.invokeIAmBored()
+				pt := event.PostedTime
+				if pt.IsZero() {
+					pt = time.Now().UTC()
+				}
+				e.peering.TellNewTask(event.TaskType, event.TaskID, event.Retries, pt, event.UpdateTime)
+			case schedulerSourcePeerNewTask:
+				// A peer added a task. Insert into our available set (if we
+				// handle this type) and schedule. Respects chokePoint to
+				// bound memory.
+				t, ok := availableTasks[event.TaskType]
+				if !ok {
+					continue
+				}
+				if len(t.hasID) >= chokePoint {
+					t.choked = true
+					continue
+				}
+				rememberTask(t, taskFromSchedulerEvent(event))
+				if h := e.taskMap[event.TaskType]; h != nil && h.TimeSensitive {
+					if err := e.tryStartTask(event.TaskType, ts, ee); err != nil {
+						log.Errorw("failed tryAllWork", "error", err)
+					}
+				} else {
+					bundleCollector(event.TaskType)
+				}
+
+			case schedulerSourceTaskStarted:
+				// Peer notify (+ idempotent local delete; NoteClaimed usually
+				// already cleared the ID on the claim path).
+				if avail := availableTasks[event.TaskType]; avail != nil {
+					delete(avail.hasID, event.TaskID)
+				}
+				e.peering.TellOthers(messageTypeStarted, event.TaskType, event.TaskID, task{Retries: event.Retries, UpdateTime: event.UpdateTime})
+
+			case schedulerSourcePeerStarted:
+				// A peer started a task. Remove from our available set so we
+				// don't try to claim it.
+				avail, ok := availableTasks[event.TaskType]
+				if !ok {
+					continue
+				}
+				forgetPeerStarted(avail, event)
+			case schedulerSourceTaskCompleted:
+				// A local task finished (success or failure). Freed resources
+				// may allow previously blocked work to start.
+				if err := e.pollerTryAllWork(ts, ee); err != nil {
+					log.Errorw("failed tryAllWork", "error", err)
+				}
+			case schedulerSourceStartTimeSensitive:
+				h := e.taskMap[event.TaskType]
+				if h == nil {
+					continue
+				}
+				plan := e.computePreemptionPlan(h.Cost)
+				if plan == nil {
+					log.Debugw("preemption plan no longer viable", "task", event.TaskType, "taskID", event.TaskID)
+					continue
+				}
+				e.executePreemption(plan)
+				tasks := taskSourceLocal{availableTasks}.GetTasks(event.TaskType)
+				if len(tasks) > 0 {
+					h.considerWork(workSourcePreempt, tasks, ee)
+					e.atomics.Count_TimeSensitivePreempt.Add(1)
+				}
+			case schedulerSourceInitialPoll:
+				if err := e.pollerTryAllWork(ts, ee); err != nil {
+					log.Errorw("failed tryAllWork", "error", err)
+				}
+			default:
+				log.Errorw("unknown scheduler source", "source", event.Source)
 			}
+		case taskName := <-bundleSleep:
+			tryStartNow(taskName)
+		case <-retryWake:
+			retryArmed = time.Time{}
+			if err := e.pollerTryAllWork(ts, ee); err != nil {
+				log.Errorw("failed retry waterfall", "error", err)
+			}
+		case <-time.After(idleTryInterval):
+			// Quiet-period tick: IAmBored only. Does not claim known work
+			// or query the DB — discovery/claims stay on events + the rare
+			// background poller. Per-task passcall.Every throttles work.
+			e.invokeIAmBored()
 		}
-	}()
+	}
 }
 
 // taskSource abstracts where the scheduler gets its list of available tasks.
@@ -410,12 +426,17 @@ func (ee eventEmitter) NoteClaimed(taskName string, ids []TaskID) {
 	}
 }
 
-func (ee eventEmitter) EmitTaskStarted(taskName string, taskID TaskID) {
-	ee.schedulerChannel <- schedulerEvent{
+func (ee eventEmitter) EmitTaskStarted(taskName string, taskID TaskID, state ...task) {
+	event := schedulerEvent{
 		TaskID:   taskID,
 		TaskType: taskName,
 		Source:   schedulerSourceTaskStarted,
 	}
+	if len(state) > 0 {
+		event.Retries = state[0].Retries
+		event.UpdateTime = state[0].UpdateTime
+	}
+	ee.schedulerChannel <- event
 }
 
 func (ee eventEmitter) EmitTaskNew(taskName string, task task) {
@@ -434,6 +455,84 @@ func (ee eventEmitter) EmitTaskCompleted(taskName string, success bool) {
 		Source:   schedulerSourceTaskCompleted,
 		Success:  success,
 	}
+}
+
+// applyDBTaskSnapshot runs on the scheduler goroutine. Missing keys preserve
+// previous state; present empty keys clear a successfully queried task type.
+func applyDBTaskSnapshot(available map[string]*taskSchedule, snapshot map[string][]task) {
+	for taskName, tasks := range snapshot {
+		if available[taskName] == nil {
+			continue
+		}
+		previous := available[taskName]
+		available[taskName] = &taskSchedule{
+			hasID:  lo.Associate(tasks, func(t task) (TaskID, task) { return t.ID, t }),
+			choked: len(tasks) >= chokePoint,
+		}
+		for _, t := range tasks {
+			if old, ok := previous.hasID[t.ID]; ok {
+				rememberTask(available[taskName], old)
+			}
+		}
+	}
+}
+
+// Notifications are advisory; delayed messages must not rewind an observed retry.
+// Missing legacy timestamps retain the conservative receive-time fallback. The
+// claim also compares the database retry generation and enforces its deadline.
+func rememberTask(s *taskSchedule, t task) {
+	if old, ok := s.hasID[t.ID]; ok {
+		if old.Retries > t.Retries {
+			return
+		}
+		if old.Retries == t.Retries {
+			if !old.retryClockUnknown && t.retryClockUnknown {
+				return
+			}
+			if old.retryClockUnknown == t.retryClockUnknown && !old.UpdateTime.Before(t.UpdateTime) {
+				return
+			}
+		}
+	}
+	s.hasID[t.ID] = t
+}
+
+func forgetPeerStarted(s *taskSchedule, event schedulerEvent) {
+	if old, ok := s.hasID[event.TaskID]; ok {
+		if old.Retries > event.Retries || old.Retries == event.Retries && old.UpdateTime.After(event.UpdateTime) {
+			return
+		}
+	}
+	delete(s.hasID, event.TaskID)
+}
+
+func retryDeadline(t task, wait func(int) time.Duration) time.Time {
+	if t.Retries == 0 || wait == nil {
+		return time.Time{}
+	}
+	return t.UpdateTime.Add(wait(t.Retries))
+}
+
+func retryReady(t task, wait func(int) time.Duration, now time.Time) bool {
+	return !now.Before(retryDeadline(t, wait))
+}
+
+// One timer for known future deadlines, not a timer per task or a DB retry loop.
+func nextRetryDeadline(available map[string]*taskSchedule, handlers map[string]*taskTypeHandler, now time.Time) time.Time {
+	var next time.Time
+	for name, s := range available {
+		h := handlers[name]
+		if h == nil {
+			continue
+		}
+		for _, t := range s.hasID {
+			d := retryDeadline(t, h.RetryWait)
+			if d.After(now) && (next.IsZero() || d.Before(next)) {
+				next = d
+			}
+		}
+	}
+	return next
 }
 
 // expects single-threaded caller of
@@ -508,7 +607,11 @@ const bundleCollectionTimeout = time.Millisecond * 10
 // time.AfterFunc means a Reset on an already-fired timer simply re-runs the
 // callback, and the callback only deletes its own entry, so the worst case is
 // a harmless duplicate wake (pollerTryAllWork is idempotent) — never a lost one.
-func bundler() (bundler func(string), bundleSleep <-chan string) {
+func bundler(contexts ...context.Context) (bundler func(string), bundleSleep <-chan string) {
+	ctx := context.Background()
+	if len(contexts) > 0 {
+		ctx = contexts[0]
+	}
 	timers := make(map[string]*time.Timer)
 	timerMx := sync.Mutex{}
 	output := make(chan string)
@@ -526,7 +629,10 @@ func bundler() (bundler func(string), bundleSleep <-chan string) {
 				delete(timers, taskType)
 			}
 			timerMx.Unlock()
-			output <- taskType
+			select {
+			case output <- taskType:
+			case <-ctx.Done():
+			}
 		})
 		timers[taskType] = t
 	}, output

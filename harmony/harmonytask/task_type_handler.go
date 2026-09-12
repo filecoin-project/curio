@@ -11,6 +11,7 @@ import (
 
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/samber/lo"
+	"github.com/yugabyte/pgx/v5"
 	"go.opencensus.io/stats"
 	"go.opencensus.io/tag"
 	"golang.org/x/xerrors"
@@ -161,22 +162,7 @@ func (h *taskTypeHandler) considerWork(from string, tasks []task, eventEmitter e
 	tIDs = reorderTaskIDsByPostedOrder(tasks, tIDs)
 
 	if from != workSourceRecover {
-		var tasksAccepted []TaskID
-		err := h.TaskEngine.cfg.db.Select(h.TaskEngine.cfg.ctx, &tasksAccepted, `
-		WITH candidates AS (
-			SELECT t.id
-			FROM harmony_task t
-			JOIN unnest($2::bigint[]) AS x(id) ON x.id = t.id
-			WHERE t.owner_id IS NULL
-			ORDER BY array_position($2, t.id::bigint)
-			LIMIT $3
-			FOR UPDATE SKIP LOCKED
-		)
-		UPDATE harmony_task t
-		SET owner_id = $1
-		FROM candidates c
-		WHERE t.id = c.id
-		RETURNING t.id;`, h.TaskEngine.cfg.ownerID, tIDs, maxAcceptable)
+		tasksAccepted, err := h.claimTaskOwnership(tIDs, maxAcceptable, tasks...)
 
 		if err != nil {
 			log.Error(err)
@@ -270,7 +256,12 @@ func (h *taskTypeHandler) considerWork(from string, tasks []task, eventEmitter e
 		handle := h.running.Start(int64(tID), taskCancel)
 
 		go func(tID TaskID, releaseStorage func(), handle *runregistry.Handle) {
-			eventEmitter.EmitTaskStarted(h.Name, tID)
+			for _, snapshot := range tasks {
+				if snapshot.ID == tID {
+					eventEmitter.EmitTaskStarted(h.Name, tID, snapshot)
+					break
+				}
+			}
 			var done bool
 			var doErr error
 			workStart := handle.StartTime()
@@ -306,20 +297,13 @@ func (h *taskTypeHandler) considerWork(from string, tasks []task, eventEmitter e
 				if releaseStorage != nil {
 					releaseStorage()
 				}
-				h.recordCompletion(tID, sectorID, workStart, done, doErr, preempted)
+				retry := h.recordCompletion(tID, sectorID, workStart, done, doErr, preempted)
 				success := done && doErr == nil
 				if success {
 					h.TaskEngine.invokeTaskCompleteCallbacks(h.Name, meta, tID)
 				}
 				eventEmitter.EmitTaskCompleted(h.Name, success)
-				if !done {
-					for _, t := range tasks {
-						if t.ID == tID {
-							h.emitRetryTask(eventEmitter, t, preempted)
-							break
-						}
-					}
-				}
+				h.emitRetryTask(eventEmitter, retry)
 			}()
 
 			defer taskCancel()
@@ -362,35 +346,78 @@ func (h *taskTypeHandler) considerWork(from string, tasks []task, eventEmitter e
 	return true
 }
 
+func (h *taskTypeHandler) claimTaskOwnership(ids []TaskID, maxAcceptable int, observed ...task) ([]TaskID, error) {
+	expected := make(map[TaskID]task, len(observed))
+	for _, t := range observed {
+		expected[t.ID] = t
+	}
+	retries := make([]int, len(ids))
+	updates := make([]*time.Time, len(ids))
+	waits := make([]int64, len(ids))
+	for i, id := range ids {
+		t, ok := expected[id]
+		if !ok {
+			return nil, fmt.Errorf("missing claim snapshot for task %d", id)
+		}
+		retries[i] = t.Retries
+		if !t.UpdateTime.IsZero() {
+			updates[i] = &t.UpdateTime
+		}
+		if t.Retries > 0 && h.RetryWait != nil {
+			waits[i] = h.RetryWait(t.Retries).Microseconds()
+		}
+	}
+	var accepted []TaskID
+	err := h.TaskEngine.cfg.db.Select(h.TaskEngine.cfg.ctx, &accepted, claimTaskOwnershipSQL,
+		h.TaskEngine.cfg.ownerID, ids, maxAcceptable, retries, updates, waits)
+	return accepted, err
+}
+
+const claimTaskOwnershipSQL = `
+		WITH expected AS (
+			SELECT * FROM unnest($2::bigint[], $4::int[], $5::timestamptz[], $6::bigint[])
+			AS x(id, retries, updated, wait_us)
+		), candidates AS (
+			SELECT t.id, x.retries, x.updated, x.wait_us
+			FROM harmony_task t
+			JOIN expected x ON x.id = t.id
+			WHERE t.owner_id IS NULL AND t.retries = x.retries
+			  AND (x.retries = 0 OR t.update_time = x.updated)
+			  AND (t.retries = 0 OR CURRENT_TIMESTAMP >= t.update_time + x.wait_us * INTERVAL '1 microsecond')
+			ORDER BY array_position($2, t.id::bigint)
+			LIMIT $3
+			FOR UPDATE OF t SKIP LOCKED
+		)
+		UPDATE harmony_task t
+		SET owner_id = $1
+		FROM candidates c
+		WHERE t.id = c.id AND t.owner_id IS NULL AND t.retries = c.retries
+		  AND (c.retries = 0 OR t.update_time = c.updated)
+		  AND (t.retries = 0 OR CURRENT_TIMESTAMP >= t.update_time + c.wait_us * INTERVAL '1 microsecond')
+		RETURNING t.id;`
+
 // emitRetryTask re-adds a failed or preempted task to the scheduler after
 // recordCompletion. Failed tasks sleep RetryWait before emitting so the task is
 // not visible to scheduling (or peers) until the backoff elapses. Tasks dropped
 // after MaxFailures are not re-emitted.
-func (h *taskTypeHandler) emitRetryTask(eventEmitter eventEmitter, base task, preempted bool) {
-	if base.ID == 0 {
+func (h *taskTypeHandler) emitRetryTask(eventEmitter eventEmitter, retry *task) {
+	if retry == nil {
 		return
 	}
-
-	if preempted {
-		eventEmitter.EmitTaskNew(h.Name, base)
-		return
-	}
-
-	if h.MaxFailures > 0 && base.Retries >= int(h.MaxFailures)-1 {
-		return
-	}
-
-	retry := base
-	retry.Retries++
-	retry.UpdateTime = time.Now().UTC()
-
-	var wait time.Duration
-	if h.RetryWait != nil && retry.Retries > 0 {
-		wait = h.RetryWait(retry.Retries)
-	}
+	ctx := h.TaskEngine.cfg.ctx
+	wait := max(0, time.Until(retryDeadline(*retry, h.RetryWait)))
 	go func() {
-		time.Sleep(wait)
-		eventEmitter.EmitTaskNew(h.Name, retry)
+		timer := time.NewTimer(wait)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return
+		case <-timer.C:
+		}
+		select {
+		case <-ctx.Done():
+		case eventEmitter.schedulerChannel <- schedulerEvent{TaskID: retry.ID, TaskType: h.Name, Source: schedulerSourceAdded, Retries: retry.Retries, PostedTime: retry.PostedTime, UpdateTime: retry.UpdateTime}:
+		}
 	}()
 }
 
@@ -405,7 +432,7 @@ func (h *taskTypeHandler) emitRetryTask(eventEmitter eventEmitter, base task, pr
 // Retries with exponential backoff on DB errors to guarantee eventual
 // persistence. If the process restarts before completion, the resurrection
 // logic in New() will recover the task.
-func (h *taskTypeHandler) recordCompletion(tID TaskID, sectorID *abi.SectorID, workStart time.Time, done bool, doErr error, preempted bool) {
+func (h *taskTypeHandler) recordCompletion(tID TaskID, sectorID *abi.SectorID, workStart time.Time, done bool, doErr error, preempted bool) *task {
 	workEnd := time.Now()
 	retryWait := time.Millisecond * 100
 
@@ -431,8 +458,10 @@ func (h *taskTypeHandler) recordCompletion(tID TaskID, sectorID *abi.SectorID, w
 	}
 
 	var waitStartTime time.Time
+	var retry *task
 retryRecordCompletion:
 	cm, err := h.TaskEngine.cfg.db.BeginTransaction(context.Background(), func(tx *harmonydb.Tx) (bool, error) {
+		retry = nil // Results belong only to the committed transaction attempt.
 		var postedTime time.Time
 		var retries uint
 		var updateTime time.Time
@@ -456,7 +485,12 @@ retryRecordCompletion:
 				result = "non-failing error: " + doErr.Error()
 			}
 		case preempted:
-			_, err = tx.Exec(`UPDATE harmony_task SET owner_id=NULL, update_time=CURRENT_TIMESTAMP WHERE id=$1`, tID)
+			retry = &task{ID: tID, Retries: int(retries), PostedTime: postedTime}
+			err = tx.QueryRow(`UPDATE harmony_task SET owner_id=NULL WHERE id=$1 AND owner_id=$2 AND retries=$3 RETURNING update_time`, tID, h.TaskEngine.cfg.ownerID, retries).Scan(&retry.UpdateTime)
+			if errors.Is(err, pgx.ErrNoRows) {
+				retry = nil
+				return true, nil
+			}
 			if err != nil {
 				return false, fmt.Errorf("could not release preempted task: %v %v", tID, err)
 			}
@@ -476,7 +510,8 @@ retryRecordCompletion:
 					return false, fmt.Errorf("could not delete failed job: %w", err)
 				}
 			} else {
-				_, err = tx.Exec(`UPDATE harmony_task SET owner_id=NULL, retries=$1, update_time=CURRENT_TIMESTAMP WHERE id=$2`, retries+1, tID)
+				retry = &task{ID: tID, Retries: int(retries) + 1, PostedTime: postedTime}
+				err = tx.QueryRow(`UPDATE harmony_task SET owner_id=NULL, retries=$1, update_time=CURRENT_TIMESTAMP WHERE id=$2 RETURNING update_time`, retries+1, tID).Scan(&retry.UpdateTime)
 				if err != nil {
 					return false, fmt.Errorf("could not disown failed task: %v %v", tID, err)
 				}
@@ -515,6 +550,7 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`, tID, h.Name, postedTime.U
 	_ = stats.RecordWithTags(context.Background(), []tag.Mutator{
 		tag.Upsert(taskNameTag, h.Name),
 	}, TaskMeasures.TaskScheduledWait.M(scheduledWait))
+	return retry
 }
 
 // maxHeadroom limits how many tasks of a single type can be accepted in one
