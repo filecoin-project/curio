@@ -110,6 +110,10 @@ SQL tag set: `cgo,fvm,nosupraseal,integration`.
   triggers and focused current schema migrations.
 - `TestPoRepSummarySQLLargeSnapshot`: 32,108 queued rows plus six other rows,
   two miners, bounded payload, actual EXPLAIN ANALYZE and query-error propagation.
+- `TestPoRepSummarySQLLargeLinkedSnapshot`: 32,108 waiting sectors each linked
+  to its own SDR task, plus 44 running and 44 preparing tasks on 44 owners and
+  two miners. Checks the actual handler, reconciled counts, bounded response and
+  EXPLAIN ANALYZE. These are isolated query observations, not Yugabyte performance.
 - `web/test/porep-summary.test.mjs`: reconciliation and missing-field semantics.
 - `web/test/porep-page-poller.test.mjs`: reused transport cancellation/lifecycle.
 - `web/test/porep-summary-browser.mjs`: real Chromium/Lit with intercepted offline

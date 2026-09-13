@@ -185,3 +185,66 @@ func TestPoRepSummarySQLLargeSnapshot(t *testing.T) {
 	require.Error(t, err)
 	require.Nil(t, broken, fmt.Sprint(err))
 }
+
+// Unlike the task-not-created backlog above, every waiting sector here joins
+// an actual SDR task. Several miners and owners exercise both primary-key joins.
+// This measures one isolated PostgreSQL query, not a Yugabyte fleet benchmark.
+func TestPoRepSummarySQLLargeLinkedSnapshot(t *testing.T) {
+	ctx, db, conn := summarySQLFixture(t)
+	_, err := conn.Exec(ctx, `INSERT INTO harmony_machines(id,host_and_port,cpu,ram,gpu)
+ SELECT n,'owner-'||n||'.invalid:1',8,1024,0 FROM generate_series(1,44)n;
+ INSERT INTO harmony_task(id,posted_time,owner_id,added_by,name)
+ SELECT n,now()-INTERVAL '3 hours',NULL,1,'SDR' FROM generate_series(1,32108)n;
+ INSERT INTO sectors_sdr_pipeline(sp_id,sector_number,reg_seal_proof,task_id_sdr)
+ SELECT 1000+(n%2),n,8,n FROM generate_series(1,32108)n;
+ INSERT INTO harmony_task(id,posted_time,owner_id,added_by,name)
+ SELECT 40000+n,now()-INTERVAL '3 hours',n,1,'SDR' FROM generate_series(1,44)n;
+ UPDATE harmony_task SET attempt_id='running-'||id,attempt_start_source='do_entry',
+ attempt_started_at=statement_timestamp() WHERE id>40000;
+ INSERT INTO harmony_task(id,posted_time,owner_id,added_by,name)
+ SELECT 50000+n,now(),n,1,'SDR' FROM generate_series(1,44)n;
+ INSERT INTO sectors_sdr_pipeline(sp_id,sector_number,reg_seal_proof,task_id_sdr)
+ SELECT 1000+(n%2),40000+n,8,40000+n FROM generate_series(1,44)n;
+ INSERT INTO sectors_sdr_pipeline(sp_id,sector_number,reg_seal_proof,task_id_sdr)
+ SELECT 1000+(n%2),50000+n,8,50000+n FROM generate_series(1,44)n;
+ ANALYZE sectors_sdr_pipeline; ANALYZE harmony_task; ANALYZE harmony_machines;`)
+	require.NoError(t, err)
+	var waiting, owners int
+	require.NoError(t, conn.QueryRow(ctx, `SELECT count(*) FROM sectors_sdr_pipeline p
+ JOIN harmony_task t ON t.id=p.task_id_sdr WHERE t.name='SDR' AND t.owner_id IS NULL`).Scan(&waiting))
+	require.Equal(t, 32108, waiting, "fixture must actually join every pending task")
+	require.NoError(t, conn.QueryRow(ctx, `SELECT count(DISTINCT owner_id) FROM harmony_task`).Scan(&owners))
+	require.Equal(t, 44, owners)
+	chain := &summaryChain{}
+	a := New(&webrpc.Handler{Deps: &deps.Deps{Chain: chain, DB: db}})
+	start := time.Now()
+	rows, err := a.PorepPipelineSummary(ctx)
+	elapsed := time.Since(start)
+	require.NoError(t, err)
+	require.Equal(t, 1, chain.calls)
+	assertSummaryReconciles(t, rows)
+	require.Len(t, rows, 2)
+	for _, r := range rows {
+		c := r.SectorCounts
+		require.Equal(t, int64(16098), c.Total)
+		require.Equal(t, c.Total, c.Remaining)
+		require.Equal(t, c.Total, c.SDRTotal)
+		require.Equal(t, int64(16054), c.SDRWaitingTask)
+		require.Equal(t, int64(22), c.SDRRunning)
+		require.Equal(t, int64(22), c.SDRPreparing)
+		require.Zero(t, c.SDRWaitingCreate+c.SDRMissingTask+c.SDROtherTask+c.SDRFailed+c.SDRUnknown)
+	}
+	wire, err := json.Marshal(rows)
+	require.NoError(t, err)
+	require.Less(t, len(wire), 4096, "response scales with miners, not joined tasks")
+	t.Logf("one summary statement; linked pending=32108 running=44 preparing=44 owners=44 miners=2; returned=%d bytes=%d wall=%s; retries=NOT_MEASURED", len(rows), len(wire), elapsed)
+	plan, err := conn.Query(ctx, "EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT) "+porepSummaryQuery, 0)
+	require.NoError(t, err)
+	defer plan.Close()
+	for plan.Next() {
+		var line string
+		require.NoError(t, plan.Scan(&line))
+		t.Log(line)
+	}
+	require.NoError(t, plan.Err())
+}
