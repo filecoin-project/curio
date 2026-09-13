@@ -3,6 +3,11 @@
 //! Provides the [`Engine`] type which manages proof submission, scheduling,
 //! GPU worker dispatch, and SRS parameter residency.
 
+#[cfg(all(feature = "cuda-supraseal", feature = "vulkan-cuzk"))]
+compile_error!(
+    "features `cuda-supraseal` and `vulkan-cuzk` are mutually exclusive — enable at most one GPU backend"
+);
+
 pub mod batch_collector;
 pub mod config;
 pub mod engine;

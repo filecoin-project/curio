@@ -31,7 +31,7 @@ filecoin-proofs-api = { workspace = true, optional = true }
 cid = { workspace = true, optional = true }
 
 # Optional: for synth-bench subcommand (in-process synthesis microbenchmark)
-cuzk-core = { workspace = true, optional = true }
+cuzk-core = { workspace = true, optional = true, features = ["cuda-supraseal"] }
 
 # Optional: for pce-bench subcommand (PCE extraction + evaluation benchmark)
 cuzk-pce = { workspace = true, optional = true }

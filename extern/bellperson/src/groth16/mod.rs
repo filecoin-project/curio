@@ -2,7 +2,14 @@
 //!
 //! [Groth16]: https://eprint.iacr.org/2016/260
 
+#[cfg(all(feature = "cuda-supraseal", feature = "vulkan-cuzk"))]
+compile_error!(
+    "features `cuda-supraseal` and `vulkan-cuzk` are mutually exclusive — enable at most one GPU backend"
+);
+
 pub mod aggregate;
+#[cfg(feature = "vulkan-cuzk")]
+pub mod vulkan_cuzk;
 #[cfg(not(feature = "cuda-supraseal"))]
 mod ext;
 #[cfg(feature = "cuda-supraseal")]

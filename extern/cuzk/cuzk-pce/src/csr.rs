@@ -135,3 +135,124 @@ impl<Scalar: PrimeField> PreCompiledCircuit<Scalar> {
         )
     }
 }
+
+#[cfg(test)]
+mod csr_tests {
+    use super::*;
+    use crate::density::PreComputedDensity;
+    use blstrs::Scalar as Fr;
+    use ff::Field;
+
+    fn sample_csr() -> CsrMatrix<Fr> {
+        // 3 rows, 4 cols unified index; row_ptrs length 4
+        CsrMatrix {
+            row_ptrs: vec![0, 2, 3, 5],
+            cols: vec![0, 1, 2, 0, 3],
+            vals: vec![Fr::ONE; 5],
+        }
+    }
+
+    #[test]
+    fn csr_num_rows_matches_row_offsets() {
+        let m = sample_csr();
+        assert_eq!(m.num_rows(), 3);
+        assert_eq!(m.row_ptrs.len(), m.num_rows() + 1);
+    }
+
+    #[test]
+    fn csr_nnz_matches_values_len() {
+        let m = sample_csr();
+        assert_eq!(m.nnz(), m.cols.len());
+        assert_eq!(m.nnz(), m.vals.len());
+    }
+
+    #[test]
+    fn csr_avg_nnz_handles_empty_rows() {
+        let empty: CsrMatrix<Fr> = CsrMatrix {
+            row_ptrs: vec![0],
+            cols: vec![],
+            vals: vec![],
+        };
+        assert_eq!(empty.num_rows(), 0);
+        assert_eq!(empty.avg_nnz_per_row(), 0.0);
+
+        let m = sample_csr();
+        assert!((m.avg_nnz_per_row() - 5.0 / 3.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn csr_row_returns_correct_slice_pair() {
+        let m = sample_csr();
+        let (c0, v0) = m.row(0);
+        assert_eq!(c0, &[0u32, 1]);
+        assert_eq!(v0.len(), 2);
+        let (c2, v2) = m.row(2);
+        assert_eq!(c2, &[0u32, 3]);
+        assert_eq!(v2.len(), 2);
+    }
+
+    #[test]
+    fn csr_memory_bytes_within_5pct_of_actual() {
+        let m = sample_csr();
+        let reported = m.memory_bytes();
+        let exact = m.row_ptrs.len() * 4 + m.cols.len() * 4 + m.vals.len() * std::mem::size_of::<Fr>();
+        let diff = (reported as f64 - exact as f64).abs() / exact as f64;
+        assert!(diff < 0.05, "reported {} exact {} diff {}", reported, exact, diff);
+    }
+
+    #[test]
+    fn precompiled_circuit_total_nnz_sums_three_matrices() {
+        let a = sample_csr();
+        let b = CsrMatrix {
+            row_ptrs: vec![0, 1, 2, 2],
+            cols: vec![0, 1],
+            vals: vec![Fr::ONE; 2],
+        };
+        let c = CsrMatrix {
+            row_ptrs: vec![0, 0, 0, 0],
+            cols: vec![],
+            vals: vec![],
+        };
+        let d = PreComputedDensity::from_csr(&a, &b, 2, 2);
+        let p = PreCompiledCircuit {
+            num_inputs: 2,
+            num_aux: 2,
+            num_constraints: 3,
+            a,
+            b,
+            c,
+            density: d,
+        };
+        assert_eq!(p.total_nnz(), p.a.nnz() + p.b.nnz() + p.c.nnz());
+    }
+
+    #[test]
+    fn precompiled_circuit_summary_includes_dimensions() {
+        let a = sample_csr();
+        let b = CsrMatrix {
+            row_ptrs: vec![0, 0, 0, 0],
+            cols: vec![],
+            vals: vec![],
+        };
+        let c = CsrMatrix {
+            row_ptrs: vec![0, 0, 0, 0],
+            cols: vec![],
+            vals: vec![],
+        };
+        let d = PreComputedDensity::from_csr(&a, &b, 2, 2);
+        let p = PreCompiledCircuit {
+            num_inputs: 2,
+            num_aux: 2,
+            num_constraints: 3,
+            a,
+            b,
+            c,
+            density: d,
+        };
+        let s = p.summary();
+        assert!(s.contains("inputs: 2"));
+        assert!(s.contains("aux: 2"));
+        assert!(s.contains("constraints: 3"));
+        assert!(s.contains("total_nnz"));
+    }
+}

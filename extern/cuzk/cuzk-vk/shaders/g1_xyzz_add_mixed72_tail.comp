@@ -1,0 +1,94 @@
+// XYZZ + affine mixed add (sppark `xyzz_t::add(affine_t)` a=0 branch). Fields order: X, Y, ZZZ, ZZ.
+// SSBO `d[72]`: xyzz in/out words 0..47; affine `p2` x,y at 48..71 (Montgomery `Fp`). See `PORTING_NOTES.md`.
+
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) buffer Data {
+    uint d[72];
+} buf;
+
+void fp_load_xy(uint base, out @@FP_T@@ x) {
+    for (uint i = 0u; i < 12u; i++) {
+        x.val[i] = buf.d[base + i];
+    }
+}
+
+void fp_store_xy(uint base, @@FP_T@@ x) {
+    for (uint i = 0u; i < 12u; i++) {
+        buf.d[base + i] = x.val[i];
+    }
+}
+
+void main() {
+    if (gl_GlobalInvocationID.x != 0u) {
+        return;
+    }
+    @@FP_T@@ pX;
+    @@FP_T@@ pY;
+    @@FP_T@@ pZZZ;
+    @@FP_T@@ pZZ;
+    fp_load_xy(0u, pX);
+    fp_load_xy(12u, pY);
+    fp_load_xy(24u, pZZZ);
+    fp_load_xy(36u, pZZ);
+    @@FP_T@@ p2x;
+    @@FP_T@@ p2y;
+    fp_load_xy(48u, p2x);
+    fp_load_xy(60u, p2y);
+
+    bool acc_inf = fp_is_zero(pZZZ) && fp_is_zero(pZZ);
+    if (acc_inf) {
+        pX = p2x;
+        pY = p2y;
+        pZZZ = fp_one();
+        pZZ = fp_one();
+        fp_store_xy(0u, pX);
+        fp_store_xy(12u, pY);
+        fp_store_xy(24u, pZZZ);
+        fp_store_xy(36u, pZZ);
+        return;
+    }
+
+    @@FP_T@@ R = fp_mul_mont_cios(p2y, pZZZ);
+    R = fp_sub_mod(R, pY);
+    @@FP_T@@ P = fp_mul_mont_cios(p2x, pZZ);
+    P = fp_sub_mod(P, pX);
+
+    if (!fp_is_zero(P)) {
+        @@FP_T@@ PP = fp_mul_mont_cios(P, P);
+        @@FP_T@@ PPP = fp_mul_mont_cios(P, PP);
+        pZZ = fp_mul_mont_cios(pZZ, PP);
+        pZZZ = fp_mul_mont_cios(pZZZ, PPP);
+        @@FP_T@@ Q = fp_mul_mont_cios(PP, pX);
+        pX = fp_mul_mont_cios(R, R);
+        pX = fp_sub_mod(pX, PPP);
+        pX = fp_sub_mod(pX, Q);
+        pX = fp_sub_mod(pX, Q);
+        Q = fp_sub_mod(Q, pX);
+        Q = fp_mul_mont_cios(Q, R);
+        pY = fp_mul_mont_cios(pY, PPP);
+        pY = fp_sub_mod(Q, pY);
+    } else if (fp_is_zero(R)) {
+        @@FP_T@@ U = fp_dbl(p2y);
+        pZZ = fp_mul_mont_cios(U, U);
+        pZZZ = fp_mul_mont_cios(pZZ, U);
+        @@FP_T@@ S = fp_mul_mont_cios(p2x, pZZ);
+        @@FP_T@@ M = fp_mul_mont_cios(p2x, p2x);
+        M = fp_add_mod(M, fp_add_mod(M, M));
+        pX = fp_mul_mont_cios(M, M);
+        pX = fp_sub_mod(pX, S);
+        pX = fp_sub_mod(pX, S);
+        pY = fp_mul_mont_cios(pZZZ, p2y);
+        S = fp_sub_mod(S, pX);
+        S = fp_mul_mont_cios(S, M);
+        pY = fp_sub_mod(S, pY);
+    } else {
+        pZZZ = fp_zero();
+        pZZ = fp_zero();
+    }
+
+    fp_store_xy(0u, pX);
+    fp_store_xy(12u, pY);
+    fp_store_xy(24u, pZZZ);
+    fp_store_xy(36u, pZZ);
+}

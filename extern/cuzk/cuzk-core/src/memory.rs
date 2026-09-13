@@ -487,4 +487,31 @@ mod tests {
         assert_eq!(proof_kind_abc_bytes(&CircuitId::WinningPost32G), GIB / 4);
         assert_eq!(proof_kind_full_bytes(&CircuitId::SnapDeals32G), 9 * GIB);
     }
+
+    #[tokio::test]
+    async fn step_p04_memory_budget_concurrent_acquire_release_balanced() {
+        let budget = Arc::new(MemoryBudget::new(40 * GIB));
+        let b2 = budget.clone();
+        let b3 = budget.clone();
+        let h1 = tokio::spawn(async move { b2.acquire(12 * GIB).await });
+        let h2 = tokio::spawn(async move { b3.acquire(15 * GIB).await });
+        let (r1, r2) = tokio::join!(h1, h2);
+        let _a = r1.unwrap();
+        let _b = r2.unwrap();
+        assert_eq!(budget.used_bytes(), 27 * GIB);
+        drop(_a);
+        drop(_b);
+        assert_eq!(budget.used_bytes(), 0);
+    }
+
+    #[tokio::test]
+    async fn step_p04_memory_budget_try_acquire_oversubscribe_returns_none() {
+        let budget = Arc::new(MemoryBudget::new(8 * GIB));
+        let r1 = budget.try_acquire(5 * GIB).expect("first chunk");
+        assert!(budget.try_acquire(4 * GIB).is_none());
+        assert_eq!(budget.used_bytes(), 5 * GIB);
+        drop(r1);
+        let r2 = budget.try_acquire(8 * GIB);
+        assert!(r2.is_some());
+    }
 }

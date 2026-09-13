@@ -1,0 +1,112 @@
+// DIT Cooley–Tukey radix-4 NTT stage (Montgomery Fr). §8.2 B.1.
+//
+// Same SSBO layout as `fr_ntt_general_radix2_stage_tail.comp`.
+// Push constants: `quarter` (= 4^k for stage k) and `twiddle_word_off` (offset in `u32` words
+// from `OFF_TWIDDLE` to this stage's table of Montgomery `wlen^j`, `j = 0..quarter-1`). §8.2 B.4.
+//
+// RADIX4_I_UNIT_WORDS is the Montgomery representation of the 4th root of unity
+// ω^(n/4) = ROOT_OF_UNITY^(2^30) — a constant independent of n, embedded by build.rs.
+// For the inverse NTT pass, build.rs substitutes ω^(-n/4) = ROOT_OF_UNITY^(3·2^30).
+//
+// Per-thread work (for one butterfly group at positions base, base+q, base+2q, base+3q):
+//   1. Load u0..u3.
+//   2. Compute w = wlen^(j_in), w², w³.
+//   3. Pre-twiddle: y0=u0, y1=u1·w, y2=u2·w², y3=u3·w³.
+//   4. CT DIT butterfly: pair (y0,y1) and (y2,y3).
+//      A=y0+y1, B=y0−y1, C=y2+y3, D=(y2−y3)·i_unit
+//      out[0]=A+C, out[1]=B+D, out[2]=A−C, out[3]=B−D
+//   5. Store four outputs in-place.
+//
+// Important: the pairing is (y0,y1) and (y2,y3), NOT (y0,y2) and (y1,y3).
+// With the standard radix-2 bit-reversal, even DFT elements land at adjacent positions
+// in memory (0,1 and 2,3 within each quarter-stride group), so the correct pairing
+// for the CT DIT radix-4 is adjacent-in-memory pairs.
+//
+// Note: uses `out @@FR_T@@` in helper functions — `out` (not `inout`) is safe with Naga
+// and is the same pattern as the radix-2 stage shader.
+
+#define FR_NTT_MAX_N   16384u
+#define FR_NTT_MAX_LOG 32u
+#define OFF_DATA       64u
+#define OFF_SCRATCH    (64u + FR_NTT_MAX_N * 8u)
+#define OFF_WSTEP      (OFF_SCRATCH + FR_NTT_MAX_N * 8u)
+#define OFF_TWIDDLE    (OFF_WSTEP + FR_NTT_MAX_LOG * 8u)
+#define FR_NTT_TWIDDLE_U32 (5461u * 8u)
+
+// 4th root of unity ω^(n/4) = ROOT_OF_UNITY^(2^30) — constant for any n, provided by build.rs.
+// The function body is substituted by build.rs as per-limb assignments.
+@@RADIX4_I_UNIT@@
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(push_constant) uniform Push {
+    uint quarter;           // 4^k: 1, 4, 16, 64, …
+    uint twiddle_word_off;  // from OFF_TWIDDLE
+    uint _p0;
+    uint _p1;
+} pc;
+
+layout(set = 0, binding = 0) buffer Data {
+    uint d[64u + FR_NTT_MAX_N * 8u * 2u + FR_NTT_MAX_LOG * 8u + FR_NTT_TWIDDLE_U32];
+} buf;
+
+void fr_load_at(uint base, out @@FR_T@@ x) {
+    for (uint i = 0u; i < 8u; i++) {
+        x.val[i] = buf.d[base + i];
+    }
+}
+
+void fr_store_at(uint base, @@FR_T@@ x) {
+    for (uint i = 0u; i < 8u; i++) {
+        buf.d[base + i] = x.val[i];
+    }
+}
+
+void main() {
+    uint n        = buf.d[0];
+    uint quarter  = pc.quarter;
+    uint num_bfly = n >> 2u;   // n/4 butterfly groups total
+
+    uint tid = gl_GlobalInvocationID.x;
+    if (tid >= num_bfly) {
+        return;
+    }
+
+    uint m        = quarter << 2u;  // m = 4 * quarter (block size)
+    uint block_id = tid / quarter;
+    uint j_in     = tid % quarter;
+    uint base     = block_id * m + j_in;
+
+    // w = wlen^(j_in) from host-built twiddle table (§8.2 B.4).
+    @@FR_T@@ w;
+    fr_load_at(OFF_TWIDDLE + pc.twiddle_word_off + j_in * 8u, w);
+    @@FR_T@@ w2 = fr_mul_mont_cios(w, w);
+    @@FR_T@@ w3 = fr_mul_mont_cios(w2, w);
+
+    // Load four input elements.
+    @@FR_T@@ u0, u1, u2, u3;
+    fr_load_at(OFF_DATA + base              * 8u, u0);
+    fr_load_at(OFF_DATA + (base + quarter)  * 8u, u1);
+    fr_load_at(OFF_DATA + (base + 2u * quarter) * 8u, u2);
+    fr_load_at(OFF_DATA + (base + 3u * quarter) * 8u, u3);
+
+    // Pre-twiddle: y0=u0, y1=u1·w, y2=u2·w², y3=u3·w³.
+    @@FR_T@@ y1 = fr_mul_mont_cios(u1, w);
+    @@FR_T@@ y2 = fr_mul_mont_cios(u2, w2);
+    @@FR_T@@ y3 = fr_mul_mont_cios(u3, w3);
+
+    // CT DIT radix-4 butterfly: pair adjacent elements (y0,y1) and (y2,y3).
+    // A = y0+y1,  B = y0−y1
+    // C = y2+y3,  D = (y2−y3)·i_unit
+    // out[0]=A+C, out[1]=B+D, out[2]=A−C, out[3]=B−D
+    @@FR_T@@ A     = fr_add_mod(u0, y1);
+    @@FR_T@@ B     = fr_sub_mod(u0, y1);
+    @@FR_T@@ C     = fr_add_mod(y2, y3);
+    @@FR_T@@ D_raw = fr_sub_mod(y2, y3);
+    @@FR_T@@ D     = fr_mul_mont_cios(D_raw, radix4_i_unit());
+
+    fr_store_at(OFF_DATA + base              * 8u, fr_add_mod(A, C));
+    fr_store_at(OFF_DATA + (base + quarter)  * 8u, fr_add_mod(B, D));
+    fr_store_at(OFF_DATA + (base + 2u * quarter) * 8u, fr_sub_mod(A, C));
+    fr_store_at(OFF_DATA + (base + 3u * quarter) * 8u, fr_sub_mod(B, D));
+}

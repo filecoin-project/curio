@@ -1,0 +1,17 @@
+// Reverses 24 u32 words in-place (G1 affine x||y limb layout). Validates SSBO + multi-invocation path.
+#version 450
+
+layout(local_size_x = 24, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) buffer Data {
+    uint d[24];
+} buf;
+
+shared uint sh[24];
+
+void main() {
+    uint i = gl_LocalInvocationID.x;
+    sh[i] = buf.d[i];
+    barrier();
+    buf.d[i] = sh[23u - i];
+}

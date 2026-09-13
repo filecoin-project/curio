@@ -1,0 +1,168 @@
+// Phase G: sum up to 16 affine G2 points selected by 16-bit bitmap (low bits of `d[1]`).
+//
+// Layout: `d[0]=n`, `d[1]=bitmap`, Jacobian out at words 64..135, affines `x||y` (Fp2) at
+// word 136 + `idx*48`.
+//
+// Single-invocation kernel. Earlier versions used a workgroup of 8 threads with a shared-
+// memory tree reduction and `inout @@FP_T@@` parameters in `jac_add_g2_assign` /
+// `jac_double_g2`. Both patterns hit Naga + MoltenVK codegen bugs on Apple M2 (`out` /
+// `inout` `@@FP_T@@` parameters silently corrupted, `if`-bodies dropping writes to large
+// struct locals). We keep `main` straight-line and dispatch addition vs. "acc was the
+// identity" via a small integer `mode`. The addition itself is the same EFD `add-1998-
+// cmo-2` (a=0) formula used by `g2_jacobian_add216_tail.comp`, copied verbatim so any
+// future fix to that shader transfers cleanly.
+
+#define G2_BATCH_MAX 16u
+#define G2_BATCH_WG 1u
+#define OFF_N 0u
+#define OFF_BM 1u
+#define HEADER 64u
+#define OFF_JAC_OUT HEADER
+#define OFF_AFF (HEADER + 72u)
+
+layout(local_size_x = G2_BATCH_WG, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) buffer Data {
+    uint d[HEADER + 72u + G2_BATCH_MAX * 48u];
+} buf;
+
+void main() {
+    if (gl_GlobalInvocationID.x != 0u) {
+        return;
+    }
+    uint n = buf.d[OFF_N];
+    uint bitmap = buf.d[OFF_BM];
+
+    @@FP_T@@ ax0;
+    @@FP_T@@ ax1;
+    @@FP_T@@ ay0;
+    @@FP_T@@ ay1;
+    @@FP_T@@ az0;
+    @@FP_T@@ az1;
+    for (uint i = 0u; i < 12u; i++) {
+        ax0.val[i] = 0u;
+        ax1.val[i] = 0u;
+        ay0.val[i] = 0u;
+        ay1.val[i] = 0u;
+        az0.val[i] = 0u;
+        az1.val[i] = 0u;
+    }
+
+    for (uint pi = 0u; pi < n && pi < G2_BATCH_MAX; pi += 1u) {
+        if (((bitmap >> pi) & 1u) == 0u) {
+            continue;
+        }
+
+        uint ab = OFF_AFF + pi * 48u;
+        @@FP_T@@ bx0;
+        @@FP_T@@ bx1;
+        @@FP_T@@ by0;
+        @@FP_T@@ by1;
+        for (uint i = 0u; i < 12u; i++) {
+            bx0.val[i] = buf.d[ab + i];
+            bx1.val[i] = buf.d[ab + 12u + i];
+            by0.val[i] = buf.d[ab + 24u + i];
+            by1.val[i] = buf.d[ab + 36u + i];
+        }
+        @@FP_T@@ bz0 = fp_one();
+        @@FP_T@@ bz1 = fp_zero();
+
+        // Detect "acc is the point at infinity" via a hand-inlined limb counter; Naga
+        // miscompiles `if (fp2_is_zero(struct))` for large `@@FP_T@@` structs on M2.
+        uint az_nz = 0u;
+        for (uint i = 0u; i < 12u; i++) {
+            if (az0.val[i] != 0u) { az_nz = az_nz + 1u; }
+            if (az1.val[i] != 0u) { az_nz = az_nz + 1u; }
+        }
+
+        // EFD `add-1998-cmo-2` (a=0). Same formula as `g2_jacobian_add216_tail.comp`.
+        @@FP_T@@ z1z10;
+        @@FP_T@@ z1z11;
+        fp2_sqr_m(az0, az1, z1z10, z1z11);
+        @@FP_T@@ z2z20;
+        @@FP_T@@ z2z21;
+        fp2_sqr_m(bz0, bz1, z2z20, z2z21);
+        @@FP_T@@ u10;
+        @@FP_T@@ u11;
+        fp2_mul_m(ax0, ax1, z2z20, z2z21, u10, u11);
+        @@FP_T@@ u20;
+        @@FP_T@@ u21;
+        fp2_mul_m(bx0, bx1, z1z10, z1z11, u20, u21);
+        @@FP_T@@ s10;
+        @@FP_T@@ s11;
+        fp2_mul_m(ay0, ay1, bz0, bz1, s10, s11);
+        fp2_mul_m(s10, s11, z2z20, z2z21, s10, s11);
+        @@FP_T@@ s20;
+        @@FP_T@@ s21;
+        fp2_mul_m(by0, by1, az0, az1, s20, s21);
+        fp2_mul_m(s20, s21, z1z10, z1z11, s20, s21);
+        @@FP_T@@ h0;
+        @@FP_T@@ h1;
+        fp2_sub_c(u20, u21, u10, u11, h0, h1);
+        @@FP_T@@ hh0;
+        @@FP_T@@ hh1;
+        fp2_sqr_m(h0, h1, hh0, hh1);
+        @@FP_T@@ hhh0;
+        @@FP_T@@ hhh1;
+        fp2_mul_m(h0, h1, hh0, hh1, hhh0, hhh1);
+        @@FP_T@@ r0;
+        @@FP_T@@ r1;
+        fp2_sub_c(s20, s21, s10, s11, r0, r1);
+        @@FP_T@@ v0;
+        @@FP_T@@ v1;
+        fp2_mul_m(u10, u11, hh0, hh1, v0, v1);
+        @@FP_T@@ ii0;
+        @@FP_T@@ ii1;
+        fp2_sqr_m(r0, r1, ii0, ii1);
+        @@FP_T@@ rx0;
+        @@FP_T@@ rx1;
+        fp2_sub_c(ii0, ii1, hhh0, hhh1, rx0, rx1);
+        @@FP_T@@ jj0;
+        @@FP_T@@ jj1;
+        fp2_dbl_c(v0, v1, jj0, jj1);
+        fp2_sub_c(rx0, rx1, jj0, jj1, rx0, rx1);
+        @@FP_T@@ ry0;
+        @@FP_T@@ ry1;
+        fp2_sub_c(v0, v1, rx0, rx1, ry0, ry1);
+        fp2_mul_m(ry0, ry1, r0, r1, ry0, ry1);
+        @@FP_T@@ s1hhh0;
+        @@FP_T@@ s1hhh1;
+        fp2_mul_m(s10, s11, hhh0, hhh1, s1hhh0, s1hhh1);
+        fp2_sub_c(ry0, ry1, s1hhh0, s1hhh1, ry0, ry1);
+        @@FP_T@@ rz0;
+        @@FP_T@@ rz1;
+        fp2_mul_m(az0, az1, bz0, bz1, rz0, rz1);
+        fp2_mul_m(rz0, rz1, h0, h1, rz0, rz1);
+
+        // mode 0 = acc was identity → take new point; mode 1 = real EFD addition.
+        uint mode = (az_nz == 0u) ? 0u : 1u;
+        if (mode == 0u) {
+            for (uint i = 0u; i < 12u; i++) {
+                ax0.val[i] = bx0.val[i];
+                ax1.val[i] = bx1.val[i];
+                ay0.val[i] = by0.val[i];
+                ay1.val[i] = by1.val[i];
+                az0.val[i] = bz0.val[i];
+                az1.val[i] = bz1.val[i];
+            }
+        } else {
+            for (uint i = 0u; i < 12u; i++) {
+                ax0.val[i] = rx0.val[i];
+                ax1.val[i] = rx1.val[i];
+                ay0.val[i] = ry0.val[i];
+                ay1.val[i] = ry1.val[i];
+                az0.val[i] = rz0.val[i];
+                az1.val[i] = rz1.val[i];
+            }
+        }
+    }
+
+    for (uint i = 0u; i < 12u; i++) {
+        buf.d[OFF_JAC_OUT + i]        = ax0.val[i];
+        buf.d[OFF_JAC_OUT + 12u + i]  = ax1.val[i];
+        buf.d[OFF_JAC_OUT + 24u + i]  = ay0.val[i];
+        buf.d[OFF_JAC_OUT + 36u + i]  = ay1.val[i];
+        buf.d[OFF_JAC_OUT + 48u + i]  = az0.val[i];
+        buf.d[OFF_JAC_OUT + 60u + i]  = az1.val[i];
+    }
+}
