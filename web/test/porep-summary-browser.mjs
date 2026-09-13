@@ -48,7 +48,7 @@ try {
         const u=new URL(route.request().url());
         if(u.href.includes('/lit/dist@3/')) return route.fulfill({contentType:'text/javascript',body:readFileSync(process.env.LIT3_FIXTURE,'utf8')});
         if(u.origin!=='http://summary.invalid') return route.abort();
-        if(u.pathname==='/') return route.fulfill({contentType:'text/html',body:`<!doctype html><meta charset="utf-8"><body style="background:#171c24;color:#e6edf3;font:14px sans-serif"><h2>PoRep Overview — offline synthetic snapshot</h2><p>32,108 waiting + other states; no production connection.</p><porep-overview></porep-overview><script type="module">import '/pipeline-porep.mjs'; import '/porep-overview.mjs';</script></body>`});
+        if(u.pathname==='/') return route.fulfill({contentType:'text/html',body:`<!doctype html><meta charset="utf-8"><body style="background:#171c24;color:#e6edf3;font:14px sans-serif"><h2>PoRep Overview — offline synthetic snapshot</h2><p>Initial fixture: 32,102 waiting + 22 other sectors; no production connection.</p><porep-overview></porep-overview><script type="module">import '/pipeline-porep.mjs'; import '/porep-overview.mjs';</script></body>`});
         if(u.pathname==='/api/webrpc/v0') {
             const req=route.request().postDataJSON();
             return rpc(req,async(result,error)=>{
@@ -130,6 +130,6 @@ try {
         await page.evaluate(()=>document.querySelector('porep-overview').remove());
     }
     assert.deepEqual(errors,[]);
-    console.log(JSON.stringify({result:'PASS',baseline:baseline||null,summaryCalls:summaryCalls.length,
+    console.log(JSON.stringify({result:'PASS',browser:browser.version(),baseline:baseline||null,summaryCalls:summaryCalls.length,
         calls,screenshot:process.env.POREP_SCREENSHOT,scope:'real Chromium, local intercepted fixtures; SQL verified separately'},null,2));
 } finally { await browser.close(); }
