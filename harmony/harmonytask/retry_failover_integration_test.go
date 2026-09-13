@@ -85,7 +85,8 @@ func TestRetrySQLAuthoritativeClaimAndCompletion(t *testing.T) {
 	require.Equal(t, 1, count, "exactly one committed owner")
 	var owner int
 	require.NoError(t, db.QueryRow(ctx, `SELECT owner_id FROM harmony_task WHERE id=1`).Scan(&owner))
-	retry := hs[owner-101].recordCompletion(1, nil, time.Now(), false, errors.New("sector failure"), false)
+	identity := prepareRetryFixtureAttempt(t, ctx, db, owner, 1, "failed-attempt")
+	retry := hs[owner-101].recordCompletion(1, nil, time.Now(), false, errors.New("sector failure"), false, identity).retry
 	require.NotNil(t, retry)
 	require.Equal(t, snapshot(), *retry, "emitter must use the DB timestamp, not local Now")
 	ids, err = hs[1].claimTaskOwnership([]TaskID{1}, 1, map[TaskID]int64{}, row)

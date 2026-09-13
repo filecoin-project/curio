@@ -261,6 +261,7 @@ func (h *taskTypeHandler) considerWorkWithOwnership(from string, tasks []task, e
 
 func (h *taskTypeHandler) dispatchAdmission(a *taskAdmission) {
 	tID, from, tasks, attemptStore, eventEmitter, handle := a.id, a.from, a.tasks, a.store, a.ee, a.handle
+	identity := completionIdentityFor(attemptStore, tID, a.token)
 	taskCancel := a.cancel
 	meta := &completionMeta{vals: make(map[any]any)}
 	taskCtx := context.WithValue(a.ctx, completionMetaKey{}, meta)
@@ -293,18 +294,14 @@ func (h *taskTypeHandler) dispatchAdmission(a *taskAdmission) {
 
 			preempted := handle.IsPreempted()
 			a.releaseLocal()
-			var retry *task
+			var result taskCompletion
 			if h.completionRecorder != nil {
 				h.completionRecorder(tID, done, doErr)
+				result.applied = true // Test-only recorder replaces persistence.
 			} else {
-				retry = h.recordCompletion(tID, sectorID, workStart, done, doErr, preempted, a.token)
+				result = h.recordCompletion(tID, sectorID, workStart, done, doErr, preempted, identity)
 			}
-			success := done && doErr == nil
-			if success {
-				h.TaskEngine.invokeTaskCompleteCallbacks(h.Name, meta, tID)
-			}
-			eventEmitter.EmitTaskCompleted(h.Name, success)
-			h.emitRetryTask(eventEmitter, retry)
+			h.publishCompletion(result, tID, meta, done, doErr, eventEmitter)
 		}()
 
 		defer taskCancel()
@@ -500,9 +497,13 @@ func (h *taskTypeHandler) emitRetryTask(eventEmitter eventEmitter, retry *task) 
 // Retries with exponential backoff on DB errors to guarantee eventual
 // persistence. If the process restarts before completion, the resurrection
 // logic in New() will recover the task.
-func (h *taskTypeHandler) recordCompletion(tID TaskID, sectorID *abi.SectorID, workStart time.Time, done bool, doErr error, preempted bool, attemptToken ...string) *task {
+func (h *taskTypeHandler) recordCompletion(tID TaskID, sectorID *abi.SectorID, workStart time.Time, done bool, doErr error, preempted bool, identity completionIdentity) taskCompletion {
 	workEnd := time.Now()
 	retryWait := time.Millisecond * 100
+	if !identity.valid {
+		log.Errorw("Ignoring completion without acquisition identity", "task", h.Name, "id", tID)
+		return taskCompletion{}
+	}
 
 	{
 		_ = stats.RecordWithTags(context.Background(), []tag.Mutator{
@@ -514,26 +515,24 @@ func (h *taskTypeHandler) recordCompletion(tID TaskID, sectorID *abi.SectorID, w
 			tag.Upsert(taskNameTag, h.Name),
 		}, TaskMeasures.TaskDuration.M(duration))
 
-		if done {
-			_ = stats.RecordWithTags(context.Background(), []tag.Mutator{
-				tag.Upsert(taskNameTag, h.Name),
-			}, TaskMeasures.TasksCompleted.M(1))
-		} else if !preempted {
-			_ = stats.RecordWithTags(context.Background(), []tag.Mutator{
-				tag.Upsert(taskNameTag, h.Name),
-			}, TaskMeasures.TasksFailed.M(1))
-		}
 	}
 
 	var waitStartTime time.Time
 	var retry *task
+	var applied bool
 retryRecordCompletion:
 	cm, err := h.TaskEngine.cfg.db.BeginTransaction(context.Background(), func(tx *harmonydb.Tx) (bool, error) {
 		retry = nil // Results belong only to the committed transaction attempt.
+		applied = false
 		var postedTime time.Time
 		var retries uint
 		var updateTime time.Time
-		err := tx.QueryRow(`SELECT posted_time, update_time, retries FROM harmony_task WHERE id=$1`, tID).Scan(&postedTime, &updateTime, &retries)
+		err := tx.QueryRow(`SELECT posted_time, update_time, retries FROM harmony_task
+ WHERE id=$1 AND owner_id=$2 AND owner_generation=$3 AND attempt_id=$4 FOR UPDATE`,
+			tID, identity.owner, identity.generation, identity.token).Scan(&postedTime, &updateTime, &retries)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil // Missing/superseded is a terminal no-op, not a DB outage.
+		}
 		if err != nil {
 			return false, fmt.Errorf("could not log completion: %w ", err)
 		}
@@ -542,9 +541,12 @@ retryRecordCompletion:
 			waitStartTime = updateTime
 		}
 		result := ""
+		var changed int
 		switch {
 		case done:
-			_, err = tx.Exec("DELETE FROM harmony_task WHERE id=$1", tID)
+			changed, err = tx.Exec(`DELETE FROM harmony_task
+ WHERE id=$1 AND owner_id=$2 AND owner_generation=$3 AND attempt_id=$4 AND retries=$5`,
+				tID, identity.owner, identity.generation, identity.token, retries)
 			if err != nil {
 				return false, fmt.Errorf("could not log completion: %w", err)
 			}
@@ -556,21 +558,17 @@ retryRecordCompletion:
 			retry = &task{ID: tID, Retries: int(retries), PostedTime: postedTime}
 			// Preemption is not a new failure: retain the retry clock whose wait
 			// was already satisfied at claim, for both peer and SQL eligibility.
-			token := ""
-			if len(attemptToken) == 1 {
-				token = attemptToken[0]
-			}
 			err = tx.QueryRow(`UPDATE harmony_task SET owner_id=NULL
- WHERE id=$1 AND owner_id=$2 AND retries=$3 AND ($4='' OR attempt_id=$4)
- RETURNING update_time`, tID, h.TaskEngine.cfg.ownerID, retries, token).Scan(&retry.UpdateTime)
+ WHERE id=$1 AND owner_id=$2 AND owner_generation=$3 AND attempt_id=$4 AND retries=$5
+ RETURNING update_time`, tID, identity.owner, identity.generation, identity.token, retries).Scan(&retry.UpdateTime)
 			if errors.Is(err, pgx.ErrNoRows) {
-				retry = nil
-				return true, nil
+				return false, nil
 			}
 			if err != nil {
 				return false, fmt.Errorf("could not release preempted task: %v %v", tID, err)
 			}
 			result = "preempted"
+			changed = 1
 		default:
 			result = "unspecified error"
 			if doErr != nil {
@@ -581,17 +579,28 @@ retryRecordCompletion:
 				deleteTask = true
 			}
 			if deleteTask {
-				_, err = tx.Exec("DELETE FROM harmony_task WHERE id=$1", tID)
+				changed, err = tx.Exec(`DELETE FROM harmony_task
+ WHERE id=$1 AND owner_id=$2 AND owner_generation=$3 AND attempt_id=$4 AND retries=$5`,
+					tID, identity.owner, identity.generation, identity.token, retries)
 				if err != nil {
 					return false, fmt.Errorf("could not delete failed job: %w", err)
 				}
 			} else {
 				retry = &task{ID: tID, Retries: int(retries) + 1, PostedTime: postedTime}
-				err = tx.QueryRow(`UPDATE harmony_task SET owner_id=NULL, retries=$1, update_time=CURRENT_TIMESTAMP WHERE id=$2 RETURNING update_time`, retries+1, tID).Scan(&retry.UpdateTime)
+				err = tx.QueryRow(`UPDATE harmony_task SET owner_id=NULL, retries=retries+1, update_time=CURRENT_TIMESTAMP
+ WHERE id=$1 AND owner_id=$2 AND owner_generation=$3 AND attempt_id=$4 AND retries=$5
+ RETURNING update_time`, tID, identity.owner, identity.generation, identity.token, retries).Scan(&retry.UpdateTime)
+				if errors.Is(err, pgx.ErrNoRows) {
+					return false, nil
+				}
 				if err != nil {
 					return false, fmt.Errorf("could not disown failed task: %v %v", tID, err)
 				}
+				changed = 1
 			}
+		}
+		if changed != 1 {
+			return false, nil
 		}
 
 		var hid int
@@ -608,15 +617,26 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`, tID, h.Name, postedTime.U
 			}
 		}
 
+		applied = true
 		return true, nil
 	})
-	if err != nil || !cm {
+	if err != nil {
 		time.Sleep(retryWait)
 		retryWait *= 2
 		if retryWait > time.Second*10 {
 			log.Error("Could not record completion (retrying): ", err)
 		}
 		goto retryRecordCompletion
+	}
+	if !cm || !applied {
+		log.Warnw("Ignored stale task completion; current task and history unchanged", "task", h.Name, "id", tID,
+			"owner", identity.owner, "generation", identity.generation, "attempt", identity.token, "done", done, "error", doErr)
+		return taskCompletion{}
+	}
+	if done {
+		_ = stats.RecordWithTags(context.Background(), []tag.Mutator{tag.Upsert(taskNameTag, h.Name)}, TaskMeasures.TasksCompleted.M(1))
+	} else if !preempted {
+		_ = stats.RecordWithTags(context.Background(), []tag.Mutator{tag.Upsert(taskNameTag, h.Name)}, TaskMeasures.TasksFailed.M(1))
 	}
 
 	scheduledWait := workStart.Sub(waitStartTime).Seconds()
@@ -626,7 +646,7 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`, tID, h.Name, postedTime.U
 	_ = stats.RecordWithTags(context.Background(), []tag.Mutator{
 		tag.Upsert(taskNameTag, h.Name),
 	}, TaskMeasures.TaskScheduledWait.M(scheduledWait))
-	return retry
+	return taskCompletion{applied: true, retry: retry}
 }
 
 // maxHeadroom limits how many tasks of a single type can be accepted in one
