@@ -7,7 +7,7 @@ description: >-
 # Enable PDP
 
 {% hint style="info" %}
-For a PDP-only node without PoRep/sealing (skiff), see the [Curio-PDP runbook](../curio-pdp.md) and [Skiff binary](../skiff-binary.md).
+For a PDP-only provider without PoRep/sealing, use Dockerized [Curio-PDP](../curio-pdp.md) from [Getting Started](../getting-started.md#curio-pdp-pdp-only). This page is the alpha path that enables PDP on a full Curio sealing cluster.
 {% endhint %}
 
 {% hint style="danger" %}
