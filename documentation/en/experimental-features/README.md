@@ -22,10 +22,6 @@ Current experimental features are listed below.
 [Enable-PDP.md](Enable-PDP.md)
 {% endcontent-ref %}
 
-{% content-ref url="nginx-reverse-proxy.md" %}
-[nginx-reverse-proxy.md](nginx-reverse-proxy.md)
-{% endcontent-ref %}
-
 {% content-ref url="Snark-Market.md" %}
 [Snark-Market.md](Snark-Market.md)
 {% endcontent-ref %}

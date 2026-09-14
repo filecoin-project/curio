@@ -119,7 +119,7 @@ To enable the Curio market on a Curio node, the following configuration changes 
    * In case `DelegateTLS`  is `False` , the domain name must point to the public IP address your curio node is listening on. The purpose of setting this field is to allow lets encrypt ACME protocol to automatically issue a certificate to use TLS for encrypting access to the curio api. For let's encrypt policy reasons this will only work if curio listens on port 443.
    * Domain name should be specified in the base layer
 5. **HTTP Configuration Details**:
-   * If TLS is managed by a reverse proxy, enable `DelegateTLS` in the `HTTPConfig` to allow the HTTP server to run without handling TLS directly.
+   * If TLS is managed by a reverse proxy, enable `DelegateTLS` in the `HTTPConfig` to allow the HTTP server to run without handling TLS directly. See [Optional TLS offloading and filtering](optional-tls-offloading.md).
    * Configure additional parameters such as `ReadTimeout`, `IdleTimeout`, and `CompressionLevels` to ensure the server operates efficiently.
 6. **Libp2p Activation**:
    * The `libp2p` service will automatically start on one of the servers running the HTTP server where `EnableDealMarket` is set to `true`. If more than 1 node satsifies the condition and the node running libp2p goes down then it will switch over to another node after 5 minutes.
