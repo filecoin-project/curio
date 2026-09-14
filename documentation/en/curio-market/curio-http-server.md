@@ -171,6 +171,8 @@ In this mode:
 - When the proxy connects over loopback, Curio treats the rightmost `X-Forwarded-For` entry as the client IP for rate limiting and abuse controls.
 - The proxy must overwrite or append `X-Forwarded-For` on every request. Forwarding headers from non-loopback peers are ignored.
 
+For a full PDP walkthrough (Ubuntu 22.04, Certbot, large-file streaming settings, and `DelegateTLS`), see [Enable HTTPS for PDP](../experimental-features/nginx-reverse-proxy.md).
+
 Minimal Nginx example:
 
 ```nginx

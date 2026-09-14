@@ -66,6 +66,7 @@
 * [Experimental Features](experimental-features/README.md)
   * [GPU Over Provisioning](experimental-features/gpu-over-provisioning.md)
   * [Enable PDP](experimental-features/Enable-PDP.md)
+  * [Enable HTTPS for PDP](experimental-features/nginx-reverse-proxy.md)
   * [Curio-PDP runbook](curio-pdp.md)
   * [Snark Market](experimental-features/Snark-Market.md)
   * [Snark Market (Consumer)](experimental-features/Snark-Market-Consumer.md)

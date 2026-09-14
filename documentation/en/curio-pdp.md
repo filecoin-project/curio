@@ -180,7 +180,7 @@ Typical `base` values:
 * `Subsystems.GuiAddress = "127.0.0.1:4701"` (never bind the GUI to `0.0.0.0` on a host reachable from the internet)
 * `HTTP.Enable = false` until a domain is configured for the public API
 
-Only **TCP 80 and 443** should be exposed on your public firewall for FWSS registration and client traffic. See [Curio HTTP server](curio-market/curio-http-server.md) for TLS and reverse-proxy options.
+Only **TCP 80 and 443** should be exposed on your public firewall for FWSS registration and client traffic. See [Curio HTTP server](curio-market/curio-http-server.md) for TLS and reverse-proxy options, or [Enable HTTPS for PDP](experimental-features/nginx-reverse-proxy.md) for an nginx + Let's Encrypt walkthrough with `DelegateTLS`.
 
 Chain API: bundled Forest via compose, or set `FULLNODE_API_INFO` / `[APIs].ChainApiInfo` (see [Skiff binary — Chain API](skiff-binary.md#chain-api)).
 
