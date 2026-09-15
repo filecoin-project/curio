@@ -1,0 +1,1 @@
+ALTER TABLE filecoin_payment_transactions ADD COLUMN IF NOT EXISTS retry BOOLEAN NOT NULL DEFAULT FALSE;
