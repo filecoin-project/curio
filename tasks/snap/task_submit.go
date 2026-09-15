@@ -51,6 +51,7 @@ var ImmutableSubmitGate = abi.ChainEpoch(2) // don't submit more than 2 minutes 
 
 type SubmitTaskNodeAPI interface {
 	StateSectorPartition(ctx context.Context, maddr address.Address, sectorNumber abi.SectorNumber, tsk types.TipSetKey) (*miner.SectorLocation, error)
+	// TODO(NV29): Remove this allocation RPC method once pre-NV29 support is dropped.
 	StateGetAllocation(ctx context.Context, clientAddr address.Address, allocationId verifregtypes9.AllocationId, tsk types.TipSetKey) (*verifregtypes9.Allocation, error)
 	ChainHead(ctx context.Context) (*types.TipSet, error)
 	StateNetworkVersion(context.Context, types.TipSetKey) (network.Version, error)
@@ -323,6 +324,7 @@ func (s *SubmitTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwn
 			if err != nil {
 				return false, xerrors.Errorf("marshalling json to PieceManifest: %w", err)
 			}
+			// TODO(NV29): Remove allocation validation, failure bookkeeping and verified-size counting once pre-NV29 support is dropped.
 			if nv < network.Version29 {
 				unrecoverable, err := seal.AllocationCheck(ctx, s.api, pam, onChainInfo.Expiration, abi.ActorID(update.SpID), ts)
 				if err != nil {
@@ -372,11 +374,13 @@ func (s *SubmitTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwn
 		}
 
 		duration := onChainInfo.Expiration - ts.Height()
+		// TODO(NV29): Use sector size directly and remove verifiedSize once pre-NV29 support is dropped.
 		pledgeSize := uint64(verifiedSize)
 		if nv >= network.Version29 {
 			pledgeSize = uint64(ssize)
 		}
 
+		// TODO(NV29): Remove only the network-version guard once pre-NV29 support is dropped.
 		alreadyMaxQAP := nv >= network.Version29 && curiochain.SectorIsFullQaPower(onChainInfo)
 		secCollateral := big.Zero()
 		if !alreadyMaxQAP {

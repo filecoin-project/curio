@@ -322,6 +322,8 @@ func (c *cfg) getSectors(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// TODO(NV29): Remove verified-piece power estimates and always use full-sector QA
+	// for pending sectors once pre-NV29 support is dropped; retain legacy on-chain power reporting.
 	// Add deal details to sectors which are not on chain
 	for i := range sectors {
 		if !sectors[i].IsOnChain {

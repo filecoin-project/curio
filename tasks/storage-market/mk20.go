@@ -1037,6 +1037,7 @@ func (d *CurioStorageDealMarket) processMK20DealIngestion(ctx context.Context) {
 			continue
 		}
 
+		// TODO(NV29): Remove allocation client resolution once pre-NV29 support is dropped.
 		var client address.Address
 		var clientId uint64
 		if nv < network.Version29 {
@@ -1096,6 +1097,7 @@ func (d *CurioStorageDealMarket) processMK20DealIngestion(ctx context.Context) {
 			continue
 		}
 		end := start + abi.ChainEpoch(deal.Duration)
+		// TODO(NV29): Remove allocation validation and activation-key construction once pre-NV29 support is dropped.
 		var vak *miner.VerifiedAllocationKey
 		if nv < network.Version29 && mk20Deal.Products.DDOV1.AllocationId != nil {
 			allocClientID := clientId

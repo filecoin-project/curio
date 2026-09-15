@@ -51,6 +51,8 @@ func (e *ExpMgrTask) handleTopUp(ctx context.Context, cfg topUpPresetConfig) (bo
 	if err != nil {
 		return false, xerrors.Errorf("getting network version: %w", err)
 	}
+	// TODO(NV29): Remove claim filtering, verifreg loading, DropClaims handling and
+	// claim declarations once pre-NV29 support is dropped.
 	useClaims := nv < network.Version29
 
 	maxExtension, err := policy.GetMaxSectorExpirationExtension(nv)

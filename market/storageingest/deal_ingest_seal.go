@@ -275,6 +275,7 @@ func (p *PieceIngester) AllocatePieceToSector(ctx context.Context, tx *harmonydb
 		return nil, nil, xerrors.Errorf("getting network version: %w", err)
 	}
 
+	// TODO(NV29): Remove allocation lookups and verifiedDeal plumbing once pre-NV29 support is dropped.
 	var vd verifiedDeal
 	if piece.DealProposal != nil {
 		vd.isVerified = nv < network.Version29 && piece.DealProposal.VerifiedDeal
@@ -388,6 +389,7 @@ func (p *PieceIngester) allocateToExisting(tx *harmonydb.Tx, maddr address.Addre
 			continue
 		}
 		if sec.currentSize+psize <= abi.PaddedPieceSize(p.minerDetails[p.addToID[maddr]].sectorSize) {
+			// TODO(NV29): Remove allocation term constraints once pre-NV29 support is dropped.
 			if vd.isVerified {
 				sectorLifeTime := sec.latestEndEpoch - sec.earliestStartEpoch
 				// Allocation's TMin must fit in sector and TMax should be at least sector lifetime or more

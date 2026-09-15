@@ -424,6 +424,7 @@ func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 		}
 	}
 
+	// TODO(NV29): Remove allocation validation once pre-NV29 support is dropped.
 	if nv < network.Version29 && deal.Products.DDOV1.AllocationId != nil {
 		if size < abi.PaddedPieceSize(verifreg.MinimumVerifiedAllocationSize) {
 			return &ProviderDealRejectionInfo{

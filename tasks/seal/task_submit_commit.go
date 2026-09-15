@@ -46,6 +46,7 @@ type SubmitCommitAPI interface {
 	StateMinerInfo(context.Context, address.Address, types.TipSetKey) (api.MinerInfo, error)
 	StateMinerInitialPledgeForSector(ctx context.Context, sectorDuration abi.ChainEpoch, sectorSize abi.SectorSize, verifiedSize uint64, tsk types.TipSetKey) (types.BigInt, error)
 	StateSectorPreCommitInfo(context.Context, address.Address, abi.SectorNumber, types.TipSetKey) (*miner.SectorPreCommitOnChainInfo, error)
+	// TODO(NV29): Remove these allocation RPC methods once pre-NV29 support is dropped.
 	StateGetAllocation(ctx context.Context, clientAddr address.Address, allocationId verifregtypes9.AllocationId, tsk types.TipSetKey) (*verifregtypes9.Allocation, error)
 	StateGetAllocationIdForPendingDeal(ctx context.Context, dealId abi.DealID, tsk types.TipSetKey) (verifregtypes9.AllocationId, error)
 	StateMinerAvailableBalance(context.Context, address.Address, types.TipSetKey) (big.Int, error)
@@ -236,6 +237,7 @@ func (s *SubmitCommitTask) Do(ctx context.Context, taskID harmonytask.TaskID, st
 				if err != nil {
 					return false, xerrors.Errorf("marshalling json to deal proposal: %w", err)
 				}
+				// TODO(NV29): Remove this allocation lookup and leave the manifest key nil once pre-NV29 support is dropped.
 				var vac *miner2.VerifiedAllocationKey
 				if nv < network.Version29 {
 					alloc, err := s.api.StateGetAllocationIdForPendingDeal(ctx, piece.DealID, ts.Key())
@@ -280,6 +282,7 @@ func (s *SubmitCommitTask) Do(ctx context.Context, taskID harmonytask.TaskID, st
 					return false, xerrors.Errorf("marshalling json to PieceManifest: %w", err)
 				}
 			}
+			// TODO(NV29): Remove allocation validation, failure bookkeeping and verified-size counting once pre-NV29 support is dropped.
 			if nv < network.Version29 {
 				unrecoverable, err := AllocationCheck(ctx, s.api, pam, pci.Info.Expiration, abi.ActorID(sectorParams.SpID), ts)
 				if err != nil {
@@ -313,6 +316,7 @@ func (s *SubmitCommitTask) Do(ctx context.Context, taskID harmonytask.TaskID, st
 		if err != nil {
 			return false, xerrors.Errorf("could not get sector size: %w", err)
 		}
+		// TODO(NV29): Use sector size directly and remove verifiedSize once pre-NV29 support is dropped.
 		pledgeSize := uint64(verifiedSize)
 		if nv >= network.Version29 {
 			pledgeSize = uint64(ssize)
@@ -677,6 +681,7 @@ func (s *SubmitCommitTask) Adder(taskFunc harmonytask.AddTaskFunc) {
 	s.sp.pollers[pollerCommitMsg].Set(taskFunc)
 }
 
+// TODO(NV29): Remove AllocNodeApi and AllocationCheck once pre-NV29 support is dropped.
 type AllocNodeApi interface {
 	StateGetAllocation(ctx context.Context, clientAddr address.Address, allocationId verifregtypes9.AllocationId, tsk types.TipSetKey) (*verifregtypes9.Allocation, error)
 }

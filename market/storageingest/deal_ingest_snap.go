@@ -235,6 +235,7 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, tx *harmo
 	var vd verifiedDeal
 	if piece.DealProposal != nil {
 		// For snap we convert f05 deals to DDO
+		// TODO(NV29): Remove pending-deal allocation lookup once pre-NV29 support is dropped.
 		var vac *miner2.VerifiedAllocationKey
 		if nv < network.Version29 {
 			alloc, err := p.api.StateGetAllocationIdForPendingDeal(ctx, piece.DealID, head.Key())
@@ -280,6 +281,7 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, tx *harmo
 	}
 
 	maxExpiration := int64(piece.DealSchedule.EndEpoch) + MaxEndEpochBufferUnverified
+	// TODO(NV29): Remove allocation lookup and expiration override once pre-NV29 support is dropped.
 	vd.isVerified = nv < network.Version29 && piece.PieceActivationManifest.VerifiedAllocationKey != nil
 	if vd.isVerified {
 		client, err := address.NewIDAddress(uint64(piece.PieceActivationManifest.VerifiedAllocationKey.Client))
@@ -521,6 +523,7 @@ func (p *PieceIngesterSnap) allocateToExisting(ctx context.Context, tx *harmonyd
 				continue
 			}
 
+			// TODO(NV29): Remove allocation term constraints once pre-NV29 support is dropped.
 			if vd.isVerified {
 				sectorLifeTime := si.Expiration - head.Height()
 				if sectorLifeTime < 0 {

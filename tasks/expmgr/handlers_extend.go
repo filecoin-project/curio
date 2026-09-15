@@ -71,6 +71,8 @@ func (e *ExpMgrTask) handleExtend(ctx context.Context, cfg extendPresetConfig) (
 	if err != nil {
 		return false, xerrors.Errorf("getting network version: %w", err)
 	}
+	// TODO(NV29): Remove claim filtering, verifreg loading, DropClaims handling and
+	// claim declarations once pre-NV29 support is dropped.
 	useClaims := nv < network.Version29
 
 	maxExtension, err := policy.GetMaxSectorExpirationExtension(nv)
@@ -794,6 +796,7 @@ func splitParams(params *miner.ExtendSectorExpiration2Params) ([]*miner.ExtendSe
 
 		mid := len(sectorNums) / 2
 
+		// TODO(NV29): Remove SectorsWithClaims splitting once pre-NV29 support is dropped.
 		// Split SectorsWithClaims based on sector numbers
 		claims1 := make([]miner.SectorClaim, 0)
 		claims2 := make([]miner.SectorClaim, 0)
@@ -881,6 +884,7 @@ func validateSectorAgainstChain(
 			sn, dbSector.IsCC, isCC)
 	}
 
+	// TODO(NV29): Remove claim validation and its arguments once pre-NV29 support is dropped.
 	// Validate claim terms if sector has claims in DB
 	if useClaims && (dbSector.MinClaim != nil || dbSector.MaxClaim != nil) {
 		if claimsMap == nil || claimIdsBySector == nil {

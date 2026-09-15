@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/filecoin-project/go-address"
-	"github.com/filecoin-project/go-state-types/builtin/v16/verifreg"
 )
 
 func mustCID(t *testing.T, s string) cid.Cid {
@@ -98,7 +97,6 @@ func TestDeal_HTTPSourceWithHeaders(t *testing.T) {
 	addr, err := address.NewFromString("t01000")
 	require.NoError(t, err)
 	x := uint64(1234)
-	v := verifreg.AllocationId(x)
 
 	orig := Deal{
 		Identifier: mustULID(t, "01ARZ3NDEKTSV4RRFFQ69G5FAV"),
@@ -132,8 +130,7 @@ func TestDeal_HTTPSourceWithHeaders(t *testing.T) {
 				DataSetID:     &x,
 			},
 			DDOV1: &DDOV1{
-				Provider:     addr,
-				AllocationId: &v,
+				Provider: addr,
 			},
 		},
 	}

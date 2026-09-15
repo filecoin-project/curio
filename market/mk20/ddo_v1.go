@@ -153,6 +153,7 @@ func (d *DDOV1) VerifyMarketDeal(ctx context.Context, db *harmonydb.DB, eth ethc
 		return ErrBadProposal, xerrors.Errorf("market contract is not allowed by storage provider")
 	}
 
+	// TODO(NV29): Use V2 for the shared version call once pre-NV29 support is dropped.
 	market, err := mk20contract.NewCurioDealViewV1Caller(common.HexToAddress(d.MarketAddress), eth)
 	if err != nil {
 		return ErrServerInternalError, xerrors.Errorf("creating CurioDealViewV1 caller: %w", err)
@@ -162,6 +163,7 @@ func (d *DDOV1) VerifyMarketDeal(ctx context.Context, db *harmonydb.DB, eth ethc
 	if err != nil {
 		return ErrServerInternalError, xerrors.Errorf("calling market version: %w", err)
 	}
+	// TODO(NV29): Require V2 and remove V1 verification dispatch once pre-NV29 support is dropped.
 	expectedVersion := uint64(1)
 	if nv >= network.Version29 {
 		expectedVersion = 2
@@ -255,6 +257,7 @@ func isDealNotFoundRevert(err error) bool {
 		return false
 	}
 
+	// TODO(NV29): Use the V2 ABI for the shared DealNotFound error once pre-NV29 support is dropped.
 	parsedABI, err := mk20contract.CurioDealViewV1MetaData.GetAbi()
 	if err != nil {
 		return false
