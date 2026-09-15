@@ -24,6 +24,7 @@ import (
 	"github.com/filecoin-project/go-state-types/builtin/v16/miner"
 	"github.com/filecoin-project/go-state-types/builtin/v16/verifreg"
 	verifreg9 "github.com/filecoin-project/go-state-types/builtin/v9/verifreg"
+	"github.com/filecoin-project/go-state-types/network"
 
 	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps/config"
@@ -44,6 +45,7 @@ import (
 
 type MK20API interface {
 	ChainHead(context.Context) (*types.TipSet, error)
+	StateNetworkVersion(context.Context, types.TipSetKey) (network.Version, error)
 	StateMinerInfo(context.Context, address.Address, types.TipSetKey) (api.MinerInfo, error)
 	StateGetAllocation(ctx context.Context, clientAddr address.Address, allocationId verifreg9.AllocationId, tsk types.TipSetKey) (*verifreg9.Allocation, error)
 	StateLookupID(context.Context, address.Address, types.TipSetKey) (address.Address, error)
@@ -173,6 +175,13 @@ func (m *MK20) ExecuteDeal(ctx context.Context, deal *Deal, auth string) (result
 	log.Debugw("deal validated", "deal", deal.Identifier.String())
 
 	if deal.Products.DDOV1 != nil {
+		if deal.Products.DDOV1.AllocationId != nil {
+			return &ProviderDealRejectionInfo{
+				HTTPCode: ErrProductValidationFailed,
+				Reason:   "New deals with allocations are not supported",
+			}
+		}
+
 		rejection, err := m.sanitizeDDODeal(ctx, deal)
 		if err != nil {
 			log.Errorw("deal rejected", "deal", deal.Identifier.String(), "error", err)
@@ -316,6 +325,22 @@ func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 		}, xerrors.Errorf("getting piece info: %w", err)
 	}
 
+	head, err := m.api.ChainHead(ctx)
+	if err != nil {
+		return &ProviderDealRejectionInfo{
+			HTTPCode: ErrServerInternalError,
+			Reason:   "Server Internal Error",
+		}, xerrors.Errorf("getting chain head: %w", err)
+	}
+
+	nv, err := m.api.StateNetworkVersion(ctx, head.Key())
+	if err != nil {
+		return &ProviderDealRejectionInfo{
+			HTTPCode: ErrServerInternalError,
+			Reason:   "Server Internal Error",
+		}, xerrors.Errorf("getting network version: %w", err)
+	}
+
 	marketFilecoinAddress := address.Undef
 
 	if deal.Products.DDOV1.MarketAddress != "" {
@@ -333,7 +358,7 @@ func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 				Reason:   "Market address is not valid filecoin address",
 			}, xerrors.Errorf("converting market address to filecoin address: %w", cerr)
 		}
-		id, err := m.api.StateLookupID(ctx, fc, types.EmptyTSK)
+		id, err := m.api.StateLookupID(ctx, fc, head.Key())
 		if err != nil {
 			return &ProviderDealRejectionInfo{
 				HTTPCode: ErrBadProposal,
@@ -350,7 +375,7 @@ func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 	}
 
 	if deal.Products.DDOV1.NotificationAddress != address.Undef && !deal.Products.DDOV1.NotificationAddress.Empty() {
-		id, err := m.api.StateLookupID(ctx, deal.Products.DDOV1.NotificationAddress, types.EmptyTSK)
+		id, err := m.api.StateLookupID(ctx, deal.Products.DDOV1.NotificationAddress, head.Key())
 		if err != nil {
 			return &ProviderDealRejectionInfo{
 				HTTPCode: ErrBadProposal,
@@ -380,14 +405,6 @@ func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 		}, nil
 	}
 
-	head, err := m.api.ChainHead(ctx)
-	if err != nil {
-		return &ProviderDealRejectionInfo{
-			HTTPCode: ErrServerInternalError,
-			Reason:   "Server Internal Error",
-		}, xerrors.Errorf("getting chain head: %w", err)
-	}
-
 	if deal.Products.DDOV1.StartEpoch != nil {
 		if *deal.Products.DDOV1.StartEpoch < head.Height() {
 			return &ProviderDealRejectionInfo{
@@ -405,7 +422,8 @@ func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 		}
 	}
 
-	if deal.Products.DDOV1.AllocationId != nil {
+	// TODO(NV29): Remove allocation validation once pre-NV29 support is dropped.
+	if nv < network.Version29 && deal.Products.DDOV1.AllocationId != nil {
 		if size < abi.PaddedPieceSize(verifreg.MinimumVerifiedAllocationSize) {
 			return &ProviderDealRejectionInfo{
 				HTTPCode: ErrBadProposal,
@@ -421,7 +439,7 @@ func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 			}, nil
 		}
 
-		alloc, err := m.api.StateGetAllocation(ctx, client, verifreg9.AllocationId(*deal.Products.DDOV1.AllocationId), types.EmptyTSK)
+		alloc, err := m.api.StateGetAllocation(ctx, client, verifreg9.AllocationId(*deal.Products.DDOV1.AllocationId), head.Key())
 		if err != nil {
 			return &ProviderDealRejectionInfo{
 				HTTPCode: ErrServerInternalError,
@@ -430,7 +448,7 @@ func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 		}
 
 		if alloc == nil && deal.Products.DDOV1.MarketAddress != "" {
-			alloc, err = m.api.StateGetAllocation(ctx, marketFilecoinAddress, verifreg9.AllocationId(*deal.Products.DDOV1.AllocationId), types.EmptyTSK)
+			alloc, err = m.api.StateGetAllocation(ctx, marketFilecoinAddress, verifreg9.AllocationId(*deal.Products.DDOV1.AllocationId), head.Key())
 			if err != nil {
 				return &ProviderDealRejectionInfo{
 					HTTPCode: ErrServerInternalError,
@@ -506,7 +524,7 @@ func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 		}
 	}
 
-	code, err := deal.Products.DDOV1.VerifyMarketDeal(ctx, m.DB, m.ethClient, deal)
+	code, err := deal.Products.DDOV1.VerifyMarketDeal(ctx, m.DB, m.ethClient, deal, nv)
 	if err != nil {
 		log.Errorw("error verifying market deal", "deal", deal.Identifier.String(), "error", err)
 		ret := &ProviderDealRejectionInfo{

@@ -273,79 +273,20 @@ curio market seal --actor <actor address> <sector>
 
 Consequences: Sealing early can speed up the process, but it may result in inefficiencies if all deals are not batched correctly.
 
-## Offline Verified DDO deals
+## DDO deals with Market 2.0
 
-Curio only supports offline verified DDO deals as of now. The allocation must be created by the client for the piece and handed over to the SP alongside the data.
+Use [Market 2.0](../market-2.0/README.md) for new DDO deals without allocations. The legacy `curio market ddo` command, which required a verified allocation, has been removed. Curio rejects new verified MK12 deals and new MK20 deals with an allocation ID.
 
-### How to create allocation
-
-Clients can create allocation using the `sptool toolbox` or other methods.
+With an initialized `sptool` client and a Lotus API connection, submit a CAR for the provider to fetch over HTTP:
 
 ```shell
-sptool --actor t01000 toolbox mk12-client allocate -p <MINER ID> --piece-cid <COMMP> --piece-size <PIECE SIZE>
+sptool toolbox mk20-client deal \
+    --provider <MINER ID> \
+    --pcidv2 <PIECE CID V2> \
+    --duration 518400 \
+    --http-url "https://data.server/piece.car"
 ```
 
-### Start a DDO deal
+The piece CID must match the CAR served by the URL. Omit `--allocation`; new DDO deals do not need datacap. The provider must enable the `ddo_v1` and `retrieval_v1` products and permit the client and selected data source.
 
-Storage providers can onboard the DDO deal using the below command.
-
-```shell
-curio market ddo --actor <MINER ID> <client-address> <allocation-id>
-```
-
-This command does **not** fetch any data. It only:
-
-1. Validates the allocation against the chain and the actor.
-2. Generates a fresh deal UUID.
-3. Inserts a row into `market_direct_deals` and a corresponding offline-deal row into `market_mk12_deal_pipeline` (with `offline=true` and `started=false`).
-4. Prints the deal UUID to stdout, for example:
-
-   ```
-   Direct deals inserted successfully: 0f1b2c3d-...
-   ```
-
-Because the pipeline row is created with `started=false`, the commP task will not run until Curio has resolved a source URL for the piece. There are two supported ways to provide that URL:
-
-#### Option A: PieceLocator (preferred for bulk / automated ingestion)
-
-If `[Market.StorageMarketConfig.PieceLocator]` is configured, Curio will automatically discover the piece by issuing a `HEAD <PieceLocator URL>?id=<PieceCID>` against each configured locator. The first locator that returns `200 OK` with a valid `Content-Length` wins, and Curio writes that URL and `raw_size` into the pipeline row, flips `started=true`, and the commP task picks it up on its next tick.
-
-This is the only path you need if your locator already has the piece. You do not need to (and should not) also call `add-url` for the same deal; see the warning in [Add data URL for offline deals](#add-data-url-for-offline-deals).
-
-#### Option B: `curio market add-url` (manual / one-off)
-
-If you do not run a PieceLocator (or the locator does not have this particular piece), pass the UUID printed by `curio market ddo` to `add-url`:
-
-```shell
-curio market add-url \
-    --url "https://data.server/pieces?id=<PieceCID>" \
-    <UUID printed by 'curio market ddo'> \
-    <raw size in bytes>
-```
-
-This inserts a row into `market_offline_urls` keyed on the UUID. On its next pass, the storage-market poller calls `findURLForOfflineDeals`, joins `market_offline_urls` into `market_mk12_deal_pipeline`, flips `started=true`, and the commP task proceeds.
-
-#### Troubleshooting CommP mismatches on DDO deals
-
-If the commP task finishes much faster than expected (for example, a few seconds for a 32 GiB piece) and reports `commP mismatch calculated <X> and supplied <Y>`, the most common causes are:
-
-- **PieceLocator returned a misleading response.** A locator that answers `200 OK` with a `Content-Length` on HEAD but serves wrong, partial, or unrelated bytes on GET will look healthy to Curio's URL resolver and only fail later during commP. This shows up as a subset of deals failing while most succeed, because the locator happens to have valid data for some PieceCIDs and not others. Verify each locator with:
-
-  ```bash
-  curl -I '<locator-url>?id=<PieceCID>'
-  curl -s -o /tmp/piece.bin '<locator-url>?id=<PieceCID>' && wc -c /tmp/piece.bin
-  ```
-
-  Confirm the body length matches the expected raw size and that `Content-Type` is what you expect. Bad or stale `PieceLocator` entries are a frequent culprit.
-- **Wrong `raw size` passed to `add-url`.** The commP task pads the fetched stream up to the declared raw size using `padreader.New(reader, rawSize)`. If `rawSize` is smaller than the real piece payload, the padder will truncate; if it is larger, the padder will append zeros. Either way the final CommP will not match the allocation's PieceCID. Always use the unpadded CAR / raw byte size from the same source that produced the PieceCID.
-- **Both `add-url` and a PieceLocator hit on the same deal.** Only one source is used per deal; if you call `add-url` for a deal that the PieceLocator can already serve, the two URL writers can race depending on which poller pass runs first. Pick one method per deal.
-
-You can inspect the resolved state directly:
-
-```sql
-SELECT uuid, started, after_commp, url, raw_size, piece_cid, piece_size
-FROM market_mk12_deal_pipeline
-WHERE uuid = '<UUID>';
-```
-
-If `url` is `NULL` after several poller cycles, neither PieceLocator nor `add-url` has produced a source yet, and the deal will not advance.
+See the [DDO product guide](../market-2.0/products/ddo_v1.md) for deal fields, the [deal intake guide](../market-2.0/deal-processing.md#deal-intake-paths) for provider fetch and upload flows, and the [HTTP API](../market-2.0/http-api.md) for submission and status endpoints. The MK12 `curio market add-url` workflow above uses MK12 deal UUIDs; MK20 deals use their own ULID identifiers and intake paths.
