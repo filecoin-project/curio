@@ -153,7 +153,6 @@ func (d *DDOV1) VerifyMarketDeal(ctx context.Context, db *harmonydb.DB, eth ethc
 		return ErrBadProposal, xerrors.Errorf("market contract is not allowed by storage provider")
 	}
 
-	// TODO(NV29): Use V2 for the shared version call once pre-NV29 support is dropped.
 	market, err := mk20contract.NewCurioDealViewV1Caller(common.HexToAddress(d.MarketAddress), eth)
 	if err != nil {
 		return ErrServerInternalError, xerrors.Errorf("creating CurioDealViewV1 caller: %w", err)
@@ -163,13 +162,8 @@ func (d *DDOV1) VerifyMarketDeal(ctx context.Context, db *harmonydb.DB, eth ethc
 	if err != nil {
 		return ErrServerInternalError, xerrors.Errorf("calling market version: %w", err)
 	}
-	// TODO(NV29): Require V2 and remove V1 verification dispatch once pre-NV29 support is dropped.
-	expectedVersion := uint64(1)
-	if nv >= network.Version29 {
-		expectedVersion = 2
-	}
-	if version == nil || !version.IsUint64() || version.Uint64() != expectedVersion {
-		return ErrMarketNotEnabled, xerrors.Errorf("unsupported market interface version %v at network version %d: expected %d", version, nv, expectedVersion)
+	if version == nil || !version.IsUint64() || version.Uint64() != 1 {
+		return ErrMarketNotEnabled, xerrors.Errorf("unsupported market interface version %v: expected 1", version)
 	}
 
 	// Match on-chain values with local deal values.
@@ -188,7 +182,13 @@ func (d *DDOV1) VerifyMarketDeal(ctx context.Context, db *harmonydb.DB, eth ethc
 		return ErrProductValidationFailed, xerrors.Errorf("invalid client for market verification: %w", err)
 	}
 
-	mdeal := mk20contract.ICurioDealViewV2CurioDealView{
+	alloc := new(big.Int)
+	// TODO(NV29): Always pass zero once pre-NV29 support is dropped.
+	if nv < network.Version29 && d.AllocationId != nil {
+		alloc.SetUint64(uint64(*d.AllocationId))
+	}
+
+	mdeal := mk20contract.ICurioDealViewV1CurioDealView{
 		DealId:          new(big.Int).SetUint64(*d.MarketDealID),
 		State:           mk20contract.DealStatusOpen,
 		ProviderActorId: new(big.Int).SetUint64(localProviderID),
@@ -196,34 +196,11 @@ func (d *DDOV1) VerifyMarketDeal(ctx context.Context, db *harmonydb.DB, eth ethc
 		PieceCidV2:      deal.Data.PieceCID.Bytes(),
 		StartEpoch:      startEpoch,
 		Duration:        new(big.Int).SetUint64(uint64(d.Duration)),
+		AllocationId:    alloc,
 		FinalizedEpoch:  new(big.Int).SetUint64(0),
 	}
 
-	var seal bool
-	switch version.Uint64() {
-	case 1:
-		alloc := new(big.Int).SetUint64(uint64(verifreg.NoAllocationID))
-		if d.AllocationId != nil {
-			alloc.SetUint64(uint64(*d.AllocationId))
-		}
-		seal, err = market.VerifyDeal(&bind.CallOpts{Context: ctx}, mk20contract.ICurioDealViewV1CurioDealView{
-			DealId:          mdeal.DealId,
-			State:           mdeal.State,
-			ProviderActorId: mdeal.ProviderActorId,
-			ClientId:        mdeal.ClientId,
-			PieceCidV2:      mdeal.PieceCidV2,
-			StartEpoch:      mdeal.StartEpoch,
-			Duration:        mdeal.Duration,
-			AllocationId:    alloc,
-			FinalizedEpoch:  mdeal.FinalizedEpoch,
-		})
-	case 2:
-		marketV2, bindErr := mk20contract.NewCurioDealViewV2Caller(common.HexToAddress(d.MarketAddress), eth)
-		if bindErr != nil {
-			return ErrServerInternalError, xerrors.Errorf("creating CurioDealViewV2 caller: %w", bindErr)
-		}
-		seal, err = marketV2.VerifyDeal(&bind.CallOpts{Context: ctx}, mdeal)
-	}
+	seal, err := market.VerifyDeal(&bind.CallOpts{Context: ctx}, mdeal)
 	if err != nil {
 		if isDealNotFoundRevert(err) {
 			return ErrDealRejectedByMarket, xerrors.Errorf("deal %d not found in market", *d.MarketDealID)
@@ -257,7 +234,6 @@ func isDealNotFoundRevert(err error) bool {
 		return false
 	}
 
-	// TODO(NV29): Use the V2 ABI for the shared DealNotFound error once pre-NV29 support is dropped.
 	parsedABI, err := mk20contract.CurioDealViewV1MetaData.GetAbi()
 	if err != nil {
 		return false

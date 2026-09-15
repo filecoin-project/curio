@@ -303,6 +303,8 @@ func (s *SubmitCommitTask) Do(ctx context.Context, taskID harmonytask.TaskID, st
 				if pam.VerifiedAllocationKey != nil && pam.VerifiedAllocationKey.ID != verifreg13.NoAllocationID {
 					verifiedSize += pam.Size
 				}
+			} else {
+				pam.VerifiedAllocationKey = nil
 			}
 
 			pams = append(pams, *pam)

@@ -42,9 +42,9 @@ DDO admission in ExecuteDeal
     -> historical allocation checks run only before NV29 (also used during upload finalization)
  -> VerifyMarketDeal (only if market_address != "")
     -> ddo_contracts.allowed must be TRUE
-    -> version() must be 1 before NV29 and 2 from NV29 onward
-    -> call the corresponding CurioDealViewV1/V2.verifyDeal(CurioDealView{...})
-    -> V1 retains allocationId; V2 has no allocation field
+    -> version() must be 1 before and after NV29
+    -> call CurioDealViewV1.verifyDeal(CurioDealView{...})
+    -> allocationId is always zero from NV29 onward; pre-NV29 historical deals retain their allocation ID
     -> verifyDeal must return TRUE
     -> DealNotFound revert maps to market rejection
  -> backpressure checks (MK20 + Sector)
@@ -137,17 +137,17 @@ If deal has `Data` and matching piece already exists in `parked_pieces`, it inse
 If `market_address` is provided:
 1. `market_deal_id` is mandatory.
 2. Contract must be in `ddo_contracts` with `allowed=TRUE`.
-3. ABI calls are read-only (`CurioDealViewV1` or `CurioDealViewV2`):
-   - `version()` must be exactly `1` before NV29 and `2` from NV29 onward; larger integers are not truncated
+3. ABI calls are read-only (`CurioDealViewV1`):
+   - `version()` must be exactly `1` before and after NV29; larger integers are not truncated
    - The network version comes from the same chain head used by `sanitizeDDODeal` for allocation checks
-   - Curio constructs the matching `CurioDealView` from local deal data and calls `verifyDeal(...)`
-   - V1 includes the original `allocationId` for previously accepted deals, or zero when absent
-   - V2 omits `allocationId`; it has a different `verifyDeal` selector, so market contracts must expose V2 from NV29 onward
+   - Curio constructs `CurioDealView` from local deal data and calls `verifyDeal(...)` using the unchanged V1 ABI
+   - Before NV29, the deprecated `allocationId` includes the original value for previously accepted deals, or zero when absent
+   - From NV29 onward, `allocationId` is always zero, without changing allocation fields in the stored deal
    - `verifyDeal(...)` must return `true`
    - `getDealState(dealId)` is part of the interface for state queries
 4. `DealNotFound` revert selector maps to market rejection.
 
-New deals and newly added DDO products cannot specify an allocation. Existing DDO products remain unchanged during updates. Upload finalization uses the contract interface required by the current network version, including for previously accepted deals.
+New deals and newly added DDO products cannot specify an allocation. Existing DDO products remain unchanged during updates. Upload finalization rechecks V1 contract verification, including for previously accepted deals, and sends zero for `allocationId` from NV29 onward.
 
 ## Upload housekeeping state machine
 1. SQL triggers set `market_mk20_upload_waiting.ready_at` when serial upload is ready or when all chunks become complete.

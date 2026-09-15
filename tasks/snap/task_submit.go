@@ -345,6 +345,8 @@ func (s *SubmitTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwn
 				if pam.VerifiedAllocationKey != nil {
 					verifiedSize += piece.Size
 				}
+			} else {
+				pam.VerifiedAllocationKey = nil
 			}
 
 			pams = append(pams, *pam)
