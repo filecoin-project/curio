@@ -34,7 +34,6 @@ wait_tcp() {
     fi
     sleep 2
   done
-  exec 3>&- 2>/dev/null || true
   echo "${label} is reachable."
 }
 
@@ -89,6 +88,6 @@ fi
 
 echo "CURIO_REPO_PATH=${CURIO_REPO_PATH:-} SKIFF_DATA=${SKIFF_DATA:-/data}"
 export GOLOG_LOG_LEVEL="${GOLOG_LOG_LEVEL:-info}"
-export GOLOG_LOG_FMT="${GOLOG_LOG_FMT:-stderr}"
+export GOLOG_LOG_FMT="${GOLOG_LOG_FMT:-nocolor}"
 echo "Starting skiff ..."
 exec skiff "$@"
