@@ -11,6 +11,8 @@ import (
 	"github.com/filecoin-project/go-bitfield"
 	"github.com/filecoin-project/go-state-types/abi"
 
+	"github.com/filecoin-project/curio/harmony/harmonydb"
+
 	"github.com/filecoin-project/lotus/chain/actors/adt"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/types"
@@ -26,6 +28,8 @@ type PipelineTask struct {
 	TaskSDR    NullInt64 `db:"task_id_sdr"` // 16 bytes (41-57, with padding)
 	AfterSDR   bool      `db:"after_sdr"`   // 1 byte
 	StartedSDR bool      `db:"started_sdr"` // 1 byte
+	// SDROwned supports an explicit view filter; it does not mean Do has started.
+	SDROwned bool `db:"sdr_owned"`
 	// Cache line 2 (bytes 64-128): Tree stages (accessed together)
 	TaskTreeD     NullInt64  `db:"task_id_tree_d"`  // 16 bytes
 	TreeD         NullString `db:"tree_d_cid"`      // 24 bytes
@@ -99,6 +103,8 @@ func (a *PoRep) PipelinePorepSectors(ctx context.Context) ([]sectorListEntry, er
 												sp.create_time,
 												sp.task_id_sdr, 
 												sp.after_sdr,
+												EXISTS (SELECT 1 FROM harmony_task ht_sdr_owner
+													WHERE ht_sdr_owner.id = sp.task_id_sdr AND ht_sdr_owner.owner_id > 0) AS sdr_owned,
 												sp.task_id_tree_d, 
 												sp.after_tree_d,
 												sp.task_id_tree_c, 
@@ -375,6 +381,10 @@ type PorepPipelineSummary struct {
 	CountCommitMsg    int
 	CountDone         int
 	CountFailed       int
+
+	// SectorCounts is a disjoint, per-sector snapshot. Legacy stage counts above
+	// retain their original (overlapping, including failed rows) semantics.
+	SectorCounts *PoRepSectorCounts
 }
 
 func (a *PoRep) PorepPipelineSummary(ctx context.Context) ([]PorepPipelineSummary, error) {
@@ -384,30 +394,29 @@ func (a *PoRep) PorepPipelineSummary(ctx context.Context) ([]PorepPipelineSummar
 		return nil, err
 	}
 
-	rows, err := a.Deps.DB.Query(ctx, `
-	SELECT 
-		sp_id,
-		COUNT(*) FILTER (WHERE after_sdr = false) as CountSDR,
-		COUNT(*) FILTER (WHERE (after_tree_d = false OR after_tree_c = false OR after_tree_r = false) AND after_sdr = true) as CountTrees,
-		COUNT(*) FILTER (WHERE after_tree_r = true and after_precommit_msg = false) as CountPrecommitMsg,
-		COUNT(*) FILTER (WHERE after_precommit_msg_success = true AND seed_epoch > $1) as CountWaitSeed,
-		COUNT(*) FILTER (WHERE after_porep = false AND after_precommit_msg_success = true AND seed_epoch < $1) as CountPoRep,
-		COUNT(*) FILTER (WHERE after_commit_msg_success = false AND after_porep = true) as CountCommitMsg,
-		COUNT(*) FILTER (WHERE after_commit_msg_success = true) as CountDone,
-		COUNT(*) FILTER (WHERE failed = true) as CountFailed
-	FROM 
-		sectors_sdr_pipeline
-	GROUP BY sp_id`, head.Height())
+	return loadPoRepSummary(ctx, head.Height(), a.Deps.DB)
+}
+
+func loadPoRepSummary(ctx context.Context, height abi.ChainEpoch, db *harmonydb.DB) ([]PorepPipelineSummary, error) {
+	// One bounded statement snapshot for every miner and every new category.
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	rows, err := db.Query(ctx, porepSummaryQuery, height)
 	if err != nil {
 		return nil, xerrors.Errorf("query: %w", err)
 	}
 	defer rows.Close()
 
-	var summaries []PorepPipelineSummary
+	summaries := make([]PorepPipelineSummary, 0)
 	for rows.Next() {
 		var summary PorepPipelineSummary
 		var actor int64
-		if err := rows.Scan(&actor, &summary.CountSDR, &summary.CountTrees, &summary.CountPrecommitMsg, &summary.CountWaitSeed, &summary.CountPoRep, &summary.CountCommitMsg, &summary.CountDone, &summary.CountFailed); err != nil {
+		c := &PoRepSectorCounts{}
+		summary.SectorCounts = c
+		if err := rows.Scan(&actor, &summary.CountSDR, &summary.CountTrees, &summary.CountPrecommitMsg, &summary.CountWaitSeed, &summary.CountPoRep, &summary.CountCommitMsg, &summary.CountDone, &summary.CountFailed,
+			&c.ObservedAt, &c.Total, &c.Complete, &c.Remaining, &c.Failed, &c.PostSDR,
+			&c.SDRTotal, &c.SDRRunning, &c.SDRPreparing, &c.SDRWaitingTask, &c.SDRWaitingCreate,
+			&c.SDRMissingTask, &c.SDROtherTask, &c.SDRFailed, &c.SDRUnknown); err != nil {
 			return nil, xerrors.Errorf("scan: %w", err)
 		}
 
@@ -419,6 +428,9 @@ func (a *PoRep) PorepPipelineSummary(ctx context.Context) ([]PorepPipelineSummar
 		summary.Actor = sactor.String()
 
 		summaries = append(summaries, summary)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, xerrors.Errorf("summary rows: %w", err)
 	}
 	return summaries, nil
 }

@@ -29,6 +29,12 @@ import (
 	"github.com/filecoin-project/lotus/node/modules/dtypes"
 )
 
+func (w *WdPostRecoverDeclareTask) GetSpids(ctx context.Context, db *harmonydb.DB, taskIDs []int64) ([]harmonytask.TaskSPID, error) {
+	var spids []harmonytask.TaskSPID
+	err := db.Select(ctx, &spids, `SELECT task_id, sp_id FROM wdpost_recovery_tasks WHERE task_id = ANY($1::BIGINT[])`, taskIDs)
+	return spids, err
+}
+
 type WdPostRecoverDeclareTask struct {
 	sender       *message.Sender
 	db           *harmonydb.DB

@@ -48,6 +48,12 @@ import (
 	"github.com/filecoin-project/lotus/node/modules/dtypes"
 )
 
+func (t *WinPostTask) GetSpids(ctx context.Context, db *harmonydb.DB, taskIDs []int64) ([]harmonytask.TaskSPID, error) {
+	var spids []harmonytask.TaskSPID
+	err := db.Select(ctx, &spids, `SELECT task_id, sp_id FROM mining_tasks WHERE task_id = ANY($1::BIGINT[])`, taskIDs)
+	return spids, err
+}
+
 var log = logging.Logger("curio/winning")
 
 type WinPostTask struct {
