@@ -187,11 +187,15 @@ func NewPullHandler(auth Auth, store PullStore, validator AddPiecesValidator, db
 //     will receive callbacks from PDPVerifier (typically FilecoinWarmStorageService).
 //     Must be in the allowed list for public services.
 //
-//   - pieces (required): Array of pieces to pull, each containing:
+//   - pieces (optional): Array of {pieceCid, sourceUrl} entries (current form)
 //
-//   - pieceCid: PieceCIDv2 format (encodes both CommP and raw size)
+//   - urls (optional): HTTPS URLs whose paths end in /piece/{cid}
 //
-//   - sourceUrl: HTTPS URL ending in /piece/{pieceCid} on a public host
+//   - provider (optional): {host, cids} assembled here into https://{host}/piece/{cid}.
+//     If cids is omitted, piece CIDs already collected from pieces and urls are used.
+//     provider.cids without provider.host is rejected.
+//
+//     At least one source URL must result after combining these fields.
 //
 // # ExtraData and Authorization
 //
@@ -238,8 +242,8 @@ func NewPullHandler(auth Auth, store PullStore, validator AddPiecesValidator, db
 //
 // Several safety measures protect against malicious sources:
 //
-//   - Source URL validation: Must be HTTPS, path must match /piece/{pieceCid},
-//     host must not be localhost/private IP/link-local
+//   - Source URL validation: Must be HTTPS. Hosts are checked against the SSRF
+//     policy at fetch time (localhost/private IP/link-local are blocked).
 //
 //   - Size limits: Piece size (encoded in PieceCIDv2) must not exceed PieceSizeMaxLimit.
 //     Downloads are capped at the declared size to prevent abuse.
@@ -371,29 +375,37 @@ func (h *PullHandler) HandlePull(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse all piece CIDs (validates PieceCIDv2 format, extracts v1, size info)
-	pieceInfos := make([]*PieceCidInfo, len(req.Pieces))
-	pieceData := make([]contract.CidsCid, len(req.Pieces))
-	for i, piece := range req.Pieces {
-		info, err := ParsePieceCidV2(piece.PieceCid)
-		if err != nil {
-			msg := fmt.Sprintf("Invalid pieceCid[%d]: %s", i, err.Error())
-			httpServerError(w, http.StatusBadRequest, msg, err)
+	sources, err := req.AssembledSources()
+	if err != nil {
+		httpServerError(w, http.StatusBadRequest, "Validation error: "+err.Error(), err)
+		return
+	}
 
+	// Parse unique piece CIDs for eth_call (validates PieceCIDv2, extracts v1, size).
+	infoByCid := make(map[string]*PieceCidInfo, len(sources))
+	var pieceData []contract.CidsCid
+	for _, source := range sources {
+		if _, ok := infoByCid[source.PieceCid]; ok {
+			continue
+		}
+		info, err := ParsePieceCidV2(source.PieceCid)
+		if err != nil {
+			msg := fmt.Sprintf("Invalid pieceCid %s: %s", source.PieceCid, err.Error())
+			httpServerError(w, http.StatusBadRequest, msg, err)
 			return
 		}
 		if info.RawSize < uint64(PieceSizeMinLimit) {
-			msg := fmt.Sprintf("pieceCid[%d]: size %d is below minimum %d", i, info.RawSize, PieceSizeMinLimit)
+			msg := fmt.Sprintf("pieceCid %s: size %d is below minimum %d", source.PieceCid, info.RawSize, PieceSizeMinLimit)
 			httpServerError(w, http.StatusBadRequest, msg, nil)
 			return
 		}
 		if info.RawSize > uint64(PieceSizeMaxLimit) {
-			msg := fmt.Sprintf("pieceCid[%d]: size %d exceeds maximum %d", i, info.RawSize, PieceSizeMaxLimit)
+			msg := fmt.Sprintf("pieceCid %s: size %d exceeds maximum %d", source.PieceCid, info.RawSize, PieceSizeMaxLimit)
 			httpServerError(w, http.StatusBadRequest, msg, nil)
 			return
 		}
-		pieceInfos[i] = info
-		pieceData[i] = contract.CidsCid{Data: info.CidV2.Bytes()}
+		infoByCid[source.PieceCid] = info
+		pieceData = append(pieceData, contract.CidsCid{Data: info.CidV2.Bytes()})
 	}
 
 	// Validate extraData via eth_call
@@ -408,14 +420,16 @@ func (h *PullHandler) HandlePull(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Build normalized pull pieces for persistence.
-	pullPieces := make([]PullPiece, len(pieceInfos))
-	for i, info := range pieceInfos {
-		pullPieces[i] = PullPiece{
+	// Build normalized pull pieces for persistence. Each assembled source is
+	// one (piece, URL) pull item, as before.
+	pullPieces := make([]PullPiece, 0, len(sources))
+	for _, source := range sources {
+		info := infoByCid[source.PieceCid]
+		pullPieces = append(pullPieces, PullPiece{
 			CidV1:     info.CidV1,
 			RawSize:   info.RawSize,
-			SourceURL: req.Pieces[i].SourceURL,
-		}
+			SourceURL: source.SourceURL,
+		})
 	}
 
 	// Create pull record
