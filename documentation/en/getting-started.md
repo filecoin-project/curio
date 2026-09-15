@@ -47,13 +47,27 @@ Following port must be opened on each Curio node for API and GUI access
 | 4701  | Default GUI port. Not all Curio nodes are required to enable GUI |
 | 12310 | HTTP server port                                                 |
 
+[Curio-PDP](curio-pdp.md) uses different public ports: open only TCP **80** and **443**. The admin GUI stays on localhost port **4701**.
+
 ## Boost Compatibility (Deprecated)
 
 Boost is no longer compatible with latest Curio releases. Boost adapter is no longer shipped with our main branch and we recommend users to migrate to Curio markets.
 
-## Installing Curio and creating a Curio cluster
+## Choose a deployment
+
+### Full Curio cluster (sealing and market)
 
 With an understanding of Curio's internal mechanisms, you can now proceed to [install the Curio binaries](installation.md). We recommend using [Debian packages](installation.md#debian-package-installation) for the installation, as they facilitate easy installation, upgrades, and process management. After installing your first Curio binary, you can move on to [setting up Curio](setup.md), whether you are [migrating from lotus-miner](setup.md#migrating-from-lotus-miner-to-curio) or [initializing a new minerID](setup.md#initiating-a-new-curio-cluster).
+
+### Curio-PDP (PDP-only)
+
+If you are operating a **PDP storage provider** without PoRep or sealing, use **Dockerized Curio-PDP**. That stack is a supported path — not an experimental feature. Docker Compose runs Curio-PDP, YugabyteDB, and Forest.
+
+Start with [Curio-PDP](curio-pdp.md). Review [hardware requirements](experimental-features/Enable-PDP.md#hardware-requirements) first. Run the Docker stack on **fast storage** (NVMe/SSD). Piece data mapped into the container data folder can live on **slower disks**.
+
+{% content-ref url="curio-pdp.md" %}
+[curio-pdp.md](curio-pdp.md)
+{% endcontent-ref %}
 
 ## Best Practices
 
