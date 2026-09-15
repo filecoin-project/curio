@@ -45,6 +45,8 @@ func (e *expiryTestIngester) GetExpectedSealDuration() abi.ChainEpoch {
 	return e.expectedSealDuration
 }
 
+func (e *expiryTestIngester) Wake() {}
+
 func TestIntegration_CheckExpiry(t *testing.T) {
 	ctx := context.Background()
 	db, err := harmonydb.NewFromConfigWithITestID(t)
