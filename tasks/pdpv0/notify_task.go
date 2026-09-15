@@ -10,13 +10,13 @@ import (
 	"github.com/yugabyte/pgx/v5"
 
 	"github.com/filecoin-project/go-padreader"
-	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/passcall"
+	"github.com/filecoin-project/curio/lib/proof"
 	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
@@ -75,7 +75,7 @@ func (t *PDPNotifyTask) Do(ctx context.Context, taskID harmonytask.TaskID, _ fun
 			return false, fmt.Errorf("legacy PDP upload %s is not in final storage", upload.id)
 		}
 
-		needsSaveCache := padreader.PaddedSize(uint64(upload.pieceRawSize.Int64)).Padded() >= abi.PaddedPieceSize(MinSizeForCache)
+		needsSaveCache := padreader.PaddedSize(uint64(upload.pieceRawSize.Int64)).Padded() > proof.MIN_PADDED_PIECE_SIZE_FOR_CACHE
 		n, err := tx.Exec(`
 			INSERT INTO pdp_piecerefs (service, piece_cid, piece_ref, created_at, needs_save_cache)
 			VALUES ($1, $2, $3, NOW(), $4)

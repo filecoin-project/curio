@@ -14,6 +14,9 @@ import (
 	"github.com/filecoin-project/lotus/storage/pipeline/lib/nullreader"
 )
 
+// Pieces larger than this padded size require a cached Merkle layer for proving.
+const MIN_PADDED_PIECE_SIZE_FOR_CACHE = abi.PaddedPieceSize(32 << 20)
+
 // PieceReader abstracts reading raw (unpadded) piece data by CID.
 // The returned reader must support both sequential reads and random access
 // (io.ReaderAt) to allow section-based reads for cached proofs.
