@@ -15,6 +15,7 @@
 * [Curio Service](curio-service.md)
 * [Storage Configuration](storage-configuration.md)
 * [Configuration](configuration/README.md)
+  * [Configuration editor fidelity](configuration/configuration-editor.md)
   * [Listen Address](configuration/listen-address.md)
   * [Prometheus Metrics](configuration/prometheus-metrics.md)
   * [Metrics Reference](configuration/metrics-reference.md)
