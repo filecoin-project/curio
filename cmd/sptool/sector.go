@@ -154,14 +154,17 @@ var sectorStatusCmd = &cli.Command{
 		isCC := len(sectorInfo.DeprecatedDealIDs) == 0 && sectorInfo.DealWeight.IsZero() && sectorInfo.VerifiedDealWeight.IsZero()
 		if isCC {
 			fmt.Printf("Sector Type:         %s\n", color.BlueString("CC (Committed Capacity)"))
-		} else if sectorInfo.Flags&curiochain.FULL_QA_POWER == 0 && !sectorInfo.VerifiedDealWeight.IsZero() {
+		} else if sectorInfo.Flags&stminer.FULL_QA_POWER == 0 && !sectorInfo.VerifiedDealWeight.IsZero() {
 			fmt.Printf("Sector Type:         %s\n", color.GreenString("Verified Deals (FIL+)"))
 		} else {
 			fmt.Printf("Sector Type:         %s\n", color.CyanString("Deals"))
 		}
 
-		fmt.Printf("DealWeight:          %s\n", sectorInfo.DealWeight)
-		fmt.Printf("VerifiedDealWeight:  %s\n", sectorInfo.VerifiedDealWeight)
+		qaPower, err := curiochain.SectorQAPower(sectorInfo)
+		if err != nil {
+			return xerrors.Errorf("getting sector %d QA power: %w", id, err)
+		}
+		fmt.Printf("QAPower:             %s\n", units.BytesSize(float64(qaPower.Uint64())))
 		fmt.Printf("InitialPledge:       %s\n", types.FIL(sectorInfo.InitialPledge))
 		if sectorInfo.ExpectedDayReward != nil {
 			fmt.Printf("ExpectedDayReward:   %s\n", types.FIL(*sectorInfo.ExpectedDayReward))
@@ -640,8 +643,7 @@ var sectorsListCmd = &cli.Command{
 			tablewriter.Col("SealTime"),
 			tablewriter.Col("Events"),
 			tablewriter.Col("Deals"),
-			tablewriter.Col("DealWeight"),
-			tablewriter.Col("QAPowerBonus"),
+			tablewriter.Col("QAPower"),
 			tablewriter.Col("Pledge"),
 			tablewriter.NewLineCol("Error"),
 			tablewriter.NewLineCol("RecoveryTimeout"))
@@ -653,19 +655,9 @@ var sectorsListCmd = &cli.Command{
 			_, inSSet := commitedIDs[s]
 			_, inASet := activeIDs[s]
 
-			sectorSize, err := st.SealProof.SectorSize()
-			if err != nil {
-				return xerrors.Errorf("getting sector %d size: %w", s, err)
-			}
 			qaPower, err := curiochain.SectorQAPower(st)
 			if err != nil {
 				return xerrors.Errorf("getting sector %d QA power: %w", s, err)
-			}
-			vp := float64(big.Sub(qaPower, big.NewIntUnsigned(uint64(sectorSize))).Uint64())
-			dw := .0
-			if duration := st.Expiration - st.PowerBaseEpoch; duration > 0 {
-				rdw := big.Add(st.DealWeight, st.VerifiedDealWeight)
-				dw = float64(big.Div(rdw, big.NewInt(int64(duration))).Uint64())
 			}
 
 			var deals int
@@ -716,11 +708,8 @@ var sectorsListCmd = &cli.Command{
 				}
 			}
 
-			if !fast && (deals > 0 || !isCC) {
-				m["DealWeight"] = units.BytesSize(dw)
-			}
-			if !fast && vp > 0 {
-				m["QAPowerBonus"] = color.GreenString(units.BytesSize(vp))
+			if !fast {
+				m["QAPower"] = units.BytesSize(float64(qaPower.Uint64()))
 			}
 
 			tw.Write(m)

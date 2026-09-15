@@ -24,6 +24,7 @@ import (
 	"github.com/filecoin-project/go-state-types/big"
 	"github.com/filecoin-project/go-state-types/builtin"
 	miner2 "github.com/filecoin-project/go-state-types/builtin/v13/miner"
+	miner19 "github.com/filecoin-project/go-state-types/builtin/v19/miner"
 	"github.com/filecoin-project/go-state-types/builtin/v9/market"
 	"github.com/filecoin-project/go-state-types/network"
 
@@ -202,7 +203,7 @@ func (c *cfg) getSectors(w http.ResponseWriter, r *http.Request) {
 			if s, ok := sectorIdx[sectorID{minerID, uint64(st.SectorNumber)}]; ok {
 				s.IsOnChain = true
 				s.ExpiresAt = st.Expiration
-				s.IsFilPlus = st.Flags&curiochain.FULL_QA_POWER == 0 && st.VerifiedDealWeight.GreaterThan(big.NewInt(0))
+				s.IsFilPlus = st.Flags&miner19.FULL_QA_POWER == 0 && st.VerifiedDealWeight.GreaterThan(big.NewInt(0))
 				if ss, err := st.SealProof.SectorSize(); err == nil {
 					s.SealInfo = ss.ShortString()
 				}
@@ -249,7 +250,7 @@ func (c *cfg) getSectors(w http.ResponseWriter, r *http.Request) {
 							ddo++
 						}
 					}
-					if st.Flags&curiochain.FULL_QA_POWER != 0 {
+					if st.Flags&miner19.FULL_QA_POWER != 0 {
 						sectorSize, err := st.SealProof.SectorSize()
 						apihelper.OrHTTPFail(w, err)
 						vp = float64(sectorSize) * verifiedPowerGainMul
@@ -294,7 +295,7 @@ func (c *cfg) getSectors(w http.ResponseWriter, r *http.Request) {
 					SectorNum:    int64(chainy.onChain.SectorNumber),
 					IsOnChain:    true,
 					ExpiresAt:    chainy.onChain.Expiration,
-					IsFilPlus:    st.Flags&curiochain.FULL_QA_POWER == 0 && st.VerifiedDealWeight.GreaterThan(big.NewInt(0)),
+					IsFilPlus:    st.Flags&miner19.FULL_QA_POWER == 0 && st.VerifiedDealWeight.GreaterThan(big.NewInt(0)),
 					Proving:      chainy.active,
 					Flag:         true, // All such sectors should be flagged to be terminated
 				}

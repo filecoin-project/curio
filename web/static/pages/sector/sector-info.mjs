@@ -374,7 +374,7 @@ customElements.define('sector-info',class SectorInfo extends LitElement {
                         </tr>
                         <tr><td>Activation Epoch</td><td><pretty-epoch epoch=${this.data.ActivationEpoch}></pretty-epoch></td></tr>
                         <tr><td>Expiration Epoch</td><td><pretty-epoch epoch=${this.data.ExpirationEpoch}></pretty-epoch></td></tr>
-                        <tr><td>Deal Weight</td><td>${this.data.DealWeight}</td></tr>
+                        <tr><td>QAP</td><td>${this.data.QAPower || 'N/A'}</td></tr>
                         <tr>
                             <td>Deadline</td>
                             <td>

@@ -1038,26 +1038,6 @@ func (d *CurioStorageDealMarket) processMK20DealIngestion(ctx context.Context) {
 		}
 
 		// TODO(NV29): Remove allocation client resolution once pre-NV29 support is dropped.
-		var client address.Address
-		var clientId uint64
-		if nv < network.Version29 {
-			client, err = address.NewFromString(deal.Client)
-			if err != nil {
-				log.Errorw("failed to parse client address", "deal", deal.ID, "error", err)
-				continue
-			}
-			clientIdAddr, err := d.api.StateLookupID(ctx, client, head.Key())
-			if err != nil {
-				log.Errorw("failed to lookup client id", "deal", deal.ID, "error", err)
-				continue
-			}
-			clientId, err = address.IDFromAddress(clientIdAddr)
-			if err != nil {
-				log.Errorw("failed to parse client id", "deal", deal.ID, "error", err)
-				continue
-			}
-		}
-
 		aurl, err := url.Parse(deal.Url)
 		if err != nil {
 			log.Errorf("failed to parse aggregate url: %w", err)
@@ -1100,6 +1080,24 @@ func (d *CurioStorageDealMarket) processMK20DealIngestion(ctx context.Context) {
 		// TODO(NV29): Remove allocation validation and activation-key construction once pre-NV29 support is dropped.
 		var vak *miner.VerifiedAllocationKey
 		if nv < network.Version29 && mk20Deal.Products.DDOV1.AllocationId != nil {
+			var client address.Address
+			var clientId uint64
+			client, err = address.NewFromString(deal.Client)
+			if err != nil {
+				log.Errorw("failed to parse client address", "deal", deal.ID, "error", err)
+				continue
+			}
+			clientIdAddr, err := d.api.StateLookupID(ctx, client, head.Key())
+			if err != nil {
+				log.Errorw("failed to lookup client id", "deal", deal.ID, "error", err)
+				continue
+			}
+			clientId, err = address.IDFromAddress(clientIdAddr)
+			if err != nil {
+				log.Errorw("failed to parse client id", "deal", deal.ID, "error", err)
+				continue
+			}
+
 			allocClientID := clientId
 			alloc, err := d.api.StateGetAllocation(ctx, client, verifreg.AllocationId(*mk20Deal.Products.DDOV1.AllocationId), head.Key())
 			if err != nil {

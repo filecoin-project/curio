@@ -10,12 +10,9 @@ import (
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 )
 
-// TODO: Use the upstream constant when the Solstice dependencies are released.
-const FULL_QA_POWER miner.SectorOnChainInfoFlags = 1 << 1
-
 // SectorIsFullQaPower includes both flagged sectors and legacy sectors at 10x power.
 func SectorIsFullQaPower(info *miner.SectorOnChainInfo) bool {
-	if info.Flags&FULL_QA_POWER != 0 {
+	if info.Flags&miner19.FULL_QA_POWER != 0 {
 		return true
 	}
 	duration := int64(info.Expiration - info.PowerBaseEpoch)
@@ -35,10 +32,7 @@ func SectorQAPower(info *miner.SectorOnChainInfo) (abi.StoragePower, error) {
 	if err != nil {
 		return big.Zero(), err
 	}
-	if SectorIsFullQaPower(info) {
-		return miner.QAPowerMax(sectorSize), nil
-	}
-	if info.Expiration <= info.PowerBaseEpoch {
+	if info.Flags&miner19.FULL_QA_POWER == 0 && info.Expiration <= info.PowerBaseEpoch {
 		return big.Zero(), xerrors.Errorf("sector %d has non-positive power duration", info.SectorNumber)
 	}
 	return miner19.QAPowerForSector(sectorSize, info), nil

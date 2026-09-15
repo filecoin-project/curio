@@ -57,7 +57,7 @@ type SectorInfo struct {
 	CommitMsg          string
 	ActivationEpoch    abi.ChainEpoch
 	ExpirationEpoch    *int64
-	DealWeight         string
+	QAPower            string
 	Deadline           *int64
 	Partition          *int64
 	UnsealedCid        string
@@ -767,28 +767,6 @@ func (a *PoRep) SectorInfo(ctx context.Context, sp string, intid int64) (*Sector
 		if err != nil {
 			return nil, xerrors.Errorf("getting sector power: %w", err)
 		}
-		sectorSize, err := onChainInfo.SealProof.SectorSize()
-		if err != nil {
-			return nil, err
-		}
-		dw := .0
-		dealWeight := "CC"
-		{
-			rdw := big.Add(onChainInfo.DealWeight, onChainInfo.VerifiedDealWeight)
-			if duration := onChainInfo.Expiration - onChainInfo.PowerBaseEpoch; duration > 0 {
-				dw = float64(big.Div(rdw, big.NewInt(int64(duration))).Uint64())
-			}
-			vp := float64(big.Sub(qaPower, big.NewIntUnsigned(uint64(sectorSize))).Uint64())
-			if vp > 0 {
-				dw = vp
-			}
-			if dw > 0 {
-				dealWeight = units.BytesSize(dw)
-				if rdw.IsZero() {
-					dealWeight += " (CC)"
-				}
-			}
-		}
 
 		if si.Deadline == nil || si.Partition == nil {
 			part, err := a.Deps.Chain.StateSectorPartition(ctx, maddr, abi.SectorNumber(intid), types.EmptyTSK)
@@ -806,7 +784,7 @@ func (a *PoRep) SectorInfo(ctx context.Context, sp string, intid int64) (*Sector
 		if si.ExpirationEpoch == nil || *si.ExpirationEpoch != expr {
 			si.ExpirationEpoch = &expr
 		}
-		si.DealWeight = dealWeight
+		si.QAPower = units.BytesSize(float64(qaPower.Uint64()))
 
 		// Populate on-chain comparison fields
 		si.OnChain = true

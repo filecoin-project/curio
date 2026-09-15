@@ -26,15 +26,16 @@ type DDOV1 struct {
   - `duration`
 - Optional:
   - `start_epoch`
-  - `allocation_id`
   - `market_address`
   - `market_deal_id` (required if `market_address` is set)
   - `notification_address` and `notification_payload` (must be provided together)
 
+`allocation_id` remains in the deal structure for previously accepted deals. Omit it when creating a deal or adding a new DDO product; Curio rejects new products with an allocation ID.
+
 ## Field Behavior
 
 - `start_epoch` is optional. If set, Curio validates it against chain head and `ExpectedPoRepSealDuration`, and uses it as the deal schedule start during ingestion.
-- `duration` is always part of the DDO payload. For verified allocations, it must still satisfy allocation term bounds.
+- `duration` is always part of the DDO payload and must be at least `518400` epochs for new deals.
 - `market_address` and `market_deal_id` opt the deal into external contract verification.
 - `notification_address` and `notification_payload`, when set, are attached to the eventual piece activation manifest during ingestion. They are not evaluated by `verifyDeal(...)`.
 
@@ -43,8 +44,7 @@ type DDOV1 struct {
 - `ddo_v1` must be enabled by the provider.
 - Provider must be a valid address and not in MK20 disabled-miner config.
 - If `start_epoch` is set, it must be greater than `0`.
-- If `allocation_id` is missing, minimum duration is enforced (`>= 518400`).
-- If `allocation_id` is set, it must not be `NoAllocationID`.
+- New DDO products must omit `allocation_id` and meet the minimum duration (`>= 518400`).
 - If `market_address` is set, it must be a valid `0x` hex address.
 - Notification address and payload must either both be set or both be unset.
 
@@ -96,6 +96,5 @@ Operationally:
 - Notification address must resolve on chain when set.
 - Client must pass provider allow/deny policy.
 - If `start_epoch` is set, it must be greater than or equal to current chain height plus `ExpectedPoRepSealDuration`.
-- If `allocation_id` is set, MK20 validates allocation ownership, provider, term, data, size, and expiration consistency.
-- For verified allocations, the allocation owner may be either the client or the market contract address.
-- If both `allocation_id` and `start_epoch` are set, allocation expiration must be greater than or equal to `start_epoch`.
+
+Previously accepted deals retain their allocation fields. Before NV29, processing still validates their allocation and term constraints; from NV29 onward, allocations no longer constrain onboarding.
