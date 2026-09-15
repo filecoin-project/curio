@@ -201,6 +201,8 @@ type TaskEngine struct {
 	// channel value itself is replaced in one place (New) before startPeering
 	// and startScheduler are called, so concurrent access to the channel is safe.
 	schedulerChannel chan schedulerEvent
+	admissionWake    chan struct{}
+	recovery         map[string][]task
 
 	completionMu        sync.RWMutex
 	completionCallbacks map[string][]TaskCompleteFunc
@@ -314,6 +316,8 @@ func NewWithReg(
 		},
 		taskMap:             make(map[string]*taskTypeHandler, len(impls)),
 		schedulerChannel:    make(chan schedulerEvent, 100),
+		admissionWake:       make(chan struct{}, 1),
+		recovery:            make(map[string][]task),
 		completionCallbacks: make(map[string][]TaskCompleteFunc),
 	}
 	e.atomics.pollDuration.Store(pollRarely)
@@ -357,14 +361,15 @@ func NewWithReg(
 	// re-assign them.
 	{
 		var taskRet []struct {
-			ID         int
-			Name       string
-			UpdateTime time.Time
-			Retries    int
-			PostedTime time.Time `db:"posted_time"`
+			ID              int
+			Name            string
+			UpdateTime      time.Time
+			Retries         int
+			PostedTime      time.Time `db:"posted_time"`
+			OwnerGeneration int64     `db:"owner_generation"`
 		}
 
-		err := db.Select(e.cfg.ctx, &taskRet, `SELECT id, name, update_time, retries, posted_time FROM harmony_task WHERE owner_id=$1`, e.cfg.ownerID)
+		err := db.Select(e.cfg.ctx, &taskRet, `SELECT id, name, update_time, retries, posted_time, owner_generation FROM harmony_task WHERE owner_id=$1`, e.cfg.ownerID)
 		if err != nil {
 			return nil, err
 		}
@@ -386,15 +391,16 @@ func NewWithReg(
 
 		for _, w := range taskRet {
 			h := e.taskMap[w.Name]
-			if h == nil || !h.considerWork(workSourceRecover, []task{{ID: TaskID(w.ID), UpdateTime: w.UpdateTime, PostedTime: w.PostedTime, Retries: w.Retries}}, eventEmitter{schedulerChannel: e.schedulerChannel}) {
+			if h == nil {
 				// Task type no longer registered on this node (config change);
 				// release the claim so another node can pick it up.
-				_, err := db.Exec(e.cfg.ctx, `UPDATE harmony_task SET owner_id=NULL WHERE id=$1 AND owner_id=$2`, w.ID, e.cfg.ownerID)
+				_, err := db.Exec(e.cfg.ctx, `UPDATE harmony_task SET owner_id=NULL WHERE id=$1 AND owner_id=$2 AND owner_generation=$3`, w.ID, e.cfg.ownerID, w.OwnerGeneration)
 				if err != nil {
 					log.Errorw("Cannot remove self from owner field", "error", err)
-					continue
 				}
+				continue
 			}
+			e.recovery[w.Name] = append(e.recovery[w.Name], task{ID: TaskID(w.ID), UpdateTime: w.UpdateTime, PostedTime: w.PostedTime, Retries: w.Retries, OwnerGeneration: w.OwnerGeneration})
 		}
 	}
 
@@ -423,6 +429,7 @@ func NewWithReg(
 func (e *TaskEngine) GracefullyTerminate() {
 	e.atomics.draining.Store(true)
 	e.cfg.grace()
+	e.cancelPendingAdmissions()
 	e.cfg.reg.Shutdown()
 
 	for {
@@ -441,10 +448,12 @@ func (e *TaskEngine) GracefullyTerminate() {
 }
 
 type task struct {
-	ID         TaskID    `db:"id"`
-	UpdateTime time.Time `db:"update_time"`
-	PostedTime time.Time `db:"posted_time"`
-	Retries    int       `db:"retries"`
+	ID                TaskID    `db:"id"`
+	UpdateTime        time.Time `db:"update_time"`
+	PostedTime        time.Time `db:"posted_time"`
+	Retries           int       `db:"retries"`
+	OwnerGeneration   int64     `db:"owner_generation"`
+	retryClockUnknown bool
 }
 
 // pollerTryAllWork is the "waterfall" that attempts to claim and start tasks
@@ -482,9 +491,11 @@ func (e *TaskEngine) pollerTryAllWork(taskSource taskSource, eventEmitter eventE
 
 	}()
 	for _, v := range oldestFirstSeq(e.taskMap, taskSource, e.cfg.preferredTaskRunOrder) {
+		source := workSourcePoller
 		if !schedulable {
 			for relatedTaskName := range v.SchedulingOverrides {
 				if len(taskSource.GetTasks(relatedTaskName)) > 0 {
+					source = workSourceOverride
 					goto doScheduling
 				}
 			}
@@ -499,10 +510,7 @@ func (e *TaskEngine) pollerTryAllWork(taskSource taskSource, eventEmitter eventE
 		}
 
 		unownedTasks := lo.Filter(taskSource.GetTasks(v.Name), func(t task, _ int) bool {
-			if v.RetryWait == nil || t.Retries == 0 {
-				return true
-			}
-			if time.Since(t.UpdateTime) > v.RetryWait(t.Retries) {
+			if retryReady(t, v.RetryWait, time.Now()) {
 				return true
 			} else {
 				log.Debugf("Task %d is not ready to retry yet, retries %d, wait: %s", t.ID, t.Retries, v.RetryWait(t.Retries))
@@ -511,7 +519,7 @@ func (e *TaskEngine) pollerTryAllWork(taskSource taskSource, eventEmitter eventE
 		})
 
 		if len(unownedTasks) > 0 {
-			if !v.considerWork(workSourcePoller, unownedTasks, eventEmitter) {
+			if !v.considerWork(source, unownedTasks, eventEmitter) {
 				log.Warn("Work not accepted for " + strconv.Itoa(len(unownedTasks)) + " " + v.Name + " task(s)")
 			}
 		}
