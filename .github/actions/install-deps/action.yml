@@ -35,7 +35,7 @@ runs:
             xxd nasm \
             ocl-icd-opencl-dev libhwloc-dev \
             libfuse3-dev uuid-dev libssl-dev libnuma-dev libaio-dev libarchive-dev libkeyutils-dev libncurses-dev \
-            libgmp-dev libconfig++-dev
+            libgmp-dev libconfig++-dev liburing-dev
         }
         do_install || {
           echo "apt install failed; clearing lists and retrying once..." >&2
@@ -46,6 +46,12 @@ runs:
         }
       shell: bash
       if: ${{ inputs.skip == 'false' }}
+
+    - name: Install liburing
+      run: |
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -o Acquire::Retries=5 liburing-dev
+      shell: bash
+      if: ${{ inputs.skip == 'true' }}
 
     - name: Set up GCC 13 as default
       run: |
