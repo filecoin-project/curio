@@ -1426,7 +1426,7 @@ var sectorsUpgradeQualityCmd = &cli.Command{
 					if info == nil {
 						return xerrors.Errorf("active sector %d not found", sn)
 					}
-					if info.Expiration <= head.Height() || curiochain.SectorIsFullQaPower(info) {
+					if info.Expiration <= head.Height() || miner.SectorIsFullQaPower(info) {
 						return nil
 					}
 

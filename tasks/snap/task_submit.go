@@ -383,7 +383,7 @@ func (s *SubmitTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwn
 		}
 
 		// TODO(NV29): Remove only the network-version guard once pre-NV29 support is dropped.
-		alreadyMaxQAP := nv >= network.Version29 && curiochain.SectorIsFullQaPower(onChainInfo)
+		alreadyMaxQAP := nv >= network.Version29 && miner.SectorIsFullQaPower(onChainInfo)
 		secCollateral := big.Zero()
 		if !alreadyMaxQAP {
 			secCollateral, err = s.api.StateMinerInitialPledgeForSector(ctx, duration, ssize, pledgeSize, ts.Key())
