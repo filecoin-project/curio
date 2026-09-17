@@ -1315,8 +1315,8 @@ var sectorsUpgradeQualityCmd = &cli.Command{
 	Flags: []cli.Flag{
 		&cli.IntFlag{
 			Name:  "max-sectors",
-			Usage: "maximum number of sectors included in each message",
-			Value: 12500,
+			Usage: "maximum number of sectors to upgrade",
+			Value: 0,
 		},
 		&cli.StringFlag{
 			Name:  "max-fee",
@@ -1381,21 +1381,16 @@ var sectorsUpgradeQualityCmd = &cli.Command{
 			return xerrors.Errorf("loading miner state: %w", err)
 		}
 
-		// Resolve --max-sectors against the protocol limit.
-		sectorsMax, err := policy.GetAddressedSectorsMax(nv)
-		if err != nil {
-			return err
+		var limit bool
+		maxSectors := cctx.Int("max-sectors")
+		if maxSectors < 0 {
+			return xerrors.Errorf("max-sectors must be >= 0")
 		}
-		addrSectors := sectorsMax
-		if n := cctx.Int("max-sectors"); n != 0 {
-			if n < 0 {
-				return xerrors.Errorf("--max-sectors must be positive, got %d", n)
-			}
-			if n > sectorsMax {
-				n = sectorsMax
-			}
-			addrSectors = n
+		if maxSectors > 0 {
+			limit = true
 		}
+
+		batchSize := 12500
 
 		var faultyCount int64
 		var messages []stminer.UpgradeSectorQualityParams
@@ -1421,6 +1416,10 @@ var sectorsUpgradeQualityCmd = &cli.Command{
 
 				var upgrade *stminer.UpgradeSectorQuality
 				return active.ForEach(func(sn uint64) error {
+					if total >= maxSectors && limit {
+						return nil
+					}
+
 					info, err := mas.GetSector(abi.SectorNumber(sn))
 					if err != nil {
 						return err
@@ -1443,7 +1442,7 @@ var sectorsUpgradeQualityCmd = &cli.Command{
 					upgrade.Sectors.Set(sn)
 					curCount++
 					total++
-					if curCount == addrSectors {
+					if curCount == batchSize {
 						messages = append(messages, cur)
 						cur, curCount = stminer.UpgradeSectorQualityParams{}, 0
 						upgrade = nil
