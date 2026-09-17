@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	gobig "math/big"
@@ -20,6 +21,7 @@ import (
 	"github.com/filecoin-project/go-state-types/big"
 	"github.com/filecoin-project/go-state-types/builtin"
 	stminer "github.com/filecoin-project/go-state-types/builtin/v19/miner"
+	stpower "github.com/filecoin-project/go-state-types/builtin/v19/power"
 	"github.com/filecoin-project/go-state-types/network"
 
 	"github.com/filecoin-project/curio/lib/curiochain"
@@ -1390,7 +1392,7 @@ var sectorsUpgradeQualityCmd = &cli.Command{
 				return xerrors.Errorf("--max-sectors must be positive, got %d", n)
 			}
 			if n > sectorsMax {
-				return xerrors.Errorf("--max-sectors %d exceeds the protocol limit of %d", n, sectorsMax)
+				n = sectorsMax
 			}
 			addrSectors = n
 		}
@@ -1452,16 +1454,17 @@ var sectorsUpgradeQualityCmd = &cli.Command{
 		}); err != nil {
 			return xerrors.Errorf("traversing miner state: %w", err)
 		}
-		if total == 0 {
-			fmt.Println("no active, unexpired sectors need a QA power upgrade")
-			fmt.Printf("skipped %d faulty sectors\n", faultyCount)
-			return nil
-		}
 		if len(cur.Upgrades) > 0 {
 			messages = append(messages, cur)
 		}
 
-		// Send (or simulate) each message.
+		minerPower, err := fullNodeAPI.StateMinerPower(ctx, maddr, tsk)
+		if err != nil {
+			return xerrors.Errorf("getting miner power: %w", err)
+		}
+		totalPledge, qaDelta := big.Zero(), big.Zero()
+
+		// Simulate at the selected tipset to get the actor's pledge and power changes.
 		for idx := range messages {
 			sp, aerr := actors.SerializeParams(&messages[idx])
 			if aerr != nil {
@@ -1475,10 +1478,34 @@ var sectorsUpgradeQualityCmd = &cli.Command{
 				Params: sp,
 			}
 
-			if !cctx.Bool("really-do-it") {
-				if _, err = fullNodeAPI.GasEstimateMessageGas(ctx, msg, spec, types.EmptyTSK); err != nil {
-					return xerrors.Errorf("simulating message [%d/%d]: %w", idx+1, len(messages), err)
+			result, err := fullNodeAPI.StateCall(ctx, msg, tsk)
+			if err != nil {
+				return xerrors.Errorf("simulating message [%d/%d]: %w", idx+1, len(messages), err)
+			}
+			if !result.MsgRct.ExitCode.IsSuccess() {
+				return xerrors.Errorf("simulating message [%d/%d] failed (exit code %s): %s", idx+1, len(messages), result.MsgRct.ExitCode, result.Error)
+			}
+			for _, call := range result.ExecutionTrace.Subcalls {
+				if call.Msg.To != builtin.StoragePowerActorAddr {
+					continue
 				}
+				switch call.Msg.Method {
+				case builtin.MethodsPower.UpdatePledgeTotal:
+					var delta abi.TokenAmount
+					if err := delta.UnmarshalCBOR(bytes.NewReader(call.Msg.Params)); err != nil {
+						return xerrors.Errorf("decoding pledge change: %w", err)
+					}
+					totalPledge = big.Add(totalPledge, delta)
+				case builtin.MethodsPower.UpdateClaimedPower:
+					var delta stpower.UpdateClaimedPowerParams
+					if err := delta.UnmarshalCBOR(bytes.NewReader(call.Msg.Params)); err != nil {
+						return xerrors.Errorf("decoding power change: %w", err)
+					}
+					qaDelta = big.Add(qaDelta, delta.QualityAdjustedDelta)
+				}
+			}
+
+			if !cctx.Bool("really-do-it") {
 				continue
 			}
 
@@ -1489,11 +1516,18 @@ var sectorsUpgradeQualityCmd = &cli.Command{
 			fmt.Printf("[%d/%d] %s\n", idx+1, len(messages), smsg.Cid())
 		}
 
-		if cctx.Bool("really-do-it") {
+		if total == 0 {
+			fmt.Println("no active, unexpired sectors need a QA power upgrade")
+		} else if cctx.Bool("really-do-it") {
 			fmt.Printf("sent %d message(s) upgrading %d sectors\n", len(messages), total)
 		} else {
 			fmt.Printf("will send %d message(s) for %d sectors (pass --really-do-it to submit)\n", len(messages), total)
 		}
+		fmt.Printf("Sector upgrades: %d\n", total)
+		fmt.Printf("Additional pledge (estimated, excluding gas): %s\n", types.FIL(totalPledge))
+		fmt.Printf("Current miner QAP: %s\n", types.SizeStr(minerPower.MinerPower.QualityAdjPower))
+		fmt.Printf("Miner QAP after upgrades (estimated): %s\n", types.SizeStr(big.Add(minerPower.MinerPower.QualityAdjPower, qaDelta)))
+		fmt.Printf("QAP increase (estimated): %s\n", types.SizeStr(qaDelta))
 		fmt.Printf("skipped %d faulty sectors\n", faultyCount)
 		return nil
 	},
