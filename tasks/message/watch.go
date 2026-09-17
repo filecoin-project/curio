@@ -31,7 +31,7 @@ type MessageWaiterApi interface {
 
 type MessageWatcher struct {
 	db  *harmonydb.DB
-	ht  *harmonytask.TaskEngine
+	ht  TaskEngine
 	api MessageWaiterApi
 
 	stopping, stopped chan struct{}
