@@ -3,7 +3,9 @@
 package config
 
 import (
-	"encoding/json"
+	"bytes"
+
+	"github.com/BurntSushi/toml"
 
 	"github.com/filecoin-project/curio/deps"
 	depsconfig "github.com/filecoin-project/curio/deps/config"
@@ -11,16 +13,6 @@ import (
 
 func structToJSONMap(v any) (map[string]any, error) {
 	return tomlToJSONMap(mustEncodeTOML(v))
-}
-
-// jsonRoundTrip marshals m to JSON and unmarshals the result into dst.
-// Used to transfer a map[string]any into a typed struct via the JSON codec.
-func jsonRoundTrip(m map[string]any, dst any) error {
-	b, err := json.Marshal(m)
-	if err != nil {
-		return err
-	}
-	return json.Unmarshal(b, dst)
 }
 
 func uiSchemaRoot() any {
@@ -49,8 +41,12 @@ func uiPrepareLayerSave(layer string, submitted map[string]any, existingToml str
 		}
 	}
 
+	var submittedToml bytes.Buffer
+	if err := toml.NewEncoder(&submittedToml).Encode(submitted); err != nil {
+		return "", err
+	}
 	skiffCfg := depsconfig.DefaultSkiffUIConfig()
-	if err := jsonRoundTrip(submitted, skiffCfg); err != nil {
+	if _, err := depsconfig.TransparentDecode(submittedToml.String(), skiffCfg); err != nil {
 		return "", err
 	}
 	depsconfig.ApplySkiffConfigToCurio(curioCfg, skiffCfg)
