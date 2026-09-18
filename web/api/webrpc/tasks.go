@@ -2,6 +2,7 @@ package webrpc
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"strconv"
 	"time"
@@ -26,12 +27,21 @@ type TaskSummary struct {
 	SincePostedStr string `db:"-"`
 
 	Miner string
+
+	// Ownership age is additive telemetry, not execution runtime. Legacy fields
+	// above intentionally retain their existing update_time-based meaning.
+	OwnershipAgeSeconds  *int64         `db:"-"`
+	OwnershipStartSource string         `db:"-"`
+	WorkStart            sql.NullTime   `db:"work_start" json:"-"`
+	WorkStartSource      sql.NullString `db:"work_start_source" json:"-"`
+	ObservedAt           time.Time      `db:"observed_at"`
 }
 
 func (a *WebRPC) ClusterTaskSummary(ctx context.Context) ([]TaskSummary, error) {
 	var ts = []TaskSummary{}
 	err := a.Deps.DB.Select(ctx, &ts, `SELECT 
-		t.id as id, t.name as name, t.update_time as since_posted, t.owner_id as owner_id, hm.host_and_port as owner
+		t.id as id, t.name as name, t.update_time as since_posted, t.owner_id as owner_id, hm.host_and_port as owner,
+		t.work_start, t.work_start_source, statement_timestamp() AS observed_at
 	FROM harmony_task t LEFT JOIN harmony_machines hm ON hm.id = t.owner_id 
 	ORDER BY
 	    CASE WHEN t.owner_id IS NULL THEN 1 ELSE 0 END, t.update_time ASC`)
@@ -42,6 +52,13 @@ func (a *WebRPC) ClusterTaskSummary(ctx context.Context) ([]TaskSummary, error) 
 	// Populate MinerID
 	for i := range ts {
 		ts[i].SincePostedStr = time.Since(ts[i].SincePosted).Truncate(time.Second).String()
+		if ts[i].OwnerID != nil {
+			ts[i].OwnershipAgeSeconds = knownTaskAge(ts[i].ObservedAt, ts[i].WorkStart, ts[i].WorkStartSource)
+			ts[i].OwnershipStartSource = "unknown"
+			if ts[i].OwnershipAgeSeconds != nil {
+				ts[i].OwnershipStartSource = "claim"
+			}
+		}
 
 		if v, ok := a.TaskSPIDs[ts[i].Name]; ok {
 			ts[i].SpID = v.GetSpid(a.Deps.DB, ts[i].ID)
