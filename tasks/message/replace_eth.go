@@ -167,15 +167,23 @@ func (t *ethMessageReplacer) loadEthMessageCandidates(ctx context.Context, stuck
 
 	// Run stale cleanup per sender and split completed rows from expired claims
 	// so each delete can use its matching partial cleanup index.
+	// Keep completed attempts for 30 days and until any original waiter finishes.
 	deleted := 0
 	for i, fromAddress := range activeFromAddresses {
 		accountNonce := accountNonces[i]
 
 		n, err := t.db.Exec(ctx, `
-			DELETE FROM message_send_eth_replacements
+			DELETE FROM message_send_eth_replacements mer
 			WHERE from_address = $1
 				AND nonce < $2
-				AND send_success IS NOT NULL`,
+				AND send_success IS NOT NULL
+				AND send_time < CURRENT_TIMESTAMP - INTERVAL '30 days'
+				AND NOT EXISTS (
+					SELECT 1
+					FROM message_waits_eth mwe
+					WHERE mwe.signed_tx_hash = mer.original_signed_hash
+						AND mwe.tx_status IS DISTINCT FROM 'confirmed'
+				)`,
 			fromAddress, accountNonce)
 		if err != nil {
 			return nil, fmt.Errorf("deleting completed stale eth message replacement rows for %s: %w", fromAddress, err)
