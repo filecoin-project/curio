@@ -30,6 +30,7 @@ type taskOther struct {
 	TaskType    string        `json:"taskType,omitempty"`
 	Retries     int           `json:"retries,omitempty"`
 	Posted      time.Time     `json:"posted,omitempty"`
+	UpdateTime  time.Time     `json:"updateTime,omitempty"`
 	HostAndPort string        `json:"hostAndPort,omitempty"`
 	Cost        time.Duration `json:"cost,omitempty"`
 }
@@ -234,13 +235,16 @@ func (p *peering) handlePeerMessage(peerAddr string, peerID int64, msg []byte) e
 			PeerID:     peerID,
 			Retries:    other.Retries,
 			PostedTime: other.Posted,
+			UpdateTime: other.UpdateTime,
 		}
 	case messageTypeStarted:
 		p.h.schedulerChannel <- schedulerEvent{
-			TaskID:   envelope.TaskID,
-			TaskType: other.TaskType,
-			Source:   schedulerSourcePeerStarted,
-			PeerID:   peerID,
+			TaskID:     envelope.TaskID,
+			TaskType:   other.TaskType,
+			Source:     schedulerSourcePeerStarted,
+			PeerID:     peerID,
+			Retries:    other.Retries,
+			UpdateTime: other.UpdateTime,
 		}
 	case messageTypePreemptCost:
 		p.h.state.preemptBids.Deliver(int64(envelope.TaskID), preemptbids.Response{
@@ -254,8 +258,8 @@ func (p *peering) handlePeerMessage(peerAddr string, peerID int64, msg []byte) e
 }
 
 // TellNewTask notifies peers of a new task including wall time for FIFO scheduling.
-func (p *peering) TellNewTask(task string, tID TaskID, retries int, posted time.Time) {
-	msg, err := marshalPeerMessage(messageTypeNewTask, tID, taskOther{TaskType: task, Retries: retries, Posted: posted})
+func (p *peering) TellNewTask(task string, tID TaskID, retries int, posted, updated time.Time) {
+	msg, err := marshalPeerMessage(messageTypeNewTask, tID, taskOther{TaskType: task, Retries: retries, Posted: posted, UpdateTime: updated})
 	if err != nil {
 		log.Errorw("failed to marshal new task message", "error", err)
 		return
@@ -283,8 +287,13 @@ func (p *peering) HasPeers() bool {
 // type. Messages are sent in fire-and-forget goroutines so the scheduler
 // thread never blocks on network I/O. If a send fails, the peer is dropped
 // by the transport layer and removed from routing on the next receive error.
-func (p *peering) TellOthers(verb messageType, taskType string, tID TaskID) {
-	msg, err := marshalPeerMessage(verb, tID, taskOther{TaskType: taskType})
+func (p *peering) TellOthers(verb messageType, taskType string, tID TaskID, state ...task) {
+	other := taskOther{TaskType: taskType}
+	if len(state) > 0 {
+		other.Retries = state[0].Retries
+		other.UpdateTime = state[0].UpdateTime
+	}
+	msg, err := marshalPeerMessage(verb, tID, other)
 	if err != nil {
 		log.Errorw("failed to marshal peer message", "verb", verb, "error", err)
 		return
