@@ -46,6 +46,7 @@ type SubmitCommitAPI interface {
 	StateMinerInfo(context.Context, address.Address, types.TipSetKey) (api.MinerInfo, error)
 	StateMinerInitialPledgeForSector(ctx context.Context, sectorDuration abi.ChainEpoch, sectorSize abi.SectorSize, verifiedSize uint64, tsk types.TipSetKey) (types.BigInt, error)
 	StateSectorPreCommitInfo(context.Context, address.Address, abi.SectorNumber, types.TipSetKey) (*miner.SectorPreCommitOnChainInfo, error)
+	// TODO(NV29): Remove these allocation RPC methods once pre-NV29 support is dropped.
 	StateGetAllocation(ctx context.Context, clientAddr address.Address, allocationId verifregtypes9.AllocationId, tsk types.TipSetKey) (*verifregtypes9.Allocation, error)
 	StateGetAllocationIdForPendingDeal(ctx context.Context, dealId abi.DealID, tsk types.TipSetKey) (verifregtypes9.AllocationId, error)
 	StateMinerAvailableBalance(context.Context, address.Address, types.TipSetKey) (big.Int, error)
@@ -147,15 +148,19 @@ func (s *SubmitCommitTask) Do(ctx context.Context, taskID harmonytask.TaskID, st
 	if err != nil {
 		return false, xerrors.Errorf("getting chain head: %w", err)
 	}
+	nv, err := s.api.StateNetworkVersion(ctx, ts.Key())
+	if err != nil {
+		return false, xerrors.Errorf("getting network version: %w", err)
+	}
 
 	regProof := sectorParamsArr[0].RegSealProof
 
-	balance, err := s.api.StateMinerAvailableBalance(ctx, maddr, types.EmptyTSK)
+	balance, err := s.api.StateMinerAvailableBalance(ctx, maddr, ts.Key())
 	if err != nil {
 		return false, xerrors.Errorf("getting miner balance: %w", err)
 	}
 
-	mi, err := s.api.StateMinerInfo(ctx, maddr, types.EmptyTSK)
+	mi, err := s.api.StateMinerInfo(ctx, maddr, ts.Key())
 	if err != nil {
 		return false, xerrors.Errorf("getting miner info: %w", err)
 	}
@@ -232,25 +237,26 @@ func (s *SubmitCommitTask) Do(ctx context.Context, taskID harmonytask.TaskID, st
 				if err != nil {
 					return false, xerrors.Errorf("marshalling json to deal proposal: %w", err)
 				}
-				alloc, err := s.api.StateGetAllocationIdForPendingDeal(ctx, piece.DealID, types.EmptyTSK)
-				if err != nil {
-					return false, xerrors.Errorf("getting allocation for deal %d: %w", piece.DealID, err)
-				}
-				clid, err := s.api.StateLookupID(ctx, prop.Client, types.EmptyTSK)
-				if err != nil {
-					return false, xerrors.Errorf("getting client address for deal %d: %w", piece.DealID, err)
-				}
-
-				clientId, err := address.IDFromAddress(clid)
-				if err != nil {
-					return false, xerrors.Errorf("getting client address for deal %d: %w", piece.DealID, err)
-				}
-
+				// TODO(NV29): Remove this allocation lookup and leave the manifest key nil once pre-NV29 support is dropped.
 				var vac *miner2.VerifiedAllocationKey
-				if alloc != verifregtypes9.NoAllocationID {
-					vac = &miner2.VerifiedAllocationKey{
-						Client: abi.ActorID(clientId),
-						ID:     verifreg13.AllocationId(alloc),
+				if nv < network.Version29 {
+					alloc, err := s.api.StateGetAllocationIdForPendingDeal(ctx, piece.DealID, ts.Key())
+					if err != nil {
+						return false, xerrors.Errorf("getting allocation for deal %d: %w", piece.DealID, err)
+					}
+					if alloc != verifregtypes9.NoAllocationID {
+						clid, err := s.api.StateLookupID(ctx, prop.Client, ts.Key())
+						if err != nil {
+							return false, xerrors.Errorf("getting client address for deal %d: %w", piece.DealID, err)
+						}
+						clientId, err := address.IDFromAddress(clid)
+						if err != nil {
+							return false, xerrors.Errorf("getting client address for deal %d: %w", piece.DealID, err)
+						}
+						vac = &miner2.VerifiedAllocationKey{
+							Client: abi.ActorID(clientId),
+							ID:     verifreg13.AllocationId(alloc),
+						}
 					}
 				}
 
@@ -276,13 +282,17 @@ func (s *SubmitCommitTask) Do(ctx context.Context, taskID harmonytask.TaskID, st
 					return false, xerrors.Errorf("marshalling json to PieceManifest: %w", err)
 				}
 			}
-			unrecoverable, err := AllocationCheck(ctx, s.api, pam, pci.Info.Expiration, abi.ActorID(sectorParams.SpID), ts)
-			if err != nil {
-				if unrecoverable {
-					_, err2 := s.db.Exec(ctx, `UPDATE sectors_sdr_pipeline SET 
+			// TODO(NV29): Remove allocation validation, failure bookkeeping and verified-size counting once pre-NV29 support is dropped.
+			if nv < network.Version29 {
+				unrecoverable, err := AllocationCheck(ctx, s.api, pam, pci.Info.Expiration, abi.ActorID(sectorParams.SpID), ts)
+				if err != nil {
+					if !unrecoverable {
+						return false, xerrors.Errorf("checking allocation: %w", err)
+					}
+					_, err2 := s.db.Exec(ctx, `UPDATE sectors_sdr_pipeline SET
                                  failed = TRUE, failed_at = NOW(), failed_reason = 'alloc-check', failed_reason_msg = $1,
                                  task_id_commit_msg = NULL, after_commit_msg = FALSE
-                             WHERE task_id_commit_msg = $2 AND sp_id = $3 AND sector_number = $4`, err.Error(), sectorParams.SpID, sectorParams.SectorNumber)
+                             WHERE task_id_commit_msg = $2 AND sp_id = $3 AND sector_number = $4`, err.Error(), taskID, sectorParams.SpID, sectorParams.SectorNumber)
 					if err2 != nil {
 						return false, xerrors.Errorf("allocation check failed with an unrecoverable issue: %w", multierr.Combine(err, err2))
 					}
@@ -290,11 +300,11 @@ func (s *SubmitCommitTask) Do(ctx context.Context, taskID harmonytask.TaskID, st
 					sectorFailed = true
 					break
 				}
-			}
-			if pam.VerifiedAllocationKey != nil {
-				if pam.VerifiedAllocationKey.ID != verifreg13.NoAllocationID {
+				if pam.VerifiedAllocationKey != nil && pam.VerifiedAllocationKey.ID != verifreg13.NoAllocationID {
 					verifiedSize += pam.Size
 				}
+			} else {
+				pam.VerifiedAllocationKey = nil
 			}
 
 			pams = append(pams, *pam)
@@ -308,8 +318,13 @@ func (s *SubmitCommitTask) Do(ctx context.Context, taskID harmonytask.TaskID, st
 		if err != nil {
 			return false, xerrors.Errorf("could not get sector size: %w", err)
 		}
+		// TODO(NV29): Use sector size directly and remove verifiedSize once pre-NV29 support is dropped.
+		pledgeSize := uint64(verifiedSize)
+		if nv >= network.Version29 {
+			pledgeSize = uint64(ssize)
+		}
 
-		collateralPerSector, err := s.api.StateMinerInitialPledgeForSector(ctx, pci.Info.Expiration-ts.Height(), ssize, uint64(verifiedSize), ts.Key())
+		collateralPerSector, err := s.api.StateMinerInitialPledgeForSector(ctx, pci.Info.Expiration-ts.Height(), ssize, pledgeSize, ts.Key())
 		if err != nil {
 			return false, xerrors.Errorf("getting initial pledge collateral: %w", err)
 		}
@@ -333,7 +348,7 @@ func (s *SubmitCommitTask) Do(ctx context.Context, taskID harmonytask.TaskID, st
 			RequireNotificationSuccess: s.cfg.RequireNotificationSuccess,
 		}
 
-		err = s.simuateCommitPerSector(ctx, maddr, mi, balance, collateral, ts, simulateSendParam)
+		err = s.simuateCommitPerSector(ctx, maddr, mi, balance, collateralPerSector, ts, simulateSendParam)
 		if err != nil {
 			log.Errorw("failed to simulate commit for sector", "Miner", maddr.String(), "Sector", sectorParams.SectorNumber, "err", err)
 			continue
@@ -668,6 +683,7 @@ func (s *SubmitCommitTask) Adder(taskFunc harmonytask.AddTaskFunc) {
 	s.sp.pollers[pollerCommitMsg].Set(taskFunc)
 }
 
+// TODO(NV29): Remove AllocNodeApi and AllocationCheck once pre-NV29 support is dropped.
 type AllocNodeApi interface {
 	StateGetAllocation(ctx context.Context, clientAddr address.Address, allocationId verifregtypes9.AllocationId, tsk types.TipSetKey) (*verifregtypes9.Allocation, error)
 }

@@ -22,9 +22,9 @@ import (
 )
 
 type SectorBucket struct {
-	BucketEpoch       abi.ChainEpoch // e.g., (Expiration / 10000) * 10000
-	Count             int64          // how many sectors
-	QAP               abi.DealWeight // Total Deal weight - sum of DealWeights in this bucket
+	BucketEpoch       abi.ChainEpoch   // e.g., (Expiration / 10000) * 10000
+	Count             int64            // how many sectors
+	QAP               abi.StoragePower // Total quality-adjusted power in this bucket
 	Days              int64
 	VestedLockedFunds abi.TokenAmount // Total locked funds (Vesting) - Vested in 10000 epochs
 }
@@ -100,14 +100,9 @@ func (a *PoRep) ActorCharts(ctx context.Context, maddr address.Address) (*Sector
 
 		// Accumulate data
 		sb.Count++
-		rdw := big.Add(sector.DealWeight, sector.VerifiedDealWeight)
-
-		weight := big.Zero()
-		if sector.DealWeight.GreaterThan(abi.NewStoragePower(0)) {
-			weight = big.Div(rdw, big.NewInt(int64(sector.Expiration-sector.PowerBaseEpoch)))
-		}
-		if sector.VerifiedDealWeight.GreaterThan(abi.NewStoragePower(0)) {
-			weight = big.Div(big.Mul(sector.VerifiedDealWeight, big.NewInt(verifiedPowerGainMul)), big.NewInt(int64(sector.Expiration-sector.PowerBaseEpoch)))
+		weight, err := curiochain.SectorQAPower(sector)
+		if err != nil {
+			return nil, xerrors.Errorf("getting power for sector %d: %w", sector.SectorNumber, err)
 		}
 
 		fmt.Println("Sector Number", sector.SectorNumber, "Weight", weight)
@@ -122,7 +117,7 @@ func (a *PoRep) ActorCharts(ctx context.Context, maddr address.Address) (*Sector
 				sbc = &SectorBucket{
 					BucketEpoch:       bucket,
 					Count:             0,
-					QAP:               abi.NewStoragePower(0),                   // Dummy value for CC TODO: Figure out the correct value
+					QAP:               abi.NewStoragePower(0),
 					VestedLockedFunds: big.Sub(locked.VestingFunds, big.Zero()), // Dummy value for CC TODO: Figure out the correct value
 				}
 				bucketsMapCC[bucket] = sbc
@@ -130,6 +125,7 @@ func (a *PoRep) ActorCharts(ctx context.Context, maddr address.Address) (*Sector
 
 			// Accumulate data
 			sbc.Count++
+			sbc.QAP = big.Add(sbc.QAP, weight)
 		}
 	}
 

@@ -665,6 +665,13 @@ func (m *MK20) updateDealDetails(ctx context.Context, id ulid.ULID, deal *Deal, 
 		return code, nil, nil, err
 	}
 
+	// Existing products are immutable; apply admission policy only to new DDO products.
+	for _, p := range np {
+		if p == ProductNameDDOV1 && ndeal.Products.DDOV1.AllocationId != nil {
+			return ErrProductValidationFailed, nil, nil, xerrors.Errorf("new deals with allocations are not supported")
+		}
+	}
+
 	return Ok, ndeal, np, nil
 }
 
