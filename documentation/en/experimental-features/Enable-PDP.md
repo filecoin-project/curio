@@ -7,7 +7,7 @@ description: >-
 # Enable PDP
 
 {% hint style="info" %}
-For a PDP-only node without PoRep/sealing (skiff), see the [Curio-PDP runbook](../curio-pdp.md) and [Skiff binary](../skiff-binary.md).
+For a PDP-only provider without PoRep/sealing, use Dockerized [Curio-PDP](../curio-pdp.md) from [Getting Started](../getting-started.md#curio-pdp-pdp-only). This page is the alpha path that enables PDP on a full Curio sealing cluster.
 {% endhint %}
 
 {% hint style="danger" %}
@@ -145,7 +145,8 @@ Checklist:
 - Ensure inbound 80/443 is reachable for Let’s Encrypt (if used).
 
 See:
-- `documentation/en/curio-market/curio-http-server.md`
+- [Curio HTTP Server](../curio-market/curio-http-server.md) — Curio already serves HTTPS via Let's Encrypt when `DomainName` is set
+- [Optional TLS offloading and filtering](../curio-market/optional-tls-offloading.md) — reverse proxy when you want to offload TLS, keep Curio hosts private, or add filtering
 
 ---
 
@@ -652,6 +653,7 @@ You've successfully launched a **PDP-enabled Filecoin Storage Provider** stack. 
 
 ## 🔜 Next Steps
 
+* 🔐 _(Optional)_ [Optional TLS offloading and filtering](../curio-market/optional-tls-offloading.md) — Curio already serves HTTPS via Let's Encrypt when `DomainName` is set. Use a reverse proxy to offload TLS, keep Curio hosts private, and add filtering.
 * :heavy\_check\_mark: Register your FWSS node
 * :link: Explore FWSS & PDP tools & resources at [https://www.filecoin.services](https://www.filecoin.services/)
 * 💬 Join the community - Filecoin Slack - [#fil-pdp](https://filecoinproject.slack.com/archives/C0717TGU7V2)
