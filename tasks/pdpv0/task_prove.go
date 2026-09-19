@@ -9,7 +9,6 @@ import (
 	"io"
 	"math/big"
 	"math/bits"
-	"sort"
 	"sync/atomic"
 	"time"
 
@@ -17,13 +16,13 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ipfs/go-cid"
 	pool "github.com/libp2p/go-buffer-pool"
-	"github.com/minio/sha256-simd"
 	"github.com/samber/lo"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-commp-utils/zerocomm"
 	commcid "github.com/filecoin-project/go-fil-commcid"
+	commp "github.com/filecoin-project/go-fil-commp-hashhash"
 	"github.com/filecoin-project/go-keccak"
 	"github.com/filecoin-project/go-padreader"
 	"github.com/filecoin-project/go-state-types/abi"
@@ -317,27 +316,6 @@ func (p *ProveTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwne
 		return false, xerrors.Errorf("failed to pack data: %w", err)
 	}
 
-	// [ ["0x559e581f022bb4e4ec6e719e563bf0e026ad6de42e56c18714a2c692b1b88d7e", ["0x559e581f022bb4e4ec6e719e563bf0e026ad6de42e56c18714a2c692b1b88d7e"]] ]
-
-	/* {
-		// format proofs for logging
-		var proofStr string = "[ [\"0x"
-		proofStr += hex.EncodeToString(proofs[0].Leaf[:])
-		proofStr += "\", ["
-		for i, proof := range proofs[0].Proof {
-			if i > 0 {
-				proofStr += ", "
-			}
-			proofStr += "\"0x"
-			proofStr += hex.EncodeToString(proof[:])
-			proofStr += "\""
-		}
-
-		proofStr += "] ] ]"
-
-		log.Infof("PDP Prove Task: dataSetId: %d, taskID: %d, proofs: %s", dataSetId, taskID, proofStr)
-	} */
-
 	pdpVerifierRaw := contract.PDPVerifierRaw{Contract: pdpVerifier}
 
 	calcProofFeeResult := make([]any, 0)
@@ -379,34 +357,6 @@ func (p *ProveTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwne
 		0,
 		nil,
 		data,
-	)
-
-	// Prepare a temp struct for logging proofs as hex
-	type proofLog struct {
-		Leaf  string   `json:"leaf"`
-		Proof []string `json:"proof"`
-	}
-	proofLogs := make([]proofLog, len(proofs))
-	for i, pf := range proofs {
-		leafHex := hex.EncodeToString(pf.Leaf[:])
-		proofHex := make([]string, len(pf.Proof))
-		for j, p := range pf.Proof {
-			proofHex[j] = hex.EncodeToString(p[:])
-		}
-		proofLogs[i] = proofLog{
-			Leaf:  leafHex,
-			Proof: proofHex,
-		}
-	}
-
-	log.Debugw("PDP Prove Task (verbose)",
-		"dataSetId", dataSetId,
-		"taskID", taskID,
-		"proofs", proofLogs,
-		"data", hex.EncodeToString(data),
-		"proofFee initial", new(big.Int).Div(proofFee, big.NewInt(3)),
-		"proofFee 3x", proofFee,
-		"txEth", txEth,
 	)
 
 	log.Infow("PDP Prove Task",
@@ -451,18 +401,23 @@ func (p *ProveTask) GenerateProofs(ctx context.Context, pdpService *contract.PDP
 		return nil, xerrors.Errorf("failed to find piece IDs: %w", err)
 	}
 
+	var proofErrors error
 	for i := range numChallenges {
 		piece := pieceId[i]
 
 		log.Debugw("GenerateProofs: proving piece", "challengeIdx", i, "dataSetId", dataSetId, "pieceId", piece.PieceId, "offset", piece.Offset)
 
-		proof, err := p.provePiece(ctx, dataSetId, piece.PieceId.Int64(), piece.Offset.Int64())
+		pieceProof, err := p.provePiece(ctx, dataSetId, piece.PieceId.Int64(), piece.Offset.Int64())
 		if err != nil {
-			return nil, xerrors.Errorf("failed to prove piece %d (%d, %d, %d): %w", i, dataSetId, piece.PieceId.Int64(), piece.Offset.Int64(), err)
+			proofErrors = errors.Join(proofErrors, xerrors.Errorf("failed to prove piece %d (%d, %d, %d): %w", i, dataSetId, piece.PieceId.Int64(), piece.Offset.Int64(), err))
+			continue
 		}
 
 		log.Debugw("GenerateProofs: piece proved", "challengeIdx", i, "dataSetId", dataSetId, "pieceId", piece.PieceId)
-		proofs[i] = proof
+		proofs[i] = pieceProof
+	}
+	if proofErrors != nil {
+		return nil, proofErrors
 	}
 
 	log.Debugw("GenerateProofs complete", "dataSetId", dataSetId, "proofCount", len(proofs))
@@ -522,17 +477,12 @@ func padTo32Bytes(b []byte) []byte {
 	return padded
 }
 
-func (p *ProveTask) genSubPieceMemtree(ctx context.Context, subPieceCid string, subPieceSize abi.PaddedPieceSize) ([]byte, error) {
-	subPieceCidObj, err := cid.Parse(subPieceCid)
-	if err != nil {
-		return nil, xerrors.Errorf("failed to parse subPiece CID: %w", err)
-	}
-
-	if subPieceSize > proof.MaxMemtreeSize {
+func (p *ProveTask) genSubPieceMemtree(ctx context.Context, subPieceCid cid.Cid, subPieceSize abi.PaddedPieceSize) ([]byte, error) {
+	if subPieceSize > proof.MIN_PADDED_PIECE_SIZE_FOR_CACHE {
 		return nil, xerrors.Errorf("subPiece size exceeds maximum: %d", subPieceSize)
 	}
 
-	subPieceReader, unssize, err := p.cpr.GetSharedPieceReader(ctx, subPieceCidObj, false)
+	subPieceReader, unssize, err := p.cpr.GetSharedPieceReader(ctx, subPieceCid, false)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to get subPiece reader: %w", err)
 	}
@@ -546,7 +496,7 @@ func (p *ProveTask) genSubPieceMemtree(ctx context.Context, subPieceCid string, 
 	cpsize := padreader.PaddedSize(unssize)
 
 	if cpsize.Padded() != subPieceSize {
-		return nil, xerrors.Errorf("subPiece size mismatch: %d > %d", cpsize, subPieceSize)
+		return nil, xerrors.Errorf("subPiece size mismatch: %d != %d", cpsize, subPieceSize)
 	}
 
 	// Pad the reader to .Unpadded() bytes
@@ -558,20 +508,8 @@ func (p *ProveTask) genSubPieceMemtree(ctx context.Context, subPieceCid string, 
 	return proof.BuildSha254Memtree(r, subPieceSize.Unpadded())
 }
 
-// cprPieceReader adapts CachedPieceReader to the proof.PieceReader interface.
-// Converts v2 CIDs to v1 for pdpv0's v1-native CachedPieceReader.
-// NOTE: On main branch, GetSharedPieceReader accepts v2 natively so this
-// conversion can be dropped when pdpv0 merges.
-type cprPieceReader struct {
-	cpr PieceReader
-}
-
-func (r *cprPieceReader) GetPieceReader(ctx context.Context, pieceCid cid.Cid) (proof.SectionReadCloser, uint64, error) {
-	pieceCidV1, _, err := commcid.PieceCidV1FromV2(pieceCid)
-	if err != nil {
-		return nil, 0, xerrors.Errorf("failed to derive v1 CID from v2: %w", err)
-	}
-	return r.cpr.GetSharedPieceReader(ctx, pieceCidV1, false)
+func (p *ProveTask) GetPieceReader(ctx context.Context, pieceCid cid.Cid) (proof.SectionReadCloser, uint64, error) {
+	return p.cpr.GetSharedPieceReader(ctx, pieceCid, false)
 }
 
 // idxProofCache adapts IndexStore to the proof.ProofCache interface.
@@ -603,27 +541,26 @@ func (c *idxProofCache) GetLayer(ctx context.Context, pieceCidV2 cid.Cid, layerI
 	return out, nil
 }
 
-func (p *ProveTask) provePiece(ctx context.Context, dataSetId int64, pieceId int64, challengedLeaf int64) (contract.IPDPTypesProof, error) {
+func (p *ProveTask) provePiece(ctx context.Context, dataSetId int64, pieceId int64, challengedLeaf int64) (outProof contract.IPDPTypesProof, proofErr error) {
 	const arity = 2
 
 	pieceChallengeOffset := challengedLeaf * LeafSize
 
 	// Retrieve the piece and subpiece
 	type subPieceMeta struct {
-		PieceRefId                 int64  `db:"pieceref_id"`
-		CachedProofgenFailureCount int64  `db:"cached_proofgen_failure_count"` // The number of consecutive times cached proofgen has failed for this subpiece
-		Piece                      string `db:"piece"`
-		SubPiece                   string `db:"sub_piece"`
-		SubPieceOffset             int64  `db:"sub_piece_offset"` // padded offset
-		SubPieceSize               int64  `db:"sub_piece_size"`   // padded piece size
-		Removed                    bool   `db:"removed"`
-		PieceRawSize               uint64 `db:"piece_raw_size"` // raw size from parked_pieces, for constructing v2 CID
+		PieceRefId     int64  `db:"pieceref_id"`
+		Piece          string `db:"piece"`
+		SubPiece       string `db:"sub_piece"`
+		SubPieceOffset int64  `db:"sub_piece_offset"` // padded offset
+		SubPieceSize   int64  `db:"sub_piece_size"`   // padded piece size
+		Removed        bool   `db:"removed"`
+		PieceRawSize   uint64 `db:"piece_raw_size"` // raw size from parked_pieces, for constructing v2 CID
 	}
 
 	var subPieces []subPieceMeta
 
-	err := p.db.Select(context.Background(), &subPieces, `
-			SELECT ppr.id as pieceref_id, ppr.cached_proofgen_failure_count as cached_proofgen_failure_count,
+	err := p.db.Select(ctx, &subPieces, `
+			SELECT ppr.id as pieceref_id,
 				   dsp.piece, dsp.sub_piece, dsp.sub_piece_offset, dsp.sub_piece_size, dsp.removed,
 			       pp.piece_raw_size
 			FROM pdp_data_set_pieces dsp
@@ -637,7 +574,7 @@ func (p *ProveTask) provePiece(ctx context.Context, dataSetId int64, pieceId int
 		return contract.IPDPTypesProof{}, xerrors.Errorf("failed to get piece and subPiece: %w", err)
 	}
 
-	// find first subpiece with subpiece_offset >= pieceChallengeOffset
+	// find last subpiece with subpiece_offset >= pieceChallengeOffset
 	challSubPiece, challSubPieceIdx, ok := lo.FindLastIndexOf(subPieces, func(subPiece subPieceMeta) bool {
 		return subPiece.SubPieceOffset <= pieceChallengeOffset
 	})
@@ -653,63 +590,60 @@ func (p *ProveTask) provePiece(ctx context.Context, dataSetId int64, pieceId int
 
 	var subPieceProof *proof.RawMerkleProof
 
-	isIdxNotNull := p.idx != nil
-	isLargeSubPiece := uint64(challSubPiece.SubPieceSize) > MinSizeForCache && challSubPiece.PieceRawSize > 0
-	isUsingCachedProof := isIdxNotNull && isLargeSubPiece
+	isLargeSubPiece := abi.PaddedPieceSize(challSubPiece.SubPieceSize) > proof.MIN_PADDED_PIECE_SIZE_FOR_CACHE
 
-	// Try cached approach for large sub-pieces
-	if isUsingCachedProof {
-		log.Debugw("attempting cached proof generation for sub-piece", "dataSetId", dataSetId, "pieceId", pieceId, "subPieceCid", challSubPiece.SubPiece, "subPieceSize", challSubPiece.SubPieceSize)
-		var subpieceCidV1, subpieceCidV2 cid.Cid
-		isPieceCidsExtracted := false
-		isCachedProofRetrieved := false
-
-		// First, let's extract the CIDs
-		if spCidV1, parseErr := cid.Parse(challSubPiece.SubPiece); parseErr == nil {
-			if spCidV2, v2Err := commcid.PieceCidV2FromV1(spCidV1, challSubPiece.PieceRawSize); v2Err == nil {
-				subpieceCidV1 = spCidV1
-				subpieceCidV2 = spCidV2
-				isPieceCidsExtracted = true
-			}
-		}
-
-		// Second, check we can get proofs through a subPieceCached setup
-		if isPieceCidsExtracted {
-			cachedProof, cacheErr := proof.GenerateCachedProof(ctx, &cprPieceReader{cpr: p.cpr}, &idxProofCache{idx: p.idx}, subpieceCidV2, subPieceChallengedLeaf)
-			if cacheErr == nil && cachedProof != nil {
-				subPieceProof = cachedProof
-				isCachedProofRetrieved = true
-			} else {
-				// either there was an error during cached proofgen,
-				// or there was simply no cache available
-
-				// Mark the cache for rehydration now, and we will fallback to full memtree
-				log.Warnw("expected to use cached proof for large sub-piece but failed, will attempt to rehydrate cache and fall back to full memtree", "dataSetId", dataSetId, "pieceId", pieceId, "subPieceSize", challSubPiece.SubPieceSize, "rawSize", challSubPiece.PieceRawSize, "cachedProofgenFailureCount", challSubPiece.CachedProofgenFailureCount)
-				_, err := p.db.Exec(ctx, `
-						UPDATE pdp_piecerefs
-						SET needs_save_cache = TRUE, caching_task_started = NULL, caching_task_completed = NULL, cached_proofgen_failure_count = $1
-						WHERE id = $2`,
-					challSubPiece.CachedProofgenFailureCount+1, challSubPiece.PieceRefId)
-				if err != nil {
-					log.Warnw("failed to reset cache for pieceref", "error", err, "pieceRefId", challSubPiece.PieceRefId, "dataSetId", dataSetId)
-				}
-			}
-		}
-
-		if !isPieceCidsExtracted || !isCachedProofRetrieved {
-			isSubPieceProofNil := subPieceProof == nil
-			log.Warnw("cached pdp proof not used, may require fallback to full memtree", "isPieceCidsExtracted", isPieceCidsExtracted, "isCachedProofRetrieved", isCachedProofRetrieved, "isSubPieceProofNil", isSubPieceProofNil, "dataSetId", dataSetId, "pieceId", pieceId, "subPieceCidV1", subpieceCidV1, "subPieceCidV2", subpieceCidV2)
-		} else {
-			log.Debugw("cached pdp proof used successfully", "dataSetId", dataSetId, "pieceId", pieceId, "subPieceCidV1", subpieceCidV1, "subPieceCidV2", subpieceCidV2)
-		}
+	pcid1, err := cid.Parse(challSubPiece.SubPiece)
+	if err != nil {
+		return contract.IPDPTypesProof{}, xerrors.Errorf("failed to parse subpiece: %w", err)
 	}
 
-	// Fallback conditions for doing full memtree proof generation:
-	// 1. sub-piece is too small for caching (isLargeSubPiece == false), so we never even attempt cached proofgen
-	// 2. sub-piece is large, we attempted cached proofgen, but it fails for some reason
-	if subPieceProof == nil {
-		log.Debugw("using full memtree proof generation for sub-piece", "dataSetId", dataSetId, "pieceId", pieceId, "subPieceCid", challSubPiece.SubPiece, "subPieceSize", challSubPiece.SubPieceSize, "isLargeSubPiece", isLargeSubPiece, "isIdxNotNull", isIdxNotNull)
-		memtree, memErr := p.genSubPieceMemtree(ctx, challSubPiece.SubPiece, abi.PaddedPieceSize(challSubPiece.SubPieceSize))
+	pcid2, err := commcid.PieceCidV2FromV1(pcid1, challSubPiece.PieceRawSize)
+	if err != nil {
+		return contract.IPDPTypesProof{}, xerrors.Errorf("failed to parse subpiece: %w", err)
+	}
+
+	commitment, err := commcid.CIDToPieceCommitmentV1(pcid1)
+	if err != nil {
+		return contract.IPDPTypesProof{}, xerrors.Errorf("failed to decode subpiece commitment: %w", err)
+	}
+
+	// Try cached approach for large sub-pieces
+	if isLargeSubPiece {
+		// Validate once after any cached-proof failure, including final verification.
+		defer func() {
+			if proofErr == nil {
+				return
+			}
+			layerIndex := commp.SnapshotLayerIndex(PaddedReadSize)
+			nodes, err := p.idx.GetPDPLayer(ctx, pcid2, layerIndex)
+			if err != nil {
+				log.Warnw("failed to read PDP cache for validation", "pieceCid", pcid2, "error", err)
+				return
+			}
+			if err := validatePDPCacheLayer(pcid2, layerIndex, nodes); err != nil {
+				log.Warnw("invalid PDP cache, requesting repair", "pieceCid", pcid2, "error", err)
+				if _, err := p.db.Exec(ctx, `UPDATE pdp_piecerefs SET needs_save_cache = TRUE WHERE id = $1`, challSubPiece.PieceRefId); err != nil {
+					proofErr = errors.Join(proofErr, xerrors.Errorf("failed to request cache repair: %w", err))
+				}
+			}
+		}()
+		log.Debugw("attempting cached proof generation for sub-piece", "dataSetId", dataSetId, "pieceId", pieceId, "subPieceCid", challSubPiece.SubPiece, "subPieceSize", challSubPiece.SubPieceSize)
+
+		cachedProof, cacheErr := proof.GenerateCachedProof(ctx, p, &idxProofCache{idx: p.idx}, pcid2, subPieceChallengedLeaf)
+		if cacheErr != nil {
+			return contract.IPDPTypesProof{}, xerrors.Errorf("failed to generate cached subpiece proof: %w", cacheErr)
+		}
+
+		// Proof will be nil only if we don't have the cache
+		if cachedProof == nil {
+			return contract.IPDPTypesProof{}, xerrors.New("no proving cache found")
+		}
+
+		subPieceProof = cachedProof
+
+	} else {
+		log.Debugw("using full memtree proof generation for sub-piece", "dataSetId", dataSetId, "pieceId", pieceId, "subPieceCid", challSubPiece.SubPiece, "subPieceSize", challSubPiece.SubPieceSize, "isLargeSubPiece", isLargeSubPiece)
+		memtree, memErr := p.genSubPieceMemtree(ctx, pcid2, abi.PaddedPieceSize(challSubPiece.SubPieceSize))
 		if memErr != nil {
 			return contract.IPDPTypesProof{}, xerrors.Errorf("failed to generate subPiece memtree: %w", memErr)
 		}
@@ -720,16 +654,24 @@ func (p *ProveTask) provePiece(ctx context.Context, dataSetId int64, pieceId int
 		}
 	}
 
-	// Final check for early exit
-	log.Debugw("subPieceProof", "subPieceProof", subPieceProof, "isLargeSubPiece", isLargeSubPiece, "isUsingCachedProof", isUsingCachedProof)
-	if subPieceProof == nil {
-		return contract.IPDPTypesProof{}, xerrors.New("failed to generate sub-piece proof")
+	if len(subPieces) == 1 {
+		var cr [proof.NODE_SIZE]byte
+		copy(cr[:], commitment)
+
+		if !proof.VerifyProof(subPieceProof.Leaf, subPieceProof.Proof, cr, uint64(challengedLeaf)) {
+			return contract.IPDPTypesProof{}, xerrors.Errorf("proof verification failed")
+		}
+
+		return contract.IPDPTypesProof{
+			Leaf:  subPieceProof.Leaf,
+			Proof: subPieceProof.Proof,
+		}, nil
 	}
 
+	// Below code should be removed once single sub-piece per piece is finalized
 	// build partial top-tree
 	type treeElem struct {
-		Level int // 1 == leaf, NODE_SIZE
-		Hash  [LeafSize]byte
+		Hash [LeafSize]byte
 	}
 	type elemIndex struct {
 		Level      int
@@ -759,8 +701,7 @@ func (p *ProveTask) provePiece(ctx context.Context, dataSetId int64, pieceId int
 		level := proof.NodeLevel(subPiece.SubPieceSize/LeafSize, arity)
 		offset := (subPiece.SubPieceOffset / LeafSize) >> uint(level-1)
 		partialTree[elemIndex{Level: level, ElemOffset: offset}] = treeElem{
-			Level: level,
-			Hash:  comm,
+			Hash: comm,
 		}
 	}
 
@@ -796,8 +737,7 @@ func (p *ProveTask) provePiece(ctx context.Context, dataSetId int64, pieceId int
 
 				// create a zero rightSibling
 				rightSibling = treeElem{
-					Level: level,
-					Hash:  zerocomm.PieceComms[level-zerocomm.Skip-1],
+					Hash: zerocomm.PieceComms[level-zerocomm.Skip-1],
 				}
 				log.Debugw("rightSibling zero", "rightSibling", rightSibling, "siblingIndex", siblingIndex, "level", level, "offset", offset)
 				partialTree[siblingIndex] = rightSibling
@@ -809,8 +749,7 @@ func (p *ProveTask) provePiece(ctx context.Context, dataSetId int64, pieceId int
 			parentOffset := offset / arity
 
 			partialTree[elemIndex{Level: parentLevel, ElemOffset: parentOffset}] = treeElem{
-				Level: parentLevel,
-				Hash:  parent,
+				Hash: parent,
 			}
 
 			// move to the parent
@@ -818,20 +757,6 @@ func (p *ProveTask) provePiece(ctx context.Context, dataSetId int64, pieceId int
 			offset = parentOffset
 			curElem = partialTree[elemIndex{Level: level, ElemOffset: offset}]
 		}
-	}
-
-	{
-		var partialTreeList []elemIndex
-		for k := range partialTree {
-			partialTreeList = append(partialTreeList, k)
-		}
-		sort.Slice(partialTreeList, func(i, j int) bool {
-			if partialTreeList[i].Level != partialTreeList[j].Level {
-				return partialTreeList[i].Level < partialTreeList[j].Level
-			}
-			return partialTreeList[i].ElemOffset < partialTreeList[j].ElemOffset
-		})
-
 	}
 
 	challLevel := proof.NodeLevel(challSubPiece.SubPieceSize/LeafSize, arity)
@@ -856,19 +781,9 @@ func (p *ProveTask) provePiece(ctx context.Context, dataSetId int64, pieceId int
 
 		// Retrieve sibling hash from partialTree or use zero hash
 		siblingIndex := elemIndex{Level: currentLevel, ElemOffset: siblingOffset}
-		index := elemIndex{Level: currentLevel, ElemOffset: currentOffset}
 		siblingElem, ok := partialTree[siblingIndex]
 		if !ok {
 			return contract.IPDPTypesProof{}, xerrors.Errorf("missing sibling at level %d, offset %d", currentLevel, siblingOffset)
-		}
-		elem, ok := partialTree[index]
-		if !ok {
-			return contract.IPDPTypesProof{}, xerrors.Errorf("missing element at level %d, offset %d", currentLevel, currentOffset)
-		}
-		if currentOffset < siblingOffset { // left
-			log.Debugw("Proof", "position", index, "left-c", hex.EncodeToString(elem.Hash[:]), "right-s", hex.EncodeToString(siblingElem.Hash[:]), "out", hex.EncodeToString(shabytes(append(elem.Hash[:], siblingElem.Hash[:]...))[:]))
-		} else { // right
-			log.Debugw("Proof", "position", index, "left-s", hex.EncodeToString(siblingElem.Hash[:]), "right-c", hex.EncodeToString(elem.Hash[:]), "out", hex.EncodeToString(shabytes(append(siblingElem.Hash[:], elem.Hash[:]...))[:]))
 		}
 
 		// Append the sibling's hash to the proof
@@ -923,11 +838,6 @@ func (p *ProveTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 }
 
 func (p *ProveTask) TypeDetails() harmonytask.TaskTypeDetails {
-	// RAM: Proving builds a memtree for one piece at a time (sequential, not parallel).
-	// Peak RAM ≈ 3× piece size (unpadBuf + memtreeBuf during fr32.Pad).
-	// 2 GiB covers an average piece size of up to ~680 MiB; max 1 GiB pieces may exceed this.
-	const proveTaskRAM = 3 << 30 // 3 GiB
-
 	return harmonytask.TaskTypeDetails{
 		Name:          tasknames.PDPv0_Prove,
 		TimeSensitive: true,
@@ -939,7 +849,7 @@ func (p *ProveTask) TypeDetails() harmonytask.TaskTypeDetails {
 		Cost: resources.Resources{
 			Cpu: 1,
 			Gpu: 0,
-			Ram: proveTaskRAM,
+			Ram: 100 << 20,
 		},
 		MaxFailures: 5,
 		RetryWait:   taskhelp.RetryWaitExp(10*time.Second, 2),
@@ -953,11 +863,6 @@ func (p *ProveTask) Adder(taskFunc harmonytask.AddTaskFunc) {
 func nextPowerOfTwo(n abi.PaddedPieceSize) abi.PaddedPieceSize {
 	lz := bits.LeadingZeros64(uint64(n - 1))
 	return 1 << (64 - lz)
-}
-
-func shabytes(in []byte) []byte {
-	out := sha256.Sum256(in)
-	return out[:]
 }
 
 var (

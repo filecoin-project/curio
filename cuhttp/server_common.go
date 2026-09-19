@@ -59,7 +59,7 @@ func StartServer(ctx context.Context, cfg *config.HTTPConfig, db *harmonydb.DB, 
 		Addr:              cfg.ListenAddress,
 		Handler:           handler,
 		ReadTimeout:       cfg.ReadTimeout,
-		WriteTimeout:      time.Hour * 2,
+		WriteTimeout:      2*time.Hour + time.Minute,
 		IdleTimeout:       cfg.IdleTimeout,
 		ReadHeaderTimeout: cfg.ReadHeaderTimeout,
 	}

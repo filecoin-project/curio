@@ -17,6 +17,8 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/snadrus/must"
 	"github.com/stretchr/testify/require"
+
+	commcid "github.com/filecoin-project/go-fil-commcid"
 )
 
 // mockPullStore implements PullStore for testing
@@ -539,6 +541,43 @@ func TestHandlePull_Backpressure(t *testing.T) {
 	require.False(t, store.getPullPiecesCalled)
 }
 
+func TestHandlePullPieceSizeBoundary(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		raw    uint64
+		status int
+	}{
+		{name: "64 GiB padded", raw: 68182605824, status: http.StatusOK},
+		{name: "one byte above maximum", raw: 68182605825, status: http.StatusBadRequest},
+		{name: "64 GiB raw", raw: 64 << 30, status: http.StatusBadRequest},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			pieceCID, err := commcid.DataCommitmentToPieceCidv2(make([]byte, 32), test.raw)
+			require.NoError(t, err)
+			store := &mockPullStore{}
+			handler := NewPullHandler(&NullAuth{}, store, &mockValidator{shouldPass: true}, nil)
+			body := PullRequest{
+				ExtraData: testAddPiecesOnlyExtraData(t),
+				DataSetId: &testDataSetId,
+				Pieces: []PullPieceRequest{
+					{PieceCid: pieceCID.String(), SourceURL: "https://example.com/piece/" + pieceCID.String()},
+				},
+			}
+			req := httptest.NewRequest(http.MethodPost, "/pdp/piece/pull", bytes.NewReader(must.One(json.Marshal(body))))
+			rec := httptest.NewRecorder()
+			handler.HandlePull(rec, req)
+			require.Equal(t, test.status, rec.Code, rec.Body.String())
+			if test.status == http.StatusOK {
+				require.Len(t, store.createdPieces, 1)
+				require.Equal(t, test.raw, store.createdPieces[0].RawSize)
+			} else {
+				require.False(t, store.createPullCalled)
+				require.Contains(t, rec.Body.String(), "exceeds maximum")
+			}
+		})
+	}
+}
+
 func TestPadPieceSize(t *testing.T) {
 	// Test vectors from go-fil-commp-hashhash/testdata/zero.txt
 	// These are authoritative values: PayloadSize -> PieceSize
@@ -566,6 +605,8 @@ func TestPadPieceSize(t *testing.T) {
 		{name: "192 -> 256", rawSize: 192, expected: 256},
 		{name: "384 -> 512", rawSize: 384, expected: 512},
 		{name: "768 -> 1024", rawSize: 768, expected: 1024},
+		{name: "64 GiB padded maximum", rawSize: 68182605824, expected: 64 << 30},
+		{name: "one byte above 64 GiB padded", rawSize: 68182605825, expected: 128 << 30},
 	}
 
 	for _, tt := range tests {
