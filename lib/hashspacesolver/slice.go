@@ -37,6 +37,22 @@ func StartHash(ranges []Range, i int) []byte {
 	return cloneHash(ranges[(i-1+n)%n].EndHash)
 }
 
+// Contains reports whether p lies in the half-open circle interval (start, end].
+// The endpoint end is included and start is excluded. A start equal to end
+// covers the whole circle, including that point. Callers pass equal-width hashes.
+func Contains(start, end, p []byte) bool {
+	if len(p) == 0 {
+		return false
+	}
+	if bytes.Equal(start, end) {
+		return true
+	}
+	if bytes.Compare(start, end) < 0 {
+		return bytes.Compare(start, p) < 0 && bytes.Compare(p, end) <= 0
+	}
+	return bytes.Compare(start, p) < 0 || bytes.Compare(p, end) <= 0
+}
+
 func splitHash(r Range, startHash []byte, prefixSize int64) []byte {
 	return splitHashBound(r, startHash, prefixSize, false)
 }

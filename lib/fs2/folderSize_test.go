@@ -122,6 +122,37 @@ func TestSubtreePrune(t *testing.T) {
 	}
 }
 
+func TestSumFileSizesIntervalWrap(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "01"), 1)
+	writeFile(t, filepath.Join(dir, "80"), 4)
+	writeFile(t, filepath.Join(dir, "ff"), 2)
+
+	result, err := SumFileSizesInterval(dir, "c0", "20", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Bytes != 3 || result.Files != 2 {
+		t.Fatalf("(c0, 20] wrap: got %+v, want 3 bytes / 2 files", result)
+	}
+
+	result, err = SumFileSizesInterval(dir, "01", "80", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Bytes != 4 || result.Files != 1 {
+		t.Fatalf("(01, 80]: got %+v, want 4 bytes / 1 file", result)
+	}
+
+	result, err = SumFileSizesInterval(dir, "", "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Bytes != 7 || result.Files != 3 {
+		t.Fatalf("open interval: got %+v, want 7 bytes / 3 files", result)
+	}
+}
+
 func TestHashHelpers(t *testing.T) {
 	if got := hashFromRel("ab/cdefg"); got != "abcdefg" {
 		t.Fatalf("hashFromRel(ab/cdefg)=%q", got)
