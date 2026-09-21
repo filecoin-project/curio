@@ -19,8 +19,8 @@ type EthTransactionManager interface {
 }
 
 type PendingEthTx struct {
-	WaitHash   string `db:"wait_hash"`
-	LookupHash string `db:"lookup_hash"`
+	WaitHash     string   `db:"wait_hash"`
+	LookupHashes []string `db:"lookup_hashes"`
 }
 
 // HarmonyEthTxManager is the real implementation using HarmonyDB
@@ -42,30 +42,20 @@ func (h *HarmonyEthTxManager) AssignPendingToMachine(ctx context.Context, machin
 func (h *HarmonyEthTxManager) GetPendingForMachine(ctx context.Context, machineID int64) ([]PendingEthTx, error) {
 	var txs []PendingEthTx
 
-	// Pending waits are keyed by the original caller-facing hash in message_waits_eth.
-	// If that transaction was replaced, message_send_eth_replacements gives us the
-	// latest successful replacement hash to query on chain while keeping the wait row
-	// update anchored to the original hash.
+	// Query replacements newest first, then the original: any of them may land.
+	// WaitHash remains the caller-facing identity for all database updates.
 	err := h.db.Select(ctx, &txs, `
 		SELECT
 			mwe.signed_tx_hash AS wait_hash,
-			COALESCE(latest.signed_hash, mwe.signed_tx_hash) AS lookup_hash
+			ARRAY(
+				SELECT r.signed_hash
+				FROM message_send_eth_replacements r
+				WHERE r.original_signed_hash = mwe.signed_tx_hash
+					AND r.send_success = TRUE
+					AND r.signed_hash IS NOT NULL
+				ORDER BY r.send_time DESC NULLS LAST, r.id DESC
+			) || ARRAY[mwe.signed_tx_hash] AS lookup_hashes
 		FROM message_waits_eth mwe
-		LEFT JOIN LATERAL (
-			SELECT r.signed_hash
-			FROM message_send_eth_replacements r
-			WHERE r.original_signed_hash = mwe.signed_tx_hash
-				AND r.send_success = TRUE
-				AND r.signed_hash IS NOT NULL
-				AND NOT EXISTS (
-					SELECT 1
-					FROM message_send_eth_replacements next
-					WHERE next.original_signed_hash = r.original_signed_hash
-						AND next.send_success = TRUE
-						AND next.replaces_signed_hash = r.signed_hash
-				)
-			LIMIT 1
-		) latest ON TRUE
 		WHERE mwe.waiter_machine_id = $1
 			AND mwe.tx_status = 'pending'
 		LIMIT 10000`, machineID)
