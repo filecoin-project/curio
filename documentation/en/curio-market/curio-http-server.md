@@ -163,13 +163,15 @@ Operational notes:
 
 ### Mode B: Reverse proxy terminates TLS (DelegateTLS = true)
 
-Use this when you already run Nginx/Caddy/Traefik or cannot (or do not want to) expose Curio directly.
+Use this when you already run Nginx/Caddy/Traefik, want to offload TLS, keep Curio hosts off the public internet, or add filtering in the proxy. Curio already serves HTTPS itself (Mode A) when `DomainName` is set; this mode is optional.
 
 In this mode:
 - Curio serves **plain HTTP** internally.
 - Your reverse proxy handles TLS + Let’s Encrypt.
 - When the proxy connects over loopback, Curio treats the rightmost `X-Forwarded-For` entry as the client IP for rate limiting and abuse controls.
 - The proxy must overwrite or append `X-Forwarded-For` on every request. Forwarding headers from non-loopback peers are ignored.
+
+For an optional nginx reverse-proxy example (TLS offload, private Curio hosts, filtering), see [Optional TLS offloading and filtering](optional-tls-offloading.md).
 
 Minimal Nginx example:
 

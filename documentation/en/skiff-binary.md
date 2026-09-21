@@ -1,6 +1,8 @@
 # Skiff binary (`skiff`)
 
-Skiff is a lightweight Curio variant focused on Proof of Data Possession (PDP) storage. It shares the same database schema and configuration tables as `curio`, but omits PoRep/sealing, the deal market (MK20), and the worker JSON-RPC listener.
+Skiff is the lightweight Curio-PDP binary: PDP storage without PoRep/sealing, the deal market (MK20), or the worker JSON-RPC listener. It shares the same database schema and configuration tables as full `curio`.
+
+**Operators:** use the Dockerized [Curio-PDP](curio-pdp.md) path from [Getting Started](getting-started.md#curio-pdp-pdp-only). This page is the native binary, build tags, and flags.
 
 ## Build
 
@@ -57,7 +59,7 @@ Use a single `base` config layer. On first start, skiff **auto-seeds `base`** wi
 - `Subsystems.EnableWebGui = true` for the admin UI
 - `HTTP.Enable = true` for the public `/pdp/*` API
 
-See [Enable PDP](experimental-features/Enable-PDP.md) for full-stack Curio deployment, or the [Curio-PDP runbook](curio-pdp.md) for the skiff PDP-only deployment (Dockerized Yugabyte), including [PDP signing wallet setup via the admin GUI](curio-pdp.md#5-pdp-signing-wallet-admin-gui).
+See [Enable PDP](experimental-features/Enable-PDP.md) for full-stack Curio deployment, or [Curio-PDP](curio-pdp.md) for the Dockerized PDP-only path (from [Getting Started](getting-started.md#curio-pdp-pdp-only)), including [PDP signing wallet setup via the admin GUI](curio-pdp.md#5-pdp-signing-wallet-admin-gui).
 
 ### Chain API
 
