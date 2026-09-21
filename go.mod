@@ -20,7 +20,7 @@ require (
 	github.com/elastic/go-sysinfo v1.15.5
 	github.com/ethereum/go-ethereum v1.17.5
 	github.com/fatih/color v1.19.0
-	github.com/filecoin-project/filecoin-ffi v1.36.1
+	github.com/filecoin-project/filecoin-ffi v1.37.0
 	github.com/filecoin-project/go-address v1.2.0
 	github.com/filecoin-project/go-bitfield v0.2.4
 	github.com/filecoin-project/go-cbor-util v0.0.2
