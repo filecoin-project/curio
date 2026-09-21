@@ -119,7 +119,7 @@ If deal has `Data` and matching piece already exists in `parked_pieces`, it inse
    - Offline: create pipeline row with `offline=TRUE, started=FALSE`.
    - Aggregate: one pipeline row per subpiece; HTTP subpieces also get download refs.
 3. `processMK20Deals` then progresses data readiness:
-   - `downloadMk20Deal` calls SQL `mk20_ddo_mark_downloaded` to bind completed refs to `url=pieceref:*` and set `downloaded=TRUE`.
+   - The full piece pass calls SQL `mk20_ddo_mark_downloaded` once before loading its pipeline snapshot. The function binds completed refs to `url=pieceref:*` and sets `downloaded=TRUE`.
    - `findOfflineURLMk20Deal` calls `process_offline_download(...)` and piece-locator probing for offline rows.
 4. At `downloaded=TRUE + url=pieceref:*`, DDO is in pipeline with data.
 5. During sector ingestion, start epoch uses `ddo_v1.start_epoch` when set; otherwise Curio falls back to `head + 2 days`.
