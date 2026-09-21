@@ -12,6 +12,7 @@ customElements.define('pdp-guide', class PDPGuideElement extends LitElement {
         registerName: { type: String },
         registerDescription: { type: String },
         registerLocation: { type: String },
+        registerCapacityTiB: { type: String },
         createdKey: { type: Object },
         actionMessage: { type: String },
         actionError: { type: String },
@@ -217,6 +218,7 @@ customElements.define('pdp-guide', class PDPGuideElement extends LitElement {
         this.registerName = '';
         this.registerDescription = '';
         this.registerLocation = '';
+        this.registerCapacityTiB = '';
         this.createdKey = null;
         this.actionMessage = '';
         this.actionError = '';
@@ -360,6 +362,7 @@ customElements.define('pdp-guide', class PDPGuideElement extends LitElement {
                 this.registerName.trim(),
                 this.registerDescription.trim(),
                 this.registerLocation.trim(),
+                Number(this.registerCapacityTiB),
             ]);
             await this.refresh();
             this.actionMessage = 'Registration submitted. Wait a few epochs for on-chain confirmation.';
@@ -592,6 +595,9 @@ customElements.define('pdp-guide', class PDPGuideElement extends LitElement {
                                    @input=${(e) => { this.registerLocation = e.target.value; }}
                                    placeholder="C=US;ST=California;L=San Francisco" required>
                             <p class="hint">Location format: <span class="mono">C=US;ST=California;L=San Francisco</span></p>
+                            <label for="reg-cap">Storage capacity (TiB)</label>
+                            <input id="reg-cap" type="number" min="1" step="1" .value=${this.registerCapacityTiB}
+                                   @input=${(e) => { this.registerCapacityTiB = e.target.value; }} required>
                             <div class="row-btns">
                                 <button class="btn btn-primary btn-sm" type="submit" ?disabled=${!!this.busy}>
                                     ${this.busy === 'register' ? 'Registering…' : 'Register with FOC'}
