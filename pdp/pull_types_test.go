@@ -218,7 +218,7 @@ func TestPullRequest_ValidateAllowsLargeBatches(t *testing.T) {
 
 	// Piece count is no longer capped; Filecoin message size is enforced later
 	// when packing addPieces. Distinct source URLs isolate duplicate checks.
-	pieces := make([]PullPieceRequest, 41)
+	pieces := make([]PullPieceRequest, 2000)
 	for i := range pieces {
 		pieces[i] = PullPieceRequest{
 			PieceCid:  validCid,
