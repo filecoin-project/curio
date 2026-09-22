@@ -26,10 +26,11 @@ definitions:
       allocation_id:
         allOf:
         - $ref: '#/definitions/github_com_filecoin-project_go-state-types_builtin_v16_verifreg.AllocationId'
-        description: AllocationId represents an allocation identifier for the deal.
+        description: AllocationId is retained for previously accepted deals and rejected
+          on new intake.
       duration:
         description: |-
-          Duration represents the deal duration in epochs. This value is ignored for the deal with allocationID.
+          Duration represents the deal duration in epochs.
           It must be at least 518400
         type: integer
       market_address:

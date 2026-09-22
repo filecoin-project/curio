@@ -266,14 +266,21 @@ func (p *PieceIngester) AllocatePieceToSector(ctx context.Context, tx *harmonydb
 		return nil, nil, xerrors.Errorf("json.Marshal(header): %w", err)
 	}
 
-	vd := verifiedDeal{
-		isVerified: false,
+	head, err := p.api.ChainHead(ctx)
+	if err != nil {
+		return nil, nil, xerrors.Errorf("getting chain head: %w", err)
+	}
+	nv, err := p.api.StateNetworkVersion(ctx, head.Key())
+	if err != nil {
+		return nil, nil, xerrors.Errorf("getting network version: %w", err)
 	}
 
+	// TODO(NV29): Remove allocation lookups and verifiedDeal plumbing once pre-NV29 support is dropped.
+	var vd verifiedDeal
 	if piece.DealProposal != nil {
-		vd.isVerified = piece.DealProposal.VerifiedDeal
+		vd.isVerified = nv < network.Version29 && piece.DealProposal.VerifiedDeal
 		if vd.isVerified {
-			alloc, err := p.api.StateGetAllocationForPendingDeal(ctx, piece.DealID, types.EmptyTSK)
+			alloc, err := p.api.StateGetAllocationForPendingDeal(ctx, piece.DealID, head.Key())
 			if err != nil {
 				return nil, nil, xerrors.Errorf("getting pending allocation for deal %d: %w", piece.DealID, err)
 			}
@@ -288,13 +295,13 @@ func (p *PieceIngester) AllocatePieceToSector(ctx context.Context, tx *harmonydb
 			return nil, nil, xerrors.Errorf("json.Marshal(piece.DealProposal): %w", err)
 		}
 	} else {
-		vd.isVerified = piece.PieceActivationManifest.VerifiedAllocationKey != nil
+		vd.isVerified = nv < network.Version29 && piece.PieceActivationManifest.VerifiedAllocationKey != nil
 		if vd.isVerified {
 			client, err := address.NewIDAddress(uint64(piece.PieceActivationManifest.VerifiedAllocationKey.Client))
 			if err != nil {
 				return nil, nil, xerrors.Errorf("getting client address from actor ID: %w", err)
 			}
-			alloc, err := p.api.StateGetAllocation(ctx, client, verifregtypes.AllocationId(piece.PieceActivationManifest.VerifiedAllocationKey.ID), types.EmptyTSK)
+			alloc, err := p.api.StateGetAllocation(ctx, client, verifregtypes.AllocationId(piece.PieceActivationManifest.VerifiedAllocationKey.ID), head.Key())
 			if err != nil {
 				return nil, nil, xerrors.Errorf("getting allocation details for %d: %w", piece.PieceActivationManifest.VerifiedAllocationKey.ID, err)
 			}
@@ -382,6 +389,7 @@ func (p *PieceIngester) allocateToExisting(tx *harmonydb.Tx, maddr address.Addre
 			continue
 		}
 		if sec.currentSize+psize <= abi.PaddedPieceSize(p.minerDetails[p.addToID[maddr]].sectorSize) {
+			// TODO(NV29): Remove allocation term constraints once pre-NV29 support is dropped.
 			if vd.isVerified {
 				sectorLifeTime := sec.latestEndEpoch - sec.earliestStartEpoch
 				// Allocation's TMin must fit in sector and TMax should be at least sector lifetime or more
