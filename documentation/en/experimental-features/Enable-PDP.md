@@ -92,77 +92,6 @@ You should see something like: `rustc 1.86.0 (05f9846f8 2025-03-31)`
 
 ***
 
-### 🔐 Add Go and Rust to Secure Sudo Path
-
-```sh
-sudo tee /etc/sudoers.d/dev-paths <<EOF
-Defaults secure_path="/usr/local/go/bin:$HOME/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-EOF
-```
-
-***
-
-
----
-
-## PDP schema / migrations (important)
-
-PDP requires database schema migrations.
-
-How to confirm PDP schema exists:
-- Connect to YSQL and verify expected tables exist in the `curio` schema.
-
-```bash
-ysqlsh -h "$CURIO_DB_HOST" -p "${CURIO_DB_PORT:-5433}" -U "$CURIO_DB_USER" -d "${CURIO_DB_NAME:-yugabyte}" -c "\dn+ curio"
-```
-
-Migration reference:
-- The PDP schema is added via Curio’s HarmonyDB migrations (for example: `harmony/harmonydb/sql/20240930-pdp.sql`).
-
-If you upgraded Curio binaries but PDP still fails:
-- check Curio logs on startup for schema upgrade output
-- confirm you are connected to the correct DB (`CURIO_DB_NAME` default `yugabyte`) and schema (`curio`)
-
----
-
-## Ports & domain names (PDP vs Market)
-
-PDP commonly confuses operators because multiple HTTP-exposed services may exist in a Curio deployment.
-
-Recommended patterns:
-
-### Pattern A: single domain, one Curio HTTP server
-- One public domain (e.g. `curio.example.com`)
-- One HTTP server handles multiple routes
-- Reverse proxy optional (see HTTP server docs)
-
-### Pattern B: separate domains for separate services
-- `pdp.example.com` and `market.example.com`
-- Useful when you want different auth/proxying/caching policies
-
-Checklist:
-- Decide whether Curio terminates TLS or a reverse proxy does.
-- Ensure inbound 80/443 is reachable for Let’s Encrypt (if used).
-
-See:
-- [Curio HTTP Server](../curio-market/curio-http-server.md) — Curio already serves HTTPS via Let's Encrypt when `DomainName` is set
-- [Optional TLS offloading and filtering](../curio-market/optional-tls-offloading.md) — reverse proxy when you want to offload TLS, keep Curio hosts private, or add filtering
-
----
-
-## Troubleshooting: `pdptool ping` works locally but not remotely
-
-Common causes:
-- firewall blocks inbound traffic
-- wrong domain/port
-- TLS delegation mismatch
-
-What to do:
-- test from an external host
-- confirm DNS and ports 80/443 (or your proxy) are correct
-- include full logs + command used
-
-
 ## ⛓️ Installing and Running Lotus
 
 🧠 Lotus is your gateway to the Filecoin network. It syncs the chain, manages wallets, and is required for Curio to interact with your node.
@@ -196,7 +125,7 @@ lotus --version
 ```
 
 {% hint style="success" %}
-You should see something like: `lotus version 1.32.2+calibnet+git.ff88d8269`
+You should see something like: `lotus version 1.36.0+calibnet+git.154c0c3a4`
 {% endhint %}
 
 ***
@@ -357,12 +286,12 @@ echo 'net.core.rmem_default=2097152' | sudo tee -a /etc/sysctl.conf
 
 ### 🔬 Build Curio
 
-Clone the repository and switch to the PDP branch:
+Clone the repository and switch to the latest release:
 
 ```sh
 git clone https://github.com/filecoin-project/curio.git
 cd curio
-git checkout pdpM3d
+git checkout $(curl -s https://api.github.com/repos/filecoin-project/curio/releases/latest | jq -r .tag_name)
 ```
 
 {% hint style="info" %}
@@ -475,9 +404,9 @@ This will launch the Curio web GUI locally.
 
 ***
 
-## 🧪 Enabling FWSS PDP
+## 🧪 Enabling PDP
 
-🧠 This section enables **FWSS Proof of Data Possession (PDP)** on your SP node using Curio. These steps guide you through running a standalone PDP service using Curio and pdptool.
+🧠 This section enables **Proof of Data Possession (PDP)** on your storage provider node using Curio. PDP is the verification layer used by the [Filecoin Warm Storage Service (FWSS)](https://docs.filecoin.cloud/core-concepts/fwss-overview) within [Filecoin Onchain Cloud](https://docs.filecoin.io/build/filecoin-onchain-cloud). These steps guide you through running a PDP service using Curio and registering it with FWSS.
 
 <table data-view="cards"><thead><tr><th></th><th data-hidden data-card-cover data-type="image">Cover image</th><th data-hidden data-card-target data-type="content-ref"></th></tr></thead><tbody><tr><td>PDP Support Channels</td><td><a href="../.gitbook/assets/Filecoin.svg.png">Filecoin.svg.png</a></td><td><a href="https://filecoinproject.slack.com/archives/C0717TGU7V2">https://filecoinproject.slack.com/archives/C0717TGU7V2</a></td></tr></tbody></table>
 
@@ -518,6 +447,7 @@ You may find it helpful to search for the setting names in your browser.
 * ✅ `EnablePDP`
 * ✅ `EnableCommP`
 * ✅ `EnableMoveStorage`
+* ✅ `NoUnsealedDecode`
 
 In the **HTTP** section:
 
@@ -609,33 +539,113 @@ If you encounter errors binding to port 443 when starting Curio with the pdp con
 sudo setcap 'cap_net_bind_service=+ep' /usr/local/bin/curio
 ```
 
-Test the PDP service:
+***
+
+### 🔗 Test Connectivity
+
+Browse to your PDP node's domain name in your browser. You should see the following message in your browser window:
+
+```
+Hello, World!
+ -Curio
+```
+
+***
+
+### 🗳️ Register Your PDP Node With The Filecoin Warm Storage Service
+
+Browse to the **PDP** page of the Curio GUI and locate the **Filecoin Service Registry** section.
+
+#### STEP 1 — Register Provider
+
+A new node shows **This provider is not registered.** Select **Register Provider** and fill in:
+
+| Field | Notes |
+| --- | --- |
+| Name | ≤ 128 chars |
+| Description | ≤ 256 chars |
+| Location | e.g. `C=US;ST=California;L=San Francisco` (only `C=` is required) |
+| Storage Capacity (TiB) | your available storage capacity in TiB (whole number) |
+
+Select **Register** to submit the registration to the on-chain registry. Wait about 5 epochs, then refresh the page to see the provider's current status.
 
 {% hint style="info" %}
-If `pdptool` is not installed, clone and build Curio:
+**Register Provider** stays disabled until the PDP wallet is imported and funded (see **Import your Filecoin Wallet Private Key** above).
 {% endhint %}
 
-```sh
-git clone https://github.com/filecoin-project/curio.git
-cd curio/cmd/pdptool
-go build .
-```
+#### STEP 2 — Update Details
 
-```sh
-./pdptool ping --service-url https://your-domain.com --service-name public
-```
+Once registered, you can change the name and description at any time. Select **Update Details** and fill in:
+
+| Field | Notes |
+| --- | --- |
+| Name | ≤ 128 chars |
+| Description | ≤ 256 chars |
+
+Select **Update** to submit your node details to the on-chain FWSS contract.
 
 {% hint style="info" %}
-Always use `public` for the `--service-name` flag
+You can review the names and descriptions of other FWSS providers at [https://filecoin.cloud/service-providers](https://filecoin.cloud/service-providers).
 {% endhint %}
 
-{% hint style="success" %}
-Expected output:
-{% endhint %}
+#### STEP 3 — Update PDP Offering
 
-```sh
-Ping successful: Service is reachable and JWT token is valid.
-```
+Registration publishes a default PDP offering (1 MiB–64 GiB pieces, IPNI enabled, default price and proving period). Select **Update PDP Offering** to review and set:
+
+| Field | Value |
+| --- | --- |
+| Service URL | `https://your-domain.com` (your PDP node's public HTTPS endpoint) |
+| Location | e.g. `C=US;ST=California;L=San Francisco` (only `C=` is required) |
+| Storage Capacity (TiB) | your available storage capacity in TiB (whole number) |
+
+Then use **Add Capability** to add the following key/value pair:
+
+| Key | Value |
+| --- | --- |
+| `serviceStatus` | `prod` |
+
+Select **Update PDP** to submit your offering to the on-chain FWSS contract.
+
+You can revisit **Update PDP Offering** at any time to change the Service URL, location, storage capacity, or custom capabilities.
+
+***
+
+## Ports & domain names (PDP vs Market)
+
+PDP commonly confuses operators because multiple HTTP-exposed services may exist in a Curio deployment.
+
+Recommended patterns:
+
+### Pattern A: single domain, one Curio HTTP server
+- One public domain (e.g. `curio.example.com`)
+- One HTTP server handles multiple routes
+- Reverse proxy optional (see HTTP server docs)
+
+### Pattern B: separate domains for separate services
+- `pdp.example.com` and `market.example.com`
+- Useful when you want different auth/proxying/caching policies
+
+Checklist:
+- Decide whether Curio terminates TLS or a reverse proxy does.
+- Ensure inbound 80/443 is reachable for Let’s Encrypt (if used).
+
+See:
+- [Curio HTTP Server](../curio-market/curio-http-server.md) — Curio already serves HTTPS via Let's Encrypt when `DomainName` is set
+- [Optional TLS offloading and filtering](../curio-market/optional-tls-offloading.md) — reverse proxy when you want to offload TLS, keep Curio hosts private, or add filtering
+
+***
+
+## Troubleshooting: PDP endpoint works locally but not remotely
+
+Common causes:
+- firewall blocks inbound traffic
+- wrong domain/port
+- TLS delegation mismatch
+
+What to do:
+- test from an external host
+- confirm DNS and ports 80/443 (or your proxy) are correct
+- include full logs + command used
 
 ***
 
@@ -644,16 +654,16 @@ Ping successful: Service is reachable and JWT token is valid.
 You've successfully launched a **PDP-enabled Filecoin Storage Provider** stack. Your system is now:
 
 * ✅ Syncing with the Filecoin network via Lotus
-* ✅ Recording deal and sector metadata in YugabyteDB
+* ✅ Recording deal and piece metadata in YugabyteDB
 * ✅ Operating Curio to manage sealing and coordination
 * ✅ Enabled Proof of Data Possession (PDP)
 * ✅ Connected to your PDP-enabled storage provider
+* ✅ Registered with the Filecoin Warm Storage Service onchain contract
 
 ***
 
 ## 🔜 Next Steps
 
 * 🔐 _(Optional)_ [Optional TLS offloading and filtering](../curio-market/optional-tls-offloading.md) — Curio already serves HTTPS via Let's Encrypt when `DomainName` is set. Use a reverse proxy to offload TLS, keep Curio hosts private, and add filtering.
-* :heavy\_check\_mark: Register your FWSS node
 * :link: Explore FWSS & PDP tools & resources at [https://www.filecoin.services](https://www.filecoin.services/)
 * 💬 Join the community - Filecoin Slack - [#fil-pdp](https://filecoinproject.slack.com/archives/C0717TGU7V2)
