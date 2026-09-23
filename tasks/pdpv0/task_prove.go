@@ -541,6 +541,44 @@ func (c *idxProofCache) GetLayer(ctx context.Context, pieceCidV2 cid.Cid, layerI
 	return out, nil
 }
 
+func parseCommitment(subPieceCid string, rawSize uint64) (cid.Cid, []byte, error) {
+	pcid1, err := cid.Parse(subPieceCid)
+	if err != nil {
+		return cid.Undef, nil, xerrors.Errorf("failed to parse subpiece: %w", err)
+	}
+
+	pcid2, err := commcid.PieceCidV2FromV1(pcid1, rawSize)
+	if err != nil {
+		return cid.Undef, nil, xerrors.Errorf("failed to parse subpiece: %w", err)
+	}
+
+	commitment, err := commcid.CIDToPieceCommitmentV1(pcid1)
+	if err != nil {
+		return cid.Undef, nil, xerrors.Errorf("failed to decode subpiece commitment: %w", err)
+	}
+	return pcid2, commitment, nil
+}
+
+func (p *ProveTask) validateCacheUponError(ctx context.Context, pieceCid cid.Cid, pieceRefID int64, proofErr error) error {
+	if proofErr == nil {
+		return nil
+	}
+
+	layerIndex := commp.SnapshotLayerIndex(PaddedReadSize)
+	nodes, err := p.idx.GetPDPLayer(ctx, pieceCid, layerIndex)
+	if err != nil {
+		log.Warnw("failed to read PDP cache for validation", "pieceCid", pieceCid, "error", err)
+		return proofErr
+	}
+	if err := validatePDPCacheLayer(pieceCid, layerIndex, nodes); err != nil {
+		log.Warnw("invalid PDP cache, requesting repair", "pieceCid", pieceCid, "error", err)
+		if _, err := p.db.Exec(ctx, `UPDATE pdp_piecerefs SET needs_save_cache = TRUE WHERE id = $1`, pieceRefID); err != nil {
+			return errors.Join(proofErr, xerrors.Errorf("failed to request cache repair: %w", err))
+		}
+	}
+	return proofErr
+}
+
 func (p *ProveTask) provePiece(ctx context.Context, dataSetId int64, pieceId int64, challengedLeaf int64) (outProof contract.IPDPTypesProof, proofErr error) {
 	const arity = 2
 
@@ -592,40 +630,16 @@ func (p *ProveTask) provePiece(ctx context.Context, dataSetId int64, pieceId int
 
 	isLargeSubPiece := abi.PaddedPieceSize(challSubPiece.SubPieceSize) > proof.MIN_PADDED_PIECE_SIZE_FOR_CACHE
 
-	pcid1, err := cid.Parse(challSubPiece.SubPiece)
+	pcid2, commitment, err := parseCommitment(challSubPiece.SubPiece, challSubPiece.PieceRawSize)
 	if err != nil {
-		return contract.IPDPTypesProof{}, xerrors.Errorf("failed to parse subpiece: %w", err)
-	}
-
-	pcid2, err := commcid.PieceCidV2FromV1(pcid1, challSubPiece.PieceRawSize)
-	if err != nil {
-		return contract.IPDPTypesProof{}, xerrors.Errorf("failed to parse subpiece: %w", err)
-	}
-
-	commitment, err := commcid.CIDToPieceCommitmentV1(pcid1)
-	if err != nil {
-		return contract.IPDPTypesProof{}, xerrors.Errorf("failed to decode subpiece commitment: %w", err)
+		return contract.IPDPTypesProof{}, err
 	}
 
 	// Try cached approach for large sub-pieces
 	if isLargeSubPiece {
 		// Validate once after any cached-proof failure, including final verification.
 		defer func() {
-			if proofErr == nil {
-				return
-			}
-			layerIndex := commp.SnapshotLayerIndex(PaddedReadSize)
-			nodes, err := p.idx.GetPDPLayer(ctx, pcid2, layerIndex)
-			if err != nil {
-				log.Warnw("failed to read PDP cache for validation", "pieceCid", pcid2, "error", err)
-				return
-			}
-			if err := validatePDPCacheLayer(pcid2, layerIndex, nodes); err != nil {
-				log.Warnw("invalid PDP cache, requesting repair", "pieceCid", pcid2, "error", err)
-				if _, err := p.db.Exec(ctx, `UPDATE pdp_piecerefs SET needs_save_cache = TRUE WHERE id = $1`, challSubPiece.PieceRefId); err != nil {
-					proofErr = errors.Join(proofErr, xerrors.Errorf("failed to request cache repair: %w", err))
-				}
-			}
+			proofErr = p.validateCacheUponError(ctx, pcid2, challSubPiece.PieceRefId, proofErr)
 		}()
 		log.Debugw("attempting cached proof generation for sub-piece", "dataSetId", dataSetId, "pieceId", pieceId, "subPieceCid", challSubPiece.SubPiece, "subPieceSize", challSubPiece.SubPieceSize)
 
@@ -640,7 +654,6 @@ func (p *ProveTask) provePiece(ctx context.Context, dataSetId int64, pieceId int
 		}
 
 		subPieceProof = cachedProof
-
 	} else {
 		log.Debugw("using full memtree proof generation for sub-piece", "dataSetId", dataSetId, "pieceId", pieceId, "subPieceCid", challSubPiece.SubPiece, "subPieceSize", challSubPiece.SubPieceSize, "isLargeSubPiece", isLargeSubPiece)
 		memtree, memErr := p.genSubPieceMemtree(ctx, pcid2, abi.PaddedPieceSize(challSubPiece.SubPieceSize))
@@ -849,6 +862,8 @@ func (p *ProveTask) TypeDetails() harmonytask.TaskTypeDetails {
 		Cost: resources.Resources{
 			Cpu: 1,
 			Gpu: 0,
+			// Budget 32 MiB input + 64 MiB tree + 4 MiB overhead for sequential challenges.
+			// Larger pieces require cached proofs using 4 MiB sections.
 			Ram: 100 << 20,
 		},
 		MaxFailures: 5,

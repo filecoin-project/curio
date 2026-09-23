@@ -543,13 +543,14 @@ func TestHandlePull_Backpressure(t *testing.T) {
 
 func TestHandlePullPieceSizeBoundary(t *testing.T) {
 	for _, test := range []struct {
-		name   string
-		raw    uint64
-		status int
+		name        string
+		raw         uint64
+		status      int
+		errContains string
 	}{
 		{name: "64 GiB padded", raw: 68182605824, status: http.StatusOK},
-		{name: "one byte above maximum", raw: 68182605825, status: http.StatusBadRequest},
-		{name: "64 GiB raw", raw: 64 << 30, status: http.StatusBadRequest},
+		{name: "one byte above maximum", raw: 68182605825, status: http.StatusBadRequest, errContains: "exceeds maximum"},
+		{name: "64 GiB raw", raw: 64 << 30, status: http.StatusBadRequest, errContains: "exceeds maximum"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			pieceCID, err := commcid.DataCommitmentToPieceCidv2(make([]byte, 32), test.raw)
@@ -572,7 +573,7 @@ func TestHandlePullPieceSizeBoundary(t *testing.T) {
 				require.Equal(t, test.raw, store.createdPieces[0].RawSize)
 			} else {
 				require.False(t, store.createPullCalled)
-				require.Contains(t, rec.Body.String(), "exceeds maximum")
+				require.Contains(t, rec.Body.String(), test.errContains)
 			}
 		})
 	}
