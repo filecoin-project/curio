@@ -7,7 +7,7 @@ set -e
 # 1. Wait for Lotus API and head threshold so miner bootstrap side effects settle.
 # 2. Start contract bootstrap worker in background.
 # 3. Start synapse-sdk bootstrap worker in background.
-# 4. Run mk12/FIL+/datacap setup in foreground.
+# 4. Run mk12 client and wallet setup in foreground.
 # 5. Start piece-server HTTP process after mk12 succeeds.
 # 6. Keep both background workers running in parallel until they converge:
 #    - ensure a delegated test user exists and is funded
@@ -468,7 +468,7 @@ ensure_user1_contract_setup() {
   client_log "USER_1 payment setup is ready"
 }
 
-# Keep existing mk12 bootstrap flow (client wallet, FIL+, datacap) with markers.
+# Initialize the mk12 client and fund its wallet and market balance.
 run_mk12_bootstrap() {
   if [ ! -f "$CURIO_MK12_CLIENT_REPO/.init" ]; then
     echo "Initialising mk12 client"
@@ -484,46 +484,6 @@ run_mk12_bootstrap() {
     sleep 10
     sptool --actor t01000 toolbox mk12-client market-add -y 10
     touch "$CURIO_MK12_CLIENT_REPO/.init.wallet"
-  fi
-
-  # FIL+ notary bootstrap and multisig approval flow.
-  if [ ! -f "$CURIO_MK12_CLIENT_REPO/.init.filplus" ]; then
-    echo "Setting up FIL+ wallets"
-    ROOT_KEY_1="$(cat "$LOTUS_PATH/rootkey-1")"
-    ROOT_KEY_2="$(cat "$LOTUS_PATH/rootkey-2")"
-    echo "Root key 1: $ROOT_KEY_1"
-    echo "Root key 2: $ROOT_KEY_2"
-    lotus wallet import "$LOTUS_PATH/bls-$ROOT_KEY_1.keyinfo"
-    lotus wallet import "$LOTUS_PATH/bls-$ROOT_KEY_2.keyinfo"
-    NOTARY_1="$(lotus wallet new secp256k1)"
-    NOTARY_2="$(lotus wallet new secp256k1)"
-    echo "$NOTARY_1" > "$CURIO_MK12_CLIENT_REPO/notary_1"
-    echo "$NOTARY_2" > "$CURIO_MK12_CLIENT_REPO/notary_2"
-    echo "Notary 1: $NOTARY_1"
-    echo "Notary 2: $NOTARY_2"
-
-    echo "Add verifier root_key_1 notary_1"
-    lotus-shed verifreg add-verifier "$ROOT_KEY_1" "$NOTARY_1" 1000000000000
-    sleep 15
-    echo "Msig inspect t080"
-    lotus msig inspect t080
-    PARAMS="$(lotus msig inspect t080 | tail -1 | awk '{print $8}')"
-    echo "Params: $PARAMS"
-    echo "Msig approve"
-    lotus msig approve --from="$ROOT_KEY_2" t080 0 t0100 t06 0 2 "$PARAMS"
-
-    echo "Send 10 FIL to NOTARY_1"
-    lotus send "$NOTARY_1" 10
-    touch "$CURIO_MK12_CLIENT_REPO/.init.filplus"
-    sleep 10
-  fi
-
-  # Grant datacap to mk12 default wallet.
-  if [ ! -f "$CURIO_MK12_CLIENT_REPO/.init.datacap" ]; then
-    notary="$(lotus filplus list-notaries | awk '$2 != 0 {print $1}' | awk -F':' '{print $1}')"
-    def_wallet="$(sptool --actor t01000 toolbox mk12-client wallet default)"
-    lotus filplus grant-datacap --from "$notary" "$def_wallet" 1000000000
-    touch "$CURIO_MK12_CLIENT_REPO/.init.datacap"
   fi
 }
 

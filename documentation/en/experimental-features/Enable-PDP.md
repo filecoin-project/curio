@@ -7,7 +7,7 @@ description: >-
 # Enable PDP
 
 {% hint style="info" %}
-For a PDP-only node without PoRep/sealing (skiff), see the [Curio-PDP runbook](../curio-pdp.md) and [Skiff binary](../skiff-binary.md).
+For a PDP-only provider without PoRep/sealing, use Dockerized [Curio-PDP](../curio-pdp.md) from [Getting Started](../getting-started.md#curio-pdp-pdp-only). This page is the alpha path that enables PDP on a full Curio sealing cluster.
 {% endhint %}
 
 {% hint style="danger" %}
@@ -54,19 +54,19 @@ sudo apt update && sudo apt upgrade -y && sudo apt install -y \
 
 Curio’s minimum Go version is set in the Curio repo at `go.mod`.
 
-Example (current repo min is **1.26.2**):
+Example (current repo min is **1.26.8**):
 
 ```sh
 sudo rm -rf /usr/local/go
-wget https://go.dev/dl/go1.26.2.linux-amd64.tar.gz
-sudo tar -C /usr/local -xzf go1.26.2.linux-amd64.tar.gz
+wget https://go.dev/dl/go1.26.8.linux-amd64.tar.gz
+sudo tar -C /usr/local -xzf go1.26.8.linux-amd64.tar.gz
 echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc
 source ~/.bashrc
 go version
 ```
 
 {% hint style="success" %}
-You should see something like: `go version go1.26.2 linux/amd64`
+You should see something like: `go version go1.26.8 linux/amd64`
 {% endhint %}
 
 ***
@@ -145,7 +145,8 @@ Checklist:
 - Ensure inbound 80/443 is reachable for Let’s Encrypt (if used).
 
 See:
-- `documentation/en/curio-market/curio-http-server.md`
+- [Curio HTTP Server](../curio-market/curio-http-server.md) — Curio already serves HTTPS via Let's Encrypt when `DomainName` is set
+- [Optional TLS offloading and filtering](../curio-market/optional-tls-offloading.md) — reverse proxy when you want to offload TLS, keep Curio hosts private, or add filtering
 
 ---
 
@@ -652,6 +653,7 @@ You've successfully launched a **PDP-enabled Filecoin Storage Provider** stack. 
 
 ## 🔜 Next Steps
 
+* 🔐 _(Optional)_ [Optional TLS offloading and filtering](../curio-market/optional-tls-offloading.md) — Curio already serves HTTPS via Let's Encrypt when `DomainName` is set. Use a reverse proxy to offload TLS, keep Curio hosts private, and add filtering.
 * :heavy\_check\_mark: Register your FWSS node
 * :link: Explore FWSS & PDP tools & resources at [https://www.filecoin.services](https://www.filecoin.services/)
 * 💬 Join the community - Filecoin Slack - [#fil-pdp](https://filecoinproject.slack.com/archives/C0717TGU7V2)

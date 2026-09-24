@@ -56,31 +56,24 @@ func TestIntegration_CheckExpiry(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		direct      bool
 		start       abi.ChainEpoch
 		wantExpired bool
 	}{
 		{name: "MK1.2 expired", start: head + sealDuration - 1, wantExpired: true},
 		{name: "MK1.2 boundary", start: head + sealDuration},
-		{name: "direct expired", direct: true, start: head + sealDuration - 1, wantExpired: true},
-		{name: "direct boundary", direct: true, start: head + sealDuration},
 	}
 
 	for i, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			id := fmt.Sprintf("expiry-test-%d", i)
-			insertExpiryTestDeal(t, ctx, db, id, int64(1000+i), test.start, test.direct)
+			insertExpiryTestDeal(t, ctx, db, id, int64(1000+i), test.start)
 
 			expired, err := checkExpiry(ctx, db, api, id, sealDuration)
 			require.NoError(t, err)
 			require.Equal(t, test.wantExpired, expired)
 
 			var dealError sql.NullString
-			if test.direct {
-				err = db.QueryRow(ctx, `SELECT error FROM market_direct_deals WHERE uuid = $1`, id).Scan(&dealError)
-			} else {
-				err = db.QueryRow(ctx, `SELECT error FROM market_mk12_deals WHERE uuid = $1`, id).Scan(&dealError)
-			}
+			err = db.QueryRow(ctx, `SELECT error FROM market_mk12_deals WHERE uuid = $1`, id).Scan(&dealError)
 			require.NoError(t, err)
 
 			var pipelineRows int
@@ -100,7 +93,7 @@ func TestIntegration_CheckExpiry(t *testing.T) {
 
 	t.Run("final assignment rechecks expiry", func(t *testing.T) {
 		id := "expiry-test-final-assignment"
-		insertExpiryTestDeal(t, ctx, db, id, 2000, head+sealDuration-1, false)
+		insertExpiryTestDeal(t, ctx, db, id, 2000, head+sealDuration-1)
 		ingester := &expiryTestIngester{expectedSealDuration: sealDuration}
 		market := &CurioStorageDealMarket{db: db, api: api, pin: ingester}
 
@@ -126,31 +119,22 @@ func TestIntegration_CheckExpiry(t *testing.T) {
 	})
 }
 
-func insertExpiryTestDeal(t *testing.T, ctx context.Context, db *harmonydb.DB, id string, spID int64, start abi.ChainEpoch, direct bool) {
+func insertExpiryTestDeal(t *testing.T, ctx context.Context, db *harmonydb.DB, id string, spID int64, start abi.ChainEpoch) {
 	t.Helper()
 
-	if direct {
-		_, err := db.Exec(ctx, `INSERT INTO market_direct_deals (
-			uuid, sp_id, client, offline, verified, start_epoch, end_epoch,
-			allocation_id, piece_cid, piece_size, fast_retrieval, announce_to_ipni
-		) VALUES ($1, $2, $3, FALSE, TRUE, $4, $5, $6, $7, 128, FALSE, FALSE)`,
-			id, spID, "client", start, start+1000, spID, "piece-"+id)
-		require.NoError(t, err)
-	} else {
-		_, err := db.Exec(ctx, `INSERT INTO market_mk12_deals (
-			uuid, sp_id, signed_proposal_cid, proposal_signature, proposal, offline,
-			verified, start_epoch, end_epoch, client_peer_id, piece_cid, piece_size,
-			fast_retrieval, announce_to_ipni, proposal_cid
-		) VALUES ($1, $2, $3, $4, $5, FALSE, TRUE, $6, $7, $8, $9, 128, FALSE, FALSE, $10)`,
-			id, spID, "signed-"+id, []byte{1}, `{}`, start, start+1000, "peer-"+id, "piece-"+id, "proposal-"+id)
-		require.NoError(t, err)
-	}
+	_, err := db.Exec(ctx, `INSERT INTO market_mk12_deals (
+		uuid, sp_id, signed_proposal_cid, proposal_signature, proposal, offline,
+		verified, start_epoch, end_epoch, client_peer_id, piece_cid, piece_size,
+		fast_retrieval, announce_to_ipni, proposal_cid
+	) VALUES ($1, $2, $3, $4, $5, FALSE, FALSE, $6, $7, $8, $9, 128, FALSE, FALSE, $10)`,
+		id, spID, "signed-"+id, []byte{1}, `{}`, start, start+1000, "peer-"+id, "piece-"+id, "proposal-"+id)
+	require.NoError(t, err)
 
-	_, err := db.Exec(ctx, `INSERT INTO market_mk12_deal_pipeline (
+	_, err = db.Exec(ctx, `INSERT INTO market_mk12_deal_pipeline (
 		uuid, sp_id, piece_cid, piece_size, offline, started, after_commp,
 		after_psd, after_find_deal, is_ddo
-	) VALUES ($1, $2, $3, 128, FALSE, TRUE, TRUE, TRUE, TRUE, $4)`,
-		id, spID, "piece-"+id, direct)
+	) VALUES ($1, $2, $3, 128, FALSE, TRUE, TRUE, TRUE, TRUE, FALSE)`,
+		id, spID, "piece-"+id)
 	require.NoError(t, err)
 }
 
