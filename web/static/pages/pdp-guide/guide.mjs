@@ -12,7 +12,7 @@ customElements.define('pdp-guide', class PDPGuideElement extends LitElement {
         registerName: { type: String },
         registerDescription: { type: String },
         registerLocation: { type: String },
-        registerCapacityTiB: { type: String },
+        registerCapacityGiB: { type: String },
         createdKey: { type: Object },
         actionMessage: { type: String },
         actionError: { type: String },
@@ -218,7 +218,7 @@ customElements.define('pdp-guide', class PDPGuideElement extends LitElement {
         this.registerName = '';
         this.registerDescription = '';
         this.registerLocation = '';
-        this.registerCapacityTiB = '';
+        this.registerCapacityGiB = '';
         this.createdKey = null;
         this.actionMessage = '';
         this.actionError = '';
@@ -362,7 +362,7 @@ customElements.define('pdp-guide', class PDPGuideElement extends LitElement {
                 this.registerName.trim(),
                 this.registerDescription.trim(),
                 this.registerLocation.trim(),
-                Number(this.registerCapacityTiB),
+                Number(this.registerCapacityGiB),
             ]);
             await this.refresh();
             this.actionMessage = 'Registration submitted. Wait a few epochs for on-chain confirmation.';
@@ -448,9 +448,8 @@ customElements.define('pdp-guide', class PDPGuideElement extends LitElement {
     }
 
     renderStorage(storage) {
-        const warn = storage?.meetsMinimum && !storage?.meetsRecommended;
         const ok = !!storage?.ok;
-        return this.wrapItem('storage', ok, 'Have 20 GiB of attached storage', html`
+        return this.wrapItem('storage', ok, 'Have 100 GiB of attached storage', html`
             <p class="item-detail" style="margin-left: 30px;">${storage?.detail || ''}</p>
             <ul class="subs">
                 <li class="sub">
@@ -463,15 +462,8 @@ customElements.define('pdp-guide', class PDPGuideElement extends LitElement {
                 <li class="sub">
                     <span class="check" data-state=${this.stateOf(storage?.meetsMinimum)} aria-hidden="true"></span>
                     <div>
-                        <div class="sub-label">At least 20 GiB available</div>
+                        <div class="sub-label">At least 100 GiB available</div>
                         <div class="sub-meta">${storage?.availableHuman || '0 B'} available / ${storage?.capacityHuman || '0 B'} capacity</div>
-                    </div>
-                </li>
-                <li class="sub">
-                    <span class="check" data-state=${this.stateOf(storage?.meetsRecommended, storage?.meetsMinimum && !storage?.meetsRecommended)} aria-hidden="true"></span>
-                    <div>
-                        <div class="sub-label">Recommended 100 GiB+</div>
-                        <div class="sub-meta">${storage?.meetsRecommended ? 'Meets recommended capacity' : 'Under 100 GiB — consider adding storage'}</div>
                     </div>
                 </li>
             </ul>
@@ -486,11 +478,6 @@ customElements.define('pdp-guide', class PDPGuideElement extends LitElement {
                     <a class="btn btn-secondary btn-sm" href=${storage?.docsURL || 'https://docs.curiostorage.org/curio-pdp#storage'} target="_blank" rel="noopener">
                         Storage docs for Curio-PDP
                     </a>
-                </div>
-            ` : warn ? html`
-                <div class="actions">
-                    <div class="banner warn">Available capacity is under 100 GiB. PDP will work, but add storage before taking significant load.</div>
-                    <a class="btn btn-secondary btn-sm" href="/pages/storage_paths/">Manage storage</a>
                 </div>
             ` : ''}
         `, warn);
@@ -595,9 +582,9 @@ customElements.define('pdp-guide', class PDPGuideElement extends LitElement {
                                    @input=${(e) => { this.registerLocation = e.target.value; }}
                                    placeholder="C=US;ST=California;L=San Francisco" required>
                             <p class="hint">Location format: <span class="mono">C=US;ST=California;L=San Francisco</span></p>
-                            <label for="reg-cap">Storage capacity (TiB)</label>
-                            <input id="reg-cap" type="number" min="1" step="1" .value=${this.registerCapacityTiB}
-                                   @input=${(e) => { this.registerCapacityTiB = e.target.value; }} required>
+                            <label for="reg-cap">Storage capacity (GiB)</label>
+                            <input id="reg-cap" type="number" min="100" step="1" .value=${this.registerCapacityGiB}
+                                   @input=${(e) => { this.registerCapacityGiB = e.target.value; }} required>
                             <div class="row-btns">
                                 <button class="btn btn-primary btn-sm" type="submit" ?disabled=${!!this.busy}>
                                     ${this.busy === 'register' ? 'Registering…' : 'Register with FOC'}
