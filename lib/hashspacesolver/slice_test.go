@@ -30,6 +30,27 @@ func TestSliceSizeFullCircle(t *testing.T) {
 	require.Equal(t, int64(40), SliceSize(r, start, splitHash(r, start, 40)))
 }
 
+func TestContains(t *testing.T) {
+	start := []byte{0x00}
+	end := []byte{0x10}
+	require.True(t, Contains(start, end, []byte{0x10}))
+	require.True(t, Contains(start, end, []byte{0x01}))
+	require.False(t, Contains(start, end, []byte{0x00}))
+	require.False(t, Contains(start, end, []byte{0x11}))
+
+	wrapStart := []byte{0xF0}
+	wrapEnd := []byte{0x10}
+	require.True(t, Contains(wrapStart, wrapEnd, []byte{0xFF}))
+	require.True(t, Contains(wrapStart, wrapEnd, []byte{0x10}))
+	require.False(t, Contains(wrapStart, wrapEnd, []byte{0xF0}))
+	require.False(t, Contains(wrapStart, wrapEnd, []byte{0x80}))
+
+	full := []byte{0x80}
+	require.True(t, Contains(full, full, full))
+	require.True(t, Contains(full, full, []byte{0x00}))
+	require.False(t, Contains(full, full, nil))
+}
+
 func TestStartHash(t *testing.T) {
 	ranges := []Range{
 		{EndHash: []byte{0x10}, Size: 1},
