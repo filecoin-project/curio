@@ -128,6 +128,10 @@ const (
 // statx requests for one directory. Zero selects 128.
 //
 // Requires: Linux 5.15+ (all Ubuntu LTSs support it). liburing not required (reimplemented here).
+//
+// Performance: 1e6 files on a FireCuda 530 (low-end NVMe, ext4, cold & warm cache) took
+// 0.7s     and  10 MB RSS ( 60 total alloc), vs
+// 3.3/2.4s and 183 MB RSS (448 total alloc) for the unix impl on the same machine.
 func SumFileSizesRange(directory, low, high string, queueDepth uint32) (Result, error) {
 	if err := checkSumArgs(directory, low, high, queueDepth); err != nil {
 		return Result{}, err
