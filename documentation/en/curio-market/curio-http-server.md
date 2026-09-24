@@ -109,7 +109,7 @@ The list below is aligned with the actual `HTTPConfig` struct in `deps/config/ty
   Default: `"0.0.0.0:12310"`.
 * **DelegateTLS**: When `true`, Curio serves **plain HTTP** on `ListenAddress` and expects a reverse proxy to terminate TLS.
 * **ReadTimeout**: Max time to read request body.
-  Default: `10s`.
+  Default: `2h`.
 * **IdleTimeout**: Max keep-alive idle time.
   Default: `1h`.
 * **ReadHeaderTimeout**: Max time to read headers.

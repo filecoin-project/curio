@@ -34,11 +34,14 @@ import (
 
 var log = logging.Logger("pdpv0")
 
+const MAX_PADDED_PIECE_SIZE = abi.PaddedPieceSize(64 << 30)
+const PIECE_UPLOAD_CLAIM_TTL = 3 * time.Hour
+
 var (
 	// 127
 	PieceSizeMinLimit = abi.PaddedPieceSize(128).Unpadded()
-	// 1065353216
-	PieceSizeMaxLimit = abi.PaddedPieceSize(proof.MaxMemtreeSize).Unpadded()
+	// 68182605824
+	PieceSizeMaxLimit = MAX_PADDED_PIECE_SIZE.Unpadded()
 )
 var (
 	ErrPieceTooSmall       = fmt.Errorf("piece data is below the minimum allowed size (%d bytes)", PieceSizeMinLimit)
@@ -48,8 +51,6 @@ var (
 	errUploadInProgress    = errors.New("another upload is already writing this piece")
 	errUploadClaimed       = errors.New("upload UUID has already been claimed")
 )
-
-const minPaddedPieceSizeForCache = int64(32 * 1024 * 1024)
 
 type exactSizeReader struct {
 	r         io.Reader
@@ -95,7 +96,7 @@ func readHasExtraByte(r io.Reader) (bool, error) {
 }
 
 func needsSaveCache(rawSize int64) bool {
-	return PadPieceSize(rawSize) >= minPaddedPieceSizeForCache
+	return PadPieceSize(rawSize) > int64(proof.MIN_PADDED_PIECE_SIZE_FOR_CACHE)
 }
 
 func insertPDPReference(tx *harmonydb.Tx, service, pieceCID string, pieceRef, rawSize int64) error {
@@ -542,13 +543,13 @@ func (p *PDPService) cleanupExpiredDirectUploadClaims(ctx context.Context) error
 		JOIN parked_piece_refs ppr ON ppr.ref_id = pu.piece_ref
 		JOIN parked_pieces pp ON pp.id = ppr.piece_id
 		WHERE pu.piece_ref IS NOT NULL
-		  AND pu.created_at <= NOW() - INTERVAL '1 hour'
+		  AND pu.created_at <= NOW() - ($1 * INTERVAL '1 second')
 		  AND ppr.data_url IS NULL
 		  AND pp.complete = FALSE
 		  AND pp.skip = TRUE
 		ORDER BY pu.created_at, pu.id
 		LIMIT 256
-	`)
+	`, int64(PIECE_UPLOAD_CLAIM_TTL/time.Second))
 	if err != nil {
 		return fmt.Errorf("select expired direct upload claims: %w", err)
 	}
@@ -579,13 +580,13 @@ func (p *PDPService) cleanupExpiredStreamingUploadClaims(ctx context.Context) er
 		JOIN parked_pieces pp ON pp.id = ppr.piece_id
 		WHERE su.piece_ref IS NOT NULL
 		  AND COALESCE(su.complete, FALSE) = FALSE
-		  AND su.created_at <= NOW() - INTERVAL '1 hour'
+		  AND su.created_at <= NOW() - ($1 * INTERVAL '1 second')
 		  AND ppr.data_url IS NULL
 		  AND pp.complete = FALSE
 		  AND pp.skip = TRUE
 		ORDER BY su.created_at, su.id
 		LIMIT 256
-	`)
+	`, int64(PIECE_UPLOAD_CLAIM_TTL/time.Second))
 	if err != nil {
 		return fmt.Errorf("select expired streaming upload claims: %w", err)
 	}
