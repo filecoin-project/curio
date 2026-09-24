@@ -1,4 +1,4 @@
-//go:build !((linux || darwin) && cgo)
+//go:build unix && !linux && !darwin
 
 package fs2
 
@@ -13,7 +13,10 @@ import (
 // whose concatenated hash paths compare in the bytewise interval (low, high].
 // An empty low or high bound leaves that side of the interval open.
 //
-// QueueDepth is accepted for API compatibility and ignored.
+// QueueDepth is accepted for API compatibility and ignored. Linux and Darwin
+// use their own scanners; this walk covers the other Unix systems.
+//
+// Performance is poor: see comments in the other implementations.
 func SumFileSizesRange(directory, low, high string, queueDepth uint32) (Result, error) {
 	if err := checkSumArgs(directory, low, high, queueDepth); err != nil {
 		return Result{}, err
@@ -46,11 +49,6 @@ func SumFileSizesRange(directory, low, high string, queueDepth uint32) (Result, 
 			return nil
 		}
 
-		mode := d.Type()
-		if mode != 0 && !mode.IsRegular() {
-			return nil
-		}
-
 		info, err := d.Info()
 		if err != nil {
 			if os.IsNotExist(err) {
@@ -62,14 +60,7 @@ func SumFileSizesRange(directory, low, high string, queueDepth uint32) (Result, 
 		if !info.Mode().IsRegular() {
 			return nil
 		}
-		if info.Size() < 0 {
-			return fmt.Errorf("stat %s: negative size", rel)
-		}
-		size := uint64(info.Size())
-		if result.Bytes > ^uint64(0)-size {
-			return fmt.Errorf("sum overflow at %s", rel)
-		}
-		result.Bytes += size
+		result.Bytes += info.Size()
 		result.Files++
 		return nil
 	})
