@@ -30,8 +30,8 @@ Before starting, make sure you have a user with **sudo privileges**. This sectio
 
 ### ⚙️ Hardware requirements
 
-* **RAM**: 32 GiB+
-* **CPU**: 8 Core+
+* **RAM**: 64 GiB+
+* **CPU**: 16 threads+
 * **Storage**:
   * 1 TiB Fast storage (NVMe/SSD)
   * 10 TiB Long-term storage (HDD)
