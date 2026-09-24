@@ -12,9 +12,9 @@ import (
 
 // Result describes the regular files successfully included in a range sum.
 type Result struct {
-	Bytes    uint64
-	Files    uint64
-	Vanished uint64
+	Bytes    int64
+	Files    int64
+	Vanished int64
 }
 
 func checkSumArgs(directory, low, high string, queueDepth uint32) error {
@@ -50,6 +50,29 @@ func subtreeCanMatch(prefix, low, high string) bool {
 		return true
 	}
 	return strings.HasPrefix(low, prefix)
+}
+
+const pathMax = 4096
+
+func joinHash(prefix, name string) (string, error) {
+	if len(prefix)+len(name) >= pathMax {
+		return "", fmt.Errorf("hash path exceeds PATH_MAX: %s%s", prefix, name)
+	}
+	return prefix + name, nil
+}
+
+func joinPath(dir, name string) (string, error) {
+	extra := 0
+	if len(dir) > 0 && dir[len(dir)-1] != '/' {
+		extra = 1
+	}
+	if len(dir)+extra+len(name) >= pathMax {
+		return "", fmt.Errorf("path exceeds PATH_MAX under %s: %s", dir, name)
+	}
+	if extra == 1 {
+		return dir + "/" + name, nil
+	}
+	return dir + name, nil
 }
 
 func hashFromRel(rel string) string {
