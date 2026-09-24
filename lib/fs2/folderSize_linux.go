@@ -132,6 +132,13 @@ const (
 // Performance: 1e6 files on a FireCuda 530 (low-end NVMe, ext4, cold & warm cache) took
 // 0.7s     and  10 MB RSS ( 60 total alloc), vs
 // 3.3/2.4s and 183 MB RSS (448 total alloc) for the unix impl on the same machine.
+// On a ST8000NE001 (7200 rpm, ext4):
+//
+//	Cold cache      Warm Cache
+//	 7.7s           0.7s      This impl.
+//	 7.6s           2.4/3.0s  Unix impl.
+//
+// RSS stays ~10 MB vs ~180 MB. Cold, both wait on disk metadata reads.
 func SumFileSizesRange(directory, low, high string, queueDepth uint32) (Result, error) {
 	if err := checkSumArgs(directory, low, high, queueDepth); err != nil {
 		return Result{}, err
