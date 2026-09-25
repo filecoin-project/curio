@@ -20,6 +20,8 @@ type preemptCandidate struct {
 	handler *taskTypeHandler
 	taskID  TaskID
 	runtime time.Duration
+	pending bool
+	handle  *runregistry.Handle
 }
 
 type preemptionPlan struct {
@@ -50,14 +52,23 @@ func (e *TaskEngine) computePreemptionPlan(needed resources.Resources) *preempti
 	var allCandidates []preemptCandidate
 	now := time.Now()
 	for _, h := range e.handlers {
-		if h.TimeSensitive || h.Uninterruptible {
-			continue
-		}
 		for _, entry := range h.running.Snapshot() {
+			if (h.TimeSensitive || h.Uninterruptible) && !entry.Pending {
+				continue
+			}
+			handle, ok := h.running.Get(entry.ID)
+			if !ok {
+				continue
+			}
+			runtime := now.Sub(entry.StartTime)
+			if entry.Pending {
+				runtime = 0
+			}
 			allCandidates = append(allCandidates, preemptCandidate{
 				handler: h,
 				taskID:  TaskID(entry.ID),
-				runtime: now.Sub(entry.StartTime),
+				runtime: runtime,
+				pending: entry.Pending, handle: handle,
 			})
 		}
 	}
@@ -127,7 +138,16 @@ func (e *TaskEngine) executePreemption(plan *preemptionPlan) {
 			continue
 		}
 		log.Infow("preempting task", "task", c.handler.Name, "id", c.taskID, "runtime", c.runtime)
-		handle.Preempt()
+		if c.handle != nil && c.handle != handle {
+			continue
+		}
+		if c.pending {
+			if !handle.CancelPending() {
+				continue
+			}
+		} else {
+			handle.Preempt()
+		}
 		waits = append(waits, wait{handle: handle, name: c.handler.Name, taskID: c.taskID})
 	}
 
