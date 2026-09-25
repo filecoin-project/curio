@@ -189,7 +189,8 @@ CXXSTD=`$CXX -dM -E -x c++ /dev/null | \
         awk '{ if($2=="__cplusplus" && $3<"2017") print "-std=c++17"; }'`
 
 INCLUDE="-I$SPDK/include -I$SPDK/isa-l/.. -I$SPDK/dpdk/build/include"
-CFLAGS="$SECTOR_SIZE $INCLUDE -g -O2"
+# sppark keeps BLS12-381 field types in namespace bls12_381 unless this is set.
+CFLAGS="$SECTOR_SIZE $INCLUDE -g -O2 -DFEATURE_BLS12_381"
 CXXFLAGS="$CFLAGS $MARCH_FLAGS $CXXSTD \
           -fPIC -fno-omit-frame-pointer -fno-strict-aliasing \
           -fstack-protector -fno-common \
@@ -359,7 +360,7 @@ if [ "$NEED_SPDK_BUILD" -eq 1 ]; then
      echo "$SPDK_WANT_FLAGS" > "$SPDK_STAMP")
 fi
 if [ ! -d "deps/sppark" ]; then
-    git clone --branch v0.1.10 https://github.com/supranational/sppark.git deps/sppark
+    git clone https://github.com/curiostorage/sppark.git deps/sppark
 fi
 if [ ! -d "deps/blst" ]; then
     git clone https://github.com/supranational/blst.git deps/blst
