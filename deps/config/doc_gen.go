@@ -394,6 +394,32 @@ If this limit is exceeded, the system will apply backpressure, delaying new deal
 Updates will affect running instances.`,
 		},
 		{
+			Name: "MK20PipelineInsertBatch",
+			Type: "int",
+
+			Comment: `MK20PipelineInsertBatch limits the number of MK20 DDO deals successfully released from
+market_mk20_pipeline_waiting in one release pass. 0 means no operator-configured release
+limit; the release loop still inspects at most its internal 64-candidate work quantum per pass.
+A nil value is treated as 0 by the release loop. Negative values are invalid and stop new
+releases rather than enabling an unlimited mode. The value is snapshotted at the beginning
+of each pass, so dynamic updates apply to the next pass and an in-progress transaction may
+finish using the prior snapshot. (Default: 0)
+Updates will affect running instances.`,
+		},
+		{
+			Name: "MK20PipelineInsertMaxActive",
+			Type: "int",
+
+			Comment: `MK20PipelineInsertMaxActive limits the global number of incomplete rows
+(complete = false) in market_mk20_pipeline. 0 disables this active-row cap. A nil value is
+treated as 0 by the release loop. Negative values are invalid and stop new releases. Lowering
+the value below the current active count only stops new releases; it does not modify existing
+pipeline state. The value is snapshotted at the beginning of each pass, so dynamic updates
+apply to the next pass and an in-progress transaction may finish using the prior snapshot.
+(Default: 0)
+Updates will affect running instances.`,
+		},
+		{
 			Name: "MaxQueueDealSector",
 			Type: "int",
 
