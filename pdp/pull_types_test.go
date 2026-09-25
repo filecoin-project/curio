@@ -95,7 +95,33 @@ func TestPullRequest_Validate(t *testing.T) {
 				ExtraData: "0x1234",
 				DataSetId: &dataSetId,
 				Pieces: []PullPieceRequest{
+					{PieceCid: validCid, SourceURLs: []string{validURL}},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid request with legacy sourceUrl",
+			req: PullRequest{
+				ExtraData: "0x1234",
+				DataSetId: &dataSetId,
+				Pieces: []PullPieceRequest{
 					{PieceCid: validCid, SourceURL: validURL},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "sourceUrl prepended to sourceUrls",
+			req: PullRequest{
+				ExtraData: "0x1234",
+				DataSetId: &dataSetId,
+				Pieces: []PullPieceRequest{
+					{
+						PieceCid:   validCid,
+						SourceURL:  validURL,
+						SourceURLs: []string{"https://backup.example.com/piece/" + validCid},
+					},
 				},
 			},
 			wantErr: false,
@@ -106,8 +132,8 @@ func TestPullRequest_Validate(t *testing.T) {
 				ExtraData: "0x1234",
 				DataSetId: &dataSetId,
 				Pieces: []PullPieceRequest{
-					{PieceCid: validCid, SourceURL: validURL},
-					{PieceCid: validCid2, SourceURL: "https://sp.example.com/piece/" + validCid2},
+					{PieceCid: validCid, SourceURLs: []string{validURL}},
+					{PieceCid: validCid2, SourceURLs: []string{"https://sp.example.com/piece/" + validCid2}},
 				},
 			},
 			wantErr: false,
@@ -118,24 +144,47 @@ func TestPullRequest_Validate(t *testing.T) {
 				ExtraData: "0x1234",
 				DataSetId: &dataSetId,
 				Pieces: []PullPieceRequest{
-					{PieceCid: validCid, SourceURL: validURL},
-					{PieceCid: validCid, SourceURL: "https://backup.example.com/piece/" + validCid},
+					{PieceCid: validCid, SourceURLs: []string{validURL, "https://backup.example.com/piece/" + validCid}},
 				},
 			},
 			wantErr: false,
 		},
 		{
-			name: "duplicate piece and source",
+			name: "duplicate pieceCid",
 			req: PullRequest{
 				ExtraData: "0x1234",
 				DataSetId: &dataSetId,
 				Pieces: []PullPieceRequest{
-					{PieceCid: validCid, SourceURL: validURL},
-					{PieceCid: validCid, SourceURL: validURL},
+					{PieceCid: validCid, SourceURLs: []string{validURL}},
+					{PieceCid: validCid, SourceURLs: []string{validURL}},
 				},
 			},
 			wantErr:     true,
-			errContains: "duplicate pieceCid/sourceUrl",
+			errContains: "duplicate pieceCid",
+		},
+		{
+			name: "sourceUrl duplicates sourceUrls",
+			req: PullRequest{
+				ExtraData: "0x1234",
+				DataSetId: &dataSetId,
+				Pieces: []PullPieceRequest{
+					{PieceCid: validCid, SourceURL: validURL, SourceURLs: []string{validURL}},
+				},
+			},
+			wantErr:     true,
+			errContains: "duplicate sourceUrls",
+		},
+		{
+			name: "duplicate sourceUrls",
+			req: PullRequest{
+				ExtraData: "0x1234",
+				DataSetId: &dataSetId,
+				Pieces: []PullPieceRequest{
+					{PieceCid: validCid, SourceURLs: []string{validURL, validURL}},
+				},
+			},
+			wantErr:     true,
+			errContains: "duplicate sourceUrls",
 		},
 		{
 			name: "missing extraData",
@@ -143,7 +192,7 @@ func TestPullRequest_Validate(t *testing.T) {
 				ExtraData: "",
 				DataSetId: &dataSetId,
 				Pieces: []PullPieceRequest{
-					{PieceCid: validCid, SourceURL: validURL},
+					{PieceCid: validCid, SourceURLs: []string{validURL}},
 				},
 			},
 			wantErr:     true,
@@ -165,30 +214,42 @@ func TestPullRequest_Validate(t *testing.T) {
 				ExtraData: "0x1234",
 				DataSetId: &dataSetId,
 				Pieces: []PullPieceRequest{
-					{PieceCid: "", SourceURL: validURL},
+					{PieceCid: "", SourceURLs: []string{validURL}},
 				},
 			},
 			wantErr:     true,
 			errContains: "pieceCid is required",
 		},
 		{
-			name: "piece missing sourceUrl",
+			name: "piece missing sourceUrls",
 			req: PullRequest{
 				ExtraData: "0x1234",
 				DataSetId: &dataSetId,
 				Pieces: []PullPieceRequest{
-					{PieceCid: validCid, SourceURL: ""},
+					{PieceCid: validCid},
 				},
 			},
 			wantErr:     true,
-			errContains: "sourceUrl is required",
+			errContains: "sourceUrl or sourceUrls is required",
+		},
+		{
+			name: "empty sourceUrls entry",
+			req: PullRequest{
+				ExtraData: "0x1234",
+				DataSetId: &dataSetId,
+				Pieces: []PullPieceRequest{
+					{PieceCid: validCid, SourceURLs: []string{""}},
+				},
+			},
+			wantErr:     true,
+			errContains: "sourceUrls[0] is empty",
 		},
 		{
 			name: "valid request with urls array",
 			req: PullRequest{
 				ExtraData: "0x1234",
 				DataSetId: &dataSetId,
-				URLs:      []string{validURL, "https://backup.example.com/piece/" + validCid},
+				URLs:      [][]string{{validURL, "https://backup.example.com/piece/" + validCid}},
 			},
 			wantErr: false,
 		},
@@ -197,7 +258,7 @@ func TestPullRequest_Validate(t *testing.T) {
 			req: PullRequest{
 				ExtraData: "0x1234",
 				DataSetId: &dataSetId,
-				Provider:  &PullProvider{Host: "sp.example.com", CIDs: []string{validCid}},
+				Provider:  &PullProvider{Hosts: []string{"sp.example.com"}, CIDs: []string{validCid}},
 			},
 			wantErr: false,
 		},
@@ -207,10 +268,10 @@ func TestPullRequest_Validate(t *testing.T) {
 				ExtraData: "0x1234",
 				DataSetId: &dataSetId,
 				Pieces: []PullPieceRequest{
-					{PieceCid: validCid, SourceURL: validURL},
+					{PieceCid: validCid, SourceURLs: []string{validURL}},
 				},
-				URLs:     []string{"https://backup.example.com/piece/" + validCid},
-				Provider: &PullProvider{Host: "other.example.com", CIDs: []string{validCid2}},
+				URLs:     [][]string{{"https://backup.example.com/piece/" + validCid}},
+				Provider: &PullProvider{Hosts: []string{"other.example.com"}, CIDs: []string{validCid2}},
 			},
 			wantErr: false,
 		},
@@ -220,9 +281,9 @@ func TestPullRequest_Validate(t *testing.T) {
 				ExtraData: "0x1234",
 				DataSetId: &dataSetId,
 				Pieces: []PullPieceRequest{
-					{PieceCid: validCid, SourceURL: validURL},
+					{PieceCid: validCid, SourceURLs: []string{validURL}},
 				},
-				Provider: &PullProvider{Host: "sp.example.com"},
+				Provider: &PullProvider{Hosts: []string{"sp.example.com"}},
 			},
 			wantErr: false,
 		},
@@ -234,7 +295,7 @@ func TestPullRequest_Validate(t *testing.T) {
 				Provider:  &PullProvider{CIDs: []string{validCid}},
 			},
 			wantErr:     true,
-			errContains: "provider.cids requires provider.host",
+			errContains: "provider.cids requires provider.hosts",
 		},
 		{
 			name: "provider cids without host even with pieces",
@@ -242,40 +303,63 @@ func TestPullRequest_Validate(t *testing.T) {
 				ExtraData: "0x1234",
 				DataSetId: &dataSetId,
 				Pieces: []PullPieceRequest{
-					{PieceCid: validCid, SourceURL: validURL},
+					{PieceCid: validCid, SourceURLs: []string{validURL}},
 				},
 				Provider: &PullProvider{CIDs: []string{validCid2}},
 			},
 			wantErr:     true,
-			errContains: "provider.cids requires provider.host",
+			errContains: "provider.cids requires provider.hosts",
 		},
 		{
 			name: "empty urls entry",
 			req: PullRequest{
 				ExtraData: "0x1234",
 				DataSetId: &dataSetId,
-				URLs:      []string{""},
+				URLs:      [][]string{{}},
 			},
 			wantErr:     true,
 			errContains: "urls[0] is empty",
+		},
+		{
+			name: "empty url in group",
+			req: PullRequest{
+				ExtraData: "0x1234",
+				DataSetId: &dataSetId,
+				URLs:      [][]string{{""}},
+			},
+			wantErr:     true,
+			errContains: "urls[0][0] is empty",
+		},
+		{
+			name: "urls group mixed piece cids",
+			req: PullRequest{
+				ExtraData: "0x1234",
+				DataSetId: &dataSetId,
+				URLs: [][]string{{
+					"https://sp.example.com/piece/" + validCid,
+					"https://sp.example.com/piece/" + validCid2,
+				}},
+			},
+			wantErr:     true,
+			errContains: "URLs must refer to the same piece",
 		},
 		{
 			name: "url missing piece path",
 			req: PullRequest{
 				ExtraData: "0x1234",
 				DataSetId: &dataSetId,
-				URLs:      []string{"https://sp.example.com/not-a-piece"},
+				URLs:      [][]string{{"https://sp.example.com/not-a-piece"}},
 			},
 			wantErr:     true,
 			errContains: "/piece/{cid}",
 		},
 		{
-			name: "invalid sourceUrl",
+			name: "invalid sourceUrls",
 			req: PullRequest{
 				ExtraData: "0x1234",
 				DataSetId: &dataSetId,
 				Pieces: []PullPieceRequest{
-					{PieceCid: validCid, SourceURL: "http://localhost/piece/" + validCid},
+					{PieceCid: validCid, SourceURLs: []string{"http://localhost/piece/" + validCid}},
 				},
 			},
 			wantErr:     true,
@@ -312,34 +396,61 @@ func TestPullRequest_AssembledSources(t *testing.T) {
 		return out
 	}
 
-	t.Run("legacy pieces sourceUrl", func(t *testing.T) {
+	t.Run("legacy sourceUrl", func(t *testing.T) {
 		r := PullRequest{Pieces: []PullPieceRequest{
 			{PieceCid: validCid, SourceURL: "https://sp.example.com/piece/" + validCid},
 		}}
 		sources, err := r.AssembledSources()
 		require.NoError(t, err)
 		require.Equal(t, [][2]string{{validCid, "https://sp.example.com/piece/" + validCid}}, got(sources))
+		require.Equal(t, 0, sources[0].SourceOrder)
 	})
 
-	t.Run("urls array extracts cid", func(t *testing.T) {
-		r := PullRequest{URLs: []string{
-			"https://a.example/piece/" + validCid,
-			"https://b.example/piece/" + validCid2,
+	t.Run("sourceUrl is prepended to sourceUrls", func(t *testing.T) {
+		first := "https://first.example/piece/" + validCid
+		second := "https://second.example/piece/" + validCid
+		r := PullRequest{Pieces: []PullPieceRequest{
+			{PieceCid: validCid, SourceURL: first, SourceURLs: []string{second}},
+		}}
+		sources, err := r.AssembledSources()
+		require.NoError(t, err)
+		require.Equal(t, [][2]string{{validCid, first}, {validCid, second}}, got(sources))
+		require.Equal(t, []int{0, 1}, []int{sources[0].SourceOrder, sources[1].SourceOrder})
+	})
+
+	t.Run("pieces sourceUrls", func(t *testing.T) {
+		r := PullRequest{Pieces: []PullPieceRequest{
+			{PieceCid: validCid, SourceURLs: []string{"https://sp.example.com/piece/" + validCid}},
+		}}
+		sources, err := r.AssembledSources()
+		require.NoError(t, err)
+		require.Equal(t, [][2]string{{validCid, "https://sp.example.com/piece/" + validCid}}, got(sources))
+	})
+
+	t.Run("urls array of arrays extracts cid in order", func(t *testing.T) {
+		r := PullRequest{URLs: [][]string{
+			{
+				"https://a.example/piece/" + validCid,
+				"https://backup.example/piece/" + validCid,
+			},
+			{"https://b.example/piece/" + validCid2},
 		}}
 		sources, err := r.AssembledSources()
 		require.NoError(t, err)
 		require.Equal(t, [][2]string{
 			{validCid, "https://a.example/piece/" + validCid},
+			{validCid, "https://backup.example/piece/" + validCid},
 			{validCid2, "https://b.example/piece/" + validCid2},
 		}, got(sources))
+		require.Equal(t, []int{0, 1, 0}, []int{sources[0].SourceOrder, sources[1].SourceOrder, sources[2].SourceOrder})
 	})
 
 	t.Run("provider host uses piece cids", func(t *testing.T) {
 		r := PullRequest{
 			Pieces: []PullPieceRequest{
-				{PieceCid: validCid, SourceURL: "https://legacy.example/piece/" + validCid},
+				{PieceCid: validCid, SourceURLs: []string{"https://legacy.example/piece/" + validCid}},
 			},
-			Provider: &PullProvider{Host: "sp.example.com"},
+			Provider: &PullProvider{Hosts: []string{"sp.example.com"}},
 		}
 		sources, err := r.AssembledSources()
 		require.NoError(t, err)
@@ -349,8 +460,22 @@ func TestPullRequest_AssembledSources(t *testing.T) {
 		}, got(sources))
 	})
 
+	t.Run("provider hosts are tried in order", func(t *testing.T) {
+		r := PullRequest{Provider: &PullProvider{
+			Hosts: []string{"first.example.com", "second.example.com"},
+			CIDs:  []string{validCid},
+		}}
+		sources, err := r.AssembledSources()
+		require.NoError(t, err)
+		require.Equal(t, [][2]string{
+			{validCid, "https://first.example.com/piece/" + validCid},
+			{validCid, "https://second.example.com/piece/" + validCid},
+		}, got(sources))
+		require.Equal(t, []int{0, 1}, []int{sources[0].SourceOrder, sources[1].SourceOrder})
+	})
+
 	t.Run("provider host with port and cids", func(t *testing.T) {
-		r := PullRequest{Provider: &PullProvider{Host: "sp.example.com:8080", CIDs: []string{v1Cid, validCid2}}}
+		r := PullRequest{Provider: &PullProvider{Hosts: []string{"sp.example.com:8080"}, CIDs: []string{v1Cid, validCid2}}}
 		sources, err := r.AssembledSources()
 		require.NoError(t, err)
 		require.Equal(t, [][2]string{
@@ -360,7 +485,7 @@ func TestPullRequest_AssembledSources(t *testing.T) {
 	})
 
 	t.Run("provider host already has scheme", func(t *testing.T) {
-		r := PullRequest{Provider: &PullProvider{Host: "https://sp.example.com/pdp", CIDs: []string{validCid}}}
+		r := PullRequest{Provider: &PullProvider{Hosts: []string{"https://sp.example.com/pdp"}, CIDs: []string{validCid}}}
 		sources, err := r.AssembledSources()
 		require.NoError(t, err)
 		require.Equal(t, [][2]string{{validCid, "https://sp.example.com/pdp/piece/" + validCid}}, got(sources))
@@ -370,10 +495,10 @@ func TestPullRequest_AssembledSources(t *testing.T) {
 		legacy := "https://sp.example.com/piece/" + validCid
 		r := PullRequest{
 			Pieces: []PullPieceRequest{
-				{PieceCid: validCid, SourceURL: legacy},
+				{PieceCid: validCid, SourceURLs: []string{legacy}},
 			},
-			URLs:     []string{legacy, "https://backup.example.com/piece/" + validCid},
-			Provider: &PullProvider{Host: "sp.example.com"},
+			URLs:     [][]string{{legacy, "https://backup.example.com/piece/" + validCid}},
+			Provider: &PullProvider{Hosts: []string{"sp.example.com"}},
 		}
 		sources, err := r.AssembledSources()
 		require.NoError(t, err)
@@ -386,9 +511,9 @@ func TestPullRequest_AssembledSources(t *testing.T) {
 	t.Run("json form", func(t *testing.T) {
 		raw := `{
 			"extraData": "0x1234",
-			"pieces": [{"pieceCid": "` + validCid + `", "sourceUrl": "https://legacy.example/piece/` + validCid + `"}],
-			"urls": ["https://a.example/piece/` + validCid + `"],
-			"provider": {"host": "sp.example.com", "cids": ["` + v1Cid + `"]}
+			"pieces": [{"pieceCid": "` + validCid + `", "sourceUrls": ["https://legacy.example/piece/` + validCid + `"]}],
+			"urls": [["https://a.example/piece/` + validCid + `"]],
+			"provider": {"hosts": ["sp.example.com"], "cids": ["` + v1Cid + `"]}
 		}`
 		var r PullRequest
 		require.NoError(t, json.Unmarshal([]byte(raw), &r))
@@ -405,19 +530,19 @@ func TestPullRequest_AssembledSources(t *testing.T) {
 		r := PullRequest{Provider: &PullProvider{CIDs: []string{v1Cid}}}
 		_, err := r.AssembledSources()
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "provider.cids requires provider.host")
+		require.Contains(t, err.Error(), "provider.cids requires provider.hosts")
 	})
 
 	t.Run("json cids without host", func(t *testing.T) {
 		raw := `{
-			"pieces": [{"pieceCid": "` + validCid + `", "sourceUrl": "https://legacy.example/piece/` + validCid + `"}],
+			"pieces": [{"pieceCid": "` + validCid + `", "sourceUrls": ["https://legacy.example/piece/` + validCid + `"]}],
 			"provider": {"cids": ["` + v1Cid + `"]}
 		}`
 		var r PullRequest
 		require.NoError(t, json.Unmarshal([]byte(raw), &r))
 		_, err := r.AssembledSources()
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "provider.cids requires provider.host")
+		require.Contains(t, err.Error(), "provider.cids requires provider.hosts")
 	})
 }
 
@@ -428,8 +553,8 @@ func TestPullRequest_ValidateBatchLimit(t *testing.T) {
 	for i := range pieces {
 		cid := fmt.Sprintf("cid-%d", i)
 		pieces[i] = PullPieceRequest{
-			PieceCid:  cid,
-			SourceURL: fmt.Sprintf("https://sp.example.com/piece/%s", cid),
+			PieceCid:   cid,
+			SourceURLs: []string{fmt.Sprintf("https://sp.example.com/piece/%s", cid)},
 		}
 	}
 	req := PullRequest{ExtraData: "0x1234", DataSetId: &dataSetId, Pieces: pieces}
@@ -437,6 +562,15 @@ func TestPullRequest_ValidateBatchLimit(t *testing.T) {
 	err := req.Validate()
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "exceeds the maximum allowed per pull")
+}
+
+func TestAggregatePullStatuses(t *testing.T) {
+	require.Equal(t, PullStatusPending, aggregatePullStatuses(nil))
+	require.Equal(t, PullStatusPending, aggregatePullStatuses([]PullStatus{PullStatusFailed, PullStatusPending}))
+	require.Equal(t, PullStatusRetrying, aggregatePullStatuses([]PullStatus{PullStatusFailed, PullStatusRetrying}))
+	require.Equal(t, PullStatusInProgress, aggregatePullStatuses([]PullStatus{PullStatusComplete, PullStatusInProgress}))
+	require.Equal(t, PullStatusFailed, aggregatePullStatuses([]PullStatus{PullStatusFailed, PullStatusFailed}))
+	require.Equal(t, PullStatusComplete, aggregatePullStatuses([]PullStatus{PullStatusFailed, PullStatusComplete}))
 }
 
 func TestPullRetryAfter(t *testing.T) {

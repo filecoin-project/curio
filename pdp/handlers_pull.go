@@ -187,13 +187,16 @@ func NewPullHandler(auth Auth, store PullStore, validator AddPiecesValidator, db
 //     will receive callbacks from PDPVerifier (typically FilecoinWarmStorageService).
 //     Must be in the allowed list for public services.
 //
-//   - pieces (optional): Array of {pieceCid, sourceUrl} entries (current form)
+//   - pieces (optional): Array of {pieceCid, sourceUrls} entries. sourceUrls are
+//     tried in order for that piece. sourceUrl is still accepted; when both are
+//     set, sourceUrl is tried first.
 //
-//   - urls (optional): HTTPS URLs whose paths end in /piece/{cid}
+//   - urls (optional): Array of arrays of HTTPS URLs. Each inner array is the
+//     ordered URL list for one piece, and every URL's path must end in /piece/{cid}.
 //
-//   - provider (optional): {host, cids} assembled here into https://{host}/piece/{cid}.
-//     If cids is omitted, piece CIDs already collected from pieces and urls are used.
-//     provider.cids without provider.host is rejected.
+//   - provider (optional): {hosts, cids} assembled here into https://{host}/piece/{cid}.
+//     hosts are tried in order. If cids is omitted, piece CIDs already collected
+//     from pieces and urls are used. provider.cids without provider.hosts is rejected.
 //
 //     At least one source URL must result after combining these fields.
 //
@@ -220,8 +223,8 @@ func NewPullHandler(auth Auth, store PullStore, validator AddPiecesValidator, db
 //
 //  1. Client calls POST /pdp/piece/pull with piece CIDs and source URLs
 //  2. Server validates extraData via eth_call (ensures authorization)
-//  3. Server creates pull tracking records; duplicate pieces with different
-//     source URLs are kept so the server can try each supplied source.
+//  3. Server creates pull tracking records. Each piece keeps its source URLs
+//     in the order given so ingest tries them in that order.
 //  4. Client polls the same endpoint to check status (idempotent)
 //  5. Once all pieces are "complete", client calls the contract to add pieces to dataset
 //
@@ -426,9 +429,10 @@ func (h *PullHandler) HandlePull(w http.ResponseWriter, r *http.Request) {
 	for _, source := range sources {
 		info := infoByCid[source.PieceCid]
 		pullPieces = append(pullPieces, PullPiece{
-			CidV1:     info.CidV1,
-			RawSize:   info.RawSize,
-			SourceURL: source.SourceURL,
+			CidV1:       info.CidV1,
+			RawSize:     info.RawSize,
+			SourceURL:   source.SourceURL,
+			SourceOrder: source.SourceOrder,
 		})
 	}
 

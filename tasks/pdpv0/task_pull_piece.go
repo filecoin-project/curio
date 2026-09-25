@@ -634,6 +634,7 @@ func (t *PDPPullPieceTask) Do(ctx context.Context, taskID harmonytask.TaskID, st
 				fi.fetch_id,
 				pp.service,
 				fi.source_url,
+				fi.source_ord,
 				fi.parked_piece_ref,
 				fi.created_at
 			FROM assigned_groups ag
@@ -647,7 +648,7 @@ func (t *PDPPullPieceTask) Do(ctx context.Context, taskID harmonytask.TaskID, st
 		)
 		SELECT piece_cid, piece_raw_size, fetch_id, service, source_url, parked_piece_ref
 		FROM items
-		ORDER BY created_at ASC, fetch_id ASC
+		ORDER BY source_ord ASC, created_at ASC, fetch_id ASC
 	`, taskID, pullItemMaxAttempts)
 	if err != nil {
 		return false, xerrors.Errorf("query pull task sources: %w", err)
@@ -852,6 +853,8 @@ func (t *PDPPullPieceTask) Do(ctx context.Context, taskID harmonytask.TaskID, st
 	attemptedSources := map[string]struct{}{}
 	var sourceErrors error
 	var sourceFailures []pullSourceError
+	// sources is ordered by source_ord, so the client's first URL is tried
+	// before later fallbacks. The first successful URL completes the piece.
 	for _, source := range sources {
 		// Multiple pull items can carry the same URL. Try each distinct URL
 		// once; if every URL fails, failures are recorded by source_url.
