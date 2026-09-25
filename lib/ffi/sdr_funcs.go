@@ -369,7 +369,7 @@ func (sb *SealCalls) PoRepSnark(ctx context.Context, sn storiface.SectorRef, sea
 	ctx = ffiselect.WithLogCtx(ctx, "sector", sn.ID, "sealed", sealed, "unsealed", unsealed, "ticket", ticket, "seed", seed)
 	proof, err := ffiselect.FFISelect.SealCommitPhase2(ctx, vproof, sn.ID.Number, sn.ID.Miner)
 	if err != nil {
-		return nil, xerrors.Errorf("computing seal proof failed: %w", err)
+		return nil, xerrors.Errorf("computing seal proof failed: %w", classifyLocalPoRepC2Error(ctx, err))
 	}
 
 	ok, err := ffi.VerifySeal(proof2.SealVerifyInfo{

@@ -37,6 +37,7 @@ type PoRepTask struct {
 	sp          *SealPoller
 	sc          *ffi.SealCalls
 	paramsReady func() (bool, error)
+	health      taskhelp.WorkerBackoff
 
 	cuzkClient *cuzk.Client
 
@@ -58,6 +59,7 @@ func NewPoRepTask(db *harmonydb.DB, api PoRepAPI, sp *SealPoller, sc *ffi.SealCa
 }
 
 func (p *PoRepTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
+	backendEpoch := p.health.Epoch()
 
 	var sectorParamsArr []struct {
 		SpID         int64                   `db:"sp_id"`
@@ -128,6 +130,7 @@ func (p *PoRepTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwne
 		proof, err = p.sc.PoRepSnarkCuzk(ctx, p.cuzkClient, sr, sealed, unsealed, sectorParams.TicketValue, abi.InteractiveSealRandomness(rand))
 	} else {
 		proof, err = p.sc.PoRepSnark(ctx, sr, sealed, unsealed, sectorParams.TicketValue, abi.InteractiveSealRandomness(rand))
+		err = p.localBackendResult(backendEpoch, err)
 	}
 	if err != nil {
 		return false, xerrors.Errorf("failed to compute seal proof: %w", err)
@@ -166,6 +169,9 @@ func (p *PoRepTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEngin
 	// accept all IDs — harmonytask's Max.AtMax() / Headroom() gate handles the cap.
 	if p.cuzkClient != nil && p.cuzkClient.Enabled() {
 		return ids, nil
+	}
+	if p.TaskStartBlocked() {
+		return nil, nil
 	}
 
 	rdy, err := p.paramsReady()
