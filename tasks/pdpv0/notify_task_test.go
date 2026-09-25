@@ -346,6 +346,41 @@ func TestPDPNotifyTaskDrainsOldKnownCIDUploadStates(t *testing.T) {
 	require.True(t, done)
 }
 
+func TestPDPNotifyTaskCacheBoundary(t *testing.T) {
+	db, err := harmonydb.NewFromConfigWithITestID(t)
+	require.NoError(t, err)
+	task := NewPDPNotifyTask(db)
+
+	for i, tc := range []struct {
+		name       string
+		rawSize    int64
+		paddedSize int64
+		needsCache bool
+	}{
+		{name: "32 MiB padded", rawSize: (32 << 20) * 127 / 128, paddedSize: 32 << 20},
+		{name: "32 MiB raw", rawSize: 32 << 20, paddedSize: 64 << 20, needsCache: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fixture := newNotifyUploadFixture("legacy-cache-boundary")
+			fixture.notifyTaskID = sql.NullInt64{Int64: int64(900 + i), Valid: true}
+			insertParkedPiece(t, db, &fixture, true, false, nil)
+			_, err := db.Exec(t.Context(), `
+				UPDATE parked_pieces SET piece_raw_size = $1, piece_padded_size = $2 WHERE id = $3
+			`, tc.rawSize, tc.paddedSize, fixture.parkedPiece)
+			require.NoError(t, err)
+			insertUploadIntent(t, db, fixture, "")
+
+			drainScheduledUploads(t, task, []harmonytask.TaskID{harmonytask.TaskID(fixture.notifyTaskID.Int64)})
+			requireUploadPublished(t, db, fixture)
+			var needsCache bool
+			require.NoError(t, db.QueryRow(t.Context(), `
+				SELECT needs_save_cache FROM pdp_piecerefs WHERE piece_ref = $1
+			`, fixture.pieceRef).Scan(&needsCache))
+			require.Equal(t, tc.needsCache, needsCache)
+		})
+	}
+}
+
 func TestPDPNotifyTaskDrainsOldStreamingUploadStates(t *testing.T) {
 	db, err := harmonydb.NewFromConfigWithITestID(t)
 	require.NoError(t, err)

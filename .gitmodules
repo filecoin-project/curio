@@ -3,4 +3,4 @@
 	url = https://github.com/filecoin-project/filecoin-ffi.git
 [submodule "extern/supraseal/deps/sppark"]
 	path = extern/supraseal/deps/sppark
-	url = https://github.com/supranational/sppark.git
+	url = https://github.com/curiostorage/sppark.git

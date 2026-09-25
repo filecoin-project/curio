@@ -17,6 +17,7 @@ import (
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/builtin/v16/verifreg"
+	"github.com/filecoin-project/go-state-types/network"
 
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -36,11 +37,11 @@ type DDOV1 struct {
 	// StartEpoch optionally specifies the epoch by which a deal should be active on the chain
 	StartEpoch *abi.ChainEpoch `json:"start_epoch"`
 
-	// Duration represents the deal duration in epochs. This value is ignored for the deal with allocationID.
+	// Duration represents the deal duration in epochs.
 	// It must be at least 518400
 	Duration abi.ChainEpoch `json:"duration"`
 
-	// AllocationId represents an allocation identifier for the deal.
+	// AllocationId is retained for previously accepted deals and rejected on new intake.
 	AllocationId *verifreg.AllocationId `json:"allocation_id,omitempty"`
 
 	// MarketAddress specifies the address of the market governing the deal
@@ -122,7 +123,7 @@ func (d *DDOV1) Validate(ctx context.Context, db *harmonydb.DB, cfg *config.MK20
 	return Ok, nil
 }
 
-func (d *DDOV1) VerifyMarketDeal(ctx context.Context, db *harmonydb.DB, eth ethchain.EthClient, deal *Deal) (DealCode, error) {
+func (d *DDOV1) VerifyMarketDeal(ctx context.Context, db *harmonydb.DB, eth ethchain.EthClient, deal *Deal, nv network.Version) (DealCode, error) {
 	if d.MarketAddress == "" {
 		return Ok, nil
 	}
@@ -161,19 +162,14 @@ func (d *DDOV1) VerifyMarketDeal(ctx context.Context, db *harmonydb.DB, eth ethc
 	if err != nil {
 		return ErrServerInternalError, xerrors.Errorf("calling market version: %w", err)
 	}
-	if version == nil || version.Uint64() != 1 {
-		return ErrMarketNotEnabled, xerrors.Errorf("unsupported market interface version: %v", version)
+	if version == nil || !version.IsUint64() || version.Uint64() != 1 {
+		return ErrMarketNotEnabled, xerrors.Errorf("unsupported market interface version %v: expected 1", version)
 	}
 
 	// Match on-chain values with local deal values.
 	localProviderID, err := address.IDFromAddress(d.Provider)
 	if err != nil {
 		return ErrProductValidationFailed, xerrors.Errorf("invalid provider for market verification: %w", err)
-	}
-
-	alloc := new(big.Int).SetUint64(uint64(verifreg.NoAllocationID))
-	if d.AllocationId != nil {
-		alloc = new(big.Int).SetUint64(uint64(*d.AllocationId))
 	}
 
 	startEpoch := new(big.Int).SetUint64(0)
@@ -184,6 +180,12 @@ func (d *DDOV1) VerifyMarketDeal(ctx context.Context, db *harmonydb.DB, eth ethc
 	localClient, err := localClientIDBytes(deal.Client)
 	if err != nil {
 		return ErrProductValidationFailed, xerrors.Errorf("invalid client for market verification: %w", err)
+	}
+
+	alloc := new(big.Int)
+	// TODO(NV29): Always pass zero once pre-NV29 support is dropped.
+	if nv < network.Version29 && d.AllocationId != nil {
+		alloc.SetUint64(uint64(*d.AllocationId))
 	}
 
 	mdeal := mk20contract.ICurioDealViewV1CurioDealView{
@@ -203,7 +205,7 @@ func (d *DDOV1) VerifyMarketDeal(ctx context.Context, db *harmonydb.DB, eth ethc
 		if isDealNotFoundRevert(err) {
 			return ErrDealRejectedByMarket, xerrors.Errorf("deal %d not found in market", *d.MarketDealID)
 		}
-		return ErrServerInternalError, xerrors.Errorf("calling market getDeal: %w", err)
+		return ErrServerInternalError, xerrors.Errorf("calling market verifyDeal: %w", err)
 	}
 
 	if !seal {

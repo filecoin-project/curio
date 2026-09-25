@@ -1954,7 +1954,7 @@ cuzk links against the same Filecoin proving stack as Curio:
 | `storage-proofs-post` | 19.0.1 | crates.io |
 | `storage-proofs-update` | 19.0.1 | crates.io |
 | `blst` | 0.3.x | crates.io |
-| `sppark` | 0.1.x | crates.io |
+| `sppark` | 0.1.x | github.com/curiostorage/sppark |
 
 **Build requirements:**
 - CUDA toolkit (nvcc)

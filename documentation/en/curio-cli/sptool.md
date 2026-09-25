@@ -7,7 +7,7 @@ USAGE:
    sptool [global options] command [command options]
 
 VERSION:
-   1.28.6
+   1.29.0-rc1
 
 COMMANDS:
    actor    Manage Filecoin Miner Actor Metadata
@@ -278,6 +278,7 @@ COMMANDS:
    check-expire        Inspect expiring sectors
    expired             Get or cleanup expired sectors
    extend              Extend expiring sectors while not exceeding each sector's max life
+   upgrade-quality     upgrade legacy sectors to full QA power
    terminate           Forcefully terminate a sector (WARNING: This means losing power and pay a one-time termination penalty(including collateral) for the terminated sector)
    compact-partitions  removes dead sectors from partitions and reduces the number of partitions used if possible
    help, h             Shows a list of commands or help for one command
@@ -386,6 +387,21 @@ OPTIONS:
    --max-sectors value     the maximum number of sectors contained in each message (default: 500)
    --really-do-it          pass this flag to really extend sectors, otherwise will only print out json representation of parameters (default: false)
    --help, -h              show help
+```
+
+### sptool sectors upgrade-quality
+```
+NAME:
+   sptool sectors upgrade-quality - upgrade legacy sectors to full QA power
+
+USAGE:
+   sptool sectors upgrade-quality [command options]
+
+OPTIONS:
+   --max-sectors value  maximum number of sectors to upgrade (default: 0)
+   --max-fee value      maximum FIL to spend on gas per message (default: "0")
+   --really-do-it       must be specified for the action to take effect (default: false)
+   --help, -h           show help
 ```
 
 ### sptool sectors terminate
@@ -549,8 +565,6 @@ COMMANDS:
    deal               Make an online deal with Curio
    deal-status        
    offline-deal       Make an offline deal with Curio
-   allocate           Create new allocation[s] for verified deals
-   list-allocations   Lists all allocations for a client address(wallet)
    market-add         Add funds to the Storage Market actor
    market-withdraw    Withdraw funds from the Storage Market actor
    commp              
@@ -644,53 +658,6 @@ OPTIONS:
    --skip-ipni-announce             indicates that deal index should not be announced to the IPNI(Network Indexer) (default: false)
    --http                           make the deal over HTTP instead of libp2p (default: false)
    --help, -h                       show help
-```
-
-#### sptool toolbox mk12-client allocate
-```
-NAME:
-   sptool toolbox mk12-client allocate - Create new allocation[s] for verified deals
-
-USAGE:
-   sptool toolbox mk12-client allocate [command options]
-
-DESCRIPTION:
-   The command can accept a CSV formatted file in the format 'pieceCid,pieceSize,miner,tmin,tmax,expiration'
-
-OPTIONS:
-   --miner value, -m value, --provider value, -p value [ --miner value, -m value, --provider value, -p value ]  storage provider address[es]
-   --piece-cid value, --piece value                                                                             data piece-cid to create the allocation
-   --piece-size value, --size value                                                                             piece size to create the allocation (default: 0)
-   --wallet value                                                                                               the wallet address that will used create the allocation
-   --quiet                                                                                                      do not print the allocation list (default: false)
-   --term-min value, --tmin value                                                                               The minimum duration which the provider must commit to storing the piece to avoid early-termination penalties (epochs).
-      Default is 180 days. (default: 518400)
-   --term-max value, --tmax value  The maximum period for which a provider can earn quality-adjusted power for the piece (epochs).
-      Default is 5 years. (default: 5256000)
-   --expiration value  The latest epoch by which a provider must commit data before the allocation expires (epochs).
-      Default is 60 days. (default: 172800)
-   --piece-file value, --pf value  file containing piece information to create the allocation. Each line in the file should be in the format 'pieceCid,pieceSize,miner,tmin,tmax,expiration'
-   --batch-size value              number of extend requests per batch. If set incorrectly, this will lead to out of gas error (default: 500)
-   --confidence value              number of block confirmations to wait for (default: 5)
-   --assume-yes, -y, --yes         automatic yes to prompts; assume 'yes' as answer to all prompts and run non-interactively (default: false)
-   --evm-client-contract value     f4 address of EVM contract to spend DataCap from
-   --json, -j                      print output in JSON format (default: false)
-   --help, -h                      show help
-```
-
-#### sptool toolbox mk12-client list-allocations
-```
-NAME:
-   sptool toolbox mk12-client list-allocations - Lists all allocations for a client address(wallet)
-
-USAGE:
-   sptool toolbox mk12-client list-allocations [command options]
-
-OPTIONS:
-   --miner value, -m value, --provider value, -p value  Storage provider address. If provided, only allocations against this minerID will be printed
-   --wallet value                                       the wallet address that will used create the allocation
-   --json, -j                                           print output in JSON format (default: false)
-   --help, -h                                           show help
 ```
 
 #### sptool toolbox mk12-client market-add

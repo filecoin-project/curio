@@ -321,11 +321,6 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 		httpServerError(w, http.StatusBadRequest, "At least one piece must be provided", err)
 		return
 	}
-	if len(payload.Pieces) > MaxAddPiecesBatchSize {
-		errMsg := fmt.Sprintf("piece count (%d) exceeds the maximum allowed per AddPieces call (%d)", len(payload.Pieces), MaxAddPiecesBatchSize)
-		httpServerError(w, http.StatusBadRequest, errMsg, err)
-		return
-	}
 
 	subPieceCidV1List, err := subPieceCidV1ListFromPieces(payload.Pieces)
 	if err != nil {
@@ -380,10 +375,12 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Step 6: Prepare the Ethereum transaction
-	// Pack the method call data
-	// The extraDataBytes variable is now correctly populated above
-	data, err := abiData.Pack("addPieces", dataSetId, common.Address{}, pieceDataArray, extraDataBytes)
+	data, err := packAddPiecesWithinMessageLimit(abiData, dataSetId, common.Address{}, pieceDataAsCids(pieceDataArray), extraDataBytes)
 	if err != nil {
+		if errors.Is(err, errAddPiecesMessageTooLarge) {
+			httpServerError(w, http.StatusBadRequest, err.Error(), err)
+			return
+		}
 		httpServerError(w, http.StatusInternalServerError, "Failed to pack method call: "+err.Error(), err)
 		return
 	}

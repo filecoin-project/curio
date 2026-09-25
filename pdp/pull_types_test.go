@@ -546,10 +546,12 @@ func TestPullRequest_AssembledSources(t *testing.T) {
 	})
 }
 
-func TestPullRequest_ValidateBatchLimit(t *testing.T) {
+func TestPullRequest_ValidateAllowsLargeBatches(t *testing.T) {
 	dataSetId := uint64(1)
 
-	pieces := make([]PullPieceRequest, MaxAddPiecesBatchSize+1)
+	// Piece count is no longer capped; Filecoin message size is enforced later
+	// when packing addPieces. Distinct piece CIDs avoid the duplicate-piece check.
+	pieces := make([]PullPieceRequest, 2000)
 	for i := range pieces {
 		cid := fmt.Sprintf("cid-%d", i)
 		pieces[i] = PullPieceRequest{
@@ -559,9 +561,7 @@ func TestPullRequest_ValidateBatchLimit(t *testing.T) {
 	}
 	req := PullRequest{ExtraData: "0x1234", DataSetId: &dataSetId, Pieces: pieces}
 
-	err := req.Validate()
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "exceeds the maximum allowed per pull")
+	require.NoError(t, req.Validate())
 }
 
 func TestAggregatePullStatuses(t *testing.T) {

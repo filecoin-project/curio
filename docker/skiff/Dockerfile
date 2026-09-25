@@ -1,4 +1,4 @@
-ARG GO_VERSION=1.26.0
+ARG GO_VERSION=1.26.8
 ARG UBUNTU_VERSION=26.04
 
 # Shared Ubuntu base — reused by builder and runtime so apt layers stay cached.

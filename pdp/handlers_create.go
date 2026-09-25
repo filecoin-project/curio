@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math/big"
@@ -70,11 +71,6 @@ func (p *PDPService) handleCreateDataSetAndAddPieces(w http.ResponseWriter, r *h
 		httpServerError(w, http.StatusBadRequest, "At least one piece must be provided", err)
 		return
 	}
-	if len(reqBody.Pieces) > MaxAddPiecesBatchSize {
-		errMsg := fmt.Sprintf("piece count (%d) exceeds the maximum allowed per CreateDataSetAndAddPieces call (%d)", len(reqBody.Pieces), MaxAddPiecesBatchSize)
-		httpServerError(w, http.StatusBadRequest, errMsg, err)
-		return
-	}
 
 	extraDataBytes, err := decodeExtraData(reqBody.ExtraData)
 	if err != nil {
@@ -105,8 +101,12 @@ func (p *PDPService) handleCreateDataSetAndAddPieces(w http.ResponseWriter, r *h
 		return
 	}
 
-	data, err := abiData.Pack("addPieces", new(big.Int), recordKeeperAddr, pieceDataArray, extraDataBytes)
+	data, err := packAddPiecesWithinMessageLimit(abiData, new(big.Int), recordKeeperAddr, pieceDataAsCids(pieceDataArray), extraDataBytes)
 	if err != nil {
+		if errors.Is(err, errAddPiecesMessageTooLarge) {
+			httpServerError(w, http.StatusBadRequest, err.Error(), err)
+			return
+		}
 		httpServerError(w, http.StatusInternalServerError, "Failed to pack method call: "+err.Error(), err)
 		return
 	}

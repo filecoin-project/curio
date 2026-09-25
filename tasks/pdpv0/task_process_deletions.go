@@ -36,13 +36,6 @@ const reasonPDPProcessDeletions = "pdp-process-deletions"
 // processDeletionsBatchSize is the starting number of queue entries drained per
 // transaction. It matches PDPVerifier's PiecesRemoved event chunk size, and sits
 // well under the block gas limit.
-//
-// With ConservativeEnqueuedRemovalsLimit at 35 this never binds in steady state
-// -- one message drains a period's whole queue. It exists for migration-seeded
-// backlogs, which predate that limit and can run to a few hundred pieces. The
-// halving loop below, not this constant, is what guarantees progress: the
-// listener's gas cost is invisible to PDPVerifier, which is the root cause of
-// FilOzone/pdp#283.
 const processDeletionsBatchSize = 100
 
 // processDeletionsScheduleLimit bounds how many data sets are claimed per tipset.

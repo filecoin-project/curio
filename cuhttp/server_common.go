@@ -55,11 +55,16 @@ func MountStandardRoutes(r chi.Router) {
 
 // StartServer runs cfg's public HTTPS (or delegated HTTP) listener until ctx is cancelled.
 func StartServer(ctx context.Context, cfg *config.HTTPConfig, db *harmonydb.DB, handler http.Handler, label string) error {
+	// Allow a minute beyond the default read timeout for upload finalization and the response.
+	writeTimeout := cfg.ReadTimeout + time.Minute
+	if cfg.ReadTimeout <= 0 {
+		writeTimeout = 0
+	}
 	server := &http.Server{
 		Addr:              cfg.ListenAddress,
 		Handler:           handler,
 		ReadTimeout:       cfg.ReadTimeout,
-		WriteTimeout:      time.Hour * 2,
+		WriteTimeout:      writeTimeout,
 		IdleTimeout:       cfg.IdleTimeout,
 		ReadHeaderTimeout: cfg.ReadHeaderTimeout,
 	}

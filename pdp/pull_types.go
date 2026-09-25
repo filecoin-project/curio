@@ -294,19 +294,15 @@ func (r *PullRequest) Validate() error {
 		return fmt.Errorf("at least one source URL is required")
 	}
 
-	// Unique piece CIDs are what addPieces will see. CID format is checked
-	// later by ParsePieceCidV2. The same piece may have several source URLs
-	// so the server can try all of them. An exact duplicate is dropped during
-	// assembly except for repeated pieces[] entries, which are rejected.
-	uniqueCids := make(map[string]struct{}, len(sources))
+	// CID format is checked later by ParsePieceCidV2. The same piece may have
+	// several source URLs so the server can try all of them. An exact duplicate
+	// is dropped during assembly except for repeated pieces[] entries, which
+	// are rejected. Piece count is not capped here; the Filecoin message size
+	// is enforced later when packing addPieces.
 	for _, source := range sources {
-		uniqueCids[source.PieceCid] = struct{}{}
 		if err := ValidatePullSourceURL(source.SourceURL); err != nil {
 			return fmt.Errorf("piece %s: %w", source.PieceCid, err)
 		}
-	}
-	if len(uniqueCids) > MaxAddPiecesBatchSize {
-		return fmt.Errorf("piece count (%d) exceeds the maximum allowed per pull (%d)", len(uniqueCids), MaxAddPiecesBatchSize)
 	}
 
 	return nil

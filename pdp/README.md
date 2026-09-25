@@ -48,6 +48,12 @@ All endpoints are rooted at `/pdp`.
 
 ### 2. Upload a Piece
 
+PDPv0 accepts pieces up to **64 GiB padded**, which allows at most **68,182,605,824 raw bytes (63.5 GiB)**. This limit applies to classic uploads, streaming uploads, and pulls, and includes CAR framing when uploading a CAR file. A 64 GiB raw payload exceeds the limit after padding.
+
+The HTTP server defaults to a two-hour request read timeout, configurable through `HTTP.ReadTimeout`, and a write timeout of two hours plus one minute. Abandoned active upload claims are cleaned up after three hours. Reverse proxies must allow the same request size and duration.
+
+Pull downloads have a two-hour timeout per attempt and a six-hour item budget, checked at scheduling boundaries. Downloads with no progress for two minutes are cancelled.
+
 #### 2.1. Initiate Upload
 
 - **Endpoint:** `POST /pdp/piece`
@@ -85,7 +91,8 @@ All endpoints are rooted at `/pdp`.
 
 #### Errors
 
-- `400 Bad Request`: Invalid pieceCid format or piece size exceeds the maximum allowed size.
+- `400 Bad Request`: Invalid pieceCid format or piece size below the minimum allowed size.
+- `413 Payload Too Large`: Piece size exceeds the maximum allowed size.
 - `401 Unauthorized`: Missing or invalid JWT token.
 
 ---
@@ -204,7 +211,7 @@ The streaming upload API provides a way to upload large pieces in a streaming fa
 2. Stream the data via `PUT`.
 3. Finalize the upload with the pieceCid to link and validate.
 
-> **Note:** Each streaming upload is limited to **1,065,353,216 raw bytes** (1 GiB padded). The server writes it once directly to piece storage while computing CommP on-the-fly.
+> **Note:** Each streaming upload is limited to **68,182,605,824 raw bytes** (64 GiB padded). The server writes it once directly to piece storage while computing CommP on-the-fly.
 
 #### 3.1. Create Streaming Upload Session
 
@@ -340,7 +347,7 @@ Uploads complete synchronously. A `204 No Content` response from the known-CID P
 
 - **Fields:**
     - `recordKeeper`: The Ethereum address of the record keeper (required).
-    - `pieces`: An array of piece entries (same format as `POST /pdp/data-sets/{dataSetId}/pieces`). At most 40 pieces per call (larger batches would exceed on-chain event-size limits and are rejected with `400 Bad Request`).
+    - `pieces`: An array of piece entries (same format as `POST /pdp/data-sets/{dataSetId}/pieces`). The packed Filecoin message must stay under 64 KiB (Lotus `MaxMessageSize`); oversized batches are rejected with `400 Bad Request`.
     - `extraData`: *(Optional)* Hex-encoded additional data. If it contains `withIPFSIndexing` metadata, pieces will be marked for IPFS indexing.
 
 #### Response
@@ -351,7 +358,7 @@ Uploads complete synchronously. A `204 No Content` response from the known-CID P
 
 #### Errors
 
-- `400 Bad Request`: Invalid request body, validation errors, or more than 40 pieces in the batch.
+- `400 Bad Request`: Invalid request body, validation errors, or a batch that exceeds the Filecoin 64 KiB message limit.
 - `401 Unauthorized`: Missing or invalid JWT token.
 - `403 Forbidden`: `recordKeeper` address not allowed for this service.
 - `500 Internal Server Error`: Failed to process the request.
@@ -566,7 +573,7 @@ Uploads complete synchronously. A `204 No Content` response from the known-CID P
 
 #### Constraints and Requirements
 
-- **Batch Size:** At most 40 pieces may be added per call (larger batches would exceed on-chain event-size limits and are rejected with `400 Bad Request`).
+- **Batch Size:** The packed Filecoin message must stay under 64 KiB (Lotus `MaxMessageSize`). The number of pieces that fit depends on piece metadata; oversized batches are rejected with `400 Bad Request`.
 - **SubPieces Ordering:** The `subPieces` must be provided in order **from largest to smallest size** (by padded size). This ensures correct Merkle tree computation.
 - **SubPieces Ownership:** All subPieces must belong to the service making the request and have been previously uploaded.
 - **SubPiece Sizes:** Each subPiece size must be at least 128 bytes.
@@ -581,7 +588,7 @@ Uploads complete synchronously. A `204 No Content` response from the known-CID P
 
 #### Errors
 
-- `400 Bad Request`: Invalid request body, missing fields, validation errors, more than 40 pieces in the batch, subPieces not ordered correctly, or raw size mismatch.
+- `400 Bad Request`: Invalid request body, missing fields, validation errors, Filecoin 64 KiB message limit exceeded, subPieces not ordered correctly, or raw size mismatch.
 - `401 Unauthorized`: Missing or invalid JWT token.
 - `404 Not Found`: Data set not found or subPieces not found.
 - `409 Conflict`: Data set has been terminated due to unrecoverable proving failure.
@@ -695,11 +702,9 @@ Uploads complete synchronously. A `204 No Content` response from the known-CID P
 
 - **Fields:**
     - `extraData`: *(Optional)* Hex-encoded additional data for the contract call (max 256 bytes decoded).
-    - `pieceIds`: *(Optional)* Array of piece IDs to delete in a single batched, on-chain `schedulePieceDeletions` call. When this array is present and non-empty, it **overrides** the `pieceId` from the URL — every ID in the array is scheduled for deletion and the URL `pieceId` is ignored. When the array is omitted or empty, only the URL `pieceId` is deleted. Duplicate IDs are removed before processing. A maximum of 200 piece IDs may be supplied per call.
+    - `pieceIds`: *(Optional)* Array of piece IDs to delete in a single batched, on-chain `schedulePieceDeletions` call. When this array is present and non-empty, it **overrides** the `pieceId` from the URL — every ID in the array is scheduled for deletion and the URL `pieceId` is ignored. When the array is omitted or empty, only the URL `pieceId` is deleted. Duplicate IDs are removed before processing.
 
 > **Note:** All requested pieces must belong to the data set. If any one of them is not found, the entire request fails with `404 Not Found` and no deletion is scheduled.
-
-> **Note:** If the data set already has 200 or more removals queued on-chain, the request is rejected with `429 Too Many Requests`. This check looks only at the existing queue, not the incoming batch, so an accepted request may push the queue above 200. The queue drains at the next proving period; retrying before then will not succeed.
 
 #### Response
 
@@ -717,10 +722,9 @@ Uploads complete synchronously. A `204 No Content` response from the known-CID P
 
 #### Errors
 
-- `400 Bad Request`: Invalid request, `extraData` exceeds size limit, a piece ID is out of range, or `pieceIds` exceeds the maximum batch size of 200.
+- `400 Bad Request`: Invalid request, `extraData` exceeds size limit, or a piece ID is out of range.
 - `401 Unauthorized`: Missing or invalid JWT token.
 - `404 Not Found`: Data set not found, or one or more of the requested pieces not found ("One or more piece not found").
-- `429 Too Many Requests`: The data set already has 200 or more scheduled removals queued on-chain; retry after the next proving period flushes the queue.
 - `500 Internal Server Error`: Failed to send on-chain transaction.
 
 ---
@@ -763,7 +767,7 @@ Uploads complete synchronously. A `204 No Content` response from the known-CID P
     - `extraData`: *(Required)* Hex-encoded bytes that will be validated against the PDPVerifier contract via `eth_call`. Used for authorization and idempotency.
     - `dataSetId`: *(Optional)* The target dataset ID. If omitted or `0`, validation simulates creating a new dataset.
     - `recordKeeper`: *(Required if dataSetId is 0 or omitted)* The contract address that will receive callbacks.
-    - `pieces`: *(Optional)* `{pieceCid, sourceUrls}` entries. At most 40 unique piece CIDs across the whole request, since the pull is validated as an `addPieces` batch (larger batches would exceed on-chain event-size limits and are rejected with `400 Bad Request`).
+    - `pieces`: *(Optional)* `{pieceCid, sourceUrls}` entries. The eventual `addPieces` Filecoin message must stay under 64 KiB; oversized batches are rejected with `400 Bad Request`.
         - `pieceCid`: The piece CID in CommP v2 format.
         - `sourceUrls`: HTTPS URLs for that piece, tried in order.
         - `sourceUrl`: *(Optional)* Legacy single HTTPS URL. When `sourceUrls` is also set, `sourceUrl` is tried first.
@@ -805,7 +809,7 @@ Returns JSON with an overall status and per-piece status:
 
 #### Errors
 
-- `400 Bad Request`: Validation error, missing parameters, more than 40 pieces in the batch, invalid pieceCid format, or invalid source URL.
+- `400 Bad Request`: Validation error, missing parameters, Filecoin 64 KiB message limit exceeded, invalid pieceCid format, or invalid source URL.
 - `401 Unauthorized`: Missing or invalid JWT token.
 - `403 Forbidden`: `recordKeeper` is not allowed.
 - `500 Internal Server Error`: Failed to query or store pull task.

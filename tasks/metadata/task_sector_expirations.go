@@ -535,6 +535,7 @@ func (s *SectorMetadata) Do(ctx context.Context, taskID harmonytask.TaskID, stil
 	return true, nil
 }
 
+// TODO(NV29): Remove this claim crawler and its call once pre-NV29 support is dropped.
 func (s *SectorMetadata) updateVerifregClaims(ctx context.Context, astor adt.Store, tsk types.TipSetKey) error {
 	// Get verifreg actor
 	verifregAct, err := s.api.StateGetActor(ctx, builtin.VerifiedRegistryActorAddr, tsk)

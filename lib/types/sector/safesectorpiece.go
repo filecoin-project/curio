@@ -130,6 +130,7 @@ func (sp *SafeSectorPiece) KeepUnsealedRequested() bool {
 	return sp.real.DealInfo.KeepUnsealedRequested()
 }
 
+// TODO(NV29): Remove this allocation lookup wrapper once pre-NV29 support is dropped.
 func (sp *SafeSectorPiece) GetAllocation(ctx context.Context, aapi piece.AllocationAPI, tsk types.TipSetKey) (*verifreg.Allocation, error) {
 	if !sp.HasDealInfo() {
 		return nil, xerrors.Errorf("no deal info")
