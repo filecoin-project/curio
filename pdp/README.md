@@ -744,9 +744,22 @@ Uploads complete synchronously. A `204 No Content` response from the known-CID P
   "pieces": [
     {
       "pieceCid": "<CommP-v2-CID>",
-      "sourceUrl": "https://example.com/piece/bafy..."
+      "sourceUrls": [
+        "https://example.com/piece/bafy...",
+        "https://backup.example.com/piece/bafy..."
+      ]
     }
-  ]
+  ],
+  "urls": [
+    [
+      "https://other.example.com/piece/bafy...",
+      "https://mirror.example.com/piece/bafy..."
+    ]
+  ],
+  "provider": {
+    "hosts": ["sp.example.com", "backup.example.com"],
+    "cids": ["<optional-retrieval-CID>"]
+  }
 }
 ```
 
@@ -754,9 +767,15 @@ Uploads complete synchronously. A `204 No Content` response from the known-CID P
     - `extraData`: *(Required)* Hex-encoded bytes that will be validated against the PDPVerifier contract via `eth_call`. Used for authorization and idempotency.
     - `dataSetId`: *(Optional)* The target dataset ID. If omitted or `0`, validation simulates creating a new dataset.
     - `recordKeeper`: *(Required if dataSetId is 0 or omitted)* The contract address that will receive callbacks.
-    - `pieces`: Array of pieces to pull. The eventual `addPieces` Filecoin message must stay under 64 KiB; oversized batches are rejected with `400 Bad Request`.
+    - `pieces`: *(Optional)* `{pieceCid, sourceUrls}` entries. The eventual `addPieces` Filecoin message must stay under 64 KiB; oversized batches are rejected with `400 Bad Request`.
         - `pieceCid`: The piece CID in CommP v2 format.
-        - `sourceUrl`: HTTPS URL ending in `/piece/{pieceCid}` on a public host. Localhost and private IPs are blocked for security.
+        - `sourceUrls`: HTTPS URLs for that piece, tried in order.
+        - `sourceUrl`: *(Optional)* Legacy single HTTPS URL. When `sourceUrls` is also set, `sourceUrl` is tried first.
+    - `urls`: *(Optional)* Array of arrays of HTTPS URLs. Each inner array is the ordered URL list for one piece. Every URL path must end in `/piece/{cid}`, and every URL in an inner array must refer to the same piece. The CID is taken from the path. Ingest tries each inner array in order.
+    - `provider`: *(Optional)* Remote SPs used to assemble retrieval URLs:
+        - `hosts`: Hostnames (optionally with port, or an `https://` URL), tried in order.
+        - `cids`: *(Optional)* CIDs to fetch from those hosts. If omitted, piece CIDs already collected from `pieces` and `urls` are used.
+    - `provider.cids` without `provider.hosts` is rejected. At least one source URL must result after combining `pieces`, `urls`, and `provider`. Duplicate `(pieceCid, URL)` pairs are de-duplicated, keeping the earliest position. Each URL is stored as its own pull item, and ingest tries a piece's URLs in that order. Status is reported once per piece.
 
 #### Response
 
@@ -790,7 +809,7 @@ Returns JSON with an overall status and per-piece status:
 
 #### Errors
 
-- `400 Bad Request`: Validation error, missing parameters, Filecoin 64 KiB message limit exceeded, invalid pieceCid format, or invalid `sourceUrl`.
+- `400 Bad Request`: Validation error, missing parameters, Filecoin 64 KiB message limit exceeded, invalid pieceCid format, or invalid source URL.
 - `401 Unauthorized`: Missing or invalid JWT token.
 - `403 Forbidden`: `recordKeeper` is not allowed.
 - `500 Internal Server Error`: Failed to query or store pull task.

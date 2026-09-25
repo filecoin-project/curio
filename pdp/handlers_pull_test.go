@@ -57,13 +57,18 @@ func (m *mockPullStore) GetPullStatus(ctx context.Context, pullID int64) ([]Pull
 	if m.pullPieces != nil {
 		return m.pullPieces, nil
 	}
-	pieces := make([]PullPieceStatus, len(m.createdPieces))
-	for i, piece := range m.createdPieces {
+	pieces := make([]PullPieceStatus, 0, len(m.createdPieces))
+	seen := map[string]struct{}{}
+	for _, piece := range m.createdPieces {
 		info, err := PieceCidV2FromV1(piece.CidV1, piece.RawSize)
 		if err != nil {
 			return nil, err
 		}
-		pieces[i] = PullPieceStatus{PieceCid: info.CidV2.String(), Status: PullStatusPending}
+		if _, ok := seen[info.CidV2.String()]; ok {
+			continue
+		}
+		seen[info.CidV2.String()] = struct{}{}
+		pieces = append(pieces, PullPieceStatus{PieceCid: info.CidV2.String(), Status: PullStatusPending})
 	}
 	return pieces, nil
 }
@@ -200,7 +205,7 @@ func TestHandlePull_MissingExtraData(t *testing.T) {
 	body := PullRequest{
 		ExtraData: "",
 		Pieces: []PullPieceRequest{
-			{PieceCid: testCid1, SourceURL: "https://example.com/piece/" + testCid1},
+			{PieceCid: testCid1, SourceURLs: []string{"https://example.com/piece/" + testCid1}},
 		},
 	}
 	bodyBytes := must.One(json.Marshal(body))
@@ -228,7 +233,7 @@ func TestHandlePull_NoPieces(t *testing.T) {
 	handler.HandlePull(rec, req)
 
 	require.Equal(t, http.StatusBadRequest, rec.Code)
-	require.Contains(t, rec.Body.String(), "at least one piece")
+	require.Contains(t, rec.Body.String(), "at least one source URL is required")
 }
 
 func TestHandlePull_InvalidSourceURL(t *testing.T) {
@@ -238,7 +243,7 @@ func TestHandlePull_InvalidSourceURL(t *testing.T) {
 		ExtraData: testExtraData(t),
 		DataSetId: &testDataSetId,
 		Pieces: []PullPieceRequest{
-			{PieceCid: testCid1, SourceURL: "http://example.com/piece/" + testCid1}, // HTTP not HTTPS
+			{PieceCid: testCid1, SourceURLs: []string{"http://example.com/piece/" + testCid1}}, // HTTP not HTTPS
 		},
 	}
 	bodyBytes := must.One(json.Marshal(body))
@@ -260,7 +265,7 @@ func TestHandlePull_ValidatorFails(t *testing.T) {
 		ExtraData: testExtraData(t),
 		DataSetId: &testDataSetId,
 		Pieces: []PullPieceRequest{
-			{PieceCid: testCid1, SourceURL: "https://example.com/piece/" + testCid1},
+			{PieceCid: testCid1, SourceURLs: []string{"https://example.com/piece/" + testCid1}},
 		},
 	}
 	bodyBytes := must.One(json.Marshal(body))
@@ -284,8 +289,8 @@ func TestHandlePull_NewRequest_Success(t *testing.T) {
 		ExtraData: testExtraData(t),
 		DataSetId: &testDataSetId,
 		Pieces: []PullPieceRequest{
-			{PieceCid: testCid1, SourceURL: "https://example.com/piece/" + testCid1},
-			{PieceCid: testCid2, SourceURL: "https://example.com/piece/" + testCid2},
+			{PieceCid: testCid1, SourceURLs: []string{"https://example.com/piece/" + testCid1}},
+			{PieceCid: testCid2, SourceURLs: []string{"https://example.com/piece/" + testCid2}},
 		},
 	}
 	bodyBytes := must.One(json.Marshal(body))
@@ -321,6 +326,69 @@ func TestHandlePull_NewRequest_Success(t *testing.T) {
 	require.True(t, cidSet[testCid2])
 }
 
+func TestHandlePull_AssemblesMultipleSources(t *testing.T) {
+	store := &mockPullStore{}
+	validator := &mockValidator{shouldPass: true}
+	handler := NewPullHandler(&NullAuth{}, store, validator, nil)
+
+	body := PullRequest{
+		ExtraData: testExtraData(t),
+		DataSetId: &testDataSetId,
+		Pieces: []PullPieceRequest{
+			{PieceCid: testCid1, SourceURLs: []string{"https://legacy.example/piece/" + testCid1}},
+		},
+		URLs:     [][]string{{"https://backup.example/piece/" + testCid1}},
+		Provider: &PullProvider{Hosts: []string{"sp.example.com"}, CIDs: []string{testCid2}},
+	}
+	bodyBytes := must.One(json.Marshal(body))
+	req := httptest.NewRequest(http.MethodPost, "/pdp/piece/pull", bytes.NewReader(bodyBytes))
+	rec := httptest.NewRecorder()
+
+	handler.HandlePull(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.True(t, store.createPullCalled)
+	require.Len(t, store.createdPieces, 3)
+
+	got := make([]string, len(store.createdPieces))
+	for i, piece := range store.createdPieces {
+		got[i] = piece.SourceURL
+	}
+	require.Equal(t, []string{
+		"https://legacy.example/piece/" + testCid1,
+		"https://backup.example/piece/" + testCid1,
+		"https://sp.example.com/piece/" + testCid2,
+	}, got)
+	require.Equal(t, []int{0, 1, 0}, []int{
+		store.createdPieces[0].SourceOrder,
+		store.createdPieces[1].SourceOrder,
+		store.createdPieces[2].SourceOrder,
+	})
+}
+
+func TestHandlePull_ProviderOnly(t *testing.T) {
+	store := &mockPullStore{}
+	validator := &mockValidator{shouldPass: true}
+	handler := NewPullHandler(&NullAuth{}, store, validator, nil)
+
+	body := PullRequest{
+		ExtraData: testExtraData(t),
+		DataSetId: &testDataSetId,
+		Provider:  &PullProvider{Hosts: []string{"sp.example.com"}, CIDs: []string{testCid1, testCid2}},
+	}
+	bodyBytes := must.One(json.Marshal(body))
+	req := httptest.NewRequest(http.MethodPost, "/pdp/piece/pull", bytes.NewReader(bodyBytes))
+	rec := httptest.NewRecorder()
+
+	handler.HandlePull(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.True(t, store.createPullCalled)
+	require.Len(t, store.createdPieces, 2)
+	require.Equal(t, "https://sp.example.com/piece/"+testCid1, store.createdPieces[0].SourceURL)
+	require.Equal(t, "https://sp.example.com/piece/"+testCid2, store.createdPieces[1].SourceURL)
+}
+
 func TestHandlePull_ExistingDataSetUsesFWSSPayer(t *testing.T) {
 	store := &mockPullStore{}
 	payer := common.HexToAddress("0x2222222222222222222222222222222222222222")
@@ -331,7 +399,7 @@ func TestHandlePull_ExistingDataSetUsesFWSSPayer(t *testing.T) {
 		ExtraData: testAddPiecesOnlyExtraData(t),
 		DataSetId: &testDataSetId,
 		Pieces: []PullPieceRequest{
-			{PieceCid: testCid1, SourceURL: "https://example.com/piece/" + testCid1},
+			{PieceCid: testCid1, SourceURLs: []string{"https://example.com/piece/" + testCid1}},
 		},
 	}
 	bodyBytes := must.One(json.Marshal(body))
@@ -356,7 +424,7 @@ func TestHandlePull_CreateNew_MissingRecordKeeper(t *testing.T) {
 		// DataSetId: nil (omitted = create new)
 		// RecordKeeper: nil (missing - should fail)
 		Pieces: []PullPieceRequest{
-			{PieceCid: testCid1, SourceURL: "https://example.com/piece/" + testCid1},
+			{PieceCid: testCid1, SourceURLs: []string{"https://example.com/piece/" + testCid1}},
 		},
 	}
 	bodyBytes := must.One(json.Marshal(body))
@@ -390,7 +458,7 @@ func TestHandlePull_CreateNew_Success(t *testing.T) {
 		ExtraData:    testExtraData(t),
 		RecordKeeper: &testRecordKeeper,
 		Pieces: []PullPieceRequest{
-			{PieceCid: testCid1, SourceURL: "https://example.com/piece/" + testCid1},
+			{PieceCid: testCid1, SourceURLs: []string{"https://example.com/piece/" + testCid1}},
 		},
 	}
 	bodyBytes := must.One(json.Marshal(body))
@@ -424,7 +492,7 @@ func TestHandlePull_Idempotent(t *testing.T) {
 		ExtraData: testExtraData(t),
 		DataSetId: &testDataSetId,
 		Pieces: []PullPieceRequest{
-			{PieceCid: testCid1, SourceURL: "https://example.com/piece/" + testCid1},
+			{PieceCid: testCid1, SourceURLs: []string{"https://example.com/piece/" + testCid1}},
 		},
 	}
 	bodyBytes := must.One(json.Marshal(body))
@@ -463,9 +531,9 @@ func TestHandlePull_MixedStatuses(t *testing.T) {
 		ExtraData: testExtraData(t),
 		DataSetId: &testDataSetId,
 		Pieces: []PullPieceRequest{
-			{PieceCid: testCid1, SourceURL: "https://example.com/piece/" + testCid1},
-			{PieceCid: testCid2, SourceURL: "https://example.com/piece/" + testCid2},
-			{PieceCid: testCid3, SourceURL: "https://example.com/piece/" + testCid3},
+			{PieceCid: testCid1, SourceURLs: []string{"https://example.com/piece/" + testCid1}},
+			{PieceCid: testCid2, SourceURLs: []string{"https://example.com/piece/" + testCid2}},
+			{PieceCid: testCid3, SourceURLs: []string{"https://example.com/piece/" + testCid3}},
 		},
 	}
 	bodyBytes := must.One(json.Marshal(body))
@@ -503,7 +571,7 @@ func TestHandlePull_CreateError(t *testing.T) {
 		ExtraData: testExtraData(t),
 		DataSetId: &testDataSetId,
 		Pieces: []PullPieceRequest{
-			{PieceCid: testCid1, SourceURL: "https://example.com/piece/" + testCid1},
+			{PieceCid: testCid1, SourceURLs: []string{"https://example.com/piece/" + testCid1}},
 		},
 	}
 	bodyBytes := must.One(json.Marshal(body))
@@ -526,7 +594,7 @@ func TestHandlePull_Backpressure(t *testing.T) {
 		ExtraData: testExtraData(t),
 		DataSetId: &testDataSetId,
 		Pieces: []PullPieceRequest{
-			{PieceCid: testCid1, SourceURL: "https://example.com/piece/" + testCid1},
+			{PieceCid: testCid1, SourceURLs: []string{"https://example.com/piece/" + testCid1}},
 		},
 	}
 	bodyBytes := must.One(json.Marshal(body))
@@ -635,7 +703,7 @@ func TestHandlePull_RetryingStatus(t *testing.T) {
 		ExtraData: testExtraData(t),
 		DataSetId: &testDataSetId,
 		Pieces: []PullPieceRequest{
-			{PieceCid: testCid1, SourceURL: "https://example.com/piece/" + testCid1},
+			{PieceCid: testCid1, SourceURLs: []string{"https://example.com/piece/" + testCid1}},
 		},
 	}
 	bodyBytes := must.One(json.Marshal(body))
@@ -671,7 +739,7 @@ func TestHandlePull_FailedFromPullItems(t *testing.T) {
 		ExtraData: testExtraData(t),
 		DataSetId: &testDataSetId,
 		Pieces: []PullPieceRequest{
-			{PieceCid: testCid1, SourceURL: "https://example.com/piece/" + testCid1},
+			{PieceCid: testCid1, SourceURLs: []string{"https://example.com/piece/" + testCid1}},
 		},
 	}
 	bodyBytes := must.One(json.Marshal(body))
@@ -708,7 +776,7 @@ func TestHandlePull_OrphanedTaskWithoutTerminalStateIsPending(t *testing.T) {
 		ExtraData: testExtraData(t),
 		DataSetId: &testDataSetId,
 		Pieces: []PullPieceRequest{
-			{PieceCid: testCid1, SourceURL: "https://example.com/piece/" + testCid1},
+			{PieceCid: testCid1, SourceURLs: []string{"https://example.com/piece/" + testCid1}},
 		},
 	}
 	bodyBytes := must.One(json.Marshal(body))

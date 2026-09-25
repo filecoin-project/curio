@@ -296,8 +296,8 @@ func randomPullPieces(rng *rand.Rand, piecePool []string, maxBatchSize int) []Pu
 		}
 		seen[pieceCID] = struct{}{}
 		pieces = append(pieces, PullPieceRequest{
-			PieceCid:  pieceCID,
-			SourceURL: "https://source.example/piece/" + pieceCID,
+			PieceCid:   pieceCID,
+			SourceURLs: []string{"https://source.example/piece/" + pieceCID},
 		})
 	}
 	return pieces
@@ -385,8 +385,8 @@ func pullPiecesFromCIDs(pieceCIDs []string) []PullPieceRequest {
 	pieces := make([]PullPieceRequest, len(pieceCIDs))
 	for i, pieceCID := range pieceCIDs {
 		pieces[i] = PullPieceRequest{
-			PieceCid:  pieceCID,
-			SourceURL: "https://source.example/piece/" + pieceCID,
+			PieceCid:   pieceCID,
+			SourceURLs: []string{"https://source.example/piece/" + pieceCID},
 		}
 	}
 	return pieces
@@ -505,7 +505,7 @@ func TestHandlePull_DataSetNotFound(t *testing.T) {
 		ExtraData: testAddPiecesOnlyExtraData(t),
 		DataSetId: &testDataSetId,
 		Pieces: []PullPieceRequest{
-			{PieceCid: testCid1, SourceURL: "https://example.com/piece/" + testCid1},
+			{PieceCid: testCid1, SourceURLs: []string{"https://example.com/piece/" + testCid1}},
 		},
 	}
 	bodyBytes, err := json.Marshal(body)

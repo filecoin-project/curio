@@ -182,7 +182,8 @@ func (p *ParkPieceTask) Do(ctx context.Context, taskID harmonytask.TaskID, still
 	err = p.db.Select(ctx, &refData, `
         SELECT data_url, data_headers
         FROM parked_piece_refs
-        WHERE piece_id = $1 AND data_url IS NOT NULL`, pieceData.PieceID)
+        WHERE piece_id = $1 AND data_url IS NOT NULL
+        ORDER BY ref_id ASC`, pieceData.PieceID)
 	if err != nil {
 		return false, xerrors.Errorf("fetching reference data: %w", err)
 	}
