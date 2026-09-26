@@ -355,7 +355,7 @@ make curio-native GOAMD64_NATIVE=v2
     - `1`: clone/build lotus image locally.
   - Override when: testing against a custom lotus branch/tag implementation.
 
-- `lotus_version` (default: `v1.35.1`)
+- `lotus_version` (default: `v1.36.0`)
   - Purpose: lotus version for prebuilt image tag or local clone branch/tag.
   - Override when: validating compatibility with another lotus version.
 
@@ -364,12 +364,16 @@ make curio-native GOAMD64_NATIVE=v2
   - Override when: publishing/testing in your own registry namespace.
 
 - `curio_base_image` (default: `$(curio_docker_user)/curio-all-in-one:latest-debug`)
-  - Purpose: base image reference passed into docker builds.
+  - Purpose: devnet aggregate image reference passed into service image builds.
   - Override when: pinning to an alternate base image/tag.
 
+- `curio_runtime_image` (default: `$(curio_docker_user)/curio:debug`)
+  - Purpose: standalone debug Curio image built before the devnet aggregate image.
+  - Override when: choosing the local standalone image tag.
+
 - `ffi_from_source` (default: `0`)
-  - Purpose: docker build arg controlling FFI source build behavior in image builds.
-  - Override when: image tests require source-built FFI.
+  - Purpose: controls FFI source builds in the optional Lotus image build (`build_lotus=1`). Curio images use prebuilt FFI only.
+  - Override when: Lotus image tests require source-built FFI.
 
 - `lotus_base_image` (default when `build_lotus=0`: prebuilt GHCR image)
   - Purpose: lotus image consumed by curio docker build flow.
