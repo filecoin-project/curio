@@ -47,6 +47,47 @@ Required when URL is a stateless /notify endpoint; leave empty for a stateful /n
 			Comment: `Tag restricts delivery to Apprise URLs carrying this tag. Only applies to stateful configs. OPTIONAL.`,
 		},
 	},
+	"ApprovedAuthorizer": {
+		{
+			Name: "Label",
+			Type: "string",
+
+			Comment: `Label is a human-readable name shown in logs and metrics.`,
+		},
+		{
+			Name: "Kind",
+			Type: "string",
+
+			Comment: `Kind selects how the on-chain authorizer is matched:
+"implementation" - accept any EIP-1167 minimal-proxy clone whose hardcoded implementation
+equals Address. This is the preferred deployment shape: audited logic is
+deployed once, and each client's clone has its own storage and cannot be
+upgraded (the implementation is baked into the 45-byte clone bytecode).
+"codehash"       - accept a fixed-logic (non-proxy) deploy whose normalized runtime-code hash
+equals CodeHash. Upgradeable proxies are always refused regardless of Kind,
+because their logic can change after approval.`,
+		},
+		{
+			Name: "Address",
+			Type: "string",
+
+			Comment: `Address is the audited implementation address, 0x-prefixed. Used when Kind = "implementation".`,
+		},
+		{
+			Name: "CodeHash",
+			Type: "string",
+
+			Comment: `CodeHash is the normalized runtime-code hash, a 0x-prefixed keccak256. Used when Kind = "codehash".
+The hash is taken over the runtime bytecode after stripping the trailing Solidity CBOR metadata
+blob. Compute it with "curio pdp authorizer-id".`,
+		},
+		{
+			Name: "Notes",
+			Type: "string",
+
+			Comment: `Notes is free-form: audit reference, gas profile, etc.`,
+		},
+	},
 	"BalanceManagerConfig": {
 		{
 			Name: "MK12Collateral",
@@ -999,6 +1040,14 @@ It periodically runs ANALYZE on tables whose write churn (pg_stat_user_tables) h
 by 10% since the last analyze.
 Disable this if you manage table statistics outside Curio. (Default: true)`,
 		},
+		{
+			Name: "PDPAuthorizers",
+			Type: "PDPAuthorizerConfig",
+
+			Comment: `PDPAuthorizers governs which IDataSetAuthorizer contracts this SP is willing to spend gas on when
+relaying authorizer-gated operations (FWSS PR #536). It applies to the shared PDP service and is
+therefore version-agnostic (PDPv0 and PDPv1/MK20 alike). See PDPAuthorizerConfig.`,
+		},
 	},
 	"CuzkConfig": {
 		{
@@ -1352,6 +1401,39 @@ If True then all deals coming from unknown clients will be rejected. (Default: f
 			Type: "StorageMarketConfig",
 
 			Comment: `StorageMarketConfig houses all the deal related market configuration`,
+		},
+	},
+	"PDPAuthorizerConfig": {
+		{
+			Name: "RequireAllowlistedAuthorizer",
+			Type: "bool",
+
+			Comment: `RequireAllowlistedAuthorizer means an authorizer-gated operation is relayed only when the data
+set's authorizer CODE matches an ApprovedAuthorizers entry. Matching is by code identity, not
+address, so each client can run their own isolated instance of approved logic.
+
+The default is true and is deliberately fail-closed on the gas-spending path: a fresh SP ships
+with an EMPTY ApprovedAuthorizers list, so it relays only the un-authorized default payer/session
+path (where it fronts no isAuthorized gas) until the operator explicitly opts specific code in.
+Setting this to false relays for ANY authorizer and is NOT recommended, because the SP then fronts
+up to the 150M-gas isAuthorized call for authorizer code it has never reviewed. (Default: true)`,
+		},
+		{
+			Name: "ApprovedAuthorizers",
+			Type: "[]ApprovedAuthorizer",
+
+			Comment: `ApprovedAuthorizers lists the authorizer code identities this SP will spend gas on. Each entry is
+matched by CODE (see ApprovedAuthorizer.Kind), never by the authorizer's own address, so a client
+can deploy their own isolated instance (own owner, own registry) of approved logic. Empty by
+default. Only consulted when RequireAllowlistedAuthorizer is true.`,
+		},
+		{
+			Name: "MaxAuthorizerGas",
+			Type: "uint64",
+
+			Comment: `MaxAuthorizerGas is the eth_call gas limit applied to authorizer-gated relay preflights
+(addPieces / schedulePieceDeletions / terminateService). 0 means the 150M on-chain
+AUTHORIZER_GAS_LIMIT; values above 150M are clamped to it. (Default: 150000000)`,
 		},
 	},
 	"PagerDutyConfig": {
