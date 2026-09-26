@@ -134,14 +134,21 @@ func (mw *MessageWatcherEth) update() {
 		processed++
 		processStart := time.Now()
 
-		// Query the chain using the latest replacement hash, but keep all DB
-		// updates on WaitHash so callers can continue watching their original row.
-		lookupHash := common.HexToHash(pendingTx.LookupHash)
-		log.Debugw("Checking transaction", "waitHash", pendingTx.WaitHash, "lookupHash", lookupHash.Hex())
-
 		ethCtx, ethCancel := context.WithTimeout(ctx, mw.ethCallTimeout)
 
-		receipt, err := mw.api.TransactionReceipt(ethCtx, lookupHash)
+		// An earlier replacement or the original may land before the latest attempt.
+		// Keep all DB updates on WaitHash regardless of which transaction is found.
+		var receipt *types.Receipt
+		lookupHash := common.HexToHash(pendingTx.WaitHash)
+		err := ethereum.NotFound
+		for _, hash := range pendingTx.LookupHashes {
+			lookupHash = common.HexToHash(hash)
+			log.Debugw("Checking transaction", "waitHash", pendingTx.WaitHash, "lookupHash", lookupHash.Hex())
+			receipt, err = mw.api.TransactionReceipt(ethCtx, lookupHash)
+			if !errors.Is(err, ethereum.NotFound) {
+				break
+			}
+		}
 		if err != nil {
 			ethCancel()
 			if errors.Is(err, ethereum.NotFound) {

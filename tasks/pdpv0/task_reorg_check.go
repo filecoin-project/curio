@@ -17,13 +17,13 @@ import (
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/tasks/tasknames"
 
-	"github.com/filecoin-project/lotus/build"
 	"github.com/filecoin-project/lotus/chain/actors/policy"
 	chainTypes "github.com/filecoin-project/lotus/chain/types"
 )
@@ -95,7 +95,8 @@ func NewReorgCheckTask(db *harmonydb.DB, eth ReorgCheckEthAPI, chain ReorgCheckF
 }
 
 type reorgCheckCandidate struct {
-	TxHash          string        `db:"signed_tx_hash"`
+	OriginalTxHash  string        `db:"original_tx_hash"`
+	ChainTxHash     string        `db:"chain_tx_hash"`
 	SendReason      string        `db:"send_reason"`
 	SendTime        time.Time     `db:"send_time"`
 	ConfirmEpoch    sql.NullInt64 `db:"confirmed_block_number"`
@@ -127,7 +128,8 @@ func (t *ReorgCheckTask) Do(ctx context.Context, taskID harmonytask.TaskID, stil
 	// LEFT JOIN + OR that hash-joins the full send/wait tables). Branch 2 uses
 	// anti-joins (LEFT JOIN ... IS NULL) instead of NOT EXISTS.
 	err = t.db.Select(ctx, &candidates, `
-		SELECT LOWER(TRIM(BOTH FROM mse.signed_hash)) AS signed_tx_hash,
+		SELECT LOWER(TRIM(BOTH FROM mse.signed_hash)) AS original_tx_hash,
+					LOWER(TRIM(BOTH FROM COALESCE(mwe.confirmed_tx_hash, mse.signed_hash))) AS chain_tx_hash,
 					mse.send_reason,
 					mse.send_time,
 					mwe.confirmed_block_number,
@@ -147,7 +149,8 @@ func (t *ReorgCheckTask) Do(ctx context.Context, taskID harmonytask.TaskID, stil
 
 		UNION ALL
 		
-		SELECT LOWER(TRIM(BOTH FROM mse.signed_hash)) AS signed_tx_hash,
+		SELECT LOWER(TRIM(BOTH FROM mse.signed_hash)) AS original_tx_hash,
+					LOWER(TRIM(BOTH FROM COALESCE(latest.signed_hash, mse.signed_hash))) AS chain_tx_hash,
 					mse.send_reason,
 					mse.send_time,
 					NULL::bigint AS confirmed_block_number,
@@ -157,6 +160,21 @@ func (t *ReorgCheckTask) Do(ctx context.Context, taskID harmonytask.TaskID, stil
 			ON mwe.signed_tx_hash = LOWER(TRIM(BOTH FROM mse.signed_hash))
 		LEFT JOIN pdpv0_reorg_events re
 			ON re.tx_hash = LOWER(TRIM(BOTH FROM mse.signed_hash))
+		LEFT JOIN LATERAL (
+			SELECT r.signed_hash
+			FROM message_send_eth_replacements r
+			WHERE r.original_signed_hash = LOWER(TRIM(BOTH FROM mse.signed_hash))
+				AND r.send_success = TRUE
+				AND r.signed_hash IS NOT NULL
+				AND NOT EXISTS (
+					SELECT 1
+					FROM message_send_eth_replacements next
+					WHERE next.original_signed_hash = r.original_signed_hash
+						AND next.send_success = TRUE
+						AND next.replaces_signed_hash = r.signed_hash
+				)
+			LIMIT 1
+		) latest ON TRUE
 		WHERE mse.send_success = TRUE
 			AND mse.send_time IS NOT NULL
 			AND mse.send_time >= $1
@@ -182,7 +200,7 @@ func (t *ReorgCheckTask) Do(ctx context.Context, taskID harmonytask.TaskID, stil
 		}
 		confirmEpoch, _, ready, dropped, chkErr := t.confirmationForCheck(ctx, c, headEpoch)
 		if chkErr != nil {
-			return false, xerrors.Errorf("confirmation for check %s: %w", c.TxHash, chkErr)
+			return false, xerrors.Errorf("confirmation for check %s (chain tx %s): %w", c.OriginalTxHash, c.ChainTxHash, chkErr)
 		}
 		if !ready {
 			continue
@@ -194,7 +212,7 @@ func (t *ReorgCheckTask) Do(ctx context.Context, taskID harmonytask.TaskID, stil
 		toVerify = append(toVerify, pendingInclusion{
 			candidate: c,
 			check: reorgInclusionCheck{
-				TxHash:        common.HexToHash(c.TxHash),
+				TxHash:        common.HexToHash(c.ChainTxHash),
 				ConfirmHeight: confirmEpoch,
 			},
 		})
@@ -223,7 +241,7 @@ func (t *ReorgCheckTask) Do(ctx context.Context, taskID harmonytask.TaskID, stil
 			return false, err
 		}
 		if !committed {
-			logReorgCheck.Warnw("reorg check: rollback candidate already claimed", "tx_hash", c.TxHash)
+			logReorgCheck.Warnw("reorg check: rollback candidate already claimed", "tx_hash", c.OriginalTxHash, "chain_tx_hash", c.ChainTxHash)
 			continue
 		}
 	}
@@ -232,7 +250,7 @@ func (t *ReorgCheckTask) Do(ctx context.Context, taskID harmonytask.TaskID, stil
 }
 
 // confirmationForCheck returns inclusion height/hash for reorg comparison.
-// Sends without message_waits_eth (e.g. pdp-prove, pdp-terminate-service) are
+// Sends without message_waits_eth (e.g. pdp-prove) are
 // resolved from the chain receipt once past finality.
 func (t *ReorgCheckTask) confirmationForCheck(ctx context.Context, c reorgCheckCandidate, headEpoch int64) (confirmEpoch int64, storedBlockHash common.Hash, ready, dropped bool, err error) {
 	finality := int64(policy.ChainFinality)
@@ -245,7 +263,7 @@ func (t *ReorgCheckTask) confirmationForCheck(ctx context.Context, c reorgCheckC
 		return confirmEpoch, common.HexToHash(c.StoredBlockHash), true, false, nil
 	}
 
-	receipt, err := t.eth.TransactionReceipt(ctx, common.HexToHash(c.TxHash))
+	receipt, err := t.eth.TransactionReceipt(ctx, common.HexToHash(c.ChainTxHash))
 	if err != nil {
 		if errors.Is(err, ethereum.NotFound) {
 			// Only treat as dropped after finality; younger sends may still be pending.
@@ -408,7 +426,7 @@ func (t *ReorgCheckTask) TxNotIncludedInChain(ctx context.Context, txHash common
 // rollbackReorgCandidate claims the message tx in pdpv0_reorg_events and rolls back local state in one DB transaction (or just logs).
 // Returns committed=false when another run already claimed the tx (ON CONFLICT).
 func (t *ReorgCheckTask) rollbackReorgCandidate(ctx context.Context, c reorgCheckCandidate) (committed bool, err error) {
-	txh := strings.ToLower(strings.TrimSpace(c.TxHash))
+	txh := strings.ToLower(strings.TrimSpace(c.OriginalTxHash))
 	var summary string
 	committed, err = t.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
 		n, err := tx.Exec(`
@@ -437,7 +455,7 @@ func (t *ReorgCheckTask) rollbackReorgCandidate(ctx context.Context, c reorgChec
 		return true, nil
 	}, harmonydb.OptionRetry())
 	if err != nil {
-		return false, xerrors.Errorf("reorg rollback %s (%s): %w", c.TxHash, c.SendReason, err)
+		return false, xerrors.Errorf("reorg rollback %s (%s, chain tx %s): %w", c.OriginalTxHash, c.SendReason, c.ChainTxHash, err)
 	}
 	return committed, nil
 }
