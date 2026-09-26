@@ -26,9 +26,10 @@ type Space struct {
 }
 
 type disk struct {
-	root      string
-	tracker   *sizeTracker
-	intervals []hashInterval
+	root           string
+	tracker        *sizeTracker
+	intervals      []hashInterval
+	incomingRanges []hashInterval
 }
 
 type hashInterval struct {
@@ -77,21 +78,15 @@ func loadDisk(kind, root string) (*disk, error) {
 		return nil, err
 	}
 	d := &disk{
-		root:      root,
-		tracker:   &sizeTracker{},
-		intervals: make([]hashInterval, len(layout.Ranges)),
+		root:    root,
+		tracker: &sizeTracker{},
 	}
 	d.tracker.Set(layout.Used)
-	for i, r := range layout.Ranges {
-		start, err := decodeHash(r.Start)
-		if err != nil {
-			return nil, xerrors.Errorf("%s range %d start: %w", path, i, err)
-		}
-		end, err := decodeHash(r.End)
-		if err != nil {
-			return nil, xerrors.Errorf("%s range %d end: %w", path, i, err)
-		}
-		d.intervals[i] = hashInterval{start: start, end: end}
+	if d.intervals, err = decodeIntervals(layout.Ranges); err != nil {
+		return nil, xerrors.Errorf("%s ranges: %w", path, err)
+	}
+	if d.incomingRanges, err = decodeIntervals(layout.MoveSources); err != nil {
+		return nil, xerrors.Errorf("%s move sources: %w", path, err)
 	}
 	if err := d.catchUp(kind, info.ModTime()); err != nil {
 		return nil, err
@@ -119,18 +114,12 @@ func (s *Space) flushLocked() error {
 	now := time.Now().UTC().Truncate(time.Second)
 	var first error
 	for _, d := range s.disks {
-		ranges := make([]HashRange, len(d.intervals))
-		for i, iv := range d.intervals {
-			ranges[i] = HashRange{
-				Start: hex.EncodeToString(iv.start),
-				End:   hex.EncodeToString(iv.end),
-			}
-		}
 		err := writeLayout(d.root, s.kind, Layout{
 			Used:        d.tracker.Used(),
 			CommittedAt: now,
 			Split:       SPLIT,
-			Ranges:      ranges,
+			Ranges:      encodeIntervals(d.intervals),
+			MoveSources: encodeIntervals(d.incomingRanges),
 		})
 		if err != nil && first == nil {
 			first = err
@@ -174,7 +163,7 @@ func (s *Space) startFlush() {
 // If the CID file already exists, WriteCID returns os.ErrExist and does
 // not change the counter.
 func (s *Space) WriteCID(c cid.Cid) (io.WriteCloser, error) {
-	novel, digest, err := novelOf(c)
+	hexHash, digest, err := cidHashHex(c)
 	if err != nil {
 		return nil, err
 	}
@@ -182,7 +171,25 @@ func (s *Space) WriteCID(c cid.Cid) (io.WriteCloser, error) {
 	if !ok {
 		return nil, xerrors.Errorf("cid hash is not owned by any local range")
 	}
-	final, err := piecePath(disk.root, s.kind, novel)
+	return s.writeOn(disk, hexHash)
+}
+
+// WriteCIDOn is WriteCID on the named root, whether or not that root owns
+// the hash. Cluster placement and rebalance pick the root.
+func (s *Space) WriteCIDOn(root string, c cid.Cid) (io.WriteCloser, error) {
+	hexHash, _, err := cidHashHex(c)
+	if err != nil {
+		return nil, err
+	}
+	d, err := s.diskOn(root)
+	if err != nil {
+		return nil, err
+	}
+	return s.writeOn(d, hexHash)
+}
+
+func (s *Space) writeOn(disk *disk, hexHash string) (io.WriteCloser, error) {
+	final, err := piecePath(disk.root, s.kind, hexHash)
 	if err != nil {
 		return nil, err
 	}
@@ -192,7 +199,7 @@ func (s *Space) WriteCID(c cid.Cid) (io.WriteCloser, error) {
 		return nil, err
 	}
 	if err := os.MkdirAll(filepath.Dir(final), 0o755); err != nil {
-		return nil, xerrors.Errorf("creating shard for %s: %w", c, err)
+		return nil, xerrors.Errorf("creating shard for %s: %w", hexHash, err)
 	}
 	tmp := filepath.Join(filepath.Dir(final), "."+filepath.Base(final)+".tmp")
 	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
@@ -208,7 +215,7 @@ func (s *Space) WriteCID(c cid.Cid) (io.WriteCloser, error) {
 // DeleteCID removes the CID file and subtracts its size. A missing file
 // returns os.ErrNotExist and does not change the counter.
 func (s *Space) DeleteCID(c cid.Cid) error {
-	novel, digest, err := novelOf(c)
+	hexHash, digest, err := cidHashHex(c)
 	if err != nil {
 		return err
 	}
@@ -218,7 +225,7 @@ func (s *Space) DeleteCID(c cid.Cid) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	err = removePiece(owner, s.kind, novel)
+	err = removePiece(owner, s.kind, hexHash)
 	if err == nil || !os.IsNotExist(err) {
 		return err
 	}
@@ -226,7 +233,7 @@ func (s *Space) DeleteCID(c cid.Cid) error {
 		if d == owner {
 			continue
 		}
-		err = removePiece(d, s.kind, novel)
+		err = removePiece(d, s.kind, hexHash)
 		if os.IsNotExist(err) {
 			continue
 		}
@@ -235,8 +242,8 @@ func (s *Space) DeleteCID(c cid.Cid) error {
 	return os.ErrNotExist
 }
 
-func removePiece(d *disk, kind, novel string) error {
-	path, err := piecePath(d.root, kind, novel)
+func removePiece(d *disk, kind, hexHash string) error {
+	path, err := piecePath(d.root, kind, hexHash)
 	if err != nil {
 		return err
 	}
@@ -263,7 +270,7 @@ func removePiece(d *disk, kind, novel string) error {
 // ReadCIDFileFrom opens the CID file on the root that owns its hash.
 // Other local roots are probed when the file is not on that root.
 func (s *Space) ReadCIDFileFrom(c cid.Cid) (ReadSeekFile, error) {
-	novel, digest, err := novelOf(c)
+	hexHash, digest, err := cidHashHex(c)
 	if err != nil {
 		return nil, err
 	}
@@ -279,7 +286,7 @@ func (s *Space) ReadCIDFileFrom(c cid.Cid) (ReadSeekFile, error) {
 		}
 	}
 	for _, d := range order {
-		path, err := piecePath(d.root, s.kind, novel)
+		path, err := piecePath(d.root, s.kind, hexHash)
 		if err != nil {
 			return nil, err
 		}
@@ -295,7 +302,11 @@ func (s *Space) ReadCIDFileFrom(c cid.Cid) (ReadSeekFile, error) {
 	return nil, os.ErrNotExist
 }
 
+// locate returns the root that owns digest, or a root it is being moved to when no
+// local root owns it.
 func (s *Space) locate(digest []byte) (*disk, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	for _, d := range s.disks {
 		for _, iv := range d.intervals {
 			if hashspacesolver.Contains(iv.start, iv.end, digest) {
@@ -303,7 +314,213 @@ func (s *Space) locate(digest []byte) (*disk, bool) {
 			}
 		}
 	}
+	for _, d := range s.disks {
+		for _, iv := range d.incomingRanges {
+			if hashspacesolver.Contains(iv.start, iv.end, digest) {
+				return d, true
+			}
+		}
+	}
 	return nil, false
+}
+
+func (s *Space) diskOn(root string) (*disk, error) {
+	for _, d := range s.disks {
+		if d.root == root {
+			return d, nil
+		}
+	}
+	return nil, xerrors.Errorf("%s is not a root of this space", root)
+}
+
+// AdoptFileOn renames src onto the CID path on root without copying bytes and
+// adds its size to that root's counter. It never replaces an existing CID
+// file. A cross-filesystem rename returns ErrCrossDevice with src untouched.
+func (s *Space) AdoptFileOn(root string, c cid.Cid, src string) (int64, error) {
+	hexHash, _, err := cidHashHex(c)
+	if err != nil {
+		return 0, err
+	}
+	d, err := s.diskOn(root)
+	if err != nil {
+		return 0, err
+	}
+	final, err := piecePath(d.root, s.kind, hexHash)
+	if err != nil {
+		return 0, err
+	}
+	info, err := os.Stat(src)
+	if err != nil {
+		return 0, err
+	}
+	if !info.Mode().IsRegular() {
+		return 0, xerrors.Errorf("%s is not a regular file", src)
+	}
+	if err := os.MkdirAll(filepath.Dir(final), 0o755); err != nil {
+		return 0, xerrors.Errorf("creating shard for %s: %w", hexHash, err)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := renameNoReplace(src, final); err != nil {
+		if isCrossDevice(err) {
+			return 0, ErrCrossDevice
+		}
+		return 0, err
+	}
+	d.tracker.Add(info.Size())
+	return info.Size(), nil
+}
+
+// DeleteCIDOn removes the CID file from root only. A missing file returns
+// os.ErrNotExist and does not change the counter.
+func (s *Space) DeleteCIDOn(root string, c cid.Cid) error {
+	hexHash, _, err := cidHashHex(c)
+	if err != nil {
+		return err
+	}
+	return s.deleteHashOn(root, hexHash)
+}
+
+func (s *Space) deleteHashOn(root, hexHash string) error {
+	d, err := s.diskOn(root)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return removePiece(d, s.kind, hexHash)
+}
+
+// OpenCIDOn opens the CID file on root only.
+func (s *Space) OpenCIDOn(root string, c cid.Cid) (io.ReadCloser, error) {
+	return s.openCIDFileOn(root, c)
+}
+
+// OpenCIDAt opens bytes [offset, offset+size) of the CID file on root only.
+func (s *Space) OpenCIDAt(root string, c cid.Cid, offset, size int64) (io.ReadCloser, error) {
+	f, err := s.openCIDFileOn(root, c)
+	if err != nil {
+		return nil, err
+	}
+	return &sectionCloser{Reader: io.NewSectionReader(f, offset, size), c: f}, nil
+}
+
+// StatCIDOn returns the size of the CID file on root, and whether it exists.
+func (s *Space) StatCIDOn(root string, c cid.Cid) (int64, bool, error) {
+	path, err := s.cidPathOn(root, c)
+	if err != nil {
+		return 0, false, err
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, false, nil
+		}
+		return 0, false, err
+	}
+	return info.Size(), true, nil
+}
+
+func (s *Space) openCIDFileOn(root string, c cid.Cid) (*os.File, error) {
+	path, err := s.cidPathOn(root, c)
+	if err != nil {
+		return nil, err
+	}
+	return os.Open(path)
+}
+
+func (s *Space) cidPathOn(root string, c cid.Cid) (string, error) {
+	hexHash, _, err := cidHashHex(c)
+	if err != nil {
+		return "", err
+	}
+	return s.hashPathOn(root, hexHash)
+}
+
+func (s *Space) openHashOn(root, hexHash string) (*os.File, error) {
+	path, err := s.hashPathOn(root, hexHash)
+	if err != nil {
+		return nil, err
+	}
+	return os.Open(path)
+}
+
+func (s *Space) hashPathOn(root, hexHash string) (string, error) {
+	d, err := s.diskOn(root)
+	if err != nil {
+		return "", err
+	}
+	return piecePath(d.root, s.kind, hexHash)
+}
+
+type sectionCloser struct {
+	io.Reader
+	c io.Closer
+}
+
+func (s *sectionCloser) Close() error {
+	return s.c.Close()
+}
+
+// UsedOn is the used counter of one root.
+func (s *Space) UsedOn(root string) (int64, error) {
+	d, err := s.diskOn(root)
+	if err != nil {
+		return 0, err
+	}
+	return d.tracker.Used(), nil
+}
+
+// SetIntervalsOn replaces the owned ranges and move sources of root and rewrites
+// its layout.json.
+func (s *Space) SetIntervalsOn(root string, owned, moveSources []HashRange) error {
+	d, err := s.diskOn(root)
+	if err != nil {
+		return err
+	}
+	ivs, err := decodeIntervals(owned)
+	if err != nil {
+		return err
+	}
+	mivs, err := decodeIntervals(moveSources)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	d.intervals = ivs
+	d.incomingRanges = mivs
+	return s.flushLocked()
+}
+
+func decodeIntervals(rs []HashRange) ([]hashInterval, error) {
+	out := make([]hashInterval, len(rs))
+	for i, r := range rs {
+		start, err := decodeHash(r.Start)
+		if err != nil {
+			return nil, xerrors.Errorf("range %d start: %w", i, err)
+		}
+		end, err := decodeHash(r.End)
+		if err != nil {
+			return nil, xerrors.Errorf("range %d end: %w", i, err)
+		}
+		out[i] = hashInterval{start: start, end: end}
+	}
+	return out, nil
+}
+
+func encodeIntervals(ivs []hashInterval) []HashRange {
+	if len(ivs) == 0 {
+		return nil
+	}
+	out := make([]HashRange, len(ivs))
+	for i, iv := range ivs {
+		out[i] = HashRange{
+			Start: hex.EncodeToString(iv.start),
+			End:   hex.EncodeToString(iv.end),
+		}
+	}
+	return out
 }
 
 func (d *disk) catchUp(kind string, cutoff time.Time) error {

@@ -655,7 +655,9 @@ func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 		// Check if a 'parked_pieces' entry exists for the given 'piece_cid'
 		var parkedPieceID int64
 		err = tx.QueryRow(`
-            SELECT id FROM parked_pieces WHERE piece_cid = $1 AND long_term = TRUE AND complete = TRUE
+            SELECT id FROM parked_pieces
+            WHERE piece_cid = $1 AND long_term = TRUE AND complete = TRUE AND cleanup_task_id IS NULL
+            ORDER BY id LIMIT 1
         `, pieceCidV1.String()).Scan(&parkedPieceID)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return false, fmt.Errorf("failed to query parked_pieces: %w", err)

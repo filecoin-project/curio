@@ -278,16 +278,23 @@ func (t *RepairMissingPiecesTask) repairPiece(ctx context.Context, dataSetID int
 			xerrors.New("no complete long-term parked piece holds this CID"))
 	}
 
-	// A parked_pieces row only records intent to store. Open the piece to
-	// confirm the bytes are really there before claiming the piece is provable.
-	reader, err := t.pio.PieceReader(ctx, storiface.PieceNumber(loc[0].ParkedPieceID))
-	if err != nil {
-		return false, t.markLost(ctx, dataSetID, pieceID, info.CidV2.String(), &pieceCidV1, &rawSize,
-			xerrors.Errorf("parked piece %d is not readable from storage: %w", loc[0].ParkedPieceID, err))
+	// A parked_pieces row only records intent to store. Confirm the bytes are
+	// really there before claiming the piece is provable: either placed in
+	// open-pieces, or readable from piece-park.
+	var placed bool
+	if err := t.db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM open_piece WHERE piece_cid = $1)`, info.CidV2.String()).Scan(&placed); err != nil {
+		return false, xerrors.Errorf("failed to look up open piece for %s: %w", info.CidV2, err)
 	}
-	if err := reader.Close(); err != nil {
-		log.Warnw("failed to close parked piece reader after repair check",
-			"dataSetId", dataSetID, "pieceId", pieceID, "parkedPieceId", loc[0].ParkedPieceID, "error", err)
+	if !placed {
+		reader, err := t.pio.PieceReader(ctx, storiface.PieceNumber(loc[0].ParkedPieceID))
+		if err != nil {
+			return false, t.markLost(ctx, dataSetID, pieceID, info.CidV2.String(), &pieceCidV1, &rawSize,
+				xerrors.Errorf("parked piece %d is not readable from storage: %w", loc[0].ParkedPieceID, err))
+		}
+		if err := reader.Close(); err != nil {
+			log.Warnw("failed to close parked piece reader after repair check",
+				"dataSetId", dataSetID, "pieceId", pieceID, "parkedPieceId", loc[0].ParkedPieceID, "error", err)
+		}
 	}
 
 	pieceRefID := loc[0].PieceRefID

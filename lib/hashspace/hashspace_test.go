@@ -43,7 +43,7 @@ func TestWriterCloseAbortAndDoubleClose(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, aw.(interface{ Abort() error }).Abort())
 	require.Equal(t, int64(len(payload)), sp.Used())
-	final, err := piecePath(sp.disks[0].root, DIR_OPEN, mustNovel(t, aborted))
+	final, err := piecePath(sp.disks[0].root, DIR_OPEN, mustHashHex(t, aborted))
 	require.NoError(t, err)
 	_, err = os.Stat(final)
 	require.ErrorIs(t, err, os.ErrNotExist)
@@ -232,14 +232,14 @@ func TestSplitTwoDashMatchesFS2AndRange(t *testing.T) {
 	require.False(t, hashspacesolver.Contains([]byte("abcdefg"), []byte("abcdefh"), []byte("abcdefg")))
 
 	c := mustPiece(t, 0x11)
-	novel := mustNovel(t, c)
-	require.NoError(t, os.MkdirAll(filepath.Join(dir, novel[:2]), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, novel[:2], novel[2:]), bytes.Repeat([]byte{'p'}, 5), 0o644))
-	low := novel[:len(novel)-1]
-	res, err = fs2.SumFileSizesRange(dir, low, novel, 0)
+	hexHash := mustHashHex(t, c)
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, hexHash[:2]), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, hexHash[:2], hexHash[2:]), bytes.Repeat([]byte{'p'}, 5), 0o644))
+	low := hexHash[:len(hexHash)-1]
+	res, err = fs2.SumFileSizesRange(dir, low, hexHash, 0)
 	require.NoError(t, err)
 	require.Equal(t, uint64(5), res.Bytes)
-	res, err = fs2.SumFileSizesRange(dir, novel, novel+"0", 0)
+	res, err = fs2.SumFileSizesRange(dir, hexHash, hexHash+"0", 0)
 	require.NoError(t, err)
 	require.Zero(t, res.Bytes)
 }
@@ -288,15 +288,15 @@ func TestWriteCIDPlacesOnOwningDiskWithoutChmod(t *testing.T) {
 	commit(t, sp, lowCID, []byte("L"))
 	commit(t, sp, highCID, []byte("HH"))
 
-	lowPath, err := piecePath(low, DIR_OPEN, mustNovel(t, lowCID))
+	lowPath, err := piecePath(low, DIR_OPEN, mustHashHex(t, lowCID))
 	require.NoError(t, err)
-	highPath, err := piecePath(high, DIR_OPEN, mustNovel(t, highCID))
+	highPath, err := piecePath(high, DIR_OPEN, mustHashHex(t, highCID))
 	require.NoError(t, err)
 	_, err = os.Stat(lowPath)
 	require.NoError(t, err)
 	_, err = os.Stat(highPath)
 	require.NoError(t, err)
-	_, err = os.Stat(filepath.Join(high, DIR_OPEN, mustNovel(t, lowCID)[:2], mustNovel(t, lowCID)[2:]))
+	_, err = os.Stat(filepath.Join(high, DIR_OPEN, mustHashHex(t, lowCID)[:2], mustHashHex(t, lowCID)[2:]))
 	require.ErrorIs(t, err, os.ErrNotExist)
 
 	info, err := os.Stat(lowPath)
@@ -314,8 +314,8 @@ func TestWriteCIDPlacesOnOwningDiskWithoutChmod(t *testing.T) {
 	require.NoError(t, f.Close())
 
 	require.NoError(t, os.Remove(highPath))
-	require.NoError(t, os.MkdirAll(filepath.Dir(filepath.Join(low, DIR_OPEN, mustNovel(t, highCID)[:2])), 0o755))
-	probed := filepath.Join(low, DIR_OPEN, mustNovel(t, highCID)[:2], mustNovel(t, highCID)[2:])
+	require.NoError(t, os.MkdirAll(filepath.Dir(filepath.Join(low, DIR_OPEN, mustHashHex(t, highCID)[:2])), 0o755))
+	probed := filepath.Join(low, DIR_OPEN, mustHashHex(t, highCID)[:2], mustHashHex(t, highCID)[2:])
 	require.NoError(t, os.MkdirAll(filepath.Dir(probed), 0o755))
 	require.NoError(t, os.WriteFile(probed, []byte("HH"), 0o644))
 	f, err = sp.ReadCIDFileFrom(highCID)
@@ -357,11 +357,12 @@ func TestNoPublicMkdirChmodOrDiskUsage(t *testing.T) {
 	}
 }
 
-func TestPieceV2UsesSameDigestPath(t *testing.T) {
-	v1 := mustPiece(t, 0x15)
-	v2, err := commcid.PieceCidV2FromV1(v1, 127)
+func TestPieceV1Rejected(t *testing.T) {
+	v2 := mustPiece(t, 0x15)
+	v1, _, err := commcid.PieceCidV1FromV2(v2)
 	require.NoError(t, err)
-	require.Equal(t, mustNovel(t, v1), mustNovel(t, v2))
+	_, err = CIDHash(v1)
+	require.Error(t, err)
 }
 
 func loadOne(t *testing.T, cap int64) (string, *Space) {
@@ -393,19 +394,19 @@ func mustPiece(t *testing.T, first byte) cid.Cid {
 	t.Helper()
 	digest := make([]byte, HASH_BYTES)
 	digest[0] = first & 0x3f
-	c, err := commcid.DataCommitmentV1ToCID(digest)
+	c, err := commcid.DataCommitmentToPieceCidv2(digest, 127)
 	require.NoError(t, err)
-	got, err := commitmentOf(c)
+	got, err := CIDHash(c)
 	require.NoError(t, err)
 	require.Equal(t, digest, got)
 	return c
 }
 
-func mustNovel(t *testing.T, c cid.Cid) string {
+func mustHashHex(t *testing.T, c cid.Cid) string {
 	t.Helper()
-	novel, _, err := novelOf(c)
+	hexHash, _, err := cidHashHex(c)
 	require.NoError(t, err)
-	return novel
+	return hexHash
 }
 
 func hexHash(first byte) string {

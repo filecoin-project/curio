@@ -15,6 +15,9 @@ type Layout struct {
 	CommittedAt time.Time   `json:"committed_at"`
 	Split       string      `json:"split"`
 	Ranges      []HashRange `json:"ranges"`
+	// MoveSources are intervals owned by another folder that are being moved
+	// here. A piece in one may be on either folder until the move ends.
+	MoveSources []HashRange `json:"move_sources,omitempty"`
 }
 
 // HashRange is one half-open interval (start, end] owned by this folder.

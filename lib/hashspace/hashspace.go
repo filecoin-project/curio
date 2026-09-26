@@ -10,8 +10,10 @@ package hashspace
 
 import (
 	"encoding/hex"
+	"errors"
 	"io"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/ipfs/go-cid"
@@ -23,15 +25,15 @@ import (
 )
 
 const (
-	// SPLIT is the layout.json split. The first two novel characters are the
-	// directory and the remainder is the file name, so ab/cdefg hashes as abcdefg.
+	// SPLIT is the layout.json split. The first two hex characters of the CID
+	// hash are the directory and the rest is the file name: abcdefg is ab/cdefg.
 	SPLIT = "2,-"
 
 	// DIR_OPEN and DIR_ACL are the space folders on each storage root.
 	DIR_OPEN = "open-pieces"
 	DIR_ACL  = "acl-pieces"
 
-	// HASH_BYTES is the piece-commitment width used for layout ranges.
+	// HASH_BYTES is the CID hash width used for layout ranges.
 	HASH_BYTES = 32
 
 	// FLUSH_INTERVAL is how often a loaded space rewrites layout.json.
@@ -41,6 +43,14 @@ const (
 	layoutFile      = "layout.json"
 	sectorStoreFile = "sectorstore.json"
 )
+
+// ErrCrossDevice reports that a rename would cross filesystems, so the bytes
+// must be copied instead.
+var ErrCrossDevice = errors.New("rename crosses filesystems")
+
+func isCrossDevice(err error) bool {
+	return errors.Is(err, syscall.EXDEV)
+}
 
 // HashSpace is the only caller-facing surface for one namespace.
 type HashSpace interface {
@@ -64,46 +74,40 @@ type Drive struct {
 	Capacity int64
 }
 
-func novelOf(c cid.Cid) (string, []byte, error) {
-	digest, err := commitmentOf(c)
+func cidHashHex(c cid.Cid) (string, []byte, error) {
+	digest, err := CIDHash(c)
 	if err != nil {
 		return "", nil, err
 	}
 	return hex.EncodeToString(digest), digest, nil
 }
 
-func commitmentOf(c cid.Cid) ([]byte, error) {
+// CIDHash is the tree root carried by piece CID v2 c, which places c on the
+// hash circle and names its file. Hash spaces are keyed by piece CID v2 only.
+func CIDHash(c cid.Cid) ([]byte, error) {
 	if !c.Defined() {
 		return nil, xerrors.Errorf("undefined piece cid")
 	}
-	if commcidv2.IsPieceCidV2(c) {
-		v1, _, err := commcid.PieceCidV1FromV2(c)
-		if err != nil {
-			return nil, xerrors.Errorf("piece cid v2: %w", err)
-		}
-		c = v1
+	if !commcidv2.IsPieceCidV2(c) {
+		return nil, xerrors.Errorf("hash spaces take piece cid v2, got %s", c)
 	}
-	digest, err := commcid.CIDToPieceCommitmentV1(c)
+	digest, _, err := commcid.PieceCidV2ToDataCommitment(c)
 	if err != nil {
-		var dataErr error
-		digest, dataErr = commcid.CIDToDataCommitmentV1(c)
-		if dataErr != nil {
-			return nil, xerrors.Errorf("piece commitment: %w", err)
-		}
+		return nil, xerrors.Errorf("cid hash: %w", err)
 	}
 	if len(digest) != HASH_BYTES {
-		return nil, xerrors.Errorf("piece commitment is %d bytes", len(digest))
+		return nil, xerrors.Errorf("cid hash is %d bytes", len(digest))
 	}
 	out := make([]byte, HASH_BYTES)
 	copy(out, digest)
 	return out, nil
 }
 
-func piecePath(root, kind, novel string) (string, error) {
-	if len(novel) < 3 {
-		return "", xerrors.Errorf("hash %q is shorter than split %s", novel, SPLIT)
+func piecePath(root, kind, hexHash string) (string, error) {
+	if len(hexHash) < 3 {
+		return "", xerrors.Errorf("hash %q is shorter than split %s", hexHash, SPLIT)
 	}
-	return filepath.Join(root, kind, novel[:2], novel[2:]), nil
+	return filepath.Join(root, kind, hexHash[:2], hexHash[2:]), nil
 }
 
 func decodeHash(s string) ([]byte, error) {

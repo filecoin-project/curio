@@ -252,6 +252,18 @@ func processIndexingAndIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *c
 					return false, xerrors.Errorf("failed to delete parked piece ref %d: %w", piece.PieceRef, err)
 				}
 
+				_, err = tx.Exec(`DELETE FROM hash_space_place WHERE pdp_pieceref = $1 AND task_id IS NULL`, piece.ID)
+				if err != nil {
+					return false, xerrors.Errorf("failed to drop open-pieces placement for piece ref %d: %w", piece.ID, err)
+				}
+
+				if !skipCleanup {
+					_, err = tx.Exec(`INSERT INTO hash_space_delete (piece_cid) VALUES ($1) ON CONFLICT (piece_cid) DO NOTHING`, pcidV2.String())
+					if err != nil {
+						return false, xerrors.Errorf("failed to queue open-pieces delete for piece %s: %w", pcidV2, err)
+					}
+				}
+
 				if skipCleanup {
 					log.Debugf("Skipping IPNI removal ad for piece %s as it is referenced by another piece", piece.PieceCID)
 					return true, nil
