@@ -21,10 +21,9 @@ import (
 )
 
 const (
-	pdpGuideMinStorageBytes         = 20 * 1024 * 1024 * 1024  // 20 GiB
-	pdpGuideRecommendedStorageBytes = 100 * 1024 * 1024 * 1024 // 100 GiB
-	pdpGuideStorageDocsURL          = "https://docs.curiostorage.org/curio-pdp#storage"
-	pdpGuideReachabilityTimeout     = 8 * time.Second
+	pdpGuideMinStorageBytes     = 100 * 1024 * 1024 * 1024 // 100 GiB
+	pdpGuideStorageDocsURL      = "https://docs.curiostorage.org/curio-pdp#storage"
+	pdpGuideReachabilityTimeout = 8 * time.Second
 )
 
 // PDPGuideStatus is the server-verified checklist for PDP readiness.
@@ -48,16 +47,15 @@ type PDPGuideWalletStatus struct {
 }
 
 type PDPGuideStorageStatus struct {
-	OK               bool   `json:"ok"`
-	PathCount        int    `json:"pathCount"`
-	AvailableBytes   int64  `json:"availableBytes"`
-	CapacityBytes    int64  `json:"capacityBytes"`
-	AvailableHuman   string `json:"availableHuman"`
-	CapacityHuman    string `json:"capacityHuman"`
-	MeetsMinimum     bool   `json:"meetsMinimum"`
-	MeetsRecommended bool   `json:"meetsRecommended"`
-	DocsURL          string `json:"docsURL"`
-	Detail           string `json:"detail,omitempty"`
+	OK             bool   `json:"ok"`
+	PathCount      int    `json:"pathCount"`
+	AvailableBytes int64  `json:"availableBytes"`
+	CapacityBytes  int64  `json:"capacityBytes"`
+	AvailableHuman string `json:"availableHuman"`
+	CapacityHuman  string `json:"capacityHuman"`
+	MeetsMinimum   bool   `json:"meetsMinimum"`
+	DocsURL        string `json:"docsURL"`
+	Detail         string `json:"detail,omitempty"`
 }
 
 type PDPGuideDNSStatus struct {
@@ -150,16 +148,13 @@ func (a *WebRPC) pdpGuideStorage(ctx context.Context) PDPGuideStorageStatus {
 	out.AvailableHuman = types.SizeStr(types.NewInt(uint64(max64(out.AvailableBytes, 0))))
 	out.CapacityHuman = types.SizeStr(types.NewInt(uint64(max64(out.CapacityBytes, 0))))
 	out.MeetsMinimum = out.AvailableBytes >= pdpGuideMinStorageBytes
-	out.MeetsRecommended = out.AvailableBytes >= pdpGuideRecommendedStorageBytes
 	out.OK = out.MeetsMinimum
 
 	switch {
 	case out.PathCount == 0:
 		out.Detail = "No store-capable storage paths found. Mount disks under /data and select folders on the Storage page."
 	case !out.MeetsMinimum:
-		out.Detail = fmt.Sprintf("Only %s available (need at least 20 GiB).", out.AvailableHuman)
-	case !out.MeetsRecommended:
-		out.Detail = fmt.Sprintf("%s available — meets the 20 GiB minimum, but under the 100 GiB recommended capacity.", out.AvailableHuman)
+		out.Detail = fmt.Sprintf("Only %s available (need at least 100 GiB).", out.AvailableHuman)
 	default:
 		out.Detail = fmt.Sprintf("%s available across %d path(s).", out.AvailableHuman, out.PathCount)
 	}

@@ -48,7 +48,8 @@ const (
 	CapIpniPiece   = "ipniPiece"
 	CapIpniIpfs    = "ipniIpfs"
 	CapIpniPeerID  = "ipniPeerId"
-	CapCapacityTiB = "capacityTiB"
+	CapCapacityGiB = "capacityGiB"
+	CapCapacityTiB = "capacityTiB" // legacy: whole TiB only; read for older registrations, no longer written
 
 	// CapIpniPeerIDDeprecated is the old key for the IPNI peer ID. It was incorrectly cased
 	// and does not match the suggested key in the ServiceProviderRegistry contract. New
@@ -86,7 +87,7 @@ type PDPOfferingData struct {
 	MinProvingPeriodInEpochs *mbig.Int
 	Location                 string
 	PaymentTokenAddress      common.Address
-	CapacityTiB              *mbig.Int
+	CapacityGiB              *mbig.Int
 }
 
 func encodeBigIntCapability(i *mbig.Int) []byte {
@@ -142,9 +143,9 @@ func OfferingToCapabilities(offering PDPOfferingData, additionalCaps map[string]
 		values = append(values, []byte(offering.IpniPeerID))
 	}
 
-	if offering.CapacityTiB != nil {
-		keys = append(keys, CapCapacityTiB)
-		values = append(values, encodeBigIntCapability(offering.CapacityTiB))
+	if offering.CapacityGiB != nil {
+		keys = append(keys, CapCapacityGiB)
+		values = append(values, encodeBigIntCapability(offering.CapacityGiB))
 	}
 
 	// Add custom capabilities

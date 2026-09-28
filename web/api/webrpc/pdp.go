@@ -364,8 +364,11 @@ type FSPDPOffering struct {
 	MinProvingPeriodInEpochs int64  `json:"min_proving_period"`
 	Location                 string `json:"location"`
 	PaymentTokenAddress      string `json:"payment_token_address"`
-	CapacityTiB              int64  `json:"capacity_tib"`
+	CapacityGiB              int64  `json:"capacity_gib"`
 }
+
+// fsMinCapacityGiB is the smallest storage capacity a provider can advertise.
+const fsMinCapacityGiB = 100
 
 // capabilitiesToOffering converts contract capabilities to FSPDPOffering and remaining custom capabilities
 func capabilitiesToOffering(keys []string, values [][]byte) (*FSPDPOffering, map[string]string) {
@@ -399,8 +402,12 @@ func capabilitiesToOffering(keys []string, values [][]byte) (*FSPDPOffering, map
 			offering.Location = string(value)
 		case contract.CapPaymentToken:
 			offering.PaymentTokenAddress = contract.DecodeAddressCapability(value).Hex()
+		case contract.CapCapacityGiB:
+			offering.CapacityGiB = new(big.Int).SetBytes(value).Int64()
 		case contract.CapCapacityTiB:
-			offering.CapacityTiB = new(big.Int).SetBytes(value).Int64()
+			if offering.CapacityGiB == 0 { // capacityGiB wins if both are present
+				offering.CapacityGiB = new(big.Int).SetBytes(value).Int64() * 1024
+			}
 		default:
 			// Custom capability - encode for safe round-trip through JSON/browser
 			customCaps[key] = contract.EncodeCapabilityForDisplay(value)
@@ -497,7 +504,7 @@ func (a *WebRPC) FSRegistryStatus(ctx context.Context) (*FSRegistryStatus, error
 	}, nil
 }
 
-func (a *WebRPC) FSRegister(ctx context.Context, name, description, location string, capacityTiB int64) error {
+func (a *WebRPC) FSRegister(ctx context.Context, name, description, location string, capacityGiB int64) error {
 	if name == "" {
 		return fmt.Errorf("name cannot be empty")
 	}
@@ -517,8 +524,8 @@ func (a *WebRPC) FSRegister(ctx context.Context, name, description, location str
 		return xerrors.Errorf("location must be less than 128 characters")
 	}
 
-	if capacityTiB <= 0 {
-		return xerrors.Errorf("storage capacity must be greater than 0 TiB")
+	if capacityGiB < fsMinCapacityGiB {
+		return xerrors.Errorf("storage capacity must be at least %d GiB", fsMinCapacityGiB)
 	}
 
 	pdpAddress, err := a.getPDPAddress(ctx)
@@ -583,7 +590,7 @@ func (a *WebRPC) FSRegister(ctx context.Context, name, description, location str
 		MinProvingPeriodInEpochs: big.NewInt(1440),              // 12 hours
 		Location:                 location,
 		PaymentTokenAddress:      tokenAddress,
-		CapacityTiB:              big.NewInt(capacityTiB),
+		CapacityGiB:              big.NewInt(capacityGiB),
 	}
 
 	err = contract.FSRegister(ctx, a.Deps.DB, eclient, name, description, offering, nil)
@@ -667,8 +674,8 @@ func (a *WebRPC) FSUpdatePDP(ctx context.Context, pdpOffering *FSPDPOffering, ca
 		return fmt.Errorf("location cannot be longer than 128 characters")
 	}
 
-	if pdpOffering.CapacityTiB <= 0 {
-		return fmt.Errorf("storage capacity must be greater than 0 TiB")
+	if pdpOffering.CapacityGiB < fsMinCapacityGiB {
+		return fmt.Errorf("storage capacity must be at least %d GiB", fsMinCapacityGiB)
 	}
 
 	pdpAddress, err := a.getPDPAddress(ctx)
@@ -721,7 +728,7 @@ func (a *WebRPC) FSUpdatePDP(ctx context.Context, pdpOffering *FSPDPOffering, ca
 	currentOffering, _ := capabilitiesToOffering(providerWithProduct.Product.CapabilityKeys, providerWithProduct.ProductCapabilityValues)
 	currentOffering.ServiceURL = pdpOffering.ServiceURL
 	currentOffering.Location = pdpOffering.Location
-	currentOffering.CapacityTiB = pdpOffering.CapacityTiB
+	currentOffering.CapacityGiB = pdpOffering.CapacityGiB
 
 	if currentOffering.MinPieceSizeInBytes < 127 {
 		return fmt.Errorf("minimum piece size must be at least 127 bytes")
@@ -771,7 +778,7 @@ func (a *WebRPC) FSUpdatePDP(ctx context.Context, pdpOffering *FSPDPOffering, ca
 		MinProvingPeriodInEpochs: big.NewInt(currentOffering.MinProvingPeriodInEpochs),
 		Location:                 currentOffering.Location,
 		PaymentTokenAddress:      tokenAddress,
-		CapacityTiB:              big.NewInt(currentOffering.CapacityTiB),
+		CapacityGiB:              big.NewInt(currentOffering.CapacityGiB),
 	}
 
 	hash, err := contract.FSUpdatePDPService(ctx, a.Deps.DB, eclient, offering, capabilities)
