@@ -2,6 +2,7 @@ package hashspacesolver
 
 import (
 	"bytes"
+	"math/big"
 	"slices"
 
 	"golang.org/x/xerrors"
@@ -43,6 +44,16 @@ func Solve(state State, event Event) (Result, error) {
 		if err := w.vacate(event.Disk); err != nil {
 			return Result{}, err
 		}
+	case EventAbsorb:
+		if err := w.repair(); err != nil {
+			return Result{}, err
+		}
+		w.absorb(event.Disk)
+	case EventBalance:
+		if err := w.repair(); err != nil {
+			return Result{}, err
+		}
+		w.balance()
 	default:
 		return Result{}, xerrors.Errorf("unknown event kind %d", event.Kind)
 	}
@@ -413,6 +424,123 @@ func (w *world) donateRange(space, src int) bool {
 	return w.splitOntoOthers(space, smallest, src)
 }
 
+// absorb pulls overflow onto dest. Disks at or under the fill limit are left
+// where they are; the destination is not filled up to match them.
+func (w *world) absorb(dest int) {
+	w.arrive(dest)
+}
+
+// BalanceBytes is the number of bytes to move from the fuller disk onto the
+// emptier one so the emptier gains half their fill-percentage gap. It is zero
+// when that gap is below SPREAD_POINTS.
+func BalanceBytes(usedHi, capHi, usedLo, capLo int64) int64 {
+	if capHi <= 0 || capLo <= 0 || usedHi <= 0 || usedLo < 0 {
+		return 0
+	}
+	num := new(big.Int).Mul(big.NewInt(usedHi), big.NewInt(capLo))
+	num.Sub(num, new(big.Int).Mul(big.NewInt(usedLo), big.NewInt(capHi)))
+	if num.Sign() <= 0 {
+		return 0
+	}
+	den := new(big.Int).Mul(big.NewInt(capHi), big.NewInt(capLo))
+	lhs := new(big.Int).Mul(num, big.NewInt(100))
+	rhs := new(big.Int).Mul(big.NewInt(SPREAD_POINTS), den)
+	if lhs.Cmp(rhs) < 0 {
+		return 0
+	}
+	bytes := new(big.Int).Quo(num, new(big.Int).Lsh(big.NewInt(capHi), 1))
+	if !bytes.IsInt64() {
+		return 0
+	}
+	n := bytes.Int64()
+	if n > usedHi {
+		n = usedHi
+	}
+	if free := capLo - usedLo; free < n {
+		n = free
+	}
+	if n < 0 {
+		return 0
+	}
+	return n
+}
+
+// balance moves half the widest fill gap onto the emptier disk. A gap under
+// SPREAD_POINTS moves nothing, and a vacating disk is neither end.
+func (w *world) balance() {
+	hi, lo, budget := w.balancePair()
+	if budget <= 0 {
+		return
+	}
+	totalRanges := 0
+	for _, sp := range w.spaces {
+		totalRanges += len(sp.ranges)
+	}
+	for guard := 0; guard < totalRanges*MAX_RANGES_PER_DISK+len(w.disks)+8; guard++ {
+		if budget <= 0 {
+			return
+		}
+		cut, ok := w.bestTake(hi, lo, budget)
+		if !ok {
+			return
+		}
+		if !w.applyCut(cut.space, cut.idx, cut.kind, lo, cut.size, cut.split) {
+			return
+		}
+		budget -= cut.size
+	}
+}
+
+func (w *world) balancePair() (hi, lo int, budget int64) {
+	hi, lo = -1, -1
+	for _, a := range w.activeDisks() {
+		if w.disks[a] <= 0 {
+			continue
+		}
+		for _, b := range w.activeDisks() {
+			if a == b || w.disks[b] <= 0 {
+				continue
+			}
+			if !fuller(w.used[a], w.disks[a], w.used[b], w.disks[b]) {
+				continue
+			}
+			n := BalanceBytes(w.used[a], w.disks[a], w.used[b], w.disks[b])
+			if n > budget {
+				hi, lo, budget = a, b, n
+			}
+		}
+	}
+	return hi, lo, budget
+}
+
+func fuller(usedA, capA, usedB, capB int64) bool {
+	if capA <= 0 || capB <= 0 {
+		return false
+	}
+	left := new(big.Int).Mul(big.NewInt(usedA), big.NewInt(capB))
+	right := new(big.Int).Mul(big.NewInt(usedB), big.NewInt(capA))
+	return left.Cmp(right) > 0
+}
+
+func (w *world) bestTake(src, dest int, budget int64) (candidate, bool) {
+	var best *candidate
+	for s := range w.spaces {
+		for _, idx := range w.rangeIndexes(s, src) {
+			for _, c := range w.sizedCuts(s, idx, budget, budget, dest) {
+				c.dest = dest
+				if best == nil || betterSteal(c, *best, budget) {
+					cp := c
+					best = &cp
+				}
+			}
+		}
+	}
+	if best == nil {
+		return candidate{}, false
+	}
+	return *best, true
+}
+
 func (w *world) arrive(newDisk int) {
 	if w.fillHeadroom(newDisk) <= 0 {
 		return
@@ -571,7 +699,7 @@ func betterSteal(a, b candidate, need int64) bool {
 
 func (w *world) shed(full int) error {
 	if w.frozen[full] {
-		return xerrors.Errorf("cannot shed from vacated disk %d", full)
+		return nil
 	}
 	totalRanges := 0
 	for _, sp := range w.spaces {
@@ -728,12 +856,17 @@ func (w *world) emptyNeighbor(space, idx, src int) (int, bool) {
 		return 0, false
 	}
 	next := sp.owner[(idx+1)%n]
-	if next != src {
+	if next != src && !w.frozen[next] {
 		return next, true
 	}
 	prev := sp.owner[(idx-1+n)%n]
-	if prev != src {
+	if prev != src && !w.frozen[prev] {
 		return prev, true
+	}
+	for _, dest := range w.activeDisks() {
+		if dest != src {
+			return dest, true
+		}
 	}
 	return 0, false
 }

@@ -182,13 +182,20 @@ func (c *CleanupPieceTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.Ta
 		indIDs[i] = int64(id)
 	}
 
+	// Pieces moved into open-pieces have no piece-park file left; any node can
+	// drop their rows.
 	var acceptedIDs []harmonytask.TaskID
 	err = c.db.QueryRow(ctx, `SELECT COALESCE(array_agg(cleanup_task_id), '{}')::bigint[] AS cleanup_task_ids FROM 
 										(
 										    SELECT pp.cleanup_task_id FROM parked_pieces pp
-											INNER JOIN sector_location l ON l.miner_id = 0 AND l.sector_num = pp.id AND l.sector_filetype = 32
-											WHERE cleanup_task_id = ANY ($1) 
-											  AND l.storage_id = ANY ($2)
+											WHERE pp.cleanup_task_id = ANY ($1)
+											  AND (
+												EXISTS (SELECT 1 FROM sector_location l
+													WHERE l.miner_id = 0 AND l.sector_num = pp.id AND l.sector_filetype = 32
+													  AND l.storage_id = ANY ($2))
+												OR NOT EXISTS (SELECT 1 FROM sector_location l
+													WHERE l.miner_id = 0 AND l.sector_num = pp.id AND l.sector_filetype = 32)
+											  )
 											  LIMIT 100
 										) s`, indIDs, storageIDs).Scan(&acceptedIDs)
 	if err != nil {

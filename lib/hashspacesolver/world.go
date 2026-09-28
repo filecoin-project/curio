@@ -38,11 +38,17 @@ func newWorld(state State) (*world, error) {
 	if err := checkStructure(state); err != nil {
 		return nil, err
 	}
+	if len(state.Vacating) != 0 && len(state.Vacating) != len(state.Disks) {
+		return nil, xerrors.Errorf("vacating length %d != %d disks", len(state.Vacating), len(state.Disks))
+	}
 	w := &world{
 		disks:  append([]int64(nil), state.Disks...),
 		spaces: make([]spaceWorld, len(state.Spaces)),
 		used:   make([]int64, len(state.Disks)),
 		frozen: make([]bool, len(state.Disks)),
+	}
+	for i, v := range state.Vacating {
+		w.frozen[i] = v
 	}
 	for s, sp := range state.Spaces {
 		w.spaces[s] = spaceWorld{

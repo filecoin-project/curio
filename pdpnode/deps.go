@@ -19,6 +19,7 @@ import (
 	"github.com/filecoin-project/curio/lib/cachedreader"
 	"github.com/filecoin-project/curio/lib/curiochain"
 	"github.com/filecoin-project/curio/lib/ethchain"
+	"github.com/filecoin-project/curio/lib/hashspace"
 	"github.com/filecoin-project/curio/lib/lazy"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/pieceprovider"
@@ -57,6 +58,7 @@ type Deps struct {
 	EthClient         *lazy.Lazy[ethchain.EthClient]
 	Sender            *message.Sender
 	EthSender         *message.SenderETH
+	HashSpace         *hashspace.Cluster
 	Al                *curioalerting.AlertingSystem
 	Alert             *alertmanager.AlertNow
 	MachineHost       string
@@ -155,9 +157,17 @@ func Open(ctx context.Context, cctx *cli.Context) (*Deps, error) {
 		return nil, xerrors.Errorf("start index store: %w", err)
 	}
 
+	hs, err := NewHashSpace(ctx, db, localStore, si, http.Header(sa))
+	if err != nil {
+		return nil, xerrors.Errorf("hash space: %w", err)
+	}
+
 	sectorReader := pieceprovider.NewSectorReader(stor, si)
 	ppr := pieceprovider.NewPieceParkReader(stor, si)
 	cpr := cachedreader.NewCachedPieceReader(db, sectorReader, ppr, indexStore)
+	if hs != nil {
+		cpr.SetOpenPieceReader(pieceprovider.NewOpenPieceReader(hs))
+	}
 	serveChunker := chunker.NewServeChunker(db, sectorReader, indexStore, cpr)
 
 	ethLazy := lazy.MakeLazy(func() (ethchain.EthClient, error) {
@@ -182,6 +192,7 @@ func Open(ctx context.Context, cctx *cli.Context) (*Deps, error) {
 		CachedPieceReader: cpr,
 		ServeChunker:      serveChunker,
 		EthClient:         ethLazy,
+		HashSpace:         hs,
 		Al:                al,
 		Alert:             alertmanager.NewAlertNow(db, machineHost),
 		MachineHost:       machineHost,
@@ -207,5 +218,10 @@ func Open(ctx context.Context, cctx *cli.Context) (*Deps, error) {
 func (d *Deps) Close() {
 	if d.chainCloser != nil {
 		d.chainCloser()
+	}
+	if d.HashSpace != nil {
+		if err := d.HashSpace.Close(); err != nil {
+			log.Warnf("closing hash space: %s", err)
+		}
 	}
 }
