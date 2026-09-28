@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"math/rand"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -52,6 +53,9 @@ func solveOK(t *testing.T, st State, ev Event) (State, Result) {
 	require.Equal(t, res.BytesMoved, sumDiff(res.Diff))
 	if ev.Kind == EventVacate {
 		require.Zero(t, usedOf(out, ev.Disk))
+		for s := range out.Spaces {
+			require.Zero(t, rangeCountOf(out, s, ev.Disk))
+		}
 	}
 	if ev.Kind == EventFull {
 		require.LessOrEqual(t, usedOf(out, ev.Disk), out.Disks[ev.Disk])
@@ -103,6 +107,30 @@ func rangeCountOf(st State, space, d int) int {
 		return -1
 	}
 	return w.rangeCount(space, d)
+}
+
+func TestVacateReassignsEmptyArc(t *testing.T) {
+	st := mk([]int64{20, 20}, []byte{0x40, 0x80}, []int64{0, 5}, []int{0, 1})
+	out, res := solveOK(t, st, Event{Kind: EventVacate, Disk: 0})
+	require.Zero(t, res.BytesMoved)
+	require.Len(t, res.Diff, 1)
+	require.Equal(t, 0, res.Diff[0].From)
+	require.Equal(t, 1, res.Diff[0].To)
+	require.Equal(t, int64(0), res.Diff[0].Size)
+	require.Len(t, out.Spaces[0].Ranges, 1)
+	require.Equal(t, []int{1}, out.Spaces[0].Owner)
+	require.Equal(t, int64(5), out.Spaces[0].Ranges[0].Size)
+	require.True(t, hashEq(out.Spaces[0].Ranges[0].EndHash, h(0x80)))
+}
+
+func TestVacateReassignsSoleEmptyArc(t *testing.T) {
+	st := mk([]int64{10, 10}, []byte{0x10}, []int64{0}, []int{0})
+	out, res := solveOK(t, st, Event{Kind: EventVacate, Disk: 0})
+	require.Zero(t, res.BytesMoved)
+	require.Len(t, res.Diff, 1)
+	require.Equal(t, int64(0), res.Diff[0].Size)
+	require.Equal(t, []int{1}, out.Spaces[0].Owner)
+	require.Equal(t, int64(0), out.Spaces[0].Ranges[0].Size)
 }
 
 func TestVacateNeighborAbsorbs(t *testing.T) {
@@ -272,13 +300,16 @@ func TestFullCannotShed(t *testing.T) {
 }
 
 func TestRepairTooManyRanges(t *testing.T) {
-	st := mk(
-		[]int64{50, 50},
-		[]byte{0x10, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70, 0x80},
-		[]int64{5, 5, 5, 5, 5, 5, 5, 5},
-		[]int{0, 1, 0, 1, 0, 1, 0, 1},
-	)
-	require.Equal(t, 4, rangeCountOf(st, 0, 0))
+	end := make([]byte, 18)
+	size := make([]int64, 18)
+	owner := make([]int, 18)
+	for i := range end {
+		end[i] = byte((i + 1) * 10)
+		size[i] = 5
+		owner[i] = i % 2
+	}
+	st := mk([]int64{200, 200}, end, size, owner)
+	require.Equal(t, 9, rangeCountOf(st, 0, 0))
 	require.Error(t, Validate(st))
 	out, _ := solveOK(t, st, Event{Kind: EventFull, Disk: 0})
 	require.LessOrEqual(t, rangeCountOf(out, 0, 0), MAX_RANGES_PER_DISK)
@@ -453,6 +484,65 @@ func intervalsOverlap(a, b Transfer) bool {
 		(pointInArc(b.StartHash, b.EndHash, a.EndHash) && !hashEq(a.EndHash, b.StartHash))
 }
 
+func TestUnsplittablePrefixDoesNotLoop(t *testing.T) {
+	// Each disk-0 range covers a single hash step, so a partial cut cannot
+	// be represented. Disk 1 has free bytes but not enough for a whole range.
+	// Repair must stop instead of retrying the same prefix forever.
+	st := mk([]int64{300, 80, 30},
+		[]byte{0x10, 0x11, 0x20, 0x21, 0x30, 0x31, 0x40, 0x41},
+		[]int64{10, 50, 10, 50, 10, 50, 11, 50},
+		[]int{1, 0, 1, 0, 1, 0, 1, 0},
+	)
+	done := make(chan error, 1)
+	go func() {
+		_, err := Solve(st, Event{Kind: EventFull, Disk: 0})
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("splitOntoOthers retried a cut that moved nothing")
+	}
+}
+
+func TestEachByteMovesOnce(t *testing.T) {
+	// Disk 0 is over the range cap. Repair absorbs one of its ranges onto
+	// disk 1, which puts disk 1 over the fill limit so arrive steals onward.
+	// The stolen slice must be one move from the original owner, not a second hop.
+	end := make([]byte, 18)
+	size := make([]int64, 18)
+	owner := make([]int, 18)
+	for i := range end {
+		end[i] = byte((i + 1) * 10)
+		if i%2 == 0 {
+			size[i] = 10
+			owner[i] = 0
+		} else {
+			size[i] = 8
+			owner[i] = 1
+		}
+	}
+	st := mk([]int64{200, 200, 400}, end, size, owner)
+	out, res := solveOK(t, st, Event{Kind: EventArrive, Disk: 2})
+	require.NotEmpty(t, res.Diff)
+	for i := range res.Diff {
+		for j := i + 1; j < len(res.Diff); j++ {
+			if res.Diff[i].Space != res.Diff[j].Space {
+				continue
+			}
+			require.False(t, intervalsOverlap(res.Diff[i], res.Diff[j]) || intervalsOverlap(res.Diff[j], res.Diff[i]))
+		}
+	}
+	rev := append([]Transfer(nil), res.Diff...)
+	for i, j := 0, len(rev)-1; i < j; i, j = i+1, j-1 {
+		rev[i], rev[j] = rev[j], rev[i]
+	}
+	revOut, err := Apply(st, rev)
+	require.NoError(t, err)
+	requireEqualState(t, out, revOut)
+}
+
 func TestMergeTransfersFixpoint(t *testing.T) {
 	got := mergeTransfers([]Transfer{
 		{Space: 0, From: 0, To: 1, StartHash: h(0x10), EndHash: h(0x20), Size: 1},
@@ -477,6 +567,59 @@ func TestMergeTransfersFixpoint(t *testing.T) {
 	require.Equal(t, int64(4), other.Size)
 	require.True(t, hashEq(other.StartHash, h(0x00)))
 	require.True(t, hashEq(other.EndHash, h(0x10)))
+}
+
+func TestSuffixRecutCanExceedCheckedSize(t *testing.T) {
+	// Suffix of 1 byte from a 5-byte range rounds to 2. Cutting again from
+	// that 2 rounds to 3, which is more than the size already checked.
+	st := mk([]int64{20, 20}, []byte{0x10, 0x20}, []int64{1, 5}, []int{1, 0})
+	w, err := newWorld(st)
+	require.NoError(t, err)
+	idx := 1
+	split, moved, _, _ := w.previewCut(0, idx, cutSuffix, 1)
+	require.Equal(t, int64(2), moved)
+	_, again, _, _ := w.previewCut(0, idx, cutSuffix, moved)
+	require.Equal(t, int64(3), again)
+	before := w.used[1]
+	require.True(t, w.applyCut(0, idx, cutSuffix, 1, moved, split))
+	require.Equal(t, before+moved, w.used[1])
+}
+
+func TestApplyMovesMiddleOfRange(t *testing.T) {
+	// Disk 1 holds the arc before disk 0, so the leftover prefix and suffix
+	// of disk 0 do not meet and merge. The transfer is inside (0x40, 0xc0].
+	st := mk([]int64{200, 200}, []byte{0x40, 0xc0}, []int64{40, 80}, []int{1, 0})
+	src := 1
+	r := st.Spaces[0].Ranges[src]
+	start := StartHash(st.Spaces[0].Ranges, src)
+	midStart, midEnd := h(0x60), h(0xa0)
+	require.False(t, hashEq(midStart, start))
+	require.False(t, hashEq(midEnd, r.EndHash))
+	left := SliceSize(r, start, midStart)
+	mid := SliceSize(r, start, midEnd) - left
+	require.Positive(t, left)
+	require.Positive(t, mid)
+	require.Less(t, left+mid, r.Size)
+
+	out, err := Apply(st, []Transfer{{
+		Space: 0, From: 0, To: 1,
+		StartHash: midStart, EndHash: midEnd, Size: mid,
+	}})
+	require.NoError(t, err)
+	require.NoError(t, Validate(out))
+	require.Equal(t, r.Size-mid, usedOf(out, 0))
+	require.Equal(t, int64(40)+mid, usedOf(out, 1))
+
+	sp := out.Spaces[0]
+	require.Equal(t, []int{1, 0, 1, 0}, sp.Owner)
+	require.True(t, hashEq(sp.Ranges[0].EndHash, h(0x40)))
+	require.Equal(t, int64(40), sp.Ranges[0].Size)
+	require.True(t, hashEq(sp.Ranges[1].EndHash, midStart))
+	require.Equal(t, left, sp.Ranges[1].Size)
+	require.True(t, hashEq(sp.Ranges[2].EndHash, midEnd))
+	require.Equal(t, mid, sp.Ranges[2].Size)
+	require.True(t, hashEq(sp.Ranges[3].EndHash, h(0xc0)))
+	require.Equal(t, r.Size-left-mid, sp.Ranges[3].Size)
 }
 
 func TestApplyRejectsUnknownRange(t *testing.T) {

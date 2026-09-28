@@ -1,4 +1,4 @@
-// Package fs2 sums logical sizes of regular files under a directory tree.
+// Package fs2 sums logical sizes of CID-named regular files under a directory tree.
 // Each file's hash is its path relative to the root with separators removed,
 // so ab/cdefg is the hash abcdefg. Bounds use the same half-open convention
 // as hashspacesolver.Transfer: (low, high]. An empty low or high leaves that

@@ -157,9 +157,13 @@ func sumDirDarwin(path, prefix, low, high string, queueDepth uint32, result *Res
 	}
 }
 
-// parseAttrEntry reads one getattrlistbulk record. Variable-length values,
-// such as the name, are addressed by an offset from their header; the fixed
-// fields that follow stay packed in attribute-bit order.
+// parseAttrEntry reads one getattrlistbulk record.
+//
+// ATTR_CMN_ERROR, when the returned bitmap includes it, is packed immediately
+// after ATTR_CMN_RETURNED_ATTRS. Successful entries omit it. The name reference
+// then points at UTF-8 bytes that sit after the fixed fields. Remaining
+// attributes follow getattrlist(2) order: common name and type, then file
+// data length.
 func parseAttrEntry(entry []byte) (name string, objType uint32, size int64, hasSize, hasType bool, entryErr unix.Errno, err error) {
 	if len(entry) < 4+20 {
 		return "", 0, 0, false, false, 0, fmt.Errorf("truncated returned attributes")
@@ -169,6 +173,13 @@ func parseAttrEntry(entry []byte) (name string, objType uint32, size int64, hasS
 	returnedFile := binary.LittleEndian.Uint32(field[12:16])
 	field = field[20:]
 
+	if returnedCommon&unix.ATTR_CMN_ERROR != 0 {
+		if len(field) < 4 {
+			return "", 0, 0, false, false, 0, fmt.Errorf("truncated entry error")
+		}
+		entryErr = unix.Errno(binary.LittleEndian.Uint32(field[:4]))
+		field = field[4:]
+	}
 	if returnedCommon&unix.ATTR_CMN_NAME != 0 {
 		if len(field) < 8 {
 			return "", 0, 0, false, false, 0, fmt.Errorf("truncated name")
@@ -192,13 +203,6 @@ func parseAttrEntry(entry []byte) (name string, objType uint32, size int64, hasS
 		}
 		objType = binary.LittleEndian.Uint32(field[:4])
 		hasType = true
-		field = field[4:]
-	}
-	if returnedCommon&unix.ATTR_CMN_ERROR != 0 {
-		if len(field) < 4 {
-			return "", 0, 0, false, false, 0, fmt.Errorf("truncated entry error")
-		}
-		entryErr = unix.Errno(binary.LittleEndian.Uint32(field[:4]))
 		field = field[4:]
 	}
 	if returnedFile&unix.ATTR_FILE_DATALENGTH != 0 {
