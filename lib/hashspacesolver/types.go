@@ -1,5 +1,5 @@
 // Package hashspacesolver plans range moves across disks so each disk holds
-// fewer than four contiguous hash-space ranges per space while moving as
+// at most eight contiguous hash-space ranges per space while moving as
 // little data as possible.
 //
 // Disks are a list of total sizes (capacities) shared by all spaces. Each
@@ -8,12 +8,13 @@
 // SliceSize reports how much of a range's data lies in a sub-interval.
 //
 // Solve returns a target State plus an order-independent Diff of absolute
-// interval transfers for delayed application.
+// interval transfers. Each byte moves at most once, from its original disk
+// to the disk that holds it at the end.
 package hashspacesolver
 
 // MAX_RANGES_PER_DISK is the maximum number of contiguous ranges a disk may
-// hold in one space (fewer than 4). Caps are per disk per space.
-const MAX_RANGES_PER_DISK = 3
+// hold in one space. Caps are per disk per space.
+const MAX_RANGES_PER_DISK = 8
 
 // FILL_LIMIT_PERCENT is the rebalance target as a percent of physical
 // capacity. Planning moves data to get disks to or under this fraction.
