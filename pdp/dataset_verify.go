@@ -11,6 +11,8 @@ import (
 	commcid "github.com/filecoin-project/go-fil-commcid"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/harmony/harmonytask"
+	"github.com/filecoin-project/curio/tasks/openpieces"
 )
 
 var (
@@ -56,7 +58,7 @@ func discardOrphanPiecrefsForSubPieces(ctx context.Context, db *harmonydb.DB, se
 		return nil
 	}
 
-	_, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+	_, err := harmonytask.TxWithTask(ctx, db, openpieces.DropAdder(), func(tx *harmonydb.Tx, dropTask harmonytask.TaskID) (bool, error) {
 		n, err := tx.Exec(`
 			WITH doomed AS (
 				SELECT pr.id, pr.piece_ref
@@ -88,12 +90,11 @@ func discardOrphanPiecrefsForSubPieces(ctx context.Context, db *harmonydb.DB, se
 		if _, err := tx.Exec(`
 			DELETE FROM hash_space_place hp
 			WHERE hp.pdp_piece_cid = ANY($1)
-			  AND hp.task_id IS NULL
 			  AND NOT EXISTS (SELECT 1 FROM pdp_piecerefs pr WHERE pr.id = hp.pdp_pieceref)
 		`, subPieceCidV1List); err != nil {
 			return false, fmt.Errorf("discard orphan open-pieces placements: %w", err)
 		}
-		if err := queueOpenPieceDeletes(tx, subPieceCidV1List); err != nil {
+		if err := queueOpenPieceDeletes(tx, dropTask, subPieceCidV1List); err != nil {
 			return false, err
 		}
 		if n > 0 {
@@ -103,14 +104,15 @@ func discardOrphanPiecrefsForSubPieces(ctx context.Context, db *harmonydb.DB, se
 				"parkedRefsRemoved", n)
 		}
 		return true, nil
-	}, harmonydb.OptionRetry())
+	})
 	return err
 }
 
 // queueOpenPieceDeletes queues open-pieces removal for the CIDs in v1s that
-// no longer have any PDP ref. Hash spaces are keyed by piece CID v2, built
-// from the parked pieces' raw sizes.
-func queueOpenPieceDeletes(tx *harmonydb.Tx, v1s []string) error {
+// no longer have any PDP ref, all on the HashSpaceDrop task dropTask (see
+// openpieces.QueueDrop). Hash spaces are keyed by piece CID v2, built from
+// the parked pieces' raw sizes.
+func queueOpenPieceDeletes(tx *harmonydb.Tx, dropTask harmonytask.TaskID, v1s []string) error {
 	var gone []struct {
 		PieceCID string `db:"piece_cid"`
 		RawSize  int64  `db:"piece_raw_size"`
@@ -132,12 +134,8 @@ func queueOpenPieceDeletes(tx *harmonydb.Tx, v1s []string) error {
 		if err != nil {
 			return fmt.Errorf("piece cid v2 for %s: %w", g.PieceCID, err)
 		}
-		if _, err := tx.Exec(`
-			INSERT INTO hash_space_delete (piece_cid)
-			SELECT $1 WHERE EXISTS (SELECT 1 FROM open_piece WHERE piece_cid = $1)
-			ON CONFLICT (piece_cid) DO NOTHING
-		`, v2.String()); err != nil {
-			return fmt.Errorf("queue open-pieces delete for %s: %w", v2, err)
+		if err := openpieces.QueueDrop(tx, dropTask, v2.String()); err != nil {
+			return err
 		}
 	}
 	return nil

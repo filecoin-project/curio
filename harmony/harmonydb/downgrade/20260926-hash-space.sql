@@ -1,6 +1,3 @@
-DROP TRIGGER IF EXISTS pdp_piecerefs_hash_space_place ON pdp_piecerefs;
-DROP FUNCTION IF EXISTS enqueue_hash_space_place();
-
 DROP TABLE IF EXISTS hash_space_delete;
 DROP TABLE IF EXISTS hash_space_place;
 DROP TABLE IF EXISTS open_piece;

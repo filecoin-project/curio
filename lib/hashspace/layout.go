@@ -11,6 +11,9 @@ import (
 
 // Layout is layout.json at the root of one space folder.
 type Layout struct {
+	// Version is the hash_space_meta.version the ranges were read at. A
+	// layout newer than the database is written back to it on startup.
+	Version     int64       `json:"version,omitempty"`
 	Used        int64       `json:"used"`
 	CommittedAt time.Time   `json:"committed_at"`
 	Split       string      `json:"split"`

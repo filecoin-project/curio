@@ -19,6 +19,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/ethchain"
+	"github.com/filecoin-project/curio/lib/hashspace"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/pdp"
@@ -46,6 +47,7 @@ type RepairMissingPiecesTask struct {
 	db  *harmonydb.DB
 	eth ethchain.EthClient
 	pio ParkedPieceStore
+	hs  *hashspace.Cluster
 }
 
 const (
@@ -67,11 +69,12 @@ const (
 	repairMaxFailures = 10
 )
 
-func NewRepairMissingPiecesTask(db *harmonydb.DB, eth ethchain.EthClient, pio ParkedPieceStore) *RepairMissingPiecesTask {
+func NewRepairMissingPiecesTask(db *harmonydb.DB, eth ethchain.EthClient, pio ParkedPieceStore, hs *hashspace.Cluster) *RepairMissingPiecesTask {
 	return &RepairMissingPiecesTask{
 		db:  db,
 		eth: eth,
 		pio: pio,
+		hs:  hs,
 	}
 }
 
@@ -281,9 +284,12 @@ func (t *RepairMissingPiecesTask) repairPiece(ctx context.Context, dataSetID int
 	// A parked_pieces row only records intent to store. Confirm the bytes are
 	// really there before claiming the piece is provable: either placed in
 	// open-pieces, or readable from piece-park.
-	var placed bool
-	if err := t.db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM open_piece WHERE piece_cid = $1)`, info.CidV2.String()).Scan(&placed); err != nil {
-		return false, xerrors.Errorf("failed to look up open piece for %s: %w", info.CidV2, err)
+	placed := false
+	if t.hs != nil {
+		placed, err = t.hs.HasFile(ctx, info.CidV2)
+		if err != nil {
+			return false, xerrors.Errorf("failed to look up open piece for %s: %w", info.CidV2, err)
+		}
 	}
 	if !placed {
 		reader, err := t.pio.PieceReader(ctx, storiface.PieceNumber(loc[0].ParkedPieceID))

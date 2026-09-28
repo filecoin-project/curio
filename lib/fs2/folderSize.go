@@ -11,6 +11,9 @@ package fs2
 
 import (
 	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -82,6 +85,100 @@ func SumFileSizesInterval(directory, low, high string, queueDepth uint32) (Resul
 		return Result{}, err
 	}
 	return addResult(hi, lo)
+}
+
+// ListHashesInterval returns up to limit regular-file hashes in (low, high],
+// lexicographic order, strictly after `after`. An empty low or high leaves
+// that side open. When low sorts after high the interval wraps. When low
+// and high are equal and non-empty, the interval is the whole circle.
+func ListHashesInterval(directory, low, high, after string, limit int) ([]string, error) {
+	if err := checkSumArgs(directory, low, high, 0); err != nil {
+		return nil, err
+	}
+	if strings.IndexByte(after, 0) >= 0 {
+		return nil, fmt.Errorf("list hashes: bounds cannot contain NUL bytes")
+	}
+	if limit <= 0 {
+		return nil, nil
+	}
+	if low != "" && low == high {
+		low, high = "", ""
+	}
+	var out []string
+	err := filepath.WalkDir(directory, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
+			return err
+		}
+		rel, err := filepath.Rel(directory, path)
+		if err != nil {
+			return err
+		}
+		if rel == "." {
+			return nil
+		}
+		hash := hashFromRel(rel)
+		if d.IsDir() {
+			if !subtreeInInterval(hash, low, high) || prefixAtOrBefore(hash, after) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !hashInInterval(hash, low, high) || (after != "" && hash <= after) {
+			return nil
+		}
+		mode := d.Type()
+		if mode != 0 && !mode.IsRegular() {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
+			return fmt.Errorf("stat %s: %w", rel, err)
+		}
+		if !info.Mode().IsRegular() {
+			return nil
+		}
+		out = append(out, hash)
+		if len(out) >= limit {
+			return fs.SkipAll
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list hashes: %w", err)
+	}
+	return out, nil
+}
+
+func hashInInterval(hash, low, high string) bool {
+	if low != "" && high != "" && low > high {
+		return hashInRange(hash, low, "") || hashInRange(hash, "", high)
+	}
+	return hashInRange(hash, low, high)
+}
+
+func subtreeInInterval(prefix, low, high string) bool {
+	if low != "" && high != "" && low > high {
+		return subtreeCanMatch(prefix, low, "") || subtreeCanMatch(prefix, "", high)
+	}
+	return subtreeCanMatch(prefix, low, high)
+}
+
+// prefixAtOrBefore reports whether every hash under prefix sorts at or
+// before after, so the directory cannot contain a later hash.
+func prefixAtOrBefore(prefix, after string) bool {
+	if after == "" || prefix == "" {
+		return false
+	}
+	if strings.HasPrefix(after, prefix) {
+		return false
+	}
+	return prefix < after
 }
 
 func addResult(a, b Result) (Result, error) {

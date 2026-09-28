@@ -26,10 +26,11 @@ type Space struct {
 }
 
 type disk struct {
-	root           string
-	tracker        *sizeTracker
-	intervals      []hashInterval
-	incomingRanges []hashInterval
+	root        string
+	tracker     *sizeTracker
+	version     int64
+	intervals   []hashInterval
+	moveSources []hashInterval
 }
 
 type hashInterval struct {
@@ -80,12 +81,13 @@ func loadDisk(kind, root string) (*disk, error) {
 	d := &disk{
 		root:    root,
 		tracker: &sizeTracker{},
+		version: layout.Version,
 	}
 	d.tracker.Set(layout.Used)
 	if d.intervals, err = decodeIntervals(layout.Ranges); err != nil {
 		return nil, xerrors.Errorf("%s ranges: %w", path, err)
 	}
-	if d.incomingRanges, err = decodeIntervals(layout.MoveSources); err != nil {
+	if d.moveSources, err = decodeIntervals(layout.MoveSources); err != nil {
 		return nil, xerrors.Errorf("%s move sources: %w", path, err)
 	}
 	if err := d.catchUp(kind, info.ModTime()); err != nil {
@@ -115,11 +117,12 @@ func (s *Space) flushLocked() error {
 	var first error
 	for _, d := range s.disks {
 		err := writeLayout(d.root, s.kind, Layout{
+			Version:     d.version,
 			Used:        d.tracker.Used(),
 			CommittedAt: now,
 			Split:       SPLIT,
 			Ranges:      encodeIntervals(d.intervals),
-			MoveSources: encodeIntervals(d.incomingRanges),
+			MoveSources: encodeIntervals(d.moveSources),
 		})
 		if err != nil && first == nil {
 			first = err
@@ -181,6 +184,11 @@ func (s *Space) WriteCIDOn(root string, c cid.Cid) (io.WriteCloser, error) {
 	if err != nil {
 		return nil, err
 	}
+	return s.WriteHashOn(root, hexHash)
+}
+
+// WriteHashOn opens a new file named by the piece hash on root.
+func (s *Space) WriteHashOn(root, hexHash string) (io.WriteCloser, error) {
 	d, err := s.diskOn(root)
 	if err != nil {
 		return nil, err
@@ -315,7 +323,7 @@ func (s *Space) locate(digest []byte) (*disk, bool) {
 		}
 	}
 	for _, d := range s.disks {
-		for _, iv := range d.incomingRanges {
+		for _, iv := range d.moveSources {
 			if hashspacesolver.Contains(iv.start, iv.end, digest) {
 				return d, true
 			}
@@ -471,9 +479,9 @@ func (s *Space) UsedOn(root string) (int64, error) {
 	return d.tracker.Used(), nil
 }
 
-// SetIntervalsOn replaces the owned ranges and move sources of root and rewrites
-// its layout.json.
-func (s *Space) SetIntervalsOn(root string, owned, moveSources []HashRange) error {
+// SetIntervalsOn replaces the owned ranges and move sources of root, read at
+// map version, and rewrites its layout.json.
+func (s *Space) SetIntervalsOn(root string, version int64, owned, moveSources []HashRange) error {
 	d, err := s.diskOn(root)
 	if err != nil {
 		return err
@@ -488,8 +496,9 @@ func (s *Space) SetIntervalsOn(root string, owned, moveSources []HashRange) erro
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	d.version = version
 	d.intervals = ivs
-	d.incomingRanges = mivs
+	d.moveSources = mivs
 	return s.flushLocked()
 }
 

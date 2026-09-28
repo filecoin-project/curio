@@ -30,7 +30,7 @@ func NewOpenPieceReader(hs *hashspace.Cluster) *OpenPieceReader {
 //
 // Every range read opens the file at the last location that worked. If the
 // file is gone there (moved by a rebalance, or dropped from a finished move source), the
-// locations are looked up again and the read moves on to the next one, so a
+// places are looked up again and the read moves on to the other one, so a
 // long-lived cached reader follows the piece.
 func (o *OpenPieceReader) ReadPiece(ctx context.Context, pc cid.Cid, rawSize int64) (storiface.Reader, error) {
 	locs, err := o.hs.Locations(ctx, pc.String())

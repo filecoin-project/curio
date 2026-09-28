@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS hash_space_move_source (
     from_storage TEXT NOT NULL,
     to_storage TEXT NOT NULL,
     size BIGINT NOT NULL,
-    task_id BIGINT,
+    task_id BIGINT NOT NULL, -- HashSpaceMove, added in the same transaction
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (space, start_hash, end_hash)
 );
@@ -68,51 +68,28 @@ CREATE TABLE IF NOT EXISTS open_piece (
 CREATE INDEX IF NOT EXISTS idx_open_piece_space_hash ON open_piece (space, piece_hash);
 CREATE INDEX IF NOT EXISTS idx_open_piece_storage_hash ON open_piece (storage_id, space, piece_hash);
 
--- PDP pieces waiting to move from piece-park into open-pieces. The v2 CID is
--- derived from pdp_piece_cid and the parked piece's raw size when placing.
--- placed is set once the open-pieces copy is recorded; the row stays until
--- the piece-park copy can go.
+-- PDP pieces to move from piece-park into open-pieces, written with their
+-- HashSpacePlace task in the transaction that creates the pdp_piecerefs row.
+-- The v2 CID is derived from pdp_piece_cid and the parked piece's raw size.
 CREATE TABLE IF NOT EXISTS hash_space_place (
     pdp_pieceref BIGINT PRIMARY KEY,
     pdp_piece_cid TEXT NOT NULL, -- pdp_piecerefs.piece_cid (v1)
     piece_ref BIGINT NOT NULL,
-    placed BOOLEAN NOT NULL DEFAULT FALSE,
-    task_id BIGINT,
+    task_id BIGINT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_hash_space_place_task ON hash_space_place (task_id);
 
--- Pieces whose last PDP reference was dropped; files are removed from every
--- open_piece location. Placement of the same piece cancels an unclaimed row
--- and waits for a claimed one.
+-- Pieces whose last PDP reference was dropped, written with their
+-- HashSpaceDrop task; files are removed from every open_piece location.
+-- started is set once the drop has checked no PDP ref came back; placement
+-- of the same piece waits for a started drop.
 CREATE TABLE IF NOT EXISTS hash_space_delete (
     piece_cid TEXT PRIMARY KEY, -- piece cid v2
-    task_id BIGINT,
+    task_id BIGINT NOT NULL,
+    started BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_hash_space_delete_task ON hash_space_delete (task_id);
-
-CREATE OR REPLACE FUNCTION enqueue_hash_space_place()
-    RETURNS TRIGGER AS $$
-BEGIN
-    INSERT INTO hash_space_place (pdp_pieceref, pdp_piece_cid, piece_ref)
-    VALUES (NEW.id, NEW.piece_cid, NEW.piece_ref)
-    ON CONFLICT (pdp_pieceref) DO NOTHING;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_trigger
-        WHERE tgname = 'pdp_piecerefs_hash_space_place'
-    ) THEN
-        CREATE TRIGGER pdp_piecerefs_hash_space_place
-            AFTER INSERT ON pdp_piecerefs
-            FOR EACH ROW
-            EXECUTE FUNCTION enqueue_hash_space_place();
-    END IF;
-END $$;

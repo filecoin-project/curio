@@ -17,6 +17,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/passcall"
+	"github.com/filecoin-project/curio/tasks/openpieces"
 	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
@@ -33,7 +34,7 @@ func NewPDPNotifyTask(db *harmonydb.DB) *PDPNotifyTask {
 }
 
 func (t *PDPNotifyTask) Do(ctx context.Context, taskID harmonytask.TaskID, _ func() bool) (bool, error) {
-	committed, err := t.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+	committed, err := harmonytask.TxWithTask(ctx, t.db, openpieces.PlaceAdder(), func(tx *harmonydb.Tx, placeTask harmonytask.TaskID) (bool, error) {
 		var upload struct {
 			id            string
 			service       string
@@ -76,15 +77,22 @@ func (t *PDPNotifyTask) Do(ctx context.Context, taskID harmonytask.TaskID, _ fun
 		}
 
 		needsSaveCache := padreader.PaddedSize(uint64(upload.pieceRawSize.Int64)).Padded() >= abi.PaddedPieceSize(MinSizeForCache)
-		n, err := tx.Exec(`
+		var refs []int64
+		err = tx.Select(&refs, `
 			INSERT INTO pdp_piecerefs (service, piece_cid, piece_ref, created_at, needs_save_cache)
 			VALUES ($1, $2, $3, NOW(), $4)
 			ON CONFLICT (piece_ref) DO NOTHING
+			RETURNING id
 		`, upload.service, upload.pieceCID.String, upload.pieceRef.Int64, needsSaveCache)
 		if err != nil {
 			return false, fmt.Errorf("publish legacy PDP upload %s: %w", upload.id, err)
 		}
-		if n == 0 {
+		for _, ref := range refs {
+			if err := openpieces.QueuePlace(tx, placeTask, ref); err != nil {
+				return false, err
+			}
+		}
+		if len(refs) == 0 {
 			var matches bool
 			err = tx.QueryRow(`
 				SELECT EXISTS(
@@ -101,7 +109,7 @@ func (t *PDPNotifyTask) Do(ctx context.Context, taskID harmonytask.TaskID, _ fun
 			}
 		}
 
-		n, err = tx.Exec(`
+		n, err := tx.Exec(`
 			DELETE FROM pdp_piece_uploads
 			WHERE id = $1 AND notify_task_id = $2 AND piece_ref = $3
 		`, upload.id, taskID, upload.pieceRef.Int64)
@@ -113,7 +121,7 @@ func (t *PDPNotifyTask) Do(ctx context.Context, taskID harmonytask.TaskID, _ fun
 		}
 
 		return true, nil
-	}, harmonydb.OptionRetry())
+	})
 	if err != nil {
 		return false, err
 	}

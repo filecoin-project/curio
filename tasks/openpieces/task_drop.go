@@ -2,9 +2,10 @@ package openpieces
 
 import (
 	"context"
-	"time"
+	"errors"
 
 	"github.com/ipfs/go-cid"
+	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
 	commcid "github.com/filecoin-project/go-fil-commcid"
@@ -21,8 +22,40 @@ import (
 
 const DROP_MAX = 4
 
-// DropTask removes a piece whose last PDP reference is gone from every
-// open-pieces location, in-flight move destinations included.
+// DropAdder is the AddTaskFunc to pass to harmonytask.TxWithTask with
+// QueueDrop.
+func DropAdder() harmonytask.AddTaskFunc {
+	return harmonytask.AdderFor(tasknames.HashSpaceDrop)
+}
+
+// QueueDrop queues removal of piece CID v2 pieceCID from open-pieces from
+// inside a harmonytask.TxWithTask body that uses DropAdder, in the
+// transaction that drops its last PDP ref. With id 0 it asks for a task
+// when some node has open-pieces disks and no drop is queued yet. The drop
+// deletes whatever copies the hash map still names; a piece that was never
+// placed is a no-op.
+func QueueDrop(tx *harmonydb.Tx, id harmonytask.TaskID, pieceCID string) error {
+	if id == 0 {
+		var needed bool
+		if err := tx.QueryRow(`SELECT EXISTS (SELECT 1 FROM hash_space_disk)
+			AND NOT EXISTS (SELECT 1 FROM hash_space_delete WHERE piece_cid = $1)`, pieceCID).Scan(&needed); err != nil {
+			return xerrors.Errorf("checking open-pieces delete of %s: %w", pieceCID, err)
+		}
+		if needed {
+			return harmonytask.ErrNeedTask
+		}
+		return nil
+	}
+	_, err := tx.Exec(`INSERT INTO hash_space_delete (piece_cid, task_id) VALUES ($1, $2)
+		ON CONFLICT (piece_cid) DO NOTHING`, pieceCID, id)
+	if err != nil {
+		return xerrors.Errorf("queueing open-pieces delete of %s: %w", pieceCID, err)
+	}
+	return nil
+}
+
+// DropTask removes a piece whose last PDP reference is gone from the range
+// owner and, when a move covers it, from both ends of that move.
 type DropTask struct {
 	db *harmonydb.DB
 	hs *hashspace.Cluster
@@ -31,83 +64,7 @@ type DropTask struct {
 }
 
 func NewDropTask(db *harmonydb.DB, hs *hashspace.Cluster) *DropTask {
-	t := &DropTask{db: db, hs: hs}
-	go t.poll(context.Background())
-	return t
-}
-
-func (t *DropTask) poll(ctx context.Context) {
-	ticker := time.NewTicker(POLL_INTERVAL)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
-		if err := t.schedule(ctx); err != nil {
-			log.Errorw("scheduling open-pieces delete", "error", err)
-		}
-	}
-}
-
-// A parked piece whose piece-park file was moved into open-pieces has its
-// bytes only there. While such a piece still has references the delete
-// waits; once it has none, its row is dropped in the claim so no new
-// reference can attach to bytes that are about to go away.
-// hash_space_delete holds piece CID v2; PDP refs and parked pieces are keyed
-// by the v1 CID plus padded size, derived here.
-func (t *DropTask) schedule(ctx context.Context) error {
-	var cids []string
-	err := t.db.Select(ctx, &cids, `SELECT piece_cid FROM hash_space_delete
-		WHERE task_id IS NULL
-		ORDER BY created_at
-		LIMIT $1`, POLL_BATCH)
-	if err != nil {
-		return xerrors.Errorf("selecting open-pieces deletes: %w", err)
-	}
-	for _, c := range cids {
-		v2, err := cid.Parse(c)
-		if err != nil {
-			log.Warnw("bad piece cid in hash_space_delete", "cid", c, "error", err)
-			continue
-		}
-		v1, rawSize, err := commcid.PieceCidV1FromV2(v2)
-		if err != nil {
-			log.Warnw("hash_space_delete cid is not a piece cid v2", "cid", c, "error", err)
-			continue
-		}
-		v1s := v1.String()
-		padded := int64(padreader.PaddedSize(rawSize).Padded())
-
-		t.TF.Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (bool, error) {
-			n, err := tx.Exec(`UPDATE hash_space_delete SET task_id = $1
-				WHERE piece_cid = $2 AND task_id IS NULL
-				  AND NOT EXISTS (SELECT 1 FROM pdp_piecerefs pr WHERE pr.piece_cid = $3)
-				  AND NOT EXISTS (
-					SELECT 1 FROM parked_pieces pp
-					WHERE pp.piece_cid = $3 AND pp.piece_padded_size = $4 AND pp.ref_count > 0
-					  AND NOT EXISTS (SELECT 1 FROM sector_location l
-						WHERE l.miner_id = 0 AND l.sector_num = pp.id AND l.sector_filetype = 32))`, id, c, v1s, padded)
-			if err != nil {
-				return false, xerrors.Errorf("claiming open-pieces delete: %w", err)
-			}
-			if n == 0 {
-				return false, nil
-			}
-			_, err = tx.Exec(`DELETE FROM parked_pieces pp
-				WHERE pp.piece_cid = $1 AND pp.piece_padded_size = $2
-				  AND pp.cleanup_task_id IS NULL AND pp.complete = TRUE
-				  AND NOT EXISTS (SELECT 1 FROM parked_piece_refs r WHERE r.piece_id = pp.id)
-				  AND NOT EXISTS (SELECT 1 FROM sector_location l
-					WHERE l.miner_id = 0 AND l.sector_num = pp.id AND l.sector_filetype = 32)`, v1s, padded)
-			if err != nil {
-				return false, xerrors.Errorf("dropping emptied parked pieces: %w", err)
-			}
-			return true, nil
-		})
-	}
-	return nil
+	return &DropTask{db: db, hs: hs}
 }
 
 func (t *DropTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (bool, error) {
@@ -115,16 +72,95 @@ func (t *DropTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned
 	if err := t.db.Select(ctx, &cids, `SELECT piece_cid FROM hash_space_delete WHERE task_id = $1`, taskID); err != nil {
 		return false, xerrors.Errorf("reading open-pieces delete: %w", err)
 	}
-	if len(cids) == 0 {
-		return true, nil
-	}
-	if err := t.hs.DeleteCID(ctx, cids[0]); err != nil {
-		return false, err
-	}
-	if _, err := t.db.Exec(ctx, `DELETE FROM hash_space_delete WHERE task_id = $1`, taskID); err != nil {
-		return false, xerrors.Errorf("removing open-pieces delete: %w", err)
+	for _, c := range cids {
+		if err := t.dropOne(ctx, taskID, c); err != nil {
+			return false, err
+		}
 	}
 	return true, nil
+}
+
+// dropOne starts the drop only while no PDP ref exists for the piece; a
+// placement of the same piece waits for a started drop. PDP refs and parked
+// pieces are keyed by the v1 CID plus padded size, derived from the v2 CID.
+func (t *DropTask) dropOne(ctx context.Context, taskID harmonytask.TaskID, pieceCID string) error {
+	v2, err := cid.Parse(pieceCID)
+	if err != nil {
+		return xerrors.Errorf("parsing open-pieces delete cid %s: %w", pieceCID, err)
+	}
+	v1, rawSize, err := commcid.PieceCidV1FromV2(v2)
+	if err != nil {
+		return xerrors.Errorf("open-pieces delete cid %s is not a piece cid v2: %w", pieceCID, err)
+	}
+	v1s := v1.String()
+	padded := int64(padreader.PaddedSize(rawSize).Padded())
+
+	var skip, wait bool
+	_, err = t.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		skip, wait = false, false
+		var started bool
+		if err := tx.QueryRow(`SELECT started FROM hash_space_delete WHERE piece_cid = $1 AND task_id = $2`, pieceCID, taskID).Scan(&started); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				skip = true
+				return false, nil
+			}
+			return false, err
+		}
+		if started {
+			return false, nil
+		}
+		var hasPDPRef bool
+		if err := tx.QueryRow(`SELECT EXISTS (SELECT 1 FROM pdp_piecerefs WHERE piece_cid = $1)`, v1s).Scan(&hasPDPRef); err != nil {
+			return false, err
+		}
+		if hasPDPRef {
+			skip = true
+			_, err := tx.Exec(`DELETE FROM hash_space_delete WHERE piece_cid = $1 AND task_id = $2`, pieceCID, taskID)
+			return err == nil, err
+		}
+		// A parked piece whose piece-park file was moved into open-pieces has
+		// its bytes only there; while such a piece still has references the
+		// drop waits.
+		if err := tx.QueryRow(`SELECT EXISTS (
+				SELECT 1 FROM parked_pieces pp
+				WHERE pp.piece_cid = $1 AND pp.piece_padded_size = $2 AND pp.ref_count > 0
+				  AND NOT EXISTS (SELECT 1 FROM sector_location l
+					WHERE l.miner_id = 0 AND l.sector_num = pp.id AND l.sector_filetype = 32))`, v1s, padded).Scan(&wait); err != nil {
+			return false, err
+		}
+		if wait {
+			return false, nil
+		}
+		// Drop emptied parked rows now so no new reference attaches to bytes
+		// that are about to go away.
+		if _, err := tx.Exec(`DELETE FROM parked_pieces pp
+			WHERE pp.piece_cid = $1 AND pp.piece_padded_size = $2
+			  AND pp.cleanup_task_id IS NULL AND pp.complete = TRUE
+			  AND NOT EXISTS (SELECT 1 FROM parked_piece_refs r WHERE r.piece_id = pp.id)
+			  AND NOT EXISTS (SELECT 1 FROM sector_location l
+				WHERE l.miner_id = 0 AND l.sector_num = pp.id AND l.sector_filetype = 32)`, v1s, padded); err != nil {
+			return false, xerrors.Errorf("dropping emptied parked pieces: %w", err)
+		}
+		_, err := tx.Exec(`UPDATE hash_space_delete SET started = TRUE WHERE piece_cid = $1 AND task_id = $2`, pieceCID, taskID)
+		return err == nil, err
+	}, harmonydb.OptionRetry())
+	if err != nil {
+		return xerrors.Errorf("starting open-pieces delete of %s: %w", pieceCID, err)
+	}
+	if skip {
+		return nil
+	}
+	if wait {
+		return xerrors.Errorf("open-pieces delete of %s waits for parked piece refs that read from open-pieces", pieceCID)
+	}
+
+	if err := t.hs.DeleteCID(ctx, pieceCID); err != nil {
+		return err
+	}
+	if _, err := t.db.Exec(ctx, `DELETE FROM hash_space_delete WHERE piece_cid = $1 AND task_id = $2`, pieceCID, taskID); err != nil {
+		return xerrors.Errorf("removing open-pieces delete: %w", err)
+	}
+	return nil
 }
 
 func (t *DropTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
