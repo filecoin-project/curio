@@ -13,9 +13,18 @@ const (
 	cutSuffix
 )
 
+// span is one original slice of a range. Cuts concatenate and split spans,
+// but never retarget them: origin stays the disk that owned the bytes at start.
+type span struct {
+	end    []byte
+	size   int64
+	origin int
+}
+
 type spaceWorld struct {
 	ranges []Range
 	owner  []int
+	spans  [][]span
 }
 
 type world struct {
@@ -23,7 +32,6 @@ type world struct {
 	spaces []spaceWorld
 	used   []int64
 	frozen []bool
-	diff   []Transfer
 }
 
 func newWorld(state State) (*world, error) {
@@ -45,6 +53,14 @@ func newWorld(state State) (*world, error) {
 		w.mergeSpace(s)
 		for i, r := range w.spaces[s].ranges {
 			w.used[w.spaces[s].owner[i]] += r.Size
+		}
+		w.spaces[s].spans = make([][]span, len(w.spaces[s].ranges))
+		for i, r := range w.spaces[s].ranges {
+			w.spaces[s].spans[i] = []span{{
+				end:    cloneHash(r.EndHash),
+				size:   r.Size,
+				origin: w.spaces[s].owner[i],
+			}}
 		}
 	}
 	return w, nil
@@ -134,6 +150,15 @@ func (w *world) totalCapacity() int64 {
 	return s
 }
 
+func (w *world) ownsRange(disk int) bool {
+	for s := range w.spaces {
+		if w.rangeCount(s, disk) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 func (w *world) rangeCount(space, d int) int {
 	n := 0
 	for _, o := range w.spaces[space].owner {
@@ -204,73 +229,92 @@ func (w *world) canTake(space, idx, kind, dest int, size int64) bool {
 	return w.canAccept(space, dest, size, w.destDelta(space, idx, kind, dest))
 }
 
-func (w *world) applyCut(space, idx, kind, dest int, size int64) {
+func (w *world) applyCut(space, idx, kind, dest int, size int64, split []byte) bool {
 	sp := &w.spaces[space]
 	r := sp.ranges[idx]
 	from := sp.owner[idx]
-	if size <= 0 {
-		return
+	if size <= 0 || from == dest {
+		return false
 	}
 	if size >= r.Size || kind == cutWhole {
 		w.moveWhole(space, idx, dest)
-		return
-	}
-	split, moved := w.cutActual(space, idx, kind, size)
-	if moved <= 0 || moved >= r.Size {
-		return
-	}
-	if w.used[dest]+moved > w.disks[dest] {
-		return
+		return true
 	}
 	start := w.startHash(space, idx)
+	var head, tail []span
+	var moved int64
+	boundary := split
+	if len(split) > 0 {
+		var ok bool
+		if kind == cutPrefix {
+			head, tail, ok = splitSpansAt(sp.spans[idx], start, split, size)
+		} else {
+			head, tail, ok = splitSpansAt(sp.spans[idx], start, split, r.Size-size)
+		}
+		if !ok {
+			return false
+		}
+		moved = size
+	} else {
+		boundary, moved, head, tail = w.previewCut(space, idx, kind, size)
+		if moved <= 0 || moved >= r.Size {
+			return false
+		}
+	}
+	if moved <= 0 || moved >= r.Size || w.used[dest]+moved > w.disks[dest] {
+		return false
+	}
 	if kind == cutPrefix {
-		w.recordTransfer(space, start, split, from, dest, moved)
 		sp.ranges[idx].Size -= moved
+		sp.spans[idx] = tail
 		w.used[from] -= moved
-		w.insert(space, idx, Range{EndHash: split, Size: moved}, dest)
+		w.insert(space, idx, Range{EndHash: cloneHash(boundary), Size: moved}, dest, head)
 	} else {
 		end := cloneHash(r.EndHash)
-		w.recordTransfer(space, split, end, from, dest, moved)
-		sp.ranges[idx].EndHash = split
-		sp.ranges[idx].Size = r.Size - moved
+		sp.ranges[idx].EndHash = cloneHash(boundary)
+		sp.ranges[idx].Size -= moved
+		sp.spans[idx] = head
 		w.used[from] -= moved
-		w.insert(space, idx+1, Range{EndHash: end, Size: moved}, dest)
+		w.insert(space, idx+1, Range{EndHash: end, Size: moved}, dest, tail)
 	}
 	w.mergeSpace(space)
+	return true
 }
 
 func (w *world) cutActual(space, idx, kind int, want int64) ([]byte, int64) {
+	split, moved, _, _ := w.previewCut(space, idx, kind, want)
+	return split, moved
+}
+
+// previewCut splits a range into the bytes that move (head for a prefix,
+// tail for a suffix) without changing the world. Size stays attached to the
+// original span, so a later hop cannot reassign those bytes.
+func (w *world) previewCut(space, idx, kind int, want int64) (split []byte, moved int64, head, tail []span) {
 	sp := &w.spaces[space]
 	r := sp.ranges[idx]
 	start := w.startHash(space, idx)
 	if want <= 0 {
-		return cloneHash(start), 0
+		return cloneHash(start), 0, nil, cloneSpans(sp.spans[idx])
 	}
 	if want >= r.Size || kind == cutWhole {
-		return cloneHash(r.EndHash), r.Size
+		return cloneHash(r.EndHash), r.Size, cloneSpans(sp.spans[idx]), nil
 	}
-	var split []byte
 	if kind == cutPrefix {
-		split = splitHash(r, start, want)
-		moved := SliceSize(r, start, split)
-		if moved == 0 {
-			split = splitHashMin(r, start, 1)
-			moved = SliceSize(r, start, split)
+		head, tail, moved = splitSpanPrefix(sp.spans[idx], start, want)
+		if moved <= 0 || moved >= r.Size || len(head) == 0 {
+			return cloneHash(start), 0, nil, nil
 		}
-		return split, moved
+		return cloneHash(head[len(head)-1].end), moved, head, tail
 	}
-	split = splitHash(r, start, r.Size-want)
-	kept := SliceSize(r, start, split)
-	moved := r.Size - kept
-	if moved == 0 {
-		split = splitHash(r, start, r.Size-1)
-		if bytes.Equal(split, start) {
-			split = splitHashMin(r, start, 1)
-		}
-		kept = SliceSize(r, start, split)
-		moved = r.Size - kept
+	head, tail, kept := splitSpanPrefix(sp.spans[idx], start, r.Size-want)
+	moved = r.Size - kept
+	if moved <= 0 || moved >= r.Size || len(tail) == 0 {
+		return cloneHash(start), 0, nil, nil
 	}
-	return split, moved
+	if len(head) == 0 {
+		return cloneHash(start), moved, head, tail
+	}
+	return cloneHash(head[len(head)-1].end), moved, head, tail
 }
 
 func (w *world) moveWhole(space, idx, dest int) {
@@ -280,27 +324,39 @@ func (w *world) moveWhole(space, idx, dest int) {
 		return
 	}
 	sz := sp.ranges[idx].Size
-	start := w.startHash(space, idx)
-	end := cloneHash(sp.ranges[idx].EndHash)
-	w.recordTransfer(space, start, end, from, dest, sz)
 	sp.owner[idx] = dest
 	w.used[from] -= sz
 	w.used[dest] += sz
 	w.mergeSpace(space)
 }
 
-func (w *world) recordTransfer(space int, start, end []byte, from, to int, size int64) {
-	if size <= 0 || from == to {
-		return
+// placedTransfers is the net of the solve: each original span that changed
+// disks becomes one source-to-destination move. Spans that ended where they
+// started are omitted.
+func (w *world) placedTransfers() []Transfer {
+	var out []Transfer
+	for s, sp := range w.spaces {
+		for i := range sp.ranges {
+			if len(sp.spans[i]) == 0 {
+				continue
+			}
+			prev := w.startHash(s, i)
+			for _, spn := range sp.spans[i] {
+				if spn.size >= 0 && spn.origin != sp.owner[i] {
+					out = append(out, Transfer{
+						Space:     s,
+						StartHash: cloneHash(prev),
+						EndHash:   cloneHash(spn.end),
+						From:      spn.origin,
+						To:        sp.owner[i],
+						Size:      spn.size,
+					})
+				}
+				prev = spn.end
+			}
+		}
 	}
-	w.diff = append(w.diff, Transfer{
-		Space:     space,
-		StartHash: cloneHash(start),
-		EndHash:   cloneHash(end),
-		From:      from,
-		To:        to,
-		Size:      size,
-	})
+	return out
 }
 
 func (w *world) find(space int, end []byte) int {
@@ -312,10 +368,13 @@ func (w *world) find(space int, end []byte) int {
 	return -1
 }
 
-func (w *world) insert(space, i int, r Range, dest int) {
+func (w *world) insert(space, i int, r Range, dest int, spans []span) {
 	sp := &w.spaces[space]
 	sp.ranges = slices.Insert(sp.ranges, i, r)
 	sp.owner = slices.Insert(sp.owner, i, dest)
+	if sp.spans != nil {
+		sp.spans = slices.Insert(sp.spans, i, spans)
+	}
 	w.used[dest] += r.Size
 }
 
@@ -352,6 +411,10 @@ func (w *world) mergeSpace(space int) {
 				continue
 			}
 			sp.ranges[j].Size += sp.ranges[i].Size
+			if len(sp.spans) == n {
+				sp.spans[j] = append(cloneSpans(sp.spans[i]), cloneSpans(sp.spans[j])...)
+				sp.spans = append(sp.spans[:i], sp.spans[i+1:]...)
+			}
 			sp.ranges = append(sp.ranges[:i], sp.ranges[i+1:]...)
 			sp.owner = append(sp.owner[:i], sp.owner[i+1:]...)
 			merged = true
@@ -416,4 +479,106 @@ func checkStructure(state State) error {
 		}
 	}
 	return nil
+}
+
+func splitSpanPrefix(spans []span, rangeStart []byte, want int64) (head, tail []span, headSize int64) {
+	if want <= 0 {
+		return nil, cloneSpans(spans), 0
+	}
+	var acc int64
+	for i, s := range spans {
+		start := rangeStart
+		if i > 0 {
+			start = spans[i-1].end
+		}
+		if acc >= want {
+			tail = append(tail, cloneSpan(s))
+			continue
+		}
+		need := want - acc
+		if s.size <= need {
+			head = append(head, cloneSpan(s))
+			acc += s.size
+			continue
+		}
+		left, right, ok := cutOneSpan(s, start, need)
+		if !ok {
+			tail = append(tail, cloneSpans(spans[i:])...)
+			return head, tail, acc
+		}
+		head = append(head, left)
+		tail = append(tail, right)
+		tail = append(tail, cloneSpans(spans[i+1:])...)
+		return head, tail, acc + left.size
+	}
+	return head, nil, acc
+}
+
+func cutOneSpan(s span, start []byte, want int64) (left, right span, ok bool) {
+	if want <= 0 || want >= s.size {
+		return span{}, span{}, false
+	}
+	r := Range{EndHash: s.end, Size: s.size}
+	split := splitHash(r, start, want)
+	moved := SliceSize(r, start, split)
+	if moved <= 0 || moved >= s.size {
+		split = splitHashMin(r, start, 1)
+		moved = SliceSize(r, start, split)
+	}
+	if moved <= 0 || moved >= s.size || hashEq(split, start) || hashEq(split, s.end) {
+		return span{}, span{}, false
+	}
+	left = span{end: split, size: moved, origin: s.origin}
+	right = span{end: cloneHash(s.end), size: s.size - moved, origin: s.origin}
+	return left, right, true
+}
+
+// splitSpansAt divides spans so the prefix has size leftSize and ends at `at`.
+func splitSpansAt(spans []span, rangeStart, at []byte, leftSize int64) (head, tail []span, ok bool) {
+	if leftSize <= 0 {
+		return nil, cloneSpans(spans), hashEq(at, rangeStart)
+	}
+	var acc int64
+	for i, s := range spans {
+		start := rangeStart
+		if i > 0 {
+			start = spans[i-1].end
+		}
+		if acc+s.size < leftSize {
+			head = append(head, cloneSpan(s))
+			acc += s.size
+			continue
+		}
+		if acc+s.size == leftSize {
+			if !hashEq(s.end, at) {
+				return nil, nil, false
+			}
+			head = append(head, cloneSpan(s))
+			return head, cloneSpans(spans[i+1:]), true
+		}
+		taken := leftSize - acc
+		if taken <= 0 || taken >= s.size || hashEq(at, start) || hashEq(at, s.end) {
+			return nil, nil, false
+		}
+		head = append(head, span{end: cloneHash(at), size: taken, origin: s.origin})
+		tail = append(tail, span{end: cloneHash(s.end), size: s.size - taken, origin: s.origin})
+		tail = append(tail, cloneSpans(spans[i+1:])...)
+		return head, tail, true
+	}
+	return nil, nil, false
+}
+
+func cloneSpan(s span) span {
+	return span{end: cloneHash(s.end), size: s.size, origin: s.origin}
+}
+
+func cloneSpans(in []span) []span {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]span, len(in))
+	for i, s := range in {
+		out[i] = cloneSpan(s)
+	}
+	return out
 }
