@@ -12,7 +12,12 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/lib/hashspacesolver"
+	"github.com/filecoin-project/curio/lib/storiface"
 )
+
+// errNoPieceDrive is returned when every drive denies piece park, so there
+// is nothing to seed a hash space onto.
+var errNoPieceDrive = xerrors.New("no drive accepts piece park")
 
 // FirstSetup writes layout.json for both spaces on every drive.
 //
@@ -50,7 +55,14 @@ func FirstSetup(drives []Drive) (hashspacesolver.State, error) {
 	}
 	switch {
 	case nNeither == len(drives):
-		st, err := seedState(caps)
+		seedCaps, err := pieceCaps(drives, caps)
+		if err != nil {
+			return hashspacesolver.State{}, err
+		}
+		if !anyPositive(seedCaps) {
+			return hashspacesolver.State{}, errNoPieceDrive
+		}
+		st, err := seedState(caps, seedCaps)
 		if err != nil {
 			return hashspacesolver.State{}, err
 		}
@@ -103,6 +115,48 @@ func readMaxStorage(root string) (uint64, error) {
 	return meta.MaxStorage, nil
 }
 
+// deniesPiecePark reports whether sectorstore.json refuses piece-park files.
+// A missing file accepts them.
+func deniesPiecePark(root string) (bool, error) {
+	b, err := os.ReadFile(filepath.Join(root, sectorStoreFile))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, xerrors.Errorf("reading sectorstore.json in %s: %w", root, err)
+	}
+	var meta storiface.LocalStorageMeta
+	if err := json.Unmarshal(b, &meta); err != nil {
+		return false, xerrors.Errorf("decoding sectorstore.json in %s: %w", root, err)
+	}
+	return !storiface.FTPiece.Allowed(meta.AllowTypes, meta.DenyTypes), nil
+}
+
+// pieceCaps is caps with drives that deny piece park zeroed, so seeding and
+// arrival skip them.
+func pieceCaps(drives []Drive, caps []int64) ([]int64, error) {
+	out := append([]int64(nil), caps...)
+	for i, d := range drives {
+		deny, err := deniesPiecePark(d.Root)
+		if err != nil {
+			return nil, err
+		}
+		if deny {
+			out[i] = 0
+		}
+	}
+	return out, nil
+}
+
+func anyPositive(caps []int64) bool {
+	for _, c := range caps {
+		if c > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 func layoutPresence(root string) (hasBoth, hasNeither bool, err error) {
 	openOK, err := fileExists(filepath.Join(root, DIR_OPEN, layoutFile))
 	if err != nil {
@@ -132,12 +186,12 @@ func fileExists(path string) (bool, error) {
 	return false, err
 }
 
-func seedState(caps []int64) (hashspacesolver.State, error) {
-	open, err := seedSpace(caps)
+func seedState(caps, seedCaps []int64) (hashspacesolver.State, error) {
+	open, err := seedSpace(seedCaps)
 	if err != nil {
 		return hashspacesolver.State{}, err
 	}
-	acl, err := seedSpace(caps)
+	acl, err := seedSpace(seedCaps)
 	if err != nil {
 		return hashspacesolver.State{}, err
 	}
@@ -249,6 +303,13 @@ func arriveNew(drives []Drive, caps []int64, hasLayout []bool) (hashspacesolver.
 	}
 	for i, ok := range hasLayout {
 		if ok {
+			continue
+		}
+		deny, err := deniesPiecePark(drives[i].Root)
+		if err != nil {
+			return hashspacesolver.State{}, err
+		}
+		if deny {
 			continue
 		}
 		res, err := hashspacesolver.Solve(st, hashspacesolver.Event{

@@ -107,7 +107,11 @@ func SumFileSizesInterval(directory, low, high string, queueDepth uint32) (Resul
 	if err != nil {
 		return Result{}, err
 	}
-	return addResult(hi, lo)
+	return Result{
+		Bytes:    hi.Bytes + lo.Bytes,
+		Files:    hi.Files + lo.Files,
+		Vanished: hi.Vanished + lo.Vanished,
+	}, nil
 }
 
 // ListHashesInterval returns up to limit regular-file hashes in (low, high],
@@ -205,9 +209,6 @@ func prefixAtOrBefore(prefix, after string) bool {
 }
 
 func addResult(a, b Result) (Result, error) {
-	if a.Bytes > ^uint64(0)-b.Bytes || a.Files > ^uint64(0)-b.Files || a.Vanished > ^uint64(0)-b.Vanished {
-		return Result{}, fmt.Errorf("sum overflow")
-	}
 	return Result{
 		Bytes:    a.Bytes + b.Bytes,
 		Files:    a.Files + b.Files,

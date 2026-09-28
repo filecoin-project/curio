@@ -62,6 +62,65 @@ func TestFlushPersistsUsed(t *testing.T) {
 	require.False(t, layout.CommittedAt.IsZero())
 }
 
+func TestFirstSetupSkipsPieceDenied(t *testing.T) {
+	a := t.TempDir()
+	b := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(a, sectorStoreFile), []byte(`{"MaxStorage":4000}`), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(b, sectorStoreFile), []byte(`{"MaxStorage":12000,"DenyTypes":["piece"]}`), 0o644))
+
+	st, err := FirstSetup([]Drive{{Root: a}, {Root: b}})
+	require.NoError(t, err)
+	require.Equal(t, []int64{4000, 12000}, st.Disks)
+	for _, sp := range st.Spaces {
+		require.Len(t, sp.Ranges, 1)
+		require.Equal(t, 0, sp.Owner[0])
+	}
+	for _, kind := range []string{DIR_OPEN, DIR_ACL} {
+		layout, err := readLayout(filepath.Join(b, kind, layoutFile))
+		require.NoError(t, err)
+		require.Empty(t, layout.Ranges)
+	}
+}
+
+func TestFirstSetupArriveSkipsPieceDenied(t *testing.T) {
+	first := t.TempDir()
+	_, err := FirstSetup([]Drive{{Root: first, Capacity: 100}})
+	require.NoError(t, err)
+	second := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(second, sectorStoreFile), []byte(`{"DenyTypes":["piece"]}`), 0o644))
+	st, err := FirstSetup([]Drive{
+		{Root: first, Capacity: 100},
+		{Root: second, Capacity: 100},
+	})
+	require.NoError(t, err)
+	require.Equal(t, []int64{100, 100}, st.Disks)
+	for _, sp := range st.Spaces {
+		require.Len(t, sp.Ranges, 1)
+		require.Equal(t, 0, sp.Owner[0])
+	}
+}
+
+func TestReturnFileOnRestoresSource(t *testing.T) {
+	root, sp := loadOne(t, 1<<30)
+	c := mustPiece(t, 0x41)
+	body := []byte("adopt-me")
+	park := filepath.Join(root, "park")
+	require.NoError(t, os.WriteFile(park, body, 0o644))
+	n, err := sp.AdoptFileOn(root, c, park)
+	require.NoError(t, err)
+	require.Equal(t, int64(len(body)), n)
+	_, err = os.Stat(park)
+	require.ErrorIs(t, err, os.ErrNotExist)
+
+	require.NoError(t, sp.ReturnFileOn(root, c, park))
+	got, err := os.ReadFile(park)
+	require.NoError(t, err)
+	require.Equal(t, body, got)
+	require.Zero(t, sp.Used())
+	_, err = sp.ReadCIDFileFrom(c)
+	require.ErrorIs(t, err, os.ErrNotExist)
+}
+
 func TestWriteCIDExistingNoCounterChange(t *testing.T) {
 	_, sp := loadOne(t, 1<<30)
 	c := mustPiece(t, 0x21)
@@ -226,8 +285,8 @@ func TestSplitTwoDashMatchesFS2AndRange(t *testing.T) {
 
 	res, err := fs2.SumFileSizesRange(dir, "abcdefe", "abcdefg", 0)
 	require.NoError(t, err)
-	require.Equal(t, uint64(42), res.Bytes)
-	require.Equal(t, uint64(1), res.Files)
+	require.Equal(t, int64(42), res.Bytes)
+	require.Equal(t, int64(1), res.Files)
 	require.True(t, hashspacesolver.Contains([]byte("abcdefe"), []byte("abcdefg"), []byte("abcdefg")))
 	require.False(t, hashspacesolver.Contains([]byte("abcdefg"), []byte("abcdefh"), []byte("abcdefg")))
 
@@ -238,7 +297,7 @@ func TestSplitTwoDashMatchesFS2AndRange(t *testing.T) {
 	low := hexHash[:len(hexHash)-1]
 	res, err = fs2.SumFileSizesRange(dir, low, hexHash, 0)
 	require.NoError(t, err)
-	require.Equal(t, uint64(5), res.Bytes)
+	require.Equal(t, int64(5), res.Bytes)
 	res, err = fs2.SumFileSizesRange(dir, hexHash, hexHash+"0", 0)
 	require.NoError(t, err)
 	require.Zero(t, res.Bytes)

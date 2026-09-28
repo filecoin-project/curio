@@ -3,6 +3,7 @@ package openpieces
 import (
 	"context"
 	"slices"
+	"time"
 
 	"golang.org/x/xerrors"
 
@@ -162,6 +163,7 @@ func (t *MoveTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Ram: 64 << 20,
 		},
 		MaxFailures: 100,
+		RetryWait:   taskhelp.RetryWaitExp(5*time.Second, 2),
 	}
 }
 

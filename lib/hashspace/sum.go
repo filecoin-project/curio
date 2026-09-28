@@ -1,7 +1,6 @@
 package hashspace
 
 import (
-	"math"
 	"os"
 	"path/filepath"
 
@@ -50,17 +49,16 @@ func sumInterval(dir, start, end string) (int64, error) {
 			if info.Size() < 0 {
 				return 0, xerrors.Errorf("negative layout size in %s", dir)
 			}
-			sz := uint64(info.Size())
-			if n < sz {
+			if n < info.Size() {
 				return 0, xerrors.Errorf("range sum does not cover layout.json in %s", dir)
 			}
-			n -= sz
+			n -= info.Size()
 		}
 	}
-	if n > uint64(math.MaxInt64) {
+	if n < 0 {
 		return 0, xerrors.Errorf("range sum overflows")
 	}
-	return int64(n), nil
+	return n, nil
 }
 
 func stringHashInInterval(hash, low, high string) bool {

@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"errors"
 	"os"
+	"time"
 
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
@@ -28,7 +29,13 @@ import (
 
 var log = logging.Logger("openpieces")
 
-const PLACE_MAX = 8
+const (
+	PLACE_MAX = 8
+
+	// waitInterval is how long place and drop pause while the other still
+	// owns the piece. Returning an error would spend MaxFailures.
+	waitInterval = 5 * time.Second
+)
 
 // PlaceAdder is the AddTaskFunc to pass to harmonytask.TxWithTask with
 // QueuePlace.
@@ -96,14 +103,14 @@ func (t *PlaceTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwne
 		if !stillOwned() {
 			return false, xerrors.Errorf("lost ownership of open-pieces placement task %d", taskID)
 		}
-		if err := t.placeOne(ctx, taskID, r); err != nil {
+		if err := t.placeOne(ctx, taskID, r, stillOwned); err != nil {
 			return false, err
 		}
 	}
 	return true, nil
 }
 
-func (t *PlaceTask) placeOne(ctx context.Context, taskID harmonytask.TaskID, row placeRow) error {
+func (t *PlaceTask) placeOne(ctx context.Context, taskID harmonytask.TaskID, row placeRow, stillOwned func() bool) error {
 	ref := row.PdpRef
 	var parked []parkedPiece
 	if err := t.db.Select(ctx, &parked, `SELECT pp.id, pp.piece_raw_size, pp.ref_count
@@ -120,16 +127,6 @@ func (t *PlaceTask) placeOne(ctx context.Context, taskID harmonytask.TaskID, row
 	pc, err := pieceCidV2(row.PdpPieceCID, pp.RawSize)
 	if err != nil {
 		return err
-	}
-
-	// A drop queued before this PDP ref existed skips itself once it sees
-	// the ref; one that already started removes the files first, so wait.
-	var dropStarted bool
-	if err := t.db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM hash_space_delete WHERE piece_cid = $1 AND started)`, pc.String()).Scan(&dropStarted); err != nil {
-		return xerrors.Errorf("checking open-pieces delete: %w", err)
-	}
-	if dropStarted {
-		return xerrors.Errorf("open-pieces delete of %s is running; placing after it", pc)
 	}
 
 	placed, err := t.hs.HasFile(ctx, pc)
@@ -149,35 +146,41 @@ func (t *PlaceTask) placeOne(ctx context.Context, taskID harmonytask.TaskID, row
 		if !t.hs.HasLocal(target) {
 			return t.handoff(ctx, taskID, ref)
 		}
-		_, existed, err := t.hs.StatLocal(target, pc)
-		if err != nil {
-			return err
-		}
-		if _, err := t.write(ctx, target, pc, pp); err != nil {
-			return err
-		}
-		var refOK, dropStarted bool
-		if err := t.db.QueryRow(ctx, `SELECT
-				EXISTS (SELECT 1 FROM pdp_piecerefs WHERE id = $1),
-				EXISTS (SELECT 1 FROM hash_space_delete WHERE piece_cid = $2 AND started)`,
-			ref, pc.String()).Scan(&refOK, &dropStarted); err != nil {
-			return xerrors.Errorf("checking placement of %s: %w", pc, err)
-		}
-		if !refOK {
-			if !existed {
-				if err := t.hs.DropLocal(target, pc); err != nil {
-					log.Warnw("dropping unreferenced open piece", "piece", pc, "storage", target, "error", err)
-				}
+		// A started drop deletes whatever open-pieces file it finds. Wait
+		// until that row is gone before moving the piece-park bytes, and if
+		// a drop wins the race after an adopt, put those bytes back.
+		for {
+			if err := t.waitNoDelete(ctx, pc, stillOwned); err != nil {
+				return err
 			}
-			return t.finish(ctx, ref)
-		}
-		if dropStarted {
-			if !existed {
-				if err := t.hs.DropLocal(target, pc); err != nil {
-					log.Warnw("dropping open piece queued for delete", "piece", pc, "storage", target, "error", err)
-				}
+			_, existed, err := t.hs.StatLocal(target, pc)
+			if err != nil {
+				return err
 			}
-			return xerrors.Errorf("open-pieces delete of %s started during placement", pc)
+			size, adopted, err := t.write(ctx, target, pc, pp)
+			if err != nil {
+				return err
+			}
+			if size != pp.RawSize {
+				t.undoPlacement(target, pc, existed, adopted)
+				return xerrors.Errorf("open piece %s is %d bytes, expected %d", pc, size, pp.RawSize)
+			}
+			var refOK, dropBusy bool
+			if err := t.db.QueryRow(ctx, `SELECT
+					EXISTS (SELECT 1 FROM pdp_piecerefs WHERE id = $1),
+					EXISTS (SELECT 1 FROM hash_space_delete WHERE piece_cid = $2)`,
+				ref, pc.String()).Scan(&refOK, &dropBusy); err != nil {
+				return xerrors.Errorf("checking placement of %s: %w", pc, err)
+			}
+			if !refOK {
+				t.undoPlacement(target, pc, existed, adopted)
+				return t.finish(ctx, ref)
+			}
+			if dropBusy {
+				t.undoPlacement(target, pc, existed, adopted)
+				continue
+			}
+			break
 		}
 		placed, err = t.hs.HasFile(ctx, pc)
 		if err != nil {
@@ -232,15 +235,14 @@ func (t *PlaceTask) handoff(ctx context.Context, from harmonytask.TaskID, ref in
 }
 
 // write puts pc on target. A sole-reference piece-park file on the same
-// filesystem is renamed; otherwise the bytes are copied.
-func (t *PlaceTask) write(ctx context.Context, target string, pc cid.Cid, pp parkedPiece) (int64, error) {
+// filesystem is renamed; otherwise the bytes are copied. The second result
+// is the piece-park path when the file was renamed, so a lost race can put
+// it back.
+func (t *PlaceTask) write(ctx context.Context, target string, pc cid.Cid, pp parkedPiece) (int64, string, error) {
 	if size, ok, err := t.hs.StatLocal(target, pc); err != nil {
-		return 0, err
+		return 0, "", err
 	} else if ok {
-		if size != pp.RawSize {
-			return 0, xerrors.Errorf("existing open piece %s is %d bytes, expected %d", pc, size, pp.RawSize)
-		}
-		return size, nil
+		return size, "", nil
 	}
 
 	if pp.RefCount == 1 {
@@ -248,30 +250,77 @@ func (t *PlaceTask) write(ctx context.Context, target string, pc cid.Cid, pp par
 			size, err := t.hs.AdoptLocal(target, pc, src)
 			switch {
 			case err == nil:
-				return size, nil
+				return size, src, nil
 			case errors.Is(err, os.ErrExist):
 				size, _, err := t.hs.StatLocal(target, pc)
-				return size, err
+				return size, "", err
 			case !errors.Is(err, hashspace.ErrCrossDevice):
-				return 0, xerrors.Errorf("renaming %s into open-pieces: %w", pc, err)
+				return 0, "", xerrors.Errorf("renaming %s into open-pieces: %w", pc, err)
 			}
 		}
 	}
 
 	r, err := t.pieceIO.PieceReader(ctx, storiface.PieceNumber(pp.ID))
 	if err != nil {
-		return 0, xerrors.Errorf("opening piece-park copy of %s: %w", pc, err)
+		return 0, "", xerrors.Errorf("opening piece-park copy of %s: %w", pc, err)
 	}
 	defer func() { _ = r.Close() }()
 	size, err := t.hs.WriteLocal(target, pc, r)
 	if err != nil {
-		return 0, err
+		return 0, "", err
 	}
-	if size != pp.RawSize {
-		_ = t.hs.DropLocal(target, pc)
-		return 0, xerrors.Errorf("open piece %s is %d bytes, expected %d", pc, size, pp.RawSize)
+	return size, "", nil
+}
+
+// undoPlacement removes a file this attempt created. An adopted file goes
+// back to its piece-park path; a copy is deleted. A file that was already
+// there is left alone.
+func (t *PlaceTask) undoPlacement(target string, pc cid.Cid, existed bool, adopted string) {
+	if existed {
+		return
 	}
-	return size, nil
+	if adopted != "" {
+		if err := t.hs.ReturnLocal(target, pc, adopted); err != nil {
+			log.Errorw("returning open piece to piece-park", "piece", pc, "path", adopted, "error", err)
+		}
+		return
+	}
+	if err := t.hs.DropLocal(target, pc); err != nil {
+		log.Warnw("dropping open piece after placement rolled back", "piece", pc, "storage", target, "error", err)
+	}
+}
+
+// waitNoDelete blocks until no hash_space_delete row exists for pc.
+func (t *PlaceTask) waitNoDelete(ctx context.Context, pc cid.Cid, stillOwned func() bool) error {
+	for {
+		var busy bool
+		if err := t.db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM hash_space_delete WHERE piece_cid = $1)`, pc.String()).Scan(&busy); err != nil {
+			return xerrors.Errorf("checking open-pieces delete of %s: %w", pc, err)
+		}
+		if !busy {
+			return nil
+		}
+		if err := sleepTask(ctx, stillOwned); err != nil {
+			return err
+		}
+	}
+}
+
+func sleepTask(ctx context.Context, stillOwned func() bool) error {
+	if stillOwned != nil && !stillOwned() {
+		return xerrors.Errorf("lost ownership while waiting")
+	}
+	timer := time.NewTimer(waitInterval)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+	}
+	if stillOwned != nil && !stillOwned() {
+		return xerrors.Errorf("lost ownership while waiting")
+	}
+	return nil
 }
 
 func (t *PlaceTask) hasNonPDPRefs(ctx context.Context, parkedID int64) (bool, error) {
@@ -416,6 +465,7 @@ func (t *PlaceTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Ram: 64 << 20,
 		},
 		MaxFailures: 10,
+		RetryWait:   taskhelp.RetryWaitExp(5*time.Second, 2),
 	}
 }
 

@@ -9,13 +9,14 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/hashspace"
 	"github.com/filecoin-project/curio/lib/paths"
-	"github.com/filecoin-project/curio/lib/storiface"
 )
 
-// NewHashSpace joins this node's piece-capable long-term storage paths into
-// the cluster open-pieces hash space. Nodes without such paths still get a
-// cluster handle so they can read and delete pieces held elsewhere.
-// Returns nil on a read-only database.
+// NewHashSpace joins this node's long-term storage paths into the cluster
+// hash spaces. A path that denies piece park is still joined: first setup
+// and new disks are not given ranges there, and any pieces already on it
+// are vacated. Nodes with no long-term paths still get a cluster handle so
+// they can read and delete pieces held elsewhere. Returns nil on a
+// read-only database.
 func NewHashSpace(ctx context.Context, db *harmonydb.DB, local *paths.Local, si paths.SectorIndex, auth http.Header) (*hashspace.Cluster, error) {
 	if db.ReadOnly() {
 		return nil, nil
@@ -29,12 +30,8 @@ func NewHashSpace(ctx context.Context, db *harmonydb.DB, local *paths.Local, si 
 		if !sp.CanStore {
 			continue
 		}
-		info, err := si.StorageInfo(ctx, sp.ID)
-		if err != nil {
+		if _, err := si.StorageInfo(ctx, sp.ID); err != nil {
 			return nil, xerrors.Errorf("storage info %s: %w", sp.ID, err)
-		}
-		if !storiface.FTPiece.Allowed(info.AllowTypes, info.DenyTypes) {
-			continue
 		}
 		drives = append(drives, hashspace.LocalDrive{StorageID: string(sp.ID), Root: sp.LocalPath})
 	}

@@ -8,8 +8,9 @@ import (
 	"strings"
 )
 
-// ServeHTTP serves /hashspace/{storage id}/{hash} for clustermates:
-// GET reads the open-pieces file (Range supported), DELETE removes it.
+// ServeHTTP serves /hashspace/{storage id}/{hash} for clustermates.
+// GET reads the piece file (Range supported), DELETE removes it.
+// Query space selects open-pieces or acl-pieces; it defaults to open-pieces.
 // POST /hashspace/notify reloads the local map after another node changed it.
 // Callers must authenticate the request before it reaches this handler.
 func (c *Cluster) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -52,6 +53,16 @@ func (c *Cluster) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad piece hash", http.StatusBadRequest)
 		return
 	}
+	kind, err := parseSpaceKind(r.URL.Query().Get("space"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	sp := c.space(kind)
+	if sp == nil {
+		http.NotFound(w, r)
+		return
+	}
 	root, err := c.rootOf(storageID)
 	if err != nil {
 		http.NotFound(w, r)
@@ -60,7 +71,7 @@ func (c *Cluster) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet, http.MethodHead:
-		f, err := c.open.openHashOn(root, hexHash)
+		f, err := sp.openHashOn(root, hexHash)
 		if err != nil {
 			if os.IsNotExist(err) {
 				http.NotFound(w, r)
@@ -78,7 +89,7 @@ func (c *Cluster) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/octet-stream")
 		http.ServeContent(w, r, "", info.ModTime(), f)
 	case http.MethodDelete:
-		if err := c.open.deleteHashOn(root, hexHash); err != nil && !os.IsNotExist(err) {
+		if err := sp.deleteHashOn(root, hexHash); err != nil && !os.IsNotExist(err) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -111,6 +122,11 @@ func (c *Cluster) serveList(w http.ResponseWriter, r *http.Request, storageID st
 		http.NotFound(w, r)
 		return
 	}
+	kind, err := parseSpaceKind(q.Get("space"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	low, high, after := q.Get("low"), q.Get("high"), q.Get("after")
 	for _, b := range []string{low, high, after} {
 		if b == "" {
@@ -121,7 +137,7 @@ func (c *Cluster) serveList(w http.ResponseWriter, r *http.Request, storageID st
 			return
 		}
 	}
-	hashes, err := c.listPieceHashes(r.Context(), storageID, low, high, after, limit)
+	hashes, err := c.listPieceHashes(r.Context(), storageID, kind, low, high, after, limit)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return

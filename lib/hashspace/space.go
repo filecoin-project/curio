@@ -379,6 +379,44 @@ func (s *Space) AdoptFileOn(root string, c cid.Cid, src string) (int64, error) {
 	return info.Size(), nil
 }
 
+// ReturnFileOn moves the CID file on root back to dest and subtracts its size
+// from the counter. dest must not already exist. The source file is left in
+// place when the rename fails.
+func (s *Space) ReturnFileOn(root string, c cid.Cid, dest string) error {
+	hexHash, _, err := cidHashHex(c)
+	if err != nil {
+		return err
+	}
+	d, err := s.diskOn(root)
+	if err != nil {
+		return err
+	}
+	final, err := piecePath(d.root, s.kind, hexHash)
+	if err != nil {
+		return err
+	}
+	info, err := os.Stat(final)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return xerrors.Errorf("%s is not a regular file", final)
+	}
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := renameNoReplace(final, dest); err != nil {
+		if isCrossDevice(err) {
+			return ErrCrossDevice
+		}
+		return err
+	}
+	d.tracker.Sub(info.Size())
+	return nil
+}
+
 // DeleteCIDOn removes the CID file from root only. A missing file returns
 // os.ErrNotExist and does not change the counter.
 func (s *Space) DeleteCIDOn(root string, c cid.Cid) error {
