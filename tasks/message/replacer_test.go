@@ -760,7 +760,139 @@ func TestEthMessageReplacerDeletesInvalidSignedClaim(t *testing.T) {
 	require.Equal(t, 0, ethReplacementRowCount(t, h.db, h.ctx))
 }
 
-func TestEthMessageReplacerDeletesStaleRowsWhenAccountNonceAdvanced(t *testing.T) {
+func TestEthMessageReplacerTracksReplacementUntilWaitConfirmed(t *testing.T) {
+	for _, tc := range []struct {
+		name              string
+		waitBeforeCleanup bool
+	}{
+		{name: "pending wait", waitBeforeCleanup: true},
+		{name: "wait inserted after cleanup", waitBeforeCleanup: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newEthReplaceHarness(t)
+			privateKey, err := gethcrypto.GenerateKey()
+			require.NoError(t, err)
+			from := gethcrypto.PubkeyToAddress(privateKey.PublicKey)
+			to := common.HexToAddress("0x1000000000000000000000000000000000000008")
+			nonce := uint64(18)
+			h.client.nonce = nonce + 1
+			h.insertKey(t, from, gethcrypto.FromECDSA(privateKey))
+
+			original, originalData := signedDynamicTx(t, privateKey, to, nonce, 100, 10)
+			first, firstData := signedDynamicTx(t, privateKey, to, nonce, 300, 30)
+			latest, latestData := signedDynamicTx(t, privateKey, to, nonce, 600, 60)
+			h.insertEthMessageSend(t, from, to, original, originalData, h.oldSendTime())
+			h.insertSuccessfulReplacement(t, from, nonce, original.Hash().Hex(), original.Hash().Hex(), first.Hash().Hex(), firstData, h.oldSendTime())
+			h.insertSuccessfulReplacement(t, from, nonce, original.Hash().Hex(), first.Hash().Hex(), latest.Hash().Hex(), latestData, h.oldSendTime())
+
+			insertWait := func() {
+				_, err := h.db.Exec(h.ctx, `
+					INSERT INTO message_waits_eth (signed_tx_hash, tx_status)
+					VALUES ($1, 'pending')`, original.Hash().Hex())
+				require.NoError(t, err)
+			}
+			if tc.waitBeforeCleanup {
+				insertWait()
+			}
+
+			h.run(t)
+
+			require.Equal(t, 2, ethReplacementRowCount(t, h.db, h.ctx))
+			require.Empty(t, h.client.sentTxs)
+			if !tc.waitBeforeCleanup {
+				insertWait()
+			}
+
+			var machineID int64
+			err = h.db.QueryRow(h.ctx, `
+				INSERT INTO harmony_machines (host_and_port, cpu, ram, gpu)
+				VALUES ('eth-replacement-watch-test', 1, 1, 0)
+				RETURNING id`).Scan(&machineID)
+			require.NoError(t, err)
+
+			client := &mockEthClient{
+				receipts: map[common.Hash]*gethtypes.Receipt{
+					latest.Hash(): {
+						TxHash:      latest.Hash(),
+						BlockNumber: mathbig.NewInt(100),
+						Status:      gethtypes.ReceiptStatusSuccessful,
+					},
+				},
+				transactions: map[common.Hash]*gethtypes.Transaction{latest.Hash(): latest},
+			}
+			watcher := &MessageWatcherEth{
+				txMgr:          NewHarmonyEthTxManager(h.db),
+				ht:             &mockTaskEngine{machineID: machineID},
+				api:            client,
+				ethCallTimeout: time.Second,
+			}
+			watcher.bestBlockNumber.Store(mathbig.NewInt(100))
+			watcher.update()
+
+			var status string
+			var confirmedHash sql.NullString
+			err = h.db.QueryRow(h.ctx, `
+				SELECT tx_status, confirmed_tx_hash
+				FROM message_waits_eth
+				WHERE signed_tx_hash = $1`, original.Hash().Hex()).Scan(&status, &confirmedHash)
+			require.NoError(t, err)
+			require.Equal(t, "pending", status)
+			require.False(t, confirmedHash.Valid)
+			require.Equal(t, 1, client.receiptCalls)
+			require.Zero(t, client.txCalls)
+
+			h.run(t)
+			require.Equal(t, 2, ethReplacementRowCount(t, h.db, h.ctx))
+
+			watcher.bestBlockNumber.Store(mathbig.NewInt(100 + MinEthConfidence))
+			watcher.update()
+
+			var blockNumber int64
+			var success bool
+			var receiptHash, txDataHash string
+			err = h.db.QueryRow(h.ctx, `
+				SELECT tx_status, confirmed_tx_hash, confirmed_block_number, tx_success,
+					tx_receipt->>'transactionHash', confirmed_tx_data->>'hash'
+				FROM message_waits_eth
+				WHERE signed_tx_hash = $1`, original.Hash().Hex()).Scan(
+				&status, &confirmedHash, &blockNumber, &success, &receiptHash, &txDataHash)
+			require.NoError(t, err)
+			require.Equal(t, "confirmed", status)
+			require.True(t, confirmedHash.Valid)
+			require.Equal(t, latest.Hash().Hex(), confirmedHash.String)
+			require.Equal(t, int64(100), blockNumber)
+			require.True(t, success)
+			require.Equal(t, latest.Hash().Hex(), receiptHash)
+			require.Equal(t, latest.Hash().Hex(), txDataHash)
+			require.Equal(t, 2, client.receiptCalls)
+			require.Equal(t, 1, client.txCalls)
+
+			h.run(t)
+			require.Equal(t, 2, ethReplacementRowCount(t, h.db, h.ctx))
+
+			_, err = h.db.Exec(h.ctx, `
+				UPDATE message_send_eth_replacements
+				SET send_time = CURRENT_TIMESTAMP - INTERVAL '31 days'
+				WHERE original_signed_hash = $1`, original.Hash().Hex())
+			require.NoError(t, err)
+
+			h.run(t)
+			require.Equal(t, 0, ethReplacementRowCount(t, h.db, h.ctx))
+
+			var waits []struct {
+				SignedTxHash    string `db:"signed_tx_hash"`
+				ConfirmedTxHash string `db:"confirmed_tx_hash"`
+			}
+			err = h.db.Select(h.ctx, &waits, `SELECT signed_tx_hash, confirmed_tx_hash FROM message_waits_eth`)
+			require.NoError(t, err)
+			require.Len(t, waits, 1)
+			require.Equal(t, original.Hash().Hex(), waits[0].SignedTxHash)
+			require.Equal(t, latest.Hash().Hex(), waits[0].ConfirmedTxHash)
+		})
+	}
+}
+
+func TestEthMessageReplacerDeletesFailedRowsWhenAccountNonceAdvanced(t *testing.T) {
 	h := newEthReplaceHarness(t)
 	privateKey, err := gethcrypto.GenerateKey()
 	require.NoError(t, err)
@@ -774,6 +906,12 @@ func TestEthMessageReplacerDeletesStaleRowsWhenAccountNonceAdvanced(t *testing.T
 	prior, priorData := signedDynamicTx(t, privateKey, to, nonce, 300, 30)
 	h.insertEthMessageSend(t, from, to, original, originalData, h.oldSendTime())
 	h.insertSuccessfulReplacement(t, from, nonce, original.Hash().Hex(), original.Hash().Hex(), prior.Hash().Hex(), priorData, h.oldSendTime())
+	_, err = h.db.Exec(h.ctx, `
+		UPDATE message_send_eth_replacements
+		SET send_success = FALSE, send_error = 'send failed',
+			send_time = CURRENT_TIMESTAMP - INTERVAL '31 days'
+		WHERE signed_hash = $1`, prior.Hash().Hex())
+	require.NoError(t, err)
 
 	h.run(t)
 
