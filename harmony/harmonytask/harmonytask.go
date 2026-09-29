@@ -410,6 +410,7 @@ func NewWithReg(
 	}
 	e.startScheduler()
 	e.schedulerChannel <- schedulerEvent{Source: schedulerSourceInitialPoll}
+	processEngine.Store(e)
 	go e.singletonRunNowPoller()
 
 	return e, nil
