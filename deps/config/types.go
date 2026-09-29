@@ -276,6 +276,17 @@ type CurioSubsystemsConfig struct {
 	// also be bounded by resources available on the machine. (Default: 0 - unlimited)
 	SealSDRMaxTasks int
 
+	// Minimum interval between SDR Do entries on this instance. Zero disables
+	// pacing. Negative values reject task construction. Requires restart.
+	SealSDRMinStartInterval time.Duration
+
+	// On first start or after a long idle, wait for a stable instance phase
+	// within SealSDRMinStartInterval. This is not a cluster-wide rate limit.
+	// Identity combines CURIO_NODE_NAME and the instance listen identity.
+	// Both must be nonempty when jitter and a positive interval are enabled.
+	// Disabled by default; interval zero preserves unpaced scheduling.
+	SealSDRStartJitter bool
+
 	// The maximum amount of SDR tasks that need to be queued before the system will start accepting new tasks.
 	// The main purpose of this setting is to allow for enough tasks to accumulate for batch sealing. When batch sealing
 	// nodes are present in the cluster, this value should be set to batch_size+1 to allow for the batch sealing node to
