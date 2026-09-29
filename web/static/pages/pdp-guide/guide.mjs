@@ -480,7 +480,7 @@ customElements.define('pdp-guide', class PDPGuideElement extends LitElement {
                     </a>
                 </div>
             ` : ''}
-        `, warn);
+        `);
     }
 
     renderDNS(dns) {
