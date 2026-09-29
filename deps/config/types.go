@@ -61,9 +61,11 @@ func DefaultCurioConfig() *CurioConfig {
 			BatchSealSectorSize: "32GiB",
 		},
 		Ingest: CurioIngestConfig{
-			MaxMarketRunningPipelines: NewDynamic(64),
-			MaxQueueDownload:          NewDynamic(8),
-			MaxQueueCommP:             NewDynamic(8),
+			MaxMarketRunningPipelines:   NewDynamic(64),
+			MaxQueueDownload:            NewDynamic(8),
+			MaxQueueCommP:               NewDynamic(8),
+			MK20PipelineInsertBatch:     NewDynamic(0),
+			MK20PipelineInsertMaxActive: NewDynamic(0),
 
 			MaxQueueDealSector: NewDynamic(8), // default to 8 sectors open(or in process of opening) for deals
 			MaxQueueSDR:        NewDynamic(8), // default to 8 (will cause backpressure even if deal sectors are 0)
@@ -610,6 +612,24 @@ type CurioIngestConfig struct {
 	// If this limit is exceeded, the system will apply backpressure, delaying new deal processing.
 	// 0 means unlimited. (Default: 8)
 	MaxQueueCommP *Dynamic[int]
+
+	// MK20PipelineInsertBatch limits the number of MK20 DDO deals successfully released from
+	// market_mk20_pipeline_waiting in one release pass. 0 means no operator-configured release
+	// limit; the release loop still inspects at most its internal 64-candidate work quantum per pass.
+	// A nil value is treated as 0 by the release loop. Negative values are invalid and stop new
+	// releases rather than enabling an unlimited mode. The value is snapshotted at the beginning
+	// of each pass, so dynamic updates apply to the next pass and an in-progress transaction may
+	// finish using the prior snapshot. (Default: 0)
+	MK20PipelineInsertBatch *Dynamic[int]
+
+	// MK20PipelineInsertMaxActive limits the global number of incomplete rows
+	// (complete = false) in market_mk20_pipeline. 0 disables this active-row cap. A nil value is
+	// treated as 0 by the release loop. Negative values are invalid and stop new releases. Lowering
+	// the value below the current active count only stops new releases; it does not modify existing
+	// pipeline state. The value is snapshotted at the beginning of each pass, so dynamic updates
+	// apply to the next pass and an in-progress transaction may finish using the prior snapshot.
+	// (Default: 0)
+	MK20PipelineInsertMaxActive *Dynamic[int]
 
 	// Maximum number of sectors that can be queued waiting for deals to start processing.
 	// 0 = unlimited
