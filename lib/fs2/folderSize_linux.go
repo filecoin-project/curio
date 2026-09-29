@@ -4,6 +4,7 @@ package fs2
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"runtime"
 	"sync/atomic"
@@ -139,8 +140,8 @@ const (
 //	 7.6s           2.4/3.0s  Unix impl.
 //
 // RSS stays ~10 MB vs ~180 MB. Cold, both wait on disk metadata reads.
-func SumFileSizesRange(directory, low, high string, queueDepth uint32) (Result, error) {
-	if err := checkSumArgs(directory, low, high, queueDepth); err != nil {
+func SumFileSizesRange(directory, low, high string, queueDepth uint32) (result Result, err error) {
+	if err = checkSumArgs(directory, low, high, queueDepth); err != nil {
 		return Result{}, err
 	}
 	if queueDepth == 0 {
@@ -151,9 +152,12 @@ func SumFileSizesRange(directory, low, high string, queueDepth uint32) (Result, 
 	if err != nil {
 		return Result{}, fmt.Errorf("sum file sizes: %w", err)
 	}
-	defer ring.close()
+	defer func() {
+		if cerr := ring.close(); cerr != nil && err == nil {
+			err = fmt.Errorf("close io_uring: %w", cerr)
+		}
+	}()
 
-	var result Result
 	err = sumDirLinux(ring, directory, "", low, high, &result)
 	if err != nil {
 		return result, fmt.Errorf("sum file sizes: %w", err)
@@ -178,8 +182,7 @@ func newUring(entries uint32) (*uring, error) {
 	}
 	sqRing, err := unix.Mmap(ringfd, ioringOffSQRing, sqSize, unix.PROT_READ|unix.PROT_WRITE, unix.MAP_SHARED)
 	if err != nil {
-		unix.Close(ringfd)
-		return nil, fmt.Errorf("mmap sq ring: %w", err)
+		return nil, closeUring(ringfd, nil, nil, fmt.Errorf("mmap sq ring: %w", err))
 	}
 	ring.sqRing = sqRing
 	if single {
@@ -187,21 +190,18 @@ func newUring(entries uint32) (*uring, error) {
 	} else {
 		cqRing, err := unix.Mmap(ringfd, ioringOffCQRing, cqSize, unix.PROT_READ|unix.PROT_WRITE, unix.MAP_SHARED)
 		if err != nil {
-			unix.Munmap(sqRing)
-			unix.Close(ringfd)
-			return nil, fmt.Errorf("mmap cq ring: %w", err)
+			return nil, closeUring(ringfd, sqRing, nil, fmt.Errorf("mmap cq ring: %w", err))
 		}
 		ring.cqRing = cqRing
 	}
 	sqeSize := int(params.SqEntries) * int(unsafe.Sizeof(ioUringSQE{}))
 	sqes, err := unix.Mmap(ringfd, ioringOffSQEs, sqeSize, unix.PROT_READ|unix.PROT_WRITE, unix.MAP_SHARED)
 	if err != nil {
+		cq := []byte(nil)
 		if !single {
-			unix.Munmap(ring.cqRing)
+			cq = ring.cqRing
 		}
-		unix.Munmap(sqRing)
-		unix.Close(ringfd)
-		return nil, fmt.Errorf("mmap sqes: %w", err)
+		return nil, closeUring(ringfd, sqRing, cq, fmt.Errorf("mmap sqes: %w", err))
 	}
 	ring.sqes = sqes
 
@@ -223,19 +223,38 @@ func newUring(entries uint32) (*uring, error) {
 	return ring, nil
 }
 
-func (ring *uring) close() {
+func (ring *uring) close() error {
+	var err error
 	if ring.sqes != nil {
-		unix.Munmap(ring.sqes)
+		err = errors.Join(err, unix.Munmap(ring.sqes))
 	}
 	if ring.cqRing != nil && (len(ring.sqRing) == 0 || &ring.cqRing[0] != &ring.sqRing[0]) {
-		unix.Munmap(ring.cqRing)
+		err = errors.Join(err, unix.Munmap(ring.cqRing))
 	}
 	if ring.sqRing != nil {
-		unix.Munmap(ring.sqRing)
+		err = errors.Join(err, unix.Munmap(ring.sqRing))
 	}
 	if ring.fd >= 0 {
-		unix.Close(ring.fd)
+		err = errors.Join(err, unix.Close(ring.fd))
 	}
+	return err
+}
+
+// closeUring releases a ring that failed during setup. cq is unmapped only
+// when it is a separate mapping from sq.
+func closeUring(fd int, sq, cq []byte, err error) error {
+	var cerr error
+	if len(cq) > 0 && (len(sq) == 0 || &cq[0] != &sq[0]) {
+		cerr = errors.Join(cerr, unix.Munmap(cq))
+	}
+	if len(sq) > 0 {
+		cerr = errors.Join(cerr, unix.Munmap(sq))
+	}
+	cerr = errors.Join(cerr, unix.Close(fd))
+	if cerr != nil {
+		err = fmt.Errorf("%w; cleanup: %w", err, cerr)
+	}
+	return err
 }
 
 func (ring *uring) prepStatx(slot int, dirfd int) error {
@@ -277,15 +296,20 @@ func (ring *uring) submitAndDrain(want int, result *Result) error {
 		n, err := ring.enter(uint32(want-submitted), 0, 0)
 		if err != nil {
 			if submitted > 0 {
-				ring.drain(submitted, result)
+				if _, derr := ring.drain(submitted, result); derr != nil {
+					err = fmt.Errorf("%w; drain: %w", err, derr)
+				}
 			}
 			return fmt.Errorf("io_uring_enter: %w", err)
 		}
 		if n == 0 {
+			err = unix.EIO
 			if submitted > 0 {
-				ring.drain(submitted, result)
+				if _, derr := ring.drain(submitted, result); derr != nil {
+					err = fmt.Errorf("%w; drain: %w", err, derr)
+				}
 			}
-			return fmt.Errorf("io_uring_enter: %w", unix.EIO)
+			return fmt.Errorf("io_uring_enter: %w", err)
 		}
 		submitted += n
 	}

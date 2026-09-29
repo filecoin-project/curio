@@ -207,11 +207,3 @@ func prefixAtOrBefore(prefix, after string) bool {
 	}
 	return prefix < after
 }
-
-func addResult(a, b Result) (Result, error) {
-	return Result{
-		Bytes:    a.Bytes + b.Bytes,
-		Files:    a.Files + b.Files,
-		Vanished: a.Vanished + b.Vanished,
-	}, nil
-}
