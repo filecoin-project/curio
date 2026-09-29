@@ -2,6 +2,7 @@ import { LitElement, html, css, render } from 'https://cdn.jsdelivr.net/gh/lit/d
 import RPCCall from '/lib/jsonrpc.mjs'
 import { pollRPC } from '/lib/poll.mjs'
 import { timeSince } from '/lib/dateutil.mjs'
+import { summaryTotals, summaryStatus } from '/lib/porep-summary.mjs'
 
 function groupAlertsByMessage(alerts, maxGroups = 5) {
   const byMsg = new Map()
@@ -77,24 +78,6 @@ function isMachineOffline(m) {
   return since != null && since >= MACHINE_OFFLINE_AFTER_MS
 }
 
-function sumPipeline(rows) {
-  const zero = {
-    sdr: 0, trees: 0, precommit: 0, waitSeed: 0, porep: 0, commit: 0, done: 0, failed: 0, inFlight: 0,
-  }
-  for (const r of rows ?? []) {
-    zero.sdr += r.CountSDR ?? 0
-    zero.trees += r.CountTrees ?? 0
-    zero.precommit += r.CountPrecommitMsg ?? 0
-    zero.waitSeed += r.CountWaitSeed ?? 0
-    zero.porep += r.CountPoRep ?? 0
-    zero.commit += r.CountCommitMsg ?? 0
-    zero.done += r.CountDone ?? 0
-    zero.failed += r.CountFailed ?? 0
-  }
-  zero.inFlight = zero.sdr + zero.trees + zero.precommit + zero.waitSeed + zero.porep + zero.commit
-  return zero
-}
-
 function postStats(actors) {
   let currentPending = 0
   let currentTotal = 0
@@ -123,6 +106,7 @@ customElements.define('porep-overview', class PorepOverview extends LitElement {
     actorsStatus: { type: String },
     pipeline: { type: Array },
     pipelineStatus: { type: String },
+    pipelineError: { type: String },
     market: { type: Array },
     msgs: { type: Object },
     chain: { type: Object },
@@ -138,8 +122,9 @@ customElements.define('porep-overview', class PorepOverview extends LitElement {
     super()
     this.actors = []
     this.actorsStatus = 'loading'
-    this.pipeline = []
+    this.pipeline = null
     this.pipelineStatus = 'loading'
+    this.pipelineError = ''
     this.market = []
     this.msgs = null
     this.chain = null
@@ -182,18 +167,6 @@ customElements.define('porep-overview', class PorepOverview extends LitElement {
     }).catch((e) => {
       console.warn('ActorSummary failed:', e)
       if (this.actorsStatus !== 'ok') this.actorsStatus = 'error'
-      this.requestUpdate()
-      this.renderAside()
-    })
-
-    const pipeP = RPCCall('PorepPipelineSummary').then((rows) => {
-      this.pipeline = rows ?? []
-      this.pipelineStatus = 'ok'
-      this.requestUpdate()
-      this.renderAside()
-    }).catch((e) => {
-      console.warn('PorepPipelineSummary failed:', e)
-      if (this.pipelineStatus !== 'ok') this.pipelineStatus = 'error'
       this.requestUpdate()
       this.renderAside()
     })
@@ -254,7 +227,7 @@ customElements.define('porep-overview', class PorepOverview extends LitElement {
       this.requestUpdate()
     })
 
-    await Promise.all([actorsP, pipeP, alertsP, msgsP, chainP, marketP, dealsP, machinesP])
+    await Promise.all([actorsP, alertsP, msgsP, chainP, marketP, dealsP, machinesP])
   }
 
   updated() {
@@ -266,7 +239,7 @@ customElements.define('porep-overview', class PorepOverview extends LitElement {
   }
 
   health() {
-    const pipe = sumPipeline(this.pipeline)
+    const pipe = summaryTotals(this.pipeline)
     const post = postStats(this.actors)
     const filPending = this.msgs?.filPendingCount ?? 0
     const lowWallets = (this.actors ?? []).filter((a) => {
@@ -286,7 +259,8 @@ customElements.define('porep-overview', class PorepOverview extends LitElement {
       lowWallets,
       walletsOk: this.actorsStatus === 'ok' && lowWallets.length === 0,
       postOk: this.actorsStatus === 'ok' && post.currentPending === 0 && post.faulted === 0,
-      pipelineOk: this.pipelineStatus === 'ok' && pipe.failed === 0,
+      pipelineOk: this.pipelineStatus === 'ok' && pipe !== null && pipe.Failed === 0
+        && pipe.SDRMissingTask + pipe.SDROtherTask + pipe.SDRUnknown === 0,
       msgsOk: this.msgs != null && filPending === 0,
       alertsOk: this.alertsStatus === 'ok' && this.alertTotal === 0,
       chainOk,
@@ -384,12 +358,12 @@ customElements.define('porep-overview', class PorepOverview extends LitElement {
           <span class="cell-label">Pipeline</span>
           <span class="cell-value">
             ${this.toneIcon(h.pipelineOk, pipeLoading)}
-            ${pipeLoading ? '…' : html`
-              ${h.pipe.inFlight} in flight ·
-              ${h.pipe.failed > 0
-                ? html`<a class="emph" href="/pages/pipeline_porep/">${h.pipe.failed} failed</a>`
-                : html`${h.pipe.failed} failed`}
+            ${h.pipe === null ? '—' : html`
+              <a href="/pages/pipeline_porep/">${h.pipe.Remaining} remaining</a><br>
+              <strong>${h.pipe.SDRRunning} SDR running</strong> · ${h.pipe.PostSDR} post-SDR incomplete<br>
+              ${h.pipe.Failed} failed · ${h.pipe.Complete} complete
             `}
+            <small class="dim" style="display:block" title=${this.pipelineError}>${summaryStatus(this.pipelineStatus, this.pipeline !== null)}</small>
           </span>
         </div>
         <div class="cell">
@@ -446,7 +420,11 @@ customElements.define('porep-overview', class PorepOverview extends LitElement {
   renderPipeline() {
     return html`
       <div class="dashboard-section">
-        <pipeline-porep></pipeline-porep>
+        <pipeline-porep @porep-summary=${e => {
+          this.pipeline = e.detail.rows
+          this.pipelineStatus = e.detail.status
+          this.pipelineError = e.detail.error
+        }}></pipeline-porep>
       </div>
     `
   }

@@ -6,6 +6,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"go.opencensus.io/stats"
 	"go.opencensus.io/tag"
@@ -29,6 +30,12 @@ import (
 	"github.com/filecoin-project/lotus/chain/actors/policy"
 	"github.com/filecoin-project/lotus/chain/types"
 )
+
+func (s *SDRTask) GetSpids(ctx context.Context, db *harmonydb.DB, taskIDs []int64) ([]harmonytask.TaskSPID, error) {
+	var spids []harmonytask.TaskSPID
+	err := db.Select(ctx, &spids, `SELECT task_id_sdr AS task_id, sp_id FROM sectors_sdr_pipeline WHERE task_id_sdr = ANY($1::BIGINT[])`, taskIDs)
+	return spids, err
+}
 
 var IsDevnet = build.BlockDelaySecs < 30
 
@@ -69,24 +76,10 @@ func NewSDRTask(api SDRAPI, db *harmonydb.DB, sp *SealPoller, sc *ffi2.SealCalls
 
 func (s *SDRTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
-	var sectorParamsArr []struct {
-		SpID         int64                   `db:"sp_id"`
-		SectorNumber int64                   `db:"sector_number"`
-		RegSealProof abi.RegisteredSealProof `db:"reg_seal_proof"`
-	}
-
-	err = s.db.Select(ctx, &sectorParamsArr, `
-		SELECT sp_id, sector_number, reg_seal_proof
-		FROM sectors_sdr_pipeline
-		WHERE task_id_sdr = $1`, taskID)
+	sectorParams, err := s.sectorReference(ctx, taskID)
 	if err != nil {
 		return false, xerrors.Errorf("getting sector params: %w", err)
 	}
-
-	if len(sectorParamsArr) != 1 {
-		return false, xerrors.Errorf("expected 1 sector params, got %d", len(sectorParamsArr))
-	}
-	sectorParams := sectorParamsArr[0]
 	harmonytask.SetMeta(ctx, PoRepPipelineKey, [2]int64{sectorParams.SpID, sectorParams.SectorNumber})
 
 	dealData, err := dealdata.DealDataSDRPoRep(ctx, s.db, s.sc, sectorParams.SpID, sectorParams.SectorNumber, sectorParams.RegSealProof, true)
@@ -252,8 +245,23 @@ func (s *SDRTask) GetSpid(db *harmonydb.DB, taskID int64) string {
 }
 
 func (s *SDRTask) GetSectorID(db *harmonydb.DB, taskID int64) (*abi.SectorID, error) {
+	return s.GetSectorIDContext(context.Background(), db, taskID)
+}
+
+func (s *SDRTask) GetSectorIDContext(ctx context.Context, db *harmonydb.DB, taskID int64) (*abi.SectorID, error) {
+	return lookupSDRSectorID(ctx, func(ctx context.Context, spId, sectorNumber *uint64) error {
+		return db.QueryRow(ctx, `SELECT sp_id,sector_number FROM sectors_sdr_pipeline WHERE task_id_sdr = $1`, taskID).Scan(spId, sectorNumber)
+	})
+}
+
+// Diagnostic lookup runs after slot/storage acquisition but before Do entry.
+// Bound it independently and honor preemption; a missing diagnostic sector ID
+// does not replace Do's authoritative sector-reference validation.
+func lookupSDRSectorID(ctx context.Context, scan func(context.Context, *uint64, *uint64) error) (*abi.SectorID, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	var spId, sectorNumber uint64
-	err := db.QueryRow(context.Background(), `SELECT sp_id,sector_number FROM sectors_sdr_pipeline WHERE task_id_sdr = $1`, taskID).Scan(&spId, &sectorNumber)
+	err := scan(ctx, &spId, &sectorNumber)
 	if err != nil {
 		return nil, err
 	}
@@ -266,18 +274,7 @@ func (s *SDRTask) GetSectorID(db *harmonydb.DB, taskID int64) (*abi.SectorID, er
 var _ = harmonytask.Reg(&SDRTask{})
 
 func (s *SDRTask) taskToSector(id harmonytask.TaskID) (ffi2.SectorRef, error) {
-	var refs []ffi2.SectorRef
-
-	err := s.db.Select(context.Background(), &refs, `SELECT sp_id, sector_number, reg_seal_proof FROM sectors_sdr_pipeline WHERE task_id_sdr = $1`, id)
-	if err != nil {
-		return ffi2.SectorRef{}, xerrors.Errorf("getting sector ref: %w", err)
-	}
-
-	if len(refs) != 1 {
-		return ffi2.SectorRef{}, xerrors.Errorf("expected 1 sector ref, got %d", len(refs))
-	}
-
-	return refs[0], nil
+	return s.sectorReference(context.Background(), id)
 }
 
 var _ harmonytask.TaskInterface = &SDRTask{}

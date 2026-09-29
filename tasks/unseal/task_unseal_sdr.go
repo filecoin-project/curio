@@ -25,6 +25,12 @@ import (
 	"github.com/filecoin-project/lotus/chain/types"
 )
 
+func (t *TaskUnsealSdr) GetSpids(ctx context.Context, db *harmonydb.DB, taskIDs []int64) ([]harmonytask.TaskSPID, error) {
+	var spids []harmonytask.TaskSPID
+	err := db.Select(ctx, &spids, `SELECT task_id_unseal_sdr AS task_id, sp_id FROM sectors_unseal_pipeline WHERE task_id_unseal_sdr = ANY($1::BIGINT[])`, taskIDs)
+	return spids, err
+}
+
 var isDevnet = build.BlockDelaySecs < 30
 
 type UnsealSDRApi interface {

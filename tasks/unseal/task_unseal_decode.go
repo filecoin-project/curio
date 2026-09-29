@@ -23,6 +23,12 @@ import (
 	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
+func (t *TaskUnsealDecode) GetSpids(ctx context.Context, db *harmonydb.DB, taskIDs []int64) ([]harmonytask.TaskSPID, error) {
+	var spids []harmonytask.TaskSPID
+	err := db.Select(ctx, &spids, `SELECT task_id_decode_sector AS task_id, sp_id FROM sectors_unseal_pipeline WHERE task_id_decode_sector = ANY($1::BIGINT[])`, taskIDs)
+	return spids, err
+}
+
 var log = logging.Logger("unseal")
 
 const MinSchedInterval = 120 * time.Second
