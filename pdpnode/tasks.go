@@ -16,6 +16,7 @@ import (
 	"github.com/filecoin-project/curio/tasks/gc"
 	"github.com/filecoin-project/curio/tasks/indexing"
 	"github.com/filecoin-project/curio/tasks/message"
+	"github.com/filecoin-project/curio/tasks/openpieces"
 	"github.com/filecoin-project/curio/tasks/pay"
 	"github.com/filecoin-project/curio/tasks/pdp"
 	"github.com/filecoin-project/curio/tasks/pdpv0"
@@ -98,8 +99,16 @@ func buildPDPTasks(ctx context.Context, d *Deps, chainSched *chainsched.CurioCha
 		pdpv0.NewPieceGCTask(&cfg.HTTP, db, d.IndexStore, ethClient, cfg.Subsystems.PDPUnclaimedUploadKeepHours),
 		pdpv0.NewReorgCheckTask(db, ethClient, d.Chain),
 		pdpv0.NewDatasetIdxTask(db, ethClient),
-		pdpv0.NewRepairMissingPiecesTask(db, ethClient, d.PieceIO),
+		pdpv0.NewRepairMissingPiecesTask(db, ethClient, d.PieceIO, d.HashSpace),
 	)
+
+	if d.HashSpace != nil {
+		tasks = append(tasks,
+			openpieces.NewPlaceTask(db, d.HashSpace, d.LocalStore, d.PieceIO),
+			openpieces.NewMoveTask(db, d.HashSpace),
+			openpieces.NewDropTask(db, d.HashSpace),
+		)
+	}
 
 	// Start PDP watcher after all internal watcher are created
 	w.Run(ctx)

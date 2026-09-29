@@ -19,6 +19,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/ethchain"
+	"github.com/filecoin-project/curio/lib/hashspace"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/pdp"
@@ -46,6 +47,7 @@ type RepairMissingPiecesTask struct {
 	db  *harmonydb.DB
 	eth ethchain.EthClient
 	pio ParkedPieceStore
+	hs  *hashspace.Cluster
 }
 
 const (
@@ -67,11 +69,12 @@ const (
 	repairMaxFailures = 10
 )
 
-func NewRepairMissingPiecesTask(db *harmonydb.DB, eth ethchain.EthClient, pio ParkedPieceStore) *RepairMissingPiecesTask {
+func NewRepairMissingPiecesTask(db *harmonydb.DB, eth ethchain.EthClient, pio ParkedPieceStore, hs *hashspace.Cluster) *RepairMissingPiecesTask {
 	return &RepairMissingPiecesTask{
 		db:  db,
 		eth: eth,
 		pio: pio,
+		hs:  hs,
 	}
 }
 
@@ -278,16 +281,26 @@ func (t *RepairMissingPiecesTask) repairPiece(ctx context.Context, dataSetID int
 			xerrors.New("no complete long-term parked piece holds this CID"))
 	}
 
-	// A parked_pieces row only records intent to store. Open the piece to
-	// confirm the bytes are really there before claiming the piece is provable.
-	reader, err := t.pio.PieceReader(ctx, storiface.PieceNumber(loc[0].ParkedPieceID))
-	if err != nil {
-		return false, t.markLost(ctx, dataSetID, pieceID, info.CidV2.String(), &pieceCidV1, &rawSize,
-			xerrors.Errorf("parked piece %d is not readable from storage: %w", loc[0].ParkedPieceID, err))
+	// A parked_pieces row only records intent to store. Confirm the bytes are
+	// really there before claiming the piece is provable: either placed in
+	// open-pieces, or readable from piece-park.
+	placed := false
+	if t.hs != nil {
+		placed, err = t.hs.HasFile(ctx, info.CidV2)
+		if err != nil {
+			return false, xerrors.Errorf("failed to look up open piece for %s: %w", info.CidV2, err)
+		}
 	}
-	if err := reader.Close(); err != nil {
-		log.Warnw("failed to close parked piece reader after repair check",
-			"dataSetId", dataSetID, "pieceId", pieceID, "parkedPieceId", loc[0].ParkedPieceID, "error", err)
+	if !placed {
+		reader, err := t.pio.PieceReader(ctx, storiface.PieceNumber(loc[0].ParkedPieceID))
+		if err != nil {
+			return false, t.markLost(ctx, dataSetID, pieceID, info.CidV2.String(), &pieceCidV1, &rawSize,
+				xerrors.Errorf("parked piece %d is not readable from storage: %w", loc[0].ParkedPieceID, err))
+		}
+		if err := reader.Close(); err != nil {
+			log.Warnw("failed to close parked piece reader after repair check",
+				"dataSetId", dataSetID, "pieceId", pieceID, "parkedPieceId", loc[0].ParkedPieceID, "error", err)
+		}
 	}
 
 	pieceRefID := loc[0].PieceRefID

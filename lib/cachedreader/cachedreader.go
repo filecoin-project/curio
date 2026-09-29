@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/hashicorp/go-multierror"
@@ -44,6 +45,7 @@ type CachedPieceReader struct {
 
 	sectorReader    *pieceprovider.SectorReader
 	pieceParkReader *pieceprovider.PieceParkReader
+	openPieceReader atomic.Pointer[pieceprovider.OpenPieceReader]
 
 	idxStor *indexstore.IndexStore
 
@@ -107,6 +109,31 @@ func NewCachedPieceReader(db *harmonydb.DB, sectorReader *pieceprovider.SectorRe
 	errorCache.SetExpirationReasonCallback(errorExpireCallback)
 
 	return cpr
+}
+
+// SetOpenPieceReader makes piece-park reads look in open-pieces first.
+func (cpr *CachedPieceReader) SetOpenPieceReader(r *pieceprovider.OpenPieceReader) {
+	cpr.openPieceReader.Store(r)
+}
+
+// readOpenPiece returns nil when the piece with v1 CID pc is not readable
+// from open-pieces, which is keyed by piece CID v2.
+func (cpr *CachedPieceReader) readOpenPiece(ctx context.Context, pc cid.Cid, rawSize int64) storiface.Reader {
+	opr := cpr.openPieceReader.Load()
+	if opr == nil {
+		return nil
+	}
+	v2, err := commcid.PieceCidV2FromV1(pc, uint64(rawSize))
+	if err != nil {
+		log.Warnw("piece cid v2 for open-pieces read", "piece", pc, "error", err)
+		return nil
+	}
+	r, err := opr.ReadPiece(ctx, v2, rawSize)
+	if err != nil {
+		log.Warnw("reading open piece, falling back to piece park", "piece", pc, "error", err)
+		return nil
+	}
+	return r
 }
 
 type cachedSectionReader struct {
@@ -347,6 +374,10 @@ func (cpr *CachedPieceReader) getPieceReaderFromPiecePark(ctx context.Context, p
 		return nil, 0, fmt.Errorf("failed to parse piece cid: %w", err)
 	}
 
+	if r := cpr.readOpenPiece(ctx, pcid, pd[0].PieceRawSize); r != nil {
+		return r, uint64(pd[0].PieceRawSize), nil
+	}
+
 	reader, err := cpr.pieceParkReader.ReadPiece(ctx, storiface.PieceNumber(pd[0].ID), pd[0].PieceRawSize, pcid)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to read piece from piece park: %w", err)
@@ -428,6 +459,10 @@ func (cpr *CachedPieceReader) getPieceReaderFromPDPPark(ctx context.Context, pie
 	pcid, err := cid.Parse(pd[0].PieceCid)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to parse piece cid: %w", err)
+	}
+
+	if r := cpr.readOpenPiece(ctx, pcid, pd[0].PieceRawSize); r != nil {
+		return r, uint64(pd[0].PieceRawSize), nil
 	}
 
 	reader, err := cpr.pieceParkReader.ReadPiece(ctx, storiface.PieceNumber(pd[0].ID), pd[0].PieceRawSize, pcid)
