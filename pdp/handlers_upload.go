@@ -26,10 +26,12 @@ import (
 	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/lib/parkpiece"
 	"github.com/filecoin-project/curio/lib/piecestore"
 	"github.com/filecoin-project/curio/lib/proof"
 	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/tasks/openpieces"
 )
 
 var log = logging.Logger("pdpv0")
@@ -98,18 +100,19 @@ func needsSaveCache(rawSize int64) bool {
 	return PadPieceSize(rawSize) >= minPaddedPieceSizeForCache
 }
 
-func insertPDPReference(tx *harmonydb.Tx, service, pieceCID string, pieceRef, rawSize int64) error {
-	n, err := tx.Exec(`
+// insertPDPReference runs inside a harmonytask.TxWithTask body that uses
+// openpieces.PlaceAdder; placeTask is that body's task id.
+func insertPDPReference(tx *harmonydb.Tx, placeTask harmonytask.TaskID, service, pieceCID string, pieceRef, rawSize int64) error {
+	var id int64
+	err := tx.QueryRow(`
 		INSERT INTO pdp_piecerefs (service, piece_cid, piece_ref, created_at, needs_save_cache)
 		VALUES ($1, $2, $3, NOW(), $4)
-	`, service, pieceCID, pieceRef, needsSaveCache(rawSize))
+		RETURNING id
+	`, service, pieceCID, pieceRef, needsSaveCache(rawSize)).Scan(&id)
 	if err != nil {
 		return fmt.Errorf("failed to insert pdp_piecerefs: %w", err)
 	}
-	if n != 1 {
-		return fmt.Errorf("failed to insert pdp_piecerefs: expected 1 row, got %d", n)
-	}
-	return nil
+	return openpieces.QueuePlace(tx, placeTask, id)
 }
 
 func deleteClaimedUpload(tx *harmonydb.Tx, uploadID string, pieceRef int64) error {
@@ -170,7 +173,7 @@ func claimParkedPiece(tx *harmonydb.Tx, pieceCID string, rawSize, paddedSize int
 // the PDP ref and consumes the intent without reading the request body.
 func (p *PDPService) claimDirectUpload(ctx context.Context, uploadID, service, pieceCID string, rawSize, paddedSize int64) (parkedPieceClaim, error) {
 	var claim parkedPieceClaim
-	committed, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+	committed, err := harmonytask.TxWithTask(ctx, p.db, openpieces.PlaceAdder(), func(tx *harmonydb.Tx, placeTask harmonytask.TaskID) (bool, error) {
 		var err error
 		claim, err = claimParkedPiece(tx, pieceCID, rawSize, paddedSize)
 		if err != nil {
@@ -185,7 +188,7 @@ func (p *PDPService) claimDirectUpload(ctx context.Context, uploadID, service, p
 			if n != 1 {
 				return false, errUploadClaimed
 			}
-			if err := insertPDPReference(tx, service, pieceCID, claim.pieceRefID, rawSize); err != nil {
+			if err := insertPDPReference(tx, placeTask, service, pieceCID, claim.pieceRefID, rawSize); err != nil {
 				return false, err
 			}
 			return true, nil
@@ -204,7 +207,7 @@ func (p *PDPService) claimDirectUpload(ctx context.Context, uploadID, service, p
 		}
 
 		return true, nil
-	}, harmonydb.OptionRetry())
+	})
 	if err != nil {
 		return parkedPieceClaim{}, err
 	}
@@ -359,7 +362,7 @@ func (p *PDPService) completeStreamingUpload(ctx context.Context, uploadID, serv
 }
 
 func (p *PDPService) finalizeDirectUpload(ctx context.Context, uploadID, service, pieceCID string, claim parkedPieceClaim, rawSize int64) error {
-	committed, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+	committed, err := harmonytask.TxWithTask(ctx, p.db, openpieces.PlaceAdder(), func(tx *harmonydb.Tx, placeTask harmonytask.TaskID) (bool, error) {
 		n, err := tx.Exec(`
 			UPDATE parked_pieces
 			SET complete = TRUE
@@ -372,14 +375,14 @@ func (p *PDPService) finalizeDirectUpload(ctx context.Context, uploadID, service
 			return false, fmt.Errorf("failed to mark parked piece complete: expected 1 row, got %d", n)
 		}
 
-		if err := insertPDPReference(tx, service, pieceCID, claim.pieceRefID, rawSize); err != nil {
+		if err := insertPDPReference(tx, placeTask, service, pieceCID, claim.pieceRefID, rawSize); err != nil {
 			return false, err
 		}
 		if err := deleteClaimedUpload(tx, uploadID, claim.pieceRefID); err != nil {
 			return false, err
 		}
 		return true, nil
-	}, harmonydb.OptionRetry())
+	})
 	if err != nil {
 		return err
 	}
@@ -646,7 +649,7 @@ func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 	var uploadURL string
 	var responseStatus int
 
-	_, err = p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+	_, err = harmonytask.TxWithTask(ctx, p.db, openpieces.PlaceAdder(), func(tx *harmonydb.Tx, placeTask harmonytask.TaskID) (bool, error) {
 		dmh, err := multihash.Decode(pieceCidV1.Hash())
 		if err != nil {
 			return false, fmt.Errorf("failed to decode multihash: %w", err)
@@ -655,7 +658,9 @@ func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 		// Check if a 'parked_pieces' entry exists for the given 'piece_cid'
 		var parkedPieceID int64
 		err = tx.QueryRow(`
-            SELECT id FROM parked_pieces WHERE piece_cid = $1 AND long_term = TRUE AND complete = TRUE
+            SELECT id FROM parked_pieces
+            WHERE piece_cid = $1 AND long_term = TRUE AND complete = TRUE AND cleanup_task_id IS NULL
+            ORDER BY id LIMIT 1
         `, pieceCidV1.String()).Scan(&parkedPieceID)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return false, fmt.Errorf("failed to query parked_pieces: %w", err)
@@ -675,7 +680,7 @@ func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 			}
 			log.Debugw("[handlePiecePost] -- new parked piece ref", "parkedPieceRefID", parkedPieceRefID, "pieceCidV1", pieceCidV1)
 
-			if err := insertPDPReference(tx, serviceID, pieceCidV1.String(), parkedPieceRefID, int64(size)); err != nil {
+			if err := insertPDPReference(tx, placeTask, serviceID, pieceCidV1.String(), parkedPieceRefID, int64(size)); err != nil {
 				return false, err
 			}
 			log.Debugw("[handlePiecePost] -- new pdp_piecerefs", "parkedPieceRefID", parkedPieceRefID, "pieceCidV1", pieceCidV1)
@@ -702,7 +707,7 @@ func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 		responseStatus = http.StatusCreated
 
 		return true, nil // Commit the transaction
-	}, harmonydb.OptionRetry())
+	})
 	if err != nil {
 		httpServerError(w, http.StatusInternalServerError, "Failed to process request: "+err.Error(), err)
 		return
@@ -1140,8 +1145,9 @@ func (p *PDPService) handleFinalizeStreamingUpload(w http.ResponseWriter, r *htt
 		return
 	}
 
-	comm, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
-		n, err := tx.Exec(`
+	comm, err := harmonytask.TxWithTask(ctx, p.db, openpieces.PlaceAdder(), func(tx *harmonydb.Tx, placeTask harmonytask.TaskID) (commit bool, err error) {
+		var refs []int64
+		err = tx.Select(&refs, `
 			INSERT INTO pdp_piecerefs (service, piece_cid, piece_ref, created_at, needs_save_cache)
 			SELECT su.service, su.piece_cid, su.piece_ref, NOW(), $4
 			FROM pdp_piece_streaming_uploads su
@@ -1152,15 +1158,19 @@ func (p *PDPService) handleFinalizeStreamingUpload(w http.ResponseWriter, r *htt
 			  AND su.piece_ref = $3
 			  AND su.complete = TRUE
 			  AND pp.complete = TRUE
+			RETURNING id
 		`, uploadUUID.String(), serviceID, pref, needsSaveCache(int64(rawSize)))
 		if err != nil {
 			return false, fmt.Errorf("failed to create PDP piece reference: %w", err)
 		}
-		if n != 1 {
-			return false, fmt.Errorf("failed to create PDP piece reference: expected 1 row but got %d", n)
+		if len(refs) != 1 {
+			return false, fmt.Errorf("failed to create PDP piece reference: expected 1 row but got %d", len(refs))
+		}
+		if err := openpieces.QueuePlace(tx, placeTask, refs[0]); err != nil {
+			return false, err
 		}
 
-		n, err = tx.Exec(`
+		n, err := tx.Exec(`
 			DELETE FROM pdp_piece_streaming_uploads
 			WHERE id = $1 AND service = $2 AND piece_ref = $3 AND complete = TRUE
 		`, uploadUUID.String(), serviceID, pref)
@@ -1171,7 +1181,7 @@ func (p *PDPService) handleFinalizeStreamingUpload(w http.ResponseWriter, r *htt
 			return false, fmt.Errorf("failed to delete pdp_piece_streaming_uploads entry: expected 1 row but got %d", n)
 		}
 		return true, nil
-	}, harmonydb.OptionRetry())
+	})
 	if err != nil {
 		log.Errorw("Failed to process piece upload", "error", err)
 		httpServerError(w, http.StatusInternalServerError, "Failed to process piece upload", err)

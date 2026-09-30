@@ -26,6 +26,7 @@ import (
 	"github.com/filecoin-project/curio/lib/urlhelper"
 	"github.com/filecoin-project/curio/market/ipni/ipniculib"
 	"github.com/filecoin-project/curio/pdp/contract"
+	"github.com/filecoin-project/curio/tasks/openpieces"
 	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
@@ -196,7 +197,7 @@ func processIndexingAndIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *c
 		var skipLoop bool
 		failed := true
 		for range 5 {
-			comm, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+			comm, err := harmonytask.TxWithTask(ctx, db, openpieces.DropAdder(), func(tx *harmonydb.Tx, dropTask harmonytask.TaskID) (commit bool, err error) {
 				var deletable bool
 				err = tx.QueryRow(`SELECT EXISTS(
 					SELECT 1 FROM pdp_piecerefs
@@ -250,6 +251,17 @@ func processIndexingAndIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *c
 				_, err = tx.Exec(`DELETE FROM parked_piece_refs WHERE ref_id = $1`, piece.PieceRef)
 				if err != nil {
 					return false, xerrors.Errorf("failed to delete parked piece ref %d: %w", piece.PieceRef, err)
+				}
+
+				_, err = tx.Exec(`DELETE FROM hash_space_place WHERE pdp_pieceref = $1`, piece.ID)
+				if err != nil {
+					return false, xerrors.Errorf("failed to drop open-pieces placement for piece ref %d: %w", piece.ID, err)
+				}
+
+				if !skipCleanup {
+					if err := openpieces.QueueDrop(tx, dropTask, pcidV2.String()); err != nil {
+						return false, err
+					}
 				}
 
 				if skipCleanup {
@@ -361,7 +373,7 @@ func processIndexingAndIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *c
 
 				return true, nil
 
-			}, harmonydb.OptionRetry())
+			})
 
 			if err != nil {
 				return xerrors.Errorf("failed to create IPNI removal ad for piece %s: %w", piece.PieceCID, err)
