@@ -5,7 +5,6 @@
 -- hash_space_move_source is an interval being moved from from_storage to
 -- to_storage; while the row exists, a piece in that interval may be found on
 -- either disk.
--- open_piece records where each piece file is, one row per disk holding it.
 
 CREATE TABLE IF NOT EXISTS hash_space_meta (
     id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
@@ -54,20 +53,6 @@ CREATE TABLE IF NOT EXISTS hash_space_pending_event (
     PRIMARY KEY (storage_id, event_kind)
 );
 
--- Hash spaces are keyed by piece CID v2 only.
-CREATE TABLE IF NOT EXISTS open_piece (
-    piece_cid TEXT NOT NULL, -- piece cid v2
-    storage_id TEXT NOT NULL,
-    space TEXT NOT NULL,
-    piece_hash BYTEA NOT NULL,
-    size BIGINT NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (piece_cid, storage_id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_open_piece_space_hash ON open_piece (space, piece_hash);
-CREATE INDEX IF NOT EXISTS idx_open_piece_storage_hash ON open_piece (storage_id, space, piece_hash);
-
 -- PDP pieces to move from piece-park into open-pieces, written with their
 -- HashSpacePlace task in the transaction that creates the pdp_piecerefs row.
 -- The v2 CID is derived from pdp_piece_cid and the parked piece's raw size.
@@ -82,7 +67,7 @@ CREATE TABLE IF NOT EXISTS hash_space_place (
 CREATE INDEX IF NOT EXISTS idx_hash_space_place_task ON hash_space_place (task_id);
 
 -- Pieces whose last PDP reference was dropped, written with their
--- HashSpaceDrop task; files are removed from every open_piece location.
+-- HashSpaceDrop task. The piece file is removed from every disk the hash map names.
 -- started is set once the drop has checked no PDP ref came back; placement
 -- of the same piece waits for a started drop.
 CREATE TABLE IF NOT EXISTS hash_space_delete (
