@@ -83,6 +83,9 @@ type PDPService struct {
 	ipp *ipni_provider.Provider
 
 	ipOffenseThrottle *IPOffenseThrottle
+
+	// ethValidator is the shared eth_call helper, including the authorizer allowlist check.
+	ethValidator *EthCallValidator
 }
 
 type PDPServiceNodeApi interface {
@@ -98,10 +101,11 @@ func NewPDPService(
 	fc PDPServiceNodeApi,
 	sn ETHTxSender,
 	alertTask *alertmanager.AlertTask,
-	ipp *ipni_provider.Provider) *PDPService {
+	ipp *ipni_provider.Provider,
+	authPolicy *AuthorizerAllowlist) *PDPService {
 	auth := &NullAuth{}
 	pullStore := NewDBPullStore(db)
-	pullValidator := NewEthCallValidator(ec, db)
+	pullValidator := NewEthCallValidator(ec, db, authPolicy)
 
 	p := &PDPService{
 		Auth:    auth,
@@ -119,6 +123,8 @@ func NewPDPService(
 		ipp: ipp,
 
 		ipOffenseThrottle: NewIPOffenseThrottle(defaultIPOffensePolicies()),
+
+		ethValidator: pullValidator,
 	}
 
 	go p.ipOffenseThrottle.RunCleanup(ctx)
@@ -1015,6 +1021,11 @@ func (p *PDPService) handleDeleteDataSetPiece(w http.ResponseWriter, r *http.Req
 		http.Error(w, "Data set not found", http.StatusNotFound)
 		return
 	}
+
+	if p.refuseUnallowlistedAuthorizer(w, ctx, dataSetId) {
+		return
+	}
+
 	type DeletePiecePayload struct {
 		ExtraData *string  `json:"extraData"`
 		PieceIDs  []uint64 `json:"pieceIds"`
@@ -1096,6 +1107,11 @@ func (p *PDPService) handleDeleteDataSetPiece(w http.ResponseWriter, r *http.Req
 	fromAddress, err := p.getSenderAddress(ctx)
 	if err != nil {
 		httpServerError(w, http.StatusInternalServerError, "Failed to get sender address", err)
+		return
+	}
+
+	if err := p.preflightAuthorizerCall(ctx, fromAddress, contract.ContractAddresses().PDPVerifier, data, nil); err != nil {
+		httpServerError(w, http.StatusBadRequest, "schedulePieceDeletions validation failed: "+err.Error(), err)
 		return
 	}
 
