@@ -269,6 +269,18 @@ func TestVacatingDiskReceivesNothing(t *testing.T) {
 	require.Equal(t, int64(0), usedOf(out, 1))
 }
 
+func TestBalanceBytesFromFillFractions(t *testing.T) {
+	// 70% and 20% of a capacity whose used*cap product does not fit in int64.
+	const cap = int64(5) << 40
+	require.Equal(t, cap/4, BalanceBytes(cap*7/10, cap, cap*2/10, cap))
+	require.Equal(t, int64(0), BalanceBytes(cap*6/10, cap, cap*2/10, cap))
+
+	// 90% of the larger disk and 10% of the smaller. Half of the 80 point gap
+	// is 40% of the smaller capacity.
+	capHi, capLo := int64(10)<<30, int64(5)<<30
+	require.Equal(t, capLo*4/10, BalanceBytes(capHi*9/10, capHi, capLo/10, capLo))
+}
+
 func TestBalanceHalfGap(t *testing.T) {
 	st := mk([]int64{100, 100}, []byte{0x40, 0x80}, []int64{70, 20}, []int{0, 1})
 	out, res := solveOK(t, st, Event{Kind: EventBalance, Disk: 1})
