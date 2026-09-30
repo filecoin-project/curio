@@ -47,9 +47,7 @@ func newWorld(state State) (*world, error) {
 		used:   make([]int64, len(state.Disks)),
 		frozen: make([]bool, len(state.Disks)),
 	}
-	for i, v := range state.Vacating {
-		w.frozen[i] = v
-	}
+	copy(w.frozen, state.Vacating)
 	for s, sp := range state.Spaces {
 		w.spaces[s] = spaceWorld{
 			ranges: cloneRanges(sp.Ranges),
