@@ -1,4 +1,4 @@
-name: Docker Curio-PDP
+name: Docker Curio
 
 on:
   release:
@@ -64,8 +64,10 @@ jobs:
         id: images
         run: |
           IMAGES='[
-            {"name":"curio-pdp","network":"mainnet","file":"docker/skiff/Dockerfile","target":"skiff"},
-            {"name":"curio-pdp","network":"calibnet","file":"docker/skiff/Dockerfile","target":"calibnet-skiff"}
+            {"name":"curio","network":"mainnet","file":"Dockerfile","target":"build"},
+            {"name":"curio","network":"calibnet","file":"Dockerfile","target":"calibnet"},
+            {"name":"curio","network":"debug","file":"Dockerfile","target":"debug"},
+            {"name":"curio","network":"2k","file":"Dockerfile","target":"2k"}
           ]'
           echo "images=$(jq -c . <<< "$IMAGES")" >> "$GITHUB_OUTPUT"
 
@@ -83,10 +85,13 @@ jobs:
           - arch: arm64
             runner: ubuntu-24.04-arm
     env:
-      IMAGE: filecoin/curio-pdp
+      IMAGE: filecoin/curio
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -102,19 +107,19 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: docker/skiff/Dockerfile
-          target: skiff
+          file: Dockerfile
+          target: curio
           platforms: linux/${{ matrix.platform.arch }}
           outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
           build-args: |
-            SKIFF_MAKE_TARGET=${{ matrix.image.target }}
+            CURIO_MAKE_TARGET=${{ matrix.image.target }}
             CURIO_BUILD_COMMIT=${{ github.sha }}
             BUILD_VERSION=${{ needs.resolve.outputs.version }}${{ matrix.image.network != 'mainnet' && format('-{0}', matrix.image.network) || '' }}
 
       - name: Verify architecture image starts
         env:
           ARCH: ${{ matrix.platform.arch }}
-          BINARY: skiff
+          BINARY: curio
           DIGEST: ${{ steps.build.outputs.digest }}
         run: docker run --rm --platform "linux/$ARCH" --entrypoint "$BINARY" "$IMAGE@$DIGEST" --version
 
@@ -144,7 +149,7 @@ jobs:
       matrix:
         image: ${{ fromJSON(needs.resolve.outputs.images) }}
     env:
-      IMAGE: filecoin/curio-pdp
+      IMAGE: filecoin/curio
     steps:
       - name: Download digests
         uses: actions/download-artifact@v4
