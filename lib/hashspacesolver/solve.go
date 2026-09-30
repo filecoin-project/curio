@@ -2,6 +2,7 @@ package hashspacesolver
 
 import (
 	"bytes"
+	"math"
 	"math/big"
 	"slices"
 
@@ -431,30 +432,27 @@ func (w *world) absorb(dest int) {
 }
 
 // BalanceBytes is the number of bytes to move from the fuller disk onto the
-// emptier one so the emptier gains half their fill-percentage gap. It is zero
-// when that gap is below SPREAD_POINTS.
+// emptier one so the emptier gains half their fill-percentage gap. Fill is
+// the fraction used/cap on each disk, and half that gap times the emptier
+// capacity is the byte count. It is zero when the gap is below SPREAD_POINTS.
 func BalanceBytes(usedHi, capHi, usedLo, capLo int64) int64 {
 	if capHi <= 0 || capLo <= 0 || usedHi <= 0 || usedLo < 0 {
 		return 0
 	}
-	num := new(big.Int).Mul(big.NewInt(usedHi), big.NewInt(capLo))
-	num.Sub(num, new(big.Int).Mul(big.NewInt(usedLo), big.NewInt(capHi)))
-	if num.Sign() <= 0 {
+	hi := float64(usedHi) / float64(capHi)
+	lo := float64(usedLo) / float64(capLo)
+	gap := hi - lo
+	// A ratio of two int64s can sit an ulp under an exact percentage.
+	if gap*100 < float64(SPREAD_POINTS)-1e-9 {
 		return 0
 	}
-	den := new(big.Int).Mul(big.NewInt(capHi), big.NewInt(capLo))
-	lhs := new(big.Int).Mul(num, big.NewInt(100))
-	rhs := new(big.Int).Mul(big.NewInt(SPREAD_POINTS), den)
-	if lhs.Cmp(rhs) < 0 {
+	nFloat := gap / 2 * float64(capLo)
+	if nFloat <= 0 {
 		return 0
 	}
-	bytes := new(big.Int).Quo(num, new(big.Int).Lsh(big.NewInt(capHi), 1))
-	if !bytes.IsInt64() {
-		return 0
-	}
-	n := bytes.Int64()
-	if n > usedHi {
-		n = usedHi
+	n := usedHi
+	if nFloat < float64(math.MaxInt64) && nFloat < float64(usedHi) {
+		n = int64(math.Round(nFloat))
 	}
 	if free := capLo - usedLo; free < n {
 		n = free
