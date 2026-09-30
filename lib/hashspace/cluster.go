@@ -235,30 +235,6 @@ func diskVacate(root string) bool {
 	return deny
 }
 
-func (c *Cluster) ownsRanges(ctx context.Context, storageID string) (bool, error) {
-	var owns bool
-	if err := c.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM hash_space_range WHERE storage_id = $1)`, storageID).Scan(&owns); err != nil {
-		return false, xerrors.Errorf("reading ranges of %s: %w", storageID, err)
-	}
-	return owns, nil
-}
-
-func (c *Cluster) localUsed(root string) (int64, error) {
-	var n int64
-	for _, kind := range spaceKinds {
-		sp := c.space(kind)
-		if sp == nil {
-			continue
-		}
-		u, err := sp.UsedOn(root)
-		if err != nil {
-			return 0, err
-		}
-		n += u
-	}
-	return n, nil
-}
-
 func (c *Cluster) rootOf(storageID string) (string, error) {
 	root, ok := c.roots[storageID]
 	if !ok || (c.open == nil && c.acl == nil) {
@@ -856,36 +832,6 @@ func (c *Cluster) remoteList(ctx context.Context, storageID, kind, low, high, af
 	return out, nil
 }
 
-// accountStorage republishes one disk's open-pieces range sizes. A remote
-// disk is asked over /hashspace/account.
-func (c *Cluster) accountStorage(ctx context.Context, storageID string) error {
-	if c.HasLocal(storageID) {
-		root, err := c.rootOf(storageID)
-		if err != nil {
-			return err
-		}
-		c.publishOne(ctx, storageID, root)
-		return nil
-	}
-	var urls string
-	if err := c.db.QueryRow(ctx, `SELECT COALESCE(urls, '') FROM storage_path WHERE storage_id = $1`, storageID).Scan(&urls); err != nil {
-		return xerrors.Errorf("looking up storage %s urls: %w", storageID, err)
-	}
-	lastErr := xerrors.Errorf("storage %s has no urls", storageID)
-	for _, u := range strings.Split(urls, storageURLSeparator) {
-		if u == "" {
-			continue
-		}
-		base := strings.TrimSuffix(strings.TrimSuffix(u, "/"), remoteSuffix)
-		if err := c.notifyOne(ctx, base+accountPath); err != nil {
-			lastErr = err
-			continue
-		}
-		return nil
-	}
-	return lastErr
-}
-
 // Refresh reloads local ranges and move sources from the cluster map now.
 func (c *Cluster) Refresh(ctx context.Context) error {
 	if c.open == nil {
@@ -1352,50 +1298,6 @@ func effectiveCapacity(root string, used int64) (int64, error) {
 	return limit, nil
 }
 
-// loadClusterState builds the solver state from the cluster map. Disks are
-// ordered by storage id. Each space's range sizes are the totals the owning
-// node published from that directory.
-func loadClusterState(tx *harmonydb.Tx) (hashspacesolver.State, []string, error) {
-	var disks []struct {
-		StorageID string `db:"storage_id"`
-		Capacity  int64  `db:"capacity"`
-		Vacating  bool   `db:"vacating"`
-	}
-	if err := tx.Select(&disks, `SELECT storage_id, capacity, vacating FROM hash_space_disk ORDER BY storage_id`); err != nil {
-		return hashspacesolver.State{}, nil, err
-	}
-	ids := make([]string, len(disks))
-	st := hashspacesolver.State{
-		Disks:    make([]int64, len(disks)),
-		Vacating: make([]bool, len(disks)),
-	}
-	for i, d := range disks {
-		ids[i] = d.StorageID
-		st.Disks[i] = d.Capacity
-		st.Vacating[i] = d.Vacating
-	}
-	for _, kind := range spaceKinds {
-		var rs []rangeRow
-		if err := tx.Select(&rs, `SELECT end_hash, storage_id, size FROM hash_space_range WHERE space = $1 ORDER BY end_hash`, kind); err != nil {
-			return hashspacesolver.State{}, nil, err
-		}
-		if len(rs) == 0 {
-			return hashspacesolver.State{}, nil, xerrors.Errorf("hash space %s has no ranges", kind)
-		}
-		sp := hashspacesolver.Space{Ranges: make([]hashspacesolver.Range, len(rs)), Owner: make([]int, len(rs))}
-		for i, r := range rs {
-			owner := indexOf(ids, r.StorageID)
-			if owner < 0 {
-				return hashspacesolver.State{}, nil, xerrors.Errorf("range owner %s is not a hash space disk", r.StorageID)
-			}
-			sp.Ranges[i] = hashspacesolver.Range{EndHash: r.EndHash, Size: r.Size}
-			sp.Owner[i] = owner
-		}
-		st.Spaces = append(st.Spaces, sp)
-	}
-	return st, ids, nil
-}
-
 func storeState(tx *harmonydb.Tx, st hashspacesolver.State, ids []string) error {
 	if len(st.Spaces) != len(spaceKinds) {
 		return xerrors.Errorf("expected %d hash spaces, got %d", len(spaceKinds), len(st.Spaces))
@@ -1560,18 +1462,6 @@ func sortRanges(rs []rangeRow) {
 			rs[j], rs[j-1] = rs[j-1], rs[j]
 		}
 	}
-}
-
-func ownedBytes(st hashspacesolver.State, disk int) int64 {
-	var n int64
-	for _, sp := range st.Spaces {
-		for i, r := range sp.Ranges {
-			if sp.Owner[i] == disk {
-				n += r.Size
-			}
-		}
-	}
-	return n
 }
 
 func indexOf(ids []string, id string) int {
