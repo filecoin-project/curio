@@ -726,25 +726,39 @@ func TestApplyRejectsUnknownRange(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestRandomClusterEvents(t *testing.T) {
+func TestAllClusterEvents(t *testing.T) {
 	rng := rand.New(rand.NewSource(42))
+	kinds := []EventKind{EventArrive, EventFull, EventVacate, EventAbsorb, EventBalance}
 	for i := 0; i < 64; i++ {
 		st := randomValidState(rng)
 		require.NoError(t, Validate(st), "iter %d seed state", i)
-		st, ev := randomEvent(rng, st)
-		res, err := Solve(st, ev)
-		if err != nil {
-			if ev.Kind == EventVacate || ev.Kind == EventFull {
-				continue
+		for _, kind := range kinds {
+			disks := make([]int, len(st.Disks))
+			for d := range disks {
+				disks[d] = d
 			}
-			t.Fatalf("iter %d: unexpected solve error: %v", i, err)
-		}
-		out, err := Apply(st, res.Diff)
-		require.NoError(t, err, "iter %d", i)
-		require.NoError(t, Validate(out), "iter %d", i)
-		requireEqualState(t, res.State, out)
-		if ev.Kind == EventVacate {
-			require.Zero(t, usedOf(out, ev.Disk), "iter %d", i)
+			in := st
+			if kind == EventArrive {
+				in.Disks = append(append([]int64(nil), st.Disks...), 80)
+				disks = []int{len(st.Disks)}
+			}
+			for _, disk := range disks {
+				ev := Event{Kind: kind, Disk: disk}
+				res, err := Solve(in, ev)
+				if err != nil {
+					if kind == EventVacate || kind == EventFull {
+						continue
+					}
+					t.Fatalf("iter %d kind %d disk %d: unexpected solve error: %v", i, kind, disk, err)
+				}
+				out, err := Apply(in, res.Diff)
+				require.NoError(t, err, "iter %d kind %d disk %d", i, kind, disk)
+				require.NoError(t, Validate(out), "iter %d kind %d disk %d", i, kind, disk)
+				requireEqualState(t, res.State, out)
+				if kind == EventVacate {
+					require.Zero(t, usedOf(out, disk), "iter %d kind %d disk %d", i, kind, disk)
+				}
+			}
 		}
 	}
 }
@@ -775,20 +789,4 @@ func randomValidState(rng *rand.Rand) State {
 		spaces[s] = Space{Ranges: ranges, Owner: owner}
 	}
 	return State{Disks: disks, Spaces: spaces}
-}
-
-func randomEvent(rng *rand.Rand, st State) (State, Event) {
-	switch rng.Intn(5) {
-	case 0:
-		st.Disks = append(append([]int64(nil), st.Disks...), 60+int64(rng.Intn(40)))
-		return st, Event{Kind: EventArrive, Disk: len(st.Disks) - 1}
-	case 1:
-		return st, Event{Kind: EventFull, Disk: rng.Intn(len(st.Disks))}
-	case 2:
-		return st, Event{Kind: EventAbsorb, Disk: rng.Intn(len(st.Disks))}
-	case 3:
-		return st, Event{Kind: EventBalance, Disk: rng.Intn(len(st.Disks))}
-	default:
-		return st, Event{Kind: EventVacate, Disk: rng.Intn(len(st.Disks))}
-	}
 }
