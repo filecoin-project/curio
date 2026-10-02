@@ -15,6 +15,10 @@
 - Work creation is transactional:
 - insert into `harmony_task`;
 - write task-specific rows in the same transaction.
+- Create a task where the DB change that needs it is made, in the same transaction, instead of adding a trigger-fed queue table or a poller that finds the change later:
+- a task re-queuing its own kind uses its `Adder` func; other code gets one with `harmonytask.AdderFor(name)` (nil until the engine starts);
+- code that already runs a transaction replaces `BeginTransaction` with `harmonytask.TxWithTask(ctx, db, addTask, fn)`. `fn` runs with id 0 first and returns `harmonytask.ErrNeedTask` once it finds work; it then reruns inside the AddTask transaction with the task id, so no task is created when nothing needs doing. Nesting `AddTaskByName` inside another transaction is not possible;
+- key the extra-info rows by `task_id` (NOT NULL); a task may own several rows from one transaction and re-point rows it can't handle on this node to a new task.
 - Work claiming uses compare-and-set ownership updates (`owner_id IS NULL` -> `owner_id = machine`); do not rely on row-lock semantics for correctness.
 - Pipeline updates are conditional (`... WHERE current_state ...`) to enforce idempotent transitions and avoid double advancement.
 - Uniqueness is used as behavior control, including partial unique indexes (for example sender+nonce where send is in-flight/successful).
@@ -55,8 +59,7 @@
 
 ## Preferred implementation shapes
 - For new asynchronous features, follow this shape:
-- durable intent row/table;
-- task adder/poller selecting eligible rows;
+- durable intent row/table, written with its task in one transaction (pollers only for work that has no originating DB change, such as periodic scans);
 - worker task with idempotent DB transition;
 - optional message/receipt wait path;
 - status query endpoint;
@@ -76,6 +79,7 @@
 
 ## Patterns an AI should not introduce
 - Node-local authoritative queues, locks, or state machines that bypass DB coordination.
+- New DB triggers or polling loops that turn row changes into tasks; add the task in the transaction that makes the change.
 - Direct chain/contract side effects from handlers without sender/watcher persistence.
 - Multi-table state transitions performed outside transactions.
 - Refactors that collapse durable and transient tables into one mutable record.
