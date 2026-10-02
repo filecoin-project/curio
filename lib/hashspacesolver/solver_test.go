@@ -224,6 +224,104 @@ func TestArriveNoData(t *testing.T) {
 	require.Empty(t, res.Diff)
 }
 
+func TestAbsorbIdleAtFillLimit(t *testing.T) {
+	// Disk 0 is at its fill limit, not over it. Returned room on disk 1
+	// does not pull bytes over just to even the disks.
+	st := mk([]int64{100, 100}, []byte{0x80}, []int64{80}, []int{0})
+	_, res := solveOK(t, st, Event{Kind: EventAbsorb, Disk: 1})
+	require.Empty(t, res.Diff)
+}
+
+func TestAbsorbTakesOnlyOverflow(t *testing.T) {
+	st := mk([]int64{100, 100}, []byte{0x80}, []int64{90}, []int{0})
+	out, res := solveOK(t, st, Event{Kind: EventAbsorb, Disk: 1})
+	require.NotEmpty(t, res.Diff)
+	require.Equal(t, int64(90), usedOf(out, 0)+usedOf(out, 1))
+	require.Equal(t, fillLimitOf(100), usedOf(out, 0))
+	require.Equal(t, int64(10), usedOf(out, 1))
+}
+
+func TestAbsorbStopsAtDestFillLimit(t *testing.T) {
+	st := mk([]int64{100, 50}, []byte{0x80}, []int64{90}, []int{0})
+	out, res := solveOK(t, st, Event{Kind: EventAbsorb, Disk: 1})
+	require.NotEmpty(t, res.Diff)
+	require.Equal(t, int64(90), usedOf(out, 0)+usedOf(out, 1))
+	require.LessOrEqual(t, usedOf(out, 1), fillLimitOf(50))
+	require.Greater(t, usedOf(out, 1), int64(0))
+	require.GreaterOrEqual(t, usedOf(out, 0), fillLimitOf(100))
+}
+
+func TestVacatingDiskReceivesNothing(t *testing.T) {
+	st := mk([]int64{100, 100, 100}, []byte{0x80}, []int64{90}, []int{0})
+	st.Vacating = []bool{false, true, false}
+	out, res := solveOK(t, st, Event{Kind: EventFull, Disk: 0})
+	require.NotEmpty(t, res.Diff)
+	require.Equal(t, int64(0), usedOf(out, 1))
+	require.LessOrEqual(t, usedOf(out, 0), fillLimitOf(100))
+	require.Equal(t, int64(90), usedOf(out, 0)+usedOf(out, 2))
+	require.Greater(t, usedOf(out, 2), int64(0))
+
+	st = mk([]int64{100, 100}, []byte{0x80}, []int64{90}, []int{0})
+	st.Vacating = []bool{false, true}
+	out, res = solveOK(t, st, Event{Kind: EventAbsorb, Disk: 1})
+	require.Empty(t, res.Diff)
+	require.Equal(t, int64(90), usedOf(out, 0))
+	require.Equal(t, int64(0), usedOf(out, 1))
+}
+
+func TestBalanceBytesFromFillFractions(t *testing.T) {
+	// 70% and 20% of a capacity whose used*cap product does not fit in int64.
+	const cap = int64(5) << 40
+	require.Equal(t, cap/4, BalanceBytes(cap*7/10, cap, cap*2/10, cap))
+	require.Equal(t, int64(0), BalanceBytes(cap*6/10, cap, cap*2/10, cap))
+
+	// 90% of the larger disk and 10% of the smaller. Half of the 80 point gap
+	// is 40% of the smaller capacity.
+	capHi, capLo := int64(10)<<30, int64(5)<<30
+	require.Equal(t, capLo*4/10, BalanceBytes(capHi*9/10, capHi, capLo/10, capLo))
+}
+
+func TestBalanceHalfGap(t *testing.T) {
+	st := mk([]int64{100, 100}, []byte{0x40, 0x80}, []int64{70, 20}, []int{0, 1})
+	out, res := solveOK(t, st, Event{Kind: EventBalance, Disk: 1})
+	require.NotEmpty(t, res.Diff)
+	require.Equal(t, int64(90), usedOf(out, 0)+usedOf(out, 1))
+	require.Equal(t, int64(45), usedOf(out, 0))
+	require.Equal(t, int64(45), usedOf(out, 1))
+}
+
+func TestBalanceIdleUnderSpread(t *testing.T) {
+	st := mk([]int64{100, 100}, []byte{0x40, 0x80}, []int64{60, 20}, []int{0, 1})
+	_, res := solveOK(t, st, Event{Kind: EventBalance, Disk: 1})
+	require.Empty(t, res.Diff)
+}
+
+func TestBalanceUsesSmallerCapacity(t *testing.T) {
+	// 180/200 is 90%, 10/100 is 10%. Half of that 80 point gap is 40% of the
+	// smaller disk.
+	st := mk([]int64{200, 100}, []byte{0x40, 0x80}, []int64{180, 10}, []int{0, 1})
+	out, res := solveOK(t, st, Event{Kind: EventBalance, Disk: 1})
+	require.NotEmpty(t, res.Diff)
+	require.Equal(t, int64(190), usedOf(out, 0)+usedOf(out, 1))
+	require.Equal(t, int64(140), usedOf(out, 0))
+	require.Equal(t, int64(50), usedOf(out, 1))
+}
+
+func TestBalanceSkipsVacating(t *testing.T) {
+	st := mk([]int64{100, 100}, []byte{0x40, 0x80}, []int64{70, 20}, []int{0, 1})
+	st.Vacating = []bool{false, true}
+	out, res := solveOK(t, st, Event{Kind: EventBalance, Disk: 1})
+	require.Empty(t, res.Diff)
+	require.Equal(t, int64(70), usedOf(out, 0))
+	require.Equal(t, int64(20), usedOf(out, 1))
+}
+
+func TestAbsorbIdleWhenBalanced(t *testing.T) {
+	st := mk([]int64{100, 100}, []byte{0x40, 0xc0}, []int64{40, 40}, []int{0, 1})
+	_, res := solveOK(t, st, Event{Kind: EventAbsorb, Disk: 1})
+	require.Empty(t, res.Diff)
+}
+
 func TestArriveIdleWhenUnderFillLimit(t *testing.T) {
 	st := mk(
 		[]int64{20, 20},
@@ -628,25 +726,39 @@ func TestApplyRejectsUnknownRange(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestRandomClusterEvents(t *testing.T) {
+func TestAllClusterEvents(t *testing.T) {
 	rng := rand.New(rand.NewSource(42))
+	kinds := []EventKind{EventArrive, EventFull, EventVacate, EventAbsorb, EventBalance}
 	for i := 0; i < 64; i++ {
 		st := randomValidState(rng)
 		require.NoError(t, Validate(st), "iter %d seed state", i)
-		st, ev := randomEvent(rng, st)
-		res, err := Solve(st, ev)
-		if err != nil {
-			if ev.Kind == EventVacate || ev.Kind == EventFull {
-				continue
+		for _, kind := range kinds {
+			disks := make([]int, len(st.Disks))
+			for d := range disks {
+				disks[d] = d
 			}
-			t.Fatalf("iter %d: unexpected solve error: %v", i, err)
-		}
-		out, err := Apply(st, res.Diff)
-		require.NoError(t, err, "iter %d", i)
-		require.NoError(t, Validate(out), "iter %d", i)
-		requireEqualState(t, res.State, out)
-		if ev.Kind == EventVacate {
-			require.Zero(t, usedOf(out, ev.Disk), "iter %d", i)
+			in := st
+			if kind == EventArrive {
+				in.Disks = append(append([]int64(nil), st.Disks...), 80)
+				disks = []int{len(st.Disks)}
+			}
+			for _, disk := range disks {
+				ev := Event{Kind: kind, Disk: disk}
+				res, err := Solve(in, ev)
+				if err != nil {
+					if kind == EventVacate || kind == EventFull {
+						continue
+					}
+					t.Fatalf("iter %d kind %d disk %d: unexpected solve error: %v", i, kind, disk, err)
+				}
+				out, err := Apply(in, res.Diff)
+				require.NoError(t, err, "iter %d kind %d disk %d", i, kind, disk)
+				require.NoError(t, Validate(out), "iter %d kind %d disk %d", i, kind, disk)
+				requireEqualState(t, res.State, out)
+				if kind == EventVacate {
+					require.Zero(t, usedOf(out, disk), "iter %d kind %d disk %d", i, kind, disk)
+				}
+			}
 		}
 	}
 }
@@ -677,16 +789,4 @@ func randomValidState(rng *rand.Rand) State {
 		spaces[s] = Space{Ranges: ranges, Owner: owner}
 	}
 	return State{Disks: disks, Spaces: spaces}
-}
-
-func randomEvent(rng *rand.Rand, st State) (State, Event) {
-	switch rng.Intn(3) {
-	case 0:
-		st.Disks = append(append([]int64(nil), st.Disks...), 60+int64(rng.Intn(40)))
-		return st, Event{Kind: EventArrive, Disk: len(st.Disks) - 1}
-	case 1:
-		return st, Event{Kind: EventFull, Disk: rng.Intn(len(st.Disks))}
-	default:
-		return st, Event{Kind: EventVacate, Disk: rng.Intn(len(st.Disks))}
-	}
 }
