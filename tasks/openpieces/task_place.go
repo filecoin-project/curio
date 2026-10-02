@@ -158,14 +158,59 @@ func (t *PlaceTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwne
 			// a drop wins the race after an adopt, put those bytes back.
 			refGone := false
 			for {
-				if err := t.waitNoDelete(ctx, pc, stillOwned); err != nil {
+				if err := /* PlaceTask.waitNoDelete */ func(ctx context.Context, pc cid.Cid, stillOwned func() bool) error {
+					for {
+						var busy bool
+						if err := t.db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM hash_space_delete WHERE piece_cid = $1)`, pc.String()).Scan(&busy); err != nil {
+							return xerrors.Errorf("checking open-pieces delete of %s: %w", pc, err)
+						}
+						if !busy {
+							return nil
+						}
+						if err := sleepTask(ctx, stillOwned); err != nil {
+							return err
+						}
+					}
+				}(ctx, pc, stillOwned); err != nil {
 					return false, err
 				}
 				_, existed, err := t.hs.StatLocal(target, pc)
 				if err != nil {
 					return false, err
 				}
-				size, adopted, err := t.write(ctx, target, pc, pp)
+				size, adopted, err := /* PlaceTask.write */ func(ctx context.Context, target string, pc cid.Cid, pp parkedPiece) (int64, string, error) {
+					if size, ok, err := t.hs.StatLocal(target, pc); err != nil {
+						return 0, "", err
+					} else if ok {
+						return size, "", nil
+					}
+
+					if pp.RefCount == 1 {
+						if src, ok := t.local.ExistingLocalFile(storiface.PieceNumber(pp.ID).Ref().ID, storiface.FTPiece); ok {
+							size, err := t.hs.AdoptLocal(target, pc, src)
+							switch {
+							case err == nil:
+								return size, src, nil
+							case errors.Is(err, os.ErrExist):
+								size, _, err := t.hs.StatLocal(target, pc)
+								return size, "", err
+							case !errors.Is(err, hashspace.ErrCrossDevice):
+								return 0, "", xerrors.Errorf("renaming %s into open-pieces: %w", pc, err)
+							}
+						}
+					}
+
+					r, err := t.pieceIO.PieceReader(ctx, storiface.PieceNumber(pp.ID))
+					if err != nil {
+						return 0, "", xerrors.Errorf("opening piece-park copy of %s: %w", pc, err)
+					}
+					defer func() { _ = r.Close() }()
+					size, err := t.hs.WriteLocal(target, pc, r)
+					if err != nil {
+						return 0, "", err
+					}
+					return size, "", nil
+				}(ctx, target, pc, pp)
 				if err != nil {
 					return false, err
 				}
@@ -225,7 +270,28 @@ func (t *PlaceTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwne
 				return false, err
 			}
 			if shared {
-				if err := t.restorePark(ctx, pc, pp); err != nil {
+				if err := /* PlaceTask.restorePark */ func(ctx context.Context, pc cid.Cid, pp parkedPiece) error {
+					locs, err := t.hs.Locations(ctx, pc.String())
+					if err != nil {
+						return err
+					}
+					lastErr := xerrors.Errorf("%s has no open-pieces location", pc)
+					for _, l := range locs {
+						r, err := t.hs.Open(ctx, l.StorageID, pc)
+						if err != nil {
+							lastErr = err
+							continue
+						}
+						err = t.pieceIO.WritePiece(ctx, nil, storiface.PieceNumber(pp.ID), pp.RawSize, r, storiface.PathStorage)
+						_ = r.Close()
+						if err != nil {
+							lastErr = err
+							continue
+						}
+						return nil
+					}
+					return lastErr
+				}(ctx, pc, pp); err != nil {
 					return false, xerrors.Errorf("restoring piece-park copy of %s for a new non-PDP ref: %w", pc, err)
 				}
 			}
@@ -241,39 +307,6 @@ func (t *PlaceTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwne
 // filesystem is renamed; otherwise the bytes are copied. The second result
 // is the piece-park path when the file was renamed, so a lost race can put
 // it back.
-func (t *PlaceTask) write(ctx context.Context, target string, pc cid.Cid, pp parkedPiece) (int64, string, error) {
-	if size, ok, err := t.hs.StatLocal(target, pc); err != nil {
-		return 0, "", err
-	} else if ok {
-		return size, "", nil
-	}
-
-	if pp.RefCount == 1 {
-		if src, ok := t.local.ExistingLocalFile(storiface.PieceNumber(pp.ID).Ref().ID, storiface.FTPiece); ok {
-			size, err := t.hs.AdoptLocal(target, pc, src)
-			switch {
-			case err == nil:
-				return size, src, nil
-			case errors.Is(err, os.ErrExist):
-				size, _, err := t.hs.StatLocal(target, pc)
-				return size, "", err
-			case !errors.Is(err, hashspace.ErrCrossDevice):
-				return 0, "", xerrors.Errorf("renaming %s into open-pieces: %w", pc, err)
-			}
-		}
-	}
-
-	r, err := t.pieceIO.PieceReader(ctx, storiface.PieceNumber(pp.ID))
-	if err != nil {
-		return 0, "", xerrors.Errorf("opening piece-park copy of %s: %w", pc, err)
-	}
-	defer func() { _ = r.Close() }()
-	size, err := t.hs.WriteLocal(target, pc, r)
-	if err != nil {
-		return 0, "", err
-	}
-	return size, "", nil
-}
 
 // undoPlacement removes a file this attempt created. An adopted file goes
 // back to its piece-park path; a copy is deleted. A file that was already
@@ -294,20 +327,6 @@ func (t *PlaceTask) undoPlacement(target string, pc cid.Cid, existed bool, adopt
 }
 
 // waitNoDelete blocks until no hash_space_delete row exists for pc.
-func (t *PlaceTask) waitNoDelete(ctx context.Context, pc cid.Cid, stillOwned func() bool) error {
-	for {
-		var busy bool
-		if err := t.db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM hash_space_delete WHERE piece_cid = $1)`, pc.String()).Scan(&busy); err != nil {
-			return xerrors.Errorf("checking open-pieces delete of %s: %w", pc, err)
-		}
-		if !busy {
-			return nil
-		}
-		if err := sleepTask(ctx, stillOwned); err != nil {
-			return err
-		}
-	}
-}
 
 func sleepTask(ctx context.Context, stillOwned func() bool) error {
 	if stillOwned != nil && !stillOwned() {
@@ -340,28 +359,6 @@ func (t *PlaceTask) hasNonPDPRefs(ctx context.Context, parkedID int64) (bool, er
 
 // restorePark writes the piece-park copy back from open-pieces when a non-PDP
 // ref attached while the copy was being removed.
-func (t *PlaceTask) restorePark(ctx context.Context, pc cid.Cid, pp parkedPiece) error {
-	locs, err := t.hs.Locations(ctx, pc.String())
-	if err != nil {
-		return err
-	}
-	lastErr := xerrors.Errorf("%s has no open-pieces location", pc)
-	for _, l := range locs {
-		r, err := t.hs.Open(ctx, l.StorageID, pc)
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		err = t.pieceIO.WritePiece(ctx, nil, storiface.PieceNumber(pp.ID), pp.RawSize, r, storiface.PathStorage)
-		_ = r.Close()
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		return nil
-	}
-	return lastErr
-}
 
 func (t *PlaceTask) finish(ctx context.Context, ref int64) error {
 	if _, err := t.db.Exec(ctx, `DELETE FROM hash_space_place WHERE pdp_pieceref = $1`, ref); err != nil {

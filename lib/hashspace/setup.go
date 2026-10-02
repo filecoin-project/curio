@@ -68,7 +68,19 @@ func FirstSetup(drives []Drive) (hashspacesolver.State, error) {
 	}
 	switch {
 	case nNeither == len(drives):
-		seedCaps, err := pieceCaps(drives, caps)
+		seedCaps, err := /* pieceCaps */ func(drives []Drive, caps []int64) ([]int64, error) {
+			out := append([]int64(nil), caps...)
+			for i, d := range drives {
+				deny, err := deniesPiecePark(d.Root)
+				if err != nil {
+					return nil, err
+				}
+				if deny {
+					out[i] = 0
+				}
+			}
+			return out, nil
+		}(drives, caps)
 		if err != nil {
 			return hashspacesolver.State{}, err
 		}
@@ -82,7 +94,28 @@ func FirstSetup(drives []Drive) (hashspacesolver.State, error) {
 		if !positive {
 			return hashspacesolver.State{}, errNoPieceDrive
 		}
-		st, err := seedState(caps, seedCaps)
+		st, err := /* seedState */ func(caps, seedCaps []int64) (hashspacesolver.State, error) {
+			open, err := seedSpace(seedCaps)
+			if err != nil {
+				return hashspacesolver.State{}, err
+			}
+			acl, err := seedSpace(seedCaps)
+			if err != nil {
+				return hashspacesolver.State{}, err
+			}
+			st := hashspacesolver.State{
+				Disks:  append([]int64(nil), caps...),
+				Spaces: []hashspacesolver.Space{open, acl},
+			}
+			st, err = hashspacesolver.Apply(st, nil)
+			if err != nil {
+				return hashspacesolver.State{}, err
+			}
+			if err := hashspacesolver.Validate(st); err != nil {
+				return hashspacesolver.State{}, err
+			}
+			return st, nil
+		}(caps, seedCaps)
 		if err != nil {
 			return hashspacesolver.State{}, err
 		}
@@ -185,19 +218,6 @@ func deniesPiecePark(root string) (bool, error) {
 
 // pieceCaps is caps with drives that deny piece park zeroed, so seeding and
 // arrival skip them.
-func pieceCaps(drives []Drive, caps []int64) ([]int64, error) {
-	out := append([]int64(nil), caps...)
-	for i, d := range drives {
-		deny, err := deniesPiecePark(d.Root)
-		if err != nil {
-			return nil, err
-		}
-		if deny {
-			out[i] = 0
-		}
-	}
-	return out, nil
-}
 
 func fileExists(path string) (bool, error) {
 	_, err := os.Stat(path)
@@ -208,29 +228,6 @@ func fileExists(path string) (bool, error) {
 		return false, nil
 	}
 	return false, err
-}
-
-func seedState(caps, seedCaps []int64) (hashspacesolver.State, error) {
-	open, err := seedSpace(seedCaps)
-	if err != nil {
-		return hashspacesolver.State{}, err
-	}
-	acl, err := seedSpace(seedCaps)
-	if err != nil {
-		return hashspacesolver.State{}, err
-	}
-	st := hashspacesolver.State{
-		Disks:  append([]int64(nil), caps...),
-		Spaces: []hashspacesolver.Space{open, acl},
-	}
-	st, err = hashspacesolver.Apply(st, nil)
-	if err != nil {
-		return hashspacesolver.State{}, err
-	}
-	if err := hashspacesolver.Validate(st); err != nil {
-		return hashspacesolver.State{}, err
-	}
-	return st, nil
 }
 
 func seedSpace(capacities []int64) (hashspacesolver.Space, error) {
