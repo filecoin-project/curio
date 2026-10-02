@@ -41,7 +41,56 @@ func (c *Cluster) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, httpPrefix), "/")
 	if len(parts) == 2 && parts[1] == "list" {
-		c.serveList(w, r, parts[0])
+		storageID := parts[0]
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		q := r.URL.Query()
+		limit := LIST_PAGE
+		if s := q.Get("limit"); s != "" {
+			n, err := strconv.Atoi(s)
+			if err != nil || n < 0 {
+				http.Error(w, "bad limit", http.StatusBadRequest)
+				return
+			}
+			limit = n
+		}
+		if limit > 4096 {
+			limit = 4096
+		}
+		if !c.HasLocal(storageID) {
+			http.NotFound(w, r)
+			return
+		}
+		kind, err := parseSpaceKind(q.Get("space"))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		low, high, after := q.Get("low"), q.Get("high"), q.Get("after")
+		for _, b := range []string{low, high, after} {
+			if b == "" {
+				continue
+			}
+			if _, err := hex.DecodeString(b); err != nil {
+				http.Error(w, "bad hash bound", http.StatusBadRequest)
+				return
+			}
+		}
+		hashes, err := c.listPieceHashes(r.Context(), storageID, kind, low, high, after, limit)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		if r.Method == http.MethodHead {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain")
+		for _, h := range hashes {
+			_, _ = w.Write([]byte(h + "\n"))
+		}
 		return
 	}
 	if len(parts) != 2 {
@@ -97,57 +146,5 @@ func (c *Cluster) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-	}
-}
-
-func (c *Cluster) serveList(w http.ResponseWriter, r *http.Request, storageID string) {
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	q := r.URL.Query()
-	limit := LIST_PAGE
-	if s := q.Get("limit"); s != "" {
-		n, err := strconv.Atoi(s)
-		if err != nil || n < 0 {
-			http.Error(w, "bad limit", http.StatusBadRequest)
-			return
-		}
-		limit = n
-	}
-	if limit > 4096 {
-		limit = 4096
-	}
-	if !c.HasLocal(storageID) {
-		http.NotFound(w, r)
-		return
-	}
-	kind, err := parseSpaceKind(q.Get("space"))
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	low, high, after := q.Get("low"), q.Get("high"), q.Get("after")
-	for _, b := range []string{low, high, after} {
-		if b == "" {
-			continue
-		}
-		if _, err := hex.DecodeString(b); err != nil {
-			http.Error(w, "bad hash bound", http.StatusBadRequest)
-			return
-		}
-	}
-	hashes, err := c.listPieceHashes(r.Context(), storageID, kind, low, high, after, limit)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
-		return
-	}
-	if r.Method == http.MethodHead {
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	w.Header().Set("Content-Type", "text/plain")
-	for _, h := range hashes {
-		_, _ = w.Write([]byte(h + "\n"))
 	}
 }

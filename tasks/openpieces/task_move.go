@@ -55,8 +55,17 @@ func (t *MoveTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned
 		}
 	}
 	if len(remote) > 0 {
-		if err := t.handoff(ctx, taskID, remote); err != nil {
-			return false, err
+		// handoff: move sources whose destination is on another node go to a
+		// new task, so a node holding those disks picks them up.
+		_, err := harmonytask.TxWithTask(ctx, t.db, t.TF.Val(ctx), func(tx *harmonydb.Tx, id harmonytask.TaskID) (bool, error) {
+			if id == 0 {
+				return false, harmonytask.ErrNeedTask
+			}
+			n, err := tx.Exec(`UPDATE hash_space_move_source SET task_id = $1 WHERE id = ANY($2) AND task_id = $3`, id, remote, taskID)
+			return n > 0, err
+		})
+		if err != nil {
+			return false, xerrors.Errorf("handing off hash space move sources %v: %w", remote, err)
 		}
 	}
 
@@ -64,58 +73,35 @@ func (t *MoveTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned
 		if !t.hs.HasLocal(m.ToStorage) {
 			continue
 		}
-		if err := t.moveOne(ctx, m, stillOwned); err != nil {
-			return false, err
+		// moveOne copies this interval onto the local destination, then hands it over.
+		var prev []string
+		for {
+			if !stillOwned() {
+				return false, xerrors.Errorf("lost ownership of move source %d", m.ID)
+			}
+			hashes, err := t.hs.PendingCopy(ctx, m, COPY_BATCH)
+			if err != nil {
+				return false, xerrors.Errorf("listing move source %d pieces: %w", m.ID, err)
+			}
+			if len(hashes) == 0 {
+				break
+			}
+			if slices.Equal(hashes, prev) {
+				return false, xerrors.Errorf("move source %d made no progress on %d pieces", m.ID, len(hashes))
+			}
+			for _, h := range hashes {
+				if err := t.hs.CopyOne(ctx, m, h); err != nil {
+					return false, xerrors.Errorf("move source %d: %w", m.ID, err)
+				}
+			}
+			prev = hashes
 		}
+		if err := t.hs.CompleteMoveSource(ctx, m); err != nil {
+			return false, xerrors.Errorf("completing move source %d: %w", m.ID, err)
+		}
+		log.Infow("hash space move complete", "move_source", m.ID, "from", m.FromStorage, "to", m.ToStorage)
 	}
 	return true, nil
-}
-
-func (t *MoveTask) moveOne(ctx context.Context, m *hashspace.MoveSource, stillOwned func() bool) error {
-	var prev []string
-	for {
-		if !stillOwned() {
-			return xerrors.Errorf("lost ownership of move source %d", m.ID)
-		}
-		hashes, err := t.hs.PendingCopy(ctx, m, COPY_BATCH)
-		if err != nil {
-			return xerrors.Errorf("listing move source %d pieces: %w", m.ID, err)
-		}
-		if len(hashes) == 0 {
-			break
-		}
-		if slices.Equal(hashes, prev) {
-			return xerrors.Errorf("move source %d made no progress on %d pieces", m.ID, len(hashes))
-		}
-		for _, h := range hashes {
-			if err := t.hs.CopyOne(ctx, m, h); err != nil {
-				return xerrors.Errorf("move source %d: %w", m.ID, err)
-			}
-		}
-		prev = hashes
-	}
-
-	if err := t.hs.CompleteMoveSource(ctx, m); err != nil {
-		return xerrors.Errorf("completing move source %d: %w", m.ID, err)
-	}
-	log.Infow("hash space move complete", "move_source", m.ID, "from", m.FromStorage, "to", m.ToStorage)
-	return nil
-}
-
-// handoff moves move sources whose destination is on another node to a new
-// task, so a node holding those disks picks them up.
-func (t *MoveTask) handoff(ctx context.Context, from harmonytask.TaskID, ids []int64) error {
-	_, err := harmonytask.TxWithTask(ctx, t.db, t.TF.Val(ctx), func(tx *harmonydb.Tx, id harmonytask.TaskID) (bool, error) {
-		if id == 0 {
-			return false, harmonytask.ErrNeedTask
-		}
-		n, err := tx.Exec(`UPDATE hash_space_move_source SET task_id = $1 WHERE id = ANY($2) AND task_id = $3`, id, ids, from)
-		return n > 0, err
-	})
-	if err != nil {
-		return xerrors.Errorf("handing off hash space move sources %v: %w", ids, err)
-	}
-	return nil
 }
 
 func (t *MoveTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {

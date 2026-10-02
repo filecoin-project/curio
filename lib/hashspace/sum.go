@@ -40,7 +40,20 @@ func sumInterval(dir, start, end string) (int64, error) {
 		return 0, err
 	}
 	n := res.Bytes
-	if stringHashInInterval(layoutFile, low, high) {
+	// stringHashInInterval
+	inInterval := true
+	hash := layoutFile
+	if low != "" && high != "" && low > high {
+		inInterval = hash > low || hash <= high
+	} else {
+		if low != "" && hash <= low {
+			inInterval = false
+		}
+		if high != "" && hash > high {
+			inInterval = false
+		}
+	}
+	if inInterval {
 		info, statErr := os.Stat(filepath.Join(dir, layoutFile))
 		if statErr != nil && !os.IsNotExist(statErr) {
 			return 0, statErr
@@ -59,17 +72,4 @@ func sumInterval(dir, start, end string) (int64, error) {
 		return 0, xerrors.Errorf("range sum overflows")
 	}
 	return n, nil
-}
-
-func stringHashInInterval(hash, low, high string) bool {
-	if low != "" && high != "" && low > high {
-		return hash > low || hash <= high
-	}
-	if low != "" && hash <= low {
-		return false
-	}
-	if high != "" && hash > high {
-		return false
-	}
-	return true
 }

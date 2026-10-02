@@ -99,139 +99,142 @@ func (t *PlaceTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwne
 	if err := t.db.Select(ctx, &rows, `SELECT pdp_pieceref, pdp_piece_cid FROM hash_space_place WHERE task_id = $1 ORDER BY pdp_pieceref`, taskID); err != nil {
 		return false, xerrors.Errorf("reading open-pieces placement: %w", err)
 	}
-	for _, r := range rows {
+	for _, row := range rows {
 		if !stillOwned() {
 			return false, xerrors.Errorf("lost ownership of open-pieces placement task %d", taskID)
 		}
-		if err := t.placeOne(ctx, taskID, r, stillOwned); err != nil {
-			return false, err
-		}
-	}
-	return true, nil
-}
-
-func (t *PlaceTask) placeOne(ctx context.Context, taskID harmonytask.TaskID, row placeRow, stillOwned func() bool) error {
-	ref := row.PdpRef
-	var parked []parkedPiece
-	if err := t.db.Select(ctx, &parked, `SELECT pp.id, pp.piece_raw_size, pp.ref_count
+		// placeOne moves this PDP piece from piece-park onto the disk its hash maps to.
+		ref := row.PdpRef
+		var parked []parkedPiece
+		if err := t.db.Select(ctx, &parked, `SELECT pp.id, pp.piece_raw_size, pp.ref_count
 		FROM pdp_piecerefs pr
 		JOIN parked_piece_refs ppr ON ppr.ref_id = pr.piece_ref
 		JOIN parked_pieces pp ON pp.id = ppr.piece_id
 		WHERE pr.id = $1`, ref); err != nil {
-		return xerrors.Errorf("reading parked piece for pdp ref %d: %w", ref, err)
-	}
-	if len(parked) == 0 {
-		return t.finish(ctx, ref)
-	}
-	pp := parked[0]
-	pc, err := pieceCidV2(row.PdpPieceCID, pp.RawSize)
-	if err != nil {
-		return err
-	}
-
-	placed, err := t.hs.HasFile(ctx, pc)
-	if err != nil {
-		return xerrors.Errorf("checking open piece: %w", err)
-	}
-
-	if !placed {
-		digest, err := hashspace.CIDHash(pc)
+			return false, xerrors.Errorf("reading parked piece for pdp ref %d: %w", ref, err)
+		}
+		if len(parked) == 0 {
+			if err := t.finish(ctx, ref); err != nil {
+				return false, err
+			}
+			continue
+		}
+		pp := parked[0]
+		pc, err := pieceCidV2(row.PdpPieceCID, pp.RawSize)
 		if err != nil {
-			return err
+			return false, err
 		}
-		target, err := t.hs.Target(ctx, digest)
+
+		placed, err := t.hs.HasFile(ctx, pc)
 		if err != nil {
-			return err
+			return false, xerrors.Errorf("checking open piece: %w", err)
 		}
-		if !t.hs.HasLocal(target) {
-			return t.handoff(ctx, taskID, ref)
-		}
-		// A started drop deletes whatever open-pieces file it finds. Wait
-		// until that row is gone before moving the piece-park bytes, and if
-		// a drop wins the race after an adopt, put those bytes back.
-		for {
-			if err := t.waitNoDelete(ctx, pc, stillOwned); err != nil {
-				return err
-			}
-			_, existed, err := t.hs.StatLocal(target, pc)
+
+		if !placed {
+			digest, err := hashspace.CIDHash(pc)
 			if err != nil {
-				return err
+				return false, err
 			}
-			size, adopted, err := t.write(ctx, target, pc, pp)
+			target, err := t.hs.Target(ctx, digest)
 			if err != nil {
-				return err
+				return false, err
 			}
-			if size != pp.RawSize {
-				t.undoPlacement(target, pc, existed, adopted)
-				return xerrors.Errorf("open piece %s is %d bytes, expected %d", pc, size, pp.RawSize)
-			}
-			var refOK, dropBusy bool
-			if err := t.db.QueryRow(ctx, `SELECT
-					EXISTS (SELECT 1 FROM pdp_piecerefs WHERE id = $1),
-					EXISTS (SELECT 1 FROM hash_space_delete WHERE piece_cid = $2)`,
-				ref, pc.String()).Scan(&refOK, &dropBusy); err != nil {
-				return xerrors.Errorf("checking placement of %s: %w", pc, err)
-			}
-			if !refOK {
-				t.undoPlacement(target, pc, existed, adopted)
-				return t.finish(ctx, ref)
-			}
-			if dropBusy {
-				t.undoPlacement(target, pc, existed, adopted)
+			if !t.hs.HasLocal(target) {
+				// handoff: the node holding the target disk picks this placement up.
+				_, err := harmonytask.TxWithTask(ctx, t.db, t.TF.Val(ctx), func(tx *harmonydb.Tx, id harmonytask.TaskID) (bool, error) {
+					if id == 0 {
+						return false, harmonytask.ErrNeedTask
+					}
+					n, err := tx.Exec(`UPDATE hash_space_place SET task_id = $1 WHERE pdp_pieceref = $2 AND task_id = $3`, id, ref, taskID)
+					return n > 0, err
+				})
+				if err != nil {
+					return false, xerrors.Errorf("handing off open-pieces placement of pdp ref %d: %w", ref, err)
+				}
 				continue
 			}
-			break
-		}
-		placed, err = t.hs.HasFile(ctx, pc)
-		if err != nil {
-			return err
-		}
-		if !placed {
-			return xerrors.Errorf("open piece %s disappeared during placement", pc)
-		}
-		if err := t.hs.CheckCapacity(ctx, target); err != nil {
-			log.Warnw("checking open-pieces capacity", "storage", target, "error", err)
-		}
-	}
-
-	// Market, sealing and aggregation read the parked piece through their
-	// own parked_piece_refs. While they hold one, the piece-park copy stays
-	// and the regular piece-park cleanup removes it once every ref, PDP's
-	// included, is gone.
-	shared, err := t.hasNonPDPRefs(ctx, pp.ID)
-	if err != nil {
-		return err
-	}
-	if !shared {
-		if err := t.pieceIO.RemovePiece(ctx, storiface.PieceNumber(pp.ID)); err != nil {
-			return xerrors.Errorf("removing piece-park copy of %s: %w", pc, err)
-		}
-		if shared, err = t.hasNonPDPRefs(ctx, pp.ID); err != nil {
-			return err
-		}
-		if shared {
-			if err := t.restorePark(ctx, pc, pp); err != nil {
-				return xerrors.Errorf("restoring piece-park copy of %s for a new non-PDP ref: %w", pc, err)
+			// A started drop deletes whatever open-pieces file it finds. Wait
+			// until that row is gone before moving the piece-park bytes, and if
+			// a drop wins the race after an adopt, put those bytes back.
+			refGone := false
+			for {
+				if err := t.waitNoDelete(ctx, pc, stillOwned); err != nil {
+					return false, err
+				}
+				_, existed, err := t.hs.StatLocal(target, pc)
+				if err != nil {
+					return false, err
+				}
+				size, adopted, err := t.write(ctx, target, pc, pp)
+				if err != nil {
+					return false, err
+				}
+				if size != pp.RawSize {
+					t.undoPlacement(target, pc, existed, adopted)
+					return false, xerrors.Errorf("open piece %s is %d bytes, expected %d", pc, size, pp.RawSize)
+				}
+				var refOK, dropBusy bool
+				if err := t.db.QueryRow(ctx, `SELECT
+					EXISTS (SELECT 1 FROM pdp_piecerefs WHERE id = $1),
+					EXISTS (SELECT 1 FROM hash_space_delete WHERE piece_cid = $2)`,
+					ref, pc.String()).Scan(&refOK, &dropBusy); err != nil {
+					return false, xerrors.Errorf("checking placement of %s: %w", pc, err)
+				}
+				if !refOK {
+					t.undoPlacement(target, pc, existed, adopted)
+					if err := t.finish(ctx, ref); err != nil {
+						return false, err
+					}
+					refGone = true
+					break
+				}
+				if dropBusy {
+					t.undoPlacement(target, pc, existed, adopted)
+					continue
+				}
+				break
+			}
+			if refGone {
+				continue
+			}
+			placed, err = t.hs.HasFile(ctx, pc)
+			if err != nil {
+				return false, err
+			}
+			if !placed {
+				return false, xerrors.Errorf("open piece %s disappeared during placement", pc)
+			}
+			if err := t.hs.CheckCapacity(ctx, target); err != nil {
+				log.Warnw("checking open-pieces capacity", "storage", target, "error", err)
 			}
 		}
-	}
-	return t.finish(ctx, ref)
-}
 
-// handoff moves one placement to a new task, so the node holding its target
-// disk picks it up.
-func (t *PlaceTask) handoff(ctx context.Context, from harmonytask.TaskID, ref int64) error {
-	_, err := harmonytask.TxWithTask(ctx, t.db, t.TF.Val(ctx), func(tx *harmonydb.Tx, id harmonytask.TaskID) (bool, error) {
-		if id == 0 {
-			return false, harmonytask.ErrNeedTask
+		// Market, sealing and aggregation read the parked piece through their
+		// own parked_piece_refs. While they hold one, the piece-park copy stays
+		// and the regular piece-park cleanup removes it once every ref, PDP's
+		// included, is gone.
+		shared, err := t.hasNonPDPRefs(ctx, pp.ID)
+		if err != nil {
+			return false, err
 		}
-		n, err := tx.Exec(`UPDATE hash_space_place SET task_id = $1 WHERE pdp_pieceref = $2 AND task_id = $3`, id, ref, from)
-		return n > 0, err
-	})
-	if err != nil {
-		return xerrors.Errorf("handing off open-pieces placement of pdp ref %d: %w", ref, err)
+		if !shared {
+			if err := t.pieceIO.RemovePiece(ctx, storiface.PieceNumber(pp.ID)); err != nil {
+				return false, xerrors.Errorf("removing piece-park copy of %s: %w", pc, err)
+			}
+			if shared, err = t.hasNonPDPRefs(ctx, pp.ID); err != nil {
+				return false, err
+			}
+			if shared {
+				if err := t.restorePark(ctx, pc, pp); err != nil {
+					return false, xerrors.Errorf("restoring piece-park copy of %s for a new non-PDP ref: %w", pc, err)
+				}
+			}
+		}
+		if err := t.finish(ctx, ref); err != nil {
+			return false, err
+		}
 	}
-	return nil
+	return true, nil
 }
 
 // write puts pc on target. A sole-reference piece-park file on the same

@@ -64,16 +64,14 @@ func writeLayout(root, kind string, layout Layout) error {
 		return err
 	}
 	buf = append(buf, '\n')
-	return writeAtomic(filepath.Join(dir, layoutFile), buf)
-}
-
-func writeAtomic(path string, data []byte) error {
+	// writeAtomic
+	path := filepath.Join(dir, layoutFile)
 	tmp := filepath.Join(filepath.Dir(path), "."+filepath.Base(path)+".tmp")
 	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
 	if err != nil {
 		return xerrors.Errorf("writing %s: %w", tmp, err)
 	}
-	_, werr := f.Write(data)
+	_, werr := f.Write(buf)
 	serr := f.Sync()
 	cerr := f.Close()
 	if werr != nil || serr != nil || cerr != nil {

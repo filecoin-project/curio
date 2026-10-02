@@ -94,8 +94,32 @@ func discardOrphanPiecrefsForSubPieces(ctx context.Context, db *harmonydb.DB, se
 		`, subPieceCidV1List); err != nil {
 			return false, fmt.Errorf("discard orphan open-pieces placements: %w", err)
 		}
-		if err := queueOpenPieceDeletes(tx, dropTask, subPieceCidV1List); err != nil {
-			return false, err
+		// queueOpenPieceDeletes: queue removal of CIDs that no longer have a PDP
+		// ref. Hash spaces are keyed by piece CID v2, from the parked raw size.
+		var gone []struct {
+			PieceCID string `db:"piece_cid"`
+			RawSize  int64  `db:"piece_raw_size"`
+		}
+		if err := tx.Select(&gone, `
+			SELECT DISTINCT pp.piece_cid, pp.piece_raw_size
+			FROM parked_pieces pp
+			WHERE pp.piece_cid = ANY($1)
+			  AND NOT EXISTS (SELECT 1 FROM pdp_piecerefs pr WHERE pr.piece_cid = pp.piece_cid)
+		`, subPieceCidV1List); err != nil {
+			return false, fmt.Errorf("find pieces without PDP refs: %w", err)
+		}
+		for _, g := range gone {
+			v1, err := cid.Parse(g.PieceCID)
+			if err != nil {
+				return false, fmt.Errorf("parse piece cid %s: %w", g.PieceCID, err)
+			}
+			v2, err := commcid.PieceCidV2FromV1(v1, uint64(g.RawSize))
+			if err != nil {
+				return false, fmt.Errorf("piece cid v2 for %s: %w", g.PieceCID, err)
+			}
+			if err := openpieces.QueueDrop(tx, dropTask, v2.String()); err != nil {
+				return false, err
+			}
 		}
 		if n > 0 {
 			log.Infow("discarded orphan PDP piecerefs after bad data set addPieces",
@@ -106,37 +130,4 @@ func discardOrphanPiecrefsForSubPieces(ctx context.Context, db *harmonydb.DB, se
 		return true, nil
 	})
 	return err
-}
-
-// queueOpenPieceDeletes queues open-pieces removal for the CIDs in v1s that
-// no longer have any PDP ref, all on the HashSpaceDrop task dropTask (see
-// openpieces.QueueDrop). Hash spaces are keyed by piece CID v2, built from
-// the parked pieces' raw sizes.
-func queueOpenPieceDeletes(tx *harmonydb.Tx, dropTask harmonytask.TaskID, v1s []string) error {
-	var gone []struct {
-		PieceCID string `db:"piece_cid"`
-		RawSize  int64  `db:"piece_raw_size"`
-	}
-	if err := tx.Select(&gone, `
-		SELECT DISTINCT pp.piece_cid, pp.piece_raw_size
-		FROM parked_pieces pp
-		WHERE pp.piece_cid = ANY($1)
-		  AND NOT EXISTS (SELECT 1 FROM pdp_piecerefs pr WHERE pr.piece_cid = pp.piece_cid)
-	`, v1s); err != nil {
-		return fmt.Errorf("find pieces without PDP refs: %w", err)
-	}
-	for _, g := range gone {
-		v1, err := cid.Parse(g.PieceCID)
-		if err != nil {
-			return fmt.Errorf("parse piece cid %s: %w", g.PieceCID, err)
-		}
-		v2, err := commcid.PieceCidV2FromV1(v1, uint64(g.RawSize))
-		if err != nil {
-			return fmt.Errorf("piece cid v2 for %s: %w", g.PieceCID, err)
-		}
-		if err := openpieces.QueueDrop(tx, dropTask, v2.String()); err != nil {
-			return err
-		}
-	}
-	return nil
 }
