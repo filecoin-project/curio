@@ -35,7 +35,42 @@ type world struct {
 }
 
 func newWorld(state State) (*world, error) {
-	if err := checkStructure(state); err != nil {
+	if err := /* checkStructure */ func(state State) error {
+		for i, sz := range state.Disks {
+			if sz < 0 {
+				return xerrors.Errorf("disk %d has negative size", i)
+			}
+		}
+		for s, sp := range state.Spaces {
+			if len(sp.Owner) != len(sp.Ranges) {
+				return xerrors.Errorf("space %d: owner length %d != ranges length %d", s, len(sp.Owner), len(sp.Ranges))
+			}
+			var hlen int
+			seen := make(map[string]struct{}, len(sp.Ranges))
+			for i, r := range sp.Ranges {
+				if r.Size < 0 {
+					return xerrors.Errorf("space %d range %d has negative size", s, i)
+				}
+				if len(r.EndHash) == 0 {
+					return xerrors.Errorf("space %d range %d has empty EndHash", s, i)
+				}
+				if hlen == 0 {
+					hlen = len(r.EndHash)
+				} else if len(r.EndHash) != hlen {
+					return xerrors.Errorf("space %d range %d EndHash length %d != %d", s, i, len(r.EndHash), hlen)
+				}
+				key := string(r.EndHash)
+				if _, ok := seen[key]; ok {
+					return xerrors.Errorf("space %d: duplicate EndHash at range %d", s, i)
+				}
+				seen[key] = struct{}{}
+				if sp.Owner[i] < 0 || sp.Owner[i] >= len(state.Disks) {
+					return xerrors.Errorf("space %d range %d owner %d out of range", s, i, sp.Owner[i])
+				}
+			}
+		}
+		return nil
+	}(state); err != nil {
 		return nil, err
 	}
 	if len(state.Vacating) != 0 && len(state.Vacating) != len(state.Disks) {
@@ -134,26 +169,6 @@ func (w *world) overflow(d int) int64 {
 	return n
 }
 
-func (w *world) totalUsed() int64 {
-	var s int64
-	for _, sp := range w.spaces {
-		for _, r := range sp.ranges {
-			s += r.Size
-		}
-	}
-	return s
-}
-
-func (w *world) totalCapacity() int64 {
-	var s int64
-	for i, cap := range w.disks {
-		if !w.frozen[i] {
-			s += cap
-		}
-	}
-	return s
-}
-
 func (w *world) ownsRange(disk int) bool {
 	for s := range w.spaces {
 		if w.rangeCount(s, disk) > 0 {
@@ -216,21 +231,19 @@ func (w *world) destDelta(space, idx, kind, dest int) int {
 	}
 }
 
-func (w *world) canAccept(space, dest int, size int64, delta int) bool {
-	if dest < 0 || dest >= len(w.disks) || w.frozen[dest] {
-		return false
-	}
-	if w.used[dest]+size > w.disks[dest] {
-		return false
-	}
-	return w.rangeCount(space, dest)+delta <= MAX_RANGES_PER_DISK
-}
-
 func (w *world) canTake(space, idx, kind, dest int, size int64) bool {
 	if dest == w.spaces[space].owner[idx] {
 		return false
 	}
-	return w.canAccept(space, dest, size, w.destDelta(space, idx, kind, dest))
+	return /* world.canAccept */ func(space, dest int, size int64, delta int) bool {
+		if dest < 0 || dest >= len(w.disks) || w.frozen[dest] {
+			return false
+		}
+		if w.used[dest]+size > w.disks[dest] {
+			return false
+		}
+		return w.rangeCount(space, dest)+delta <= MAX_RANGES_PER_DISK
+	}(space, dest, size, w.destDelta(space, idx, kind, dest))
 }
 
 func (w *world) applyCut(space, idx, kind, dest int, size int64, split []byte) bool {
@@ -283,11 +296,6 @@ func (w *world) applyCut(space, idx, kind, dest int, size int64, split []byte) b
 	}
 	w.mergeSpace(space)
 	return true
-}
-
-func (w *world) cutActual(space, idx, kind int, want int64) ([]byte, int64) {
-	split, moved, _, _ := w.previewCut(space, idx, kind, want)
-	return split, moved
 }
 
 // previewCut splits a range into the bytes that move (head for a prefix,
@@ -430,61 +438,6 @@ func (w *world) mergeSpace(space int) {
 	}
 }
 
-func (w *world) neighbors(space, idx int) (left, right int, okL, okR bool) {
-	sp := &w.spaces[space]
-	n := len(sp.ranges)
-	if n < 2 {
-		return 0, 0, false, false
-	}
-	src := sp.owner[idx]
-	l := sp.owner[(idx-1+n)%n]
-	r := sp.owner[(idx+1)%n]
-	if l != src && !w.frozen[l] {
-		left, okL = l, true
-	}
-	if r != src && !w.frozen[r] {
-		right, okR = r, true
-	}
-	return
-}
-
-func checkStructure(state State) error {
-	for i, sz := range state.Disks {
-		if sz < 0 {
-			return xerrors.Errorf("disk %d has negative size", i)
-		}
-	}
-	for s, sp := range state.Spaces {
-		if len(sp.Owner) != len(sp.Ranges) {
-			return xerrors.Errorf("space %d: owner length %d != ranges length %d", s, len(sp.Owner), len(sp.Ranges))
-		}
-		var hlen int
-		seen := make(map[string]struct{}, len(sp.Ranges))
-		for i, r := range sp.Ranges {
-			if r.Size < 0 {
-				return xerrors.Errorf("space %d range %d has negative size", s, i)
-			}
-			if len(r.EndHash) == 0 {
-				return xerrors.Errorf("space %d range %d has empty EndHash", s, i)
-			}
-			if hlen == 0 {
-				hlen = len(r.EndHash)
-			} else if len(r.EndHash) != hlen {
-				return xerrors.Errorf("space %d range %d EndHash length %d != %d", s, i, len(r.EndHash), hlen)
-			}
-			key := string(r.EndHash)
-			if _, ok := seen[key]; ok {
-				return xerrors.Errorf("space %d: duplicate EndHash at range %d", s, i)
-			}
-			seen[key] = struct{}{}
-			if sp.Owner[i] < 0 || sp.Owner[i] >= len(state.Disks) {
-				return xerrors.Errorf("space %d range %d owner %d out of range", s, i, sp.Owner[i])
-			}
-		}
-	}
-	return nil
-}
-
 func splitSpanPrefix(spans []span, rangeStart []byte, want int64) (head, tail []span, headSize int64) {
 	if want <= 0 {
 		return nil, cloneSpans(spans), 0
@@ -505,7 +458,26 @@ func splitSpanPrefix(spans []span, rangeStart []byte, want int64) (head, tail []
 			acc += s.size
 			continue
 		}
-		left, right, ok := cutOneSpan(s, start, need)
+		left, right, ok := /* cutOneSpan */ func(s span, start []byte, want int64) (left, right span, ok bool) {
+			if want <= 0 || want >= s.size {
+				return span{}, span{}, false
+			}
+			r := Range{EndHash: s.end, Size: s.size}
+			split := splitHash(r, start, want)
+			moved := SliceSize(r, start, split)
+			if moved <= 0 || moved >= s.size {
+				split = /* splitHashMin */ func(r Range, startHash []byte, prefixSize int64) []byte {
+					return splitHashBound(r, startHash, prefixSize, true)
+				}(r, start, 1)
+				moved = SliceSize(r, start, split)
+			}
+			if moved <= 0 || moved >= s.size || hashEq(split, start) || hashEq(split, s.end) {
+				return span{}, span{}, false
+			}
+			left = span{end: split, size: moved, origin: s.origin}
+			right = span{end: cloneHash(s.end), size: s.size - moved, origin: s.origin}
+			return left, right, true
+		}(s, start, need)
 		if !ok {
 			tail = append(tail, cloneSpans(spans[i:])...)
 			return head, tail, acc
@@ -516,25 +488,6 @@ func splitSpanPrefix(spans []span, rangeStart []byte, want int64) (head, tail []
 		return head, tail, acc + left.size
 	}
 	return head, nil, acc
-}
-
-func cutOneSpan(s span, start []byte, want int64) (left, right span, ok bool) {
-	if want <= 0 || want >= s.size {
-		return span{}, span{}, false
-	}
-	r := Range{EndHash: s.end, Size: s.size}
-	split := splitHash(r, start, want)
-	moved := SliceSize(r, start, split)
-	if moved <= 0 || moved >= s.size {
-		split = splitHashMin(r, start, 1)
-		moved = SliceSize(r, start, split)
-	}
-	if moved <= 0 || moved >= s.size || hashEq(split, start) || hashEq(split, s.end) {
-		return span{}, span{}, false
-	}
-	left = span{end: split, size: moved, origin: s.origin}
-	right = span{end: cloneHash(s.end), size: s.size - moved, origin: s.origin}
-	return left, right, true
 }
 
 // splitSpansAt divides spans so the prefix has size leftSize and ends at `at`.

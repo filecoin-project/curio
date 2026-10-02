@@ -30,6 +30,7 @@ func sizesForRanges(dir string, ranges []HashRange, folderUsed int64) ([]int64, 
 	return out, nil
 }
 
+// sumInterval is shared by range sizing and overlap repair.
 func sumInterval(dir, start, end string) (int64, error) {
 	low, high := start, end
 	if start != "" && start == end {
@@ -40,7 +41,18 @@ func sumInterval(dir, start, end string) (int64, error) {
 		return 0, err
 	}
 	n := res.Bytes
-	if stringHashInInterval(layoutFile, low, high) {
+	if /* stringHashInInterval */ func(hash, low, high string) bool {
+		if low != "" && high != "" && low > high {
+			return hash > low || hash <= high
+		}
+		if low != "" && hash <= low {
+			return false
+		}
+		if high != "" && hash > high {
+			return false
+		}
+		return true
+	}(layoutFile, low, high) {
 		info, statErr := os.Stat(filepath.Join(dir, layoutFile))
 		if statErr != nil && !os.IsNotExist(statErr) {
 			return 0, statErr
@@ -59,17 +71,4 @@ func sumInterval(dir, start, end string) (int64, error) {
 		return 0, xerrors.Errorf("range sum overflows")
 	}
 	return n, nil
-}
-
-func stringHashInInterval(hash, low, high string) bool {
-	if low != "" && high != "" && low > high {
-		return hash > low || hash <= high
-	}
-	if low != "" && hash <= low {
-		return false
-	}
-	if high != "" && hash > high {
-		return false
-	}
-	return true
 }

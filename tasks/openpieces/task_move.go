@@ -54,72 +54,70 @@ func (t *MoveTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned
 	}
 
 	for _, m := range moves {
-		if err := t.moveOne(ctx, m, stillOwned); err != nil {
+		if err := /* MoveTask.moveOne */ func(ctx context.Context, m *hashspace.MoveSource, stillOwned func() bool) error {
+			for {
+				if !stillOwned() {
+					return xerrors.Errorf("lost ownership of move source %d", m.ID)
+				}
+				// Copies of one group finish before the next hash is pulled. PendingCopy
+				// reads the next directory page only when asked for the next hash, so
+				// those deletes are not running during that read.
+				g, gctx := errgroup.WithContext(ctx)
+				g.SetLimit(COPY_PARALLEL)
+				n := 0
+				started := 0
+				var pullErr error
+				for h, err := range t.hs.PendingCopy(ctx, m) {
+					if err != nil {
+						pullErr = err
+						break
+					}
+					if gctx.Err() != nil {
+						break
+					}
+					n++
+					started++
+					g.Go(func() error {
+						if !stillOwned() {
+							return xerrors.Errorf("lost ownership of move source %d", m.ID)
+						}
+						if err := t.hs.CopyOne(gctx, m, h); err != nil {
+							return xerrors.Errorf("move source %d: %w", m.ID, err)
+						}
+						return nil
+					})
+					if started == COPY_PARALLEL {
+						if err := g.Wait(); err != nil {
+							return err
+						}
+						g, gctx = errgroup.WithContext(ctx)
+						g.SetLimit(COPY_PARALLEL)
+						started = 0
+					}
+				}
+				if started > 0 {
+					if err := g.Wait(); err != nil {
+						return err
+					}
+				}
+				if pullErr != nil {
+					return xerrors.Errorf("listing move source %d pieces: %w", m.ID, pullErr)
+				}
+				if n == 0 {
+					break
+				}
+			}
+
+			if err := t.hs.CompleteMoveSource(ctx, m); err != nil {
+				return xerrors.Errorf("completing move source %d: %w", m.ID, err)
+			}
+			log.Infow("hash space move complete", "move_source", m.ID, "from", m.FromStorage, "to", m.ToStorage)
+			return nil
+		}(ctx, m, stillOwned); err != nil {
 			return false, err
 		}
 	}
 	return true, nil
-}
-
-func (t *MoveTask) moveOne(ctx context.Context, m *hashspace.MoveSource, stillOwned func() bool) error {
-	for {
-		if !stillOwned() {
-			return xerrors.Errorf("lost ownership of move source %d", m.ID)
-		}
-		// Copies of one group finish before the next hash is pulled. PendingCopy
-		// reads the next directory page only when asked for the next hash, so
-		// those deletes are not running during that read.
-		g, gctx := errgroup.WithContext(ctx)
-		g.SetLimit(COPY_PARALLEL)
-		n := 0
-		started := 0
-		var pullErr error
-		for h, err := range t.hs.PendingCopy(ctx, m) {
-			if err != nil {
-				pullErr = err
-				break
-			}
-			if gctx.Err() != nil {
-				break
-			}
-			n++
-			started++
-			g.Go(func() error {
-				if !stillOwned() {
-					return xerrors.Errorf("lost ownership of move source %d", m.ID)
-				}
-				if err := t.hs.CopyOne(gctx, m, h); err != nil {
-					return xerrors.Errorf("move source %d: %w", m.ID, err)
-				}
-				return nil
-			})
-			if started == COPY_PARALLEL {
-				if err := g.Wait(); err != nil {
-					return err
-				}
-				g, gctx = errgroup.WithContext(ctx)
-				g.SetLimit(COPY_PARALLEL)
-				started = 0
-			}
-		}
-		if started > 0 {
-			if err := g.Wait(); err != nil {
-				return err
-			}
-		}
-		if pullErr != nil {
-			return xerrors.Errorf("listing move source %d pieces: %w", m.ID, pullErr)
-		}
-		if n == 0 {
-			break
-		}
-	}
-
-	if err := t.hs.CompleteMoveSource(ctx, m); err != nil {
-		return xerrors.Errorf("completing move source %d: %w", m.ID, err)
-	}
-	log.Infow("hash space move complete", "move_source", m.ID, "from", m.FromStorage, "to", m.ToStorage)
-	return nil
 }
 
 func (t *MoveTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
