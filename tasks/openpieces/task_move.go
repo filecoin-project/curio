@@ -2,9 +2,10 @@ package openpieces
 
 import (
 	"context"
-	"slices"
 	"time"
 
+	logging "github.com/ipfs/go-log/v2"
+	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -17,14 +18,16 @@ import (
 )
 
 const (
-	MOVE_MAX   = 2
-	COPY_BATCH = 64
+	MOVE_MAX      = 2
+	COPY_PARALLEL = 4
 )
 
-// MoveTask copies rebalance intervals onto their destination disks and then
-// hands each interval over. The task is created in the map transaction that
-// plans its moves; it runs on a node holding one of the destinations, and
-// moves to other nodes' disks are handed to a new task.
+var log = logging.Logger("cu-openpieces")
+
+// MoveTask copies one destination disk's rebalance intervals onto that disk
+// and then hands each interval over. The task is created in the map
+// transaction that plans those moves, and it runs on the node that holds the
+// destination.
 type MoveTask struct {
 	db *harmonydb.DB
 	hs *hashspace.Cluster
@@ -44,26 +47,13 @@ func (t *MoveTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned
 	if len(moves) == 0 {
 		return true, nil
 	}
+	// Refresh rewrites layout.json from the map, including this move, before
+	// any bytes are copied.
 	if err := t.hs.Refresh(ctx); err != nil {
 		return false, xerrors.Errorf("refreshing hash space map: %w", err)
 	}
 
-	var remote []int64
 	for _, m := range moves {
-		if !t.hs.HasLocal(m.ToStorage) {
-			remote = append(remote, m.ID)
-		}
-	}
-	if len(remote) > 0 {
-		if err := t.handoff(ctx, taskID, remote); err != nil {
-			return false, err
-		}
-	}
-
-	for _, m := range moves {
-		if !t.hs.HasLocal(m.ToStorage) {
-			continue
-		}
 		if err := t.moveOne(ctx, m, stillOwned); err != nil {
 			return false, err
 		}
@@ -72,27 +62,57 @@ func (t *MoveTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned
 }
 
 func (t *MoveTask) moveOne(ctx context.Context, m *hashspace.MoveSource, stillOwned func() bool) error {
-	var prev []string
 	for {
 		if !stillOwned() {
 			return xerrors.Errorf("lost ownership of move source %d", m.ID)
 		}
-		hashes, err := t.hs.PendingCopy(ctx, m, COPY_BATCH)
-		if err != nil {
-			return xerrors.Errorf("listing move source %d pieces: %w", m.ID, err)
-		}
-		if len(hashes) == 0 {
-			break
-		}
-		if slices.Equal(hashes, prev) {
-			return xerrors.Errorf("move source %d made no progress on %d pieces", m.ID, len(hashes))
-		}
-		for _, h := range hashes {
-			if err := t.hs.CopyOne(ctx, m, h); err != nil {
-				return xerrors.Errorf("move source %d: %w", m.ID, err)
+		// Copies of one group finish before the next hash is pulled. PendingCopy
+		// reads the next directory page only when asked for the next hash, so
+		// those deletes are not running during that read.
+		g, gctx := errgroup.WithContext(ctx)
+		g.SetLimit(COPY_PARALLEL)
+		n := 0
+		started := 0
+		var pullErr error
+		for h, err := range t.hs.PendingCopy(ctx, m) {
+			if err != nil {
+				pullErr = err
+				break
+			}
+			if gctx.Err() != nil {
+				break
+			}
+			n++
+			started++
+			g.Go(func() error {
+				if !stillOwned() {
+					return xerrors.Errorf("lost ownership of move source %d", m.ID)
+				}
+				if err := t.hs.CopyOne(gctx, m, h); err != nil {
+					return xerrors.Errorf("move source %d: %w", m.ID, err)
+				}
+				return nil
+			})
+			if started == COPY_PARALLEL {
+				if err := g.Wait(); err != nil {
+					return err
+				}
+				g, gctx = errgroup.WithContext(ctx)
+				g.SetLimit(COPY_PARALLEL)
+				started = 0
 			}
 		}
-		prev = hashes
+		if started > 0 {
+			if err := g.Wait(); err != nil {
+				return err
+			}
+		}
+		if pullErr != nil {
+			return xerrors.Errorf("listing move source %d pieces: %w", m.ID, pullErr)
+		}
+		if n == 0 {
+			break
+		}
 	}
 
 	if err := t.hs.CompleteMoveSource(ctx, m); err != nil {
@@ -102,56 +122,28 @@ func (t *MoveTask) moveOne(ctx context.Context, m *hashspace.MoveSource, stillOw
 	return nil
 }
 
-// handoff moves move sources whose destination is on another node to a new
-// task, so a node holding those disks picks them up.
-func (t *MoveTask) handoff(ctx context.Context, from harmonytask.TaskID, ids []int64) error {
-	_, err := harmonytask.TxWithTask(ctx, t.db, t.TF.Val(ctx), func(tx *harmonydb.Tx, id harmonytask.TaskID) (bool, error) {
-		if id == 0 {
-			return false, harmonytask.ErrNeedTask
-		}
-		n, err := tx.Exec(`UPDATE hash_space_move_source SET task_id = $1 WHERE id = ANY($2) AND task_id = $3`, id, ids, from)
-		return n > 0, err
-	})
-	if err != nil {
-		return xerrors.Errorf("handing off hash space move sources %v: %w", ids, err)
-	}
-	return nil
-}
-
 func (t *MoveTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
 	taskIDs := make([]int64, len(ids))
 	for i, id := range ids {
 		taskIDs[i] = int64(id)
 	}
-	var rows []struct {
-		TaskID    int64  `db:"task_id"`
-		ToStorage string `db:"to_storage"`
-	}
-	if err := t.db.Select(context.Background(), &rows, `SELECT task_id, to_storage FROM hash_space_move_source WHERE task_id = ANY($1)`, taskIDs); err != nil {
+	// A task is taken when every destination is on this node. A task with no
+	// rows left is taken here so it can finish.
+	var rows []harmonytask.TaskID
+	err := t.db.Select(context.Background(), &rows, `
+		SELECT t.id
+		FROM unnest($1::bigint[]) AS t(id)
+		WHERE NOT EXISTS (
+			SELECT 1 FROM hash_space_move_source m
+			WHERE m.task_id = t.id AND m.to_storage <> ALL($2)
+		)`, taskIDs, t.hs.LocalIDs())
+	if err != nil {
 		return nil, xerrors.Errorf("reading hash space move sources: %w", err)
 	}
-
-	// A task is taken when any of its destinations is local; tasks with no
-	// rows left are taken anywhere so they finish.
-	accept := map[int64]bool{}
-	for _, id := range taskIDs {
-		accept[id] = true
-	}
-	for _, r := range rows {
-		accept[r.TaskID] = false
-	}
-	for _, r := range rows {
-		if t.hs.HasLocal(r.ToStorage) {
-			accept[r.TaskID] = true
-		}
-	}
-	var out []harmonytask.TaskID
-	for _, id := range ids {
-		if accept[int64(id)] {
-			out = append(out, id)
-		}
-	}
-	return out, nil
+	return rows, nil
 }
 
 func (t *MoveTask) TypeDetails() harmonytask.TaskTypeDetails {
