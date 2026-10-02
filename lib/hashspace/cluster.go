@@ -670,7 +670,8 @@ var errNoRange = errors.New("no hash space range owns this hash")
 // owner, or both ends of a move that covers it. Local disks go through
 // Space.DeleteCIDOn. Other nodes get DELETE /hashspace/{storage}/{hash}.
 // A missing file is fine. The lookup runs twice so a move that starts during
-// the first pass is still cleared.
+// the first pass is still cleared. The second pass only contacts disks that
+// were not in the first.
 func (c *Cluster) DeleteCID(ctx context.Context, pieceCID string) error {
 	pc, err := cid.Parse(pieceCID)
 	if err != nil {
@@ -680,7 +681,7 @@ func (c *Cluster) DeleteCID(ctx context.Context, pieceCID string) error {
 	if err != nil {
 		return err
 	}
-	touched := map[string]struct{}{}
+	seen := map[string]struct{}{}
 	for pass := 0; pass < 2; pass++ {
 		locs, err := c.places(ctx, digest)
 		if errors.Is(err, errNoRange) {
@@ -690,6 +691,9 @@ func (c *Cluster) DeleteCID(ctx context.Context, pieceCID string) error {
 			return err
 		}
 		for _, loc := range locs {
+			if _, ok := seen[loc.StorageID]; ok {
+				continue
+			}
 			if c.HasLocal(loc.StorageID) {
 				err = c.DropLocal(loc.StorageID, pc)
 			} else {
@@ -706,10 +710,10 @@ func (c *Cluster) DeleteCID(ctx context.Context, pieceCID string) error {
 			if err != nil {
 				return xerrors.Errorf("deleting %s from %s: %w", pieceCID, loc.StorageID, err)
 			}
-			touched[loc.StorageID] = struct{}{}
+			seen[loc.StorageID] = struct{}{}
 		}
 	}
-	for id := range touched {
+	for id := range seen {
 		if err := c.CheckCapacity(ctx, id); err != nil {
 			log.Warnw("hash space capacity check", "storage", id, "error", err)
 		}
