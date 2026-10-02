@@ -62,7 +62,17 @@ func Place(ctx context.Context, db *harmonydb.DB, hs *hashspace.Cluster, local *
 		return nil
 	}
 	pp := parked[0]
-	pc, err := pieceCidV2(pp.PieceCID, pp.RawSize)
+	pc, err := /* pieceCidV2 */ func(pdpPieceCID string, rawSize int64) (cid.Cid, error) {
+		v1, err := cid.Parse(pdpPieceCID)
+		if err != nil {
+			return cid.Undef, xerrors.Errorf("parsing piece cid %s: %w", pdpPieceCID, err)
+		}
+		v2, err := commcid.PieceCidV2FromV1(v1, uint64(rawSize))
+		if err != nil {
+			return cid.Undef, xerrors.Errorf("piece cid v2 for %s: %w", pdpPieceCID, err)
+		}
+		return v2, nil
+	}(pp.PieceCID, pp.RawSize)
 	if err != nil {
 		return err
 	}
@@ -84,7 +94,13 @@ func Place(ctx context.Context, db *harmonydb.DB, hs *hashspace.Cluster, local *
 		var adopted string
 		var existed bool
 		for attempt := 0; ; attempt++ {
-			busy, err := deleteBusy(ctx, db, pc)
+			busy, err := /* deleteBusy */ func(ctx context.Context, db *harmonydb.DB, pc cid.Cid) (bool, error) {
+				var busy bool
+				if err := db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM hash_space_delete WHERE piece_cid = $1)`, pc.String()).Scan(&busy); err != nil {
+					return false, xerrors.Errorf("checking open-pieces delete of %s: %w", pc, err)
+				}
+				return busy, nil
+			}(ctx, db, pc)
 			if err != nil {
 				return err
 			}
@@ -97,7 +113,52 @@ func Place(ctx context.Context, db *harmonydb.DB, hs *hashspace.Cluster, local *
 				}
 				continue
 			}
-			size, adopted, existed, err = writePiece(ctx, hs, local, pieceIO, target, pc, pp)
+			size, adopted, existed, err = /* writePiece */ func(ctx context.Context, hs *hashspace.Cluster, local *paths.Local, pieceIO piecestore.PieceIO, target string, pc cid.Cid, pp parkedPiece) (int64, string, bool, error) {
+				if !hs.HasLocal(target) {
+					r, err := pieceIO.PieceReader(ctx, storiface.PieceNumber(pp.ID))
+					if err != nil {
+						return 0, "", false, xerrors.Errorf("opening piece-park copy of %s: %w", pc, err)
+					}
+					defer func() { _ = r.Close() }()
+					size, existed, err := hs.PutRemote(ctx, target, pc, r)
+					if err != nil {
+						return 0, "", false, err
+					}
+					return size, "", existed, nil
+				}
+
+				if size, ok, err := hs.StatLocal(target, pc); err != nil {
+					return 0, "", false, err
+				} else if ok {
+					return size, "", true, nil
+				}
+
+				if pp.RefCount == 1 {
+					if src, ok := local.ExistingLocalFile(storiface.PieceNumber(pp.ID).Ref().ID, storiface.FTPiece); ok {
+						size, err := hs.AdoptLocal(target, pc, src)
+						switch {
+						case err == nil:
+							return size, src, false, nil
+						case errors.Is(err, os.ErrExist):
+							size, _, err := hs.StatLocal(target, pc)
+							return size, "", true, err
+						case !errors.Is(err, hashspace.ErrCrossDevice):
+							return 0, "", false, xerrors.Errorf("renaming %s into open-pieces: %w", pc, err)
+						}
+					}
+				}
+
+				r, err := pieceIO.PieceReader(ctx, storiface.PieceNumber(pp.ID))
+				if err != nil {
+					return 0, "", false, xerrors.Errorf("opening piece-park copy of %s: %w", pc, err)
+				}
+				defer func() { _ = r.Close() }()
+				size, err := hs.WriteLocal(target, pc, r)
+				if err != nil {
+					return 0, "", false, err
+				}
+				return size, "", false, nil
+			}(ctx, hs, local, pieceIO, target, pc, pp)
 			if err != nil {
 				return err
 			}
@@ -156,7 +217,28 @@ func Place(ctx context.Context, db *harmonydb.DB, hs *hashspace.Cluster, local *
 			return err
 		}
 		if shared {
-			if err := restorePark(ctx, hs, pieceIO, pc, pp); err != nil {
+			if err := /* restorePark */ func(ctx context.Context, hs *hashspace.Cluster, pieceIO piecestore.PieceIO, pc cid.Cid, pp parkedPiece) error {
+				locs, err := hs.Locations(ctx, pc.String())
+				if err != nil {
+					return err
+				}
+				lastErr := xerrors.Errorf("%s has no open-pieces location", pc)
+				for _, l := range locs {
+					r, err := hs.Open(ctx, l.StorageID, pc)
+					if err != nil {
+						lastErr = err
+						continue
+					}
+					err = pieceIO.WritePiece(ctx, nil, storiface.PieceNumber(pp.ID), pp.RawSize, r, storiface.PathStorage)
+					_ = r.Close()
+					if err != nil {
+						lastErr = err
+						continue
+					}
+					return nil
+				}
+				return lastErr
+			}(ctx, hs, pieceIO, pc, pp); err != nil {
 				return xerrors.Errorf("restoring piece-park copy of %s for a new non-PDP ref: %w", pc, err)
 			}
 		}
@@ -169,52 +251,6 @@ func Place(ctx context.Context, db *harmonydb.DB, hs *hashspace.Cluster, local *
 // target is written by streaming a PUT to that node. The second result is
 // the piece-park path when the file was renamed. The third reports that the
 // open-pieces file was already there.
-func writePiece(ctx context.Context, hs *hashspace.Cluster, local *paths.Local, pieceIO piecestore.PieceIO, target string, pc cid.Cid, pp parkedPiece) (int64, string, bool, error) {
-	if !hs.HasLocal(target) {
-		r, err := pieceIO.PieceReader(ctx, storiface.PieceNumber(pp.ID))
-		if err != nil {
-			return 0, "", false, xerrors.Errorf("opening piece-park copy of %s: %w", pc, err)
-		}
-		defer func() { _ = r.Close() }()
-		size, existed, err := hs.PutRemote(ctx, target, pc, r)
-		if err != nil {
-			return 0, "", false, err
-		}
-		return size, "", existed, nil
-	}
-
-	if size, ok, err := hs.StatLocal(target, pc); err != nil {
-		return 0, "", false, err
-	} else if ok {
-		return size, "", true, nil
-	}
-
-	if pp.RefCount == 1 {
-		if src, ok := local.ExistingLocalFile(storiface.PieceNumber(pp.ID).Ref().ID, storiface.FTPiece); ok {
-			size, err := hs.AdoptLocal(target, pc, src)
-			switch {
-			case err == nil:
-				return size, src, false, nil
-			case errors.Is(err, os.ErrExist):
-				size, _, err := hs.StatLocal(target, pc)
-				return size, "", true, err
-			case !errors.Is(err, hashspace.ErrCrossDevice):
-				return 0, "", false, xerrors.Errorf("renaming %s into open-pieces: %w", pc, err)
-			}
-		}
-	}
-
-	r, err := pieceIO.PieceReader(ctx, storiface.PieceNumber(pp.ID))
-	if err != nil {
-		return 0, "", false, xerrors.Errorf("opening piece-park copy of %s: %w", pc, err)
-	}
-	defer func() { _ = r.Close() }()
-	size, err := hs.WriteLocal(target, pc, r)
-	if err != nil {
-		return 0, "", false, err
-	}
-	return size, "", false, nil
-}
 
 // undoPlacement removes a file this attempt created. An adopted file goes
 // back to its piece-park path; a copy is deleted. A file that was already
@@ -232,14 +268,6 @@ func undoPlacement(ctx context.Context, hs *hashspace.Cluster, target string, pc
 	if err := hs.Drop(ctx, target, pc); err != nil {
 		log.Warnw("dropping open piece after placement rolled back", "piece", pc, "storage", target, "error", err)
 	}
-}
-
-func deleteBusy(ctx context.Context, db *harmonydb.DB, pc cid.Cid) (bool, error) {
-	var busy bool
-	if err := db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM hash_space_delete WHERE piece_cid = $1)`, pc.String()).Scan(&busy); err != nil {
-		return false, xerrors.Errorf("checking open-pieces delete of %s: %w", pc, err)
-	}
-	return busy, nil
 }
 
 func sleepTask(ctx context.Context, stillOwned func() bool) error {
@@ -273,37 +301,3 @@ func hasNonPDPRefs(ctx context.Context, db *harmonydb.DB, parkedID int64) (bool,
 
 // restorePark writes the piece-park copy back from open-pieces when a non-PDP
 // ref attached while the copy was being removed.
-func restorePark(ctx context.Context, hs *hashspace.Cluster, pieceIO piecestore.PieceIO, pc cid.Cid, pp parkedPiece) error {
-	locs, err := hs.Locations(ctx, pc.String())
-	if err != nil {
-		return err
-	}
-	lastErr := xerrors.Errorf("%s has no open-pieces location", pc)
-	for _, l := range locs {
-		r, err := hs.Open(ctx, l.StorageID, pc)
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		err = pieceIO.WritePiece(ctx, nil, storiface.PieceNumber(pp.ID), pp.RawSize, r, storiface.PathStorage)
-		_ = r.Close()
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		return nil
-	}
-	return lastErr
-}
-
-func pieceCidV2(pdpPieceCID string, rawSize int64) (cid.Cid, error) {
-	v1, err := cid.Parse(pdpPieceCID)
-	if err != nil {
-		return cid.Undef, xerrors.Errorf("parsing piece cid %s: %w", pdpPieceCID, err)
-	}
-	v2, err := commcid.PieceCidV2FromV1(v1, uint64(rawSize))
-	if err != nil {
-		return cid.Undef, xerrors.Errorf("piece cid v2 for %s: %w", pdpPieceCID, err)
-	}
-	return v2, nil
-}
