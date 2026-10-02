@@ -26,6 +26,8 @@ import (
 	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/ethchain"
+	"github.com/filecoin-project/curio/lib/hashspace"
+	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/piecestore"
 	ipni_provider "github.com/filecoin-project/curio/market/ipni/ipni-provider"
 	"github.com/filecoin-project/curio/pdp/contract"
@@ -71,6 +73,8 @@ type PDPService struct {
 	Auth
 	db      *harmonydb.DB
 	pieceIO piecestore.PieceIO
+	hs      *hashspace.Cluster
+	local   *paths.Local
 
 	sender    ETHTxSender
 	ethClient ethchain.EthClient
@@ -98,7 +102,9 @@ func NewPDPService(
 	fc PDPServiceNodeApi,
 	sn ETHTxSender,
 	alertTask *alertmanager.AlertTask,
-	ipp *ipni_provider.Provider) *PDPService {
+	ipp *ipni_provider.Provider,
+	hs *hashspace.Cluster,
+	local *paths.Local) *PDPService {
 	auth := &NullAuth{}
 	pullStore := NewDBPullStore(db)
 	pullValidator := NewEthCallValidator(ec, db)
@@ -107,6 +113,8 @@ func NewPDPService(
 		Auth:    auth,
 		db:      db,
 		pieceIO: pieceIO,
+		hs:      hs,
+		local:   local,
 
 		sender:    sn,
 		ethClient: ec,

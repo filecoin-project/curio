@@ -30,6 +30,7 @@ import (
 	"github.com/filecoin-project/curio/lib/piecestore"
 	"github.com/filecoin-project/curio/lib/proof"
 	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/tasks/openpieces"
 )
 
 var log = logging.Logger("pdpv0")
@@ -93,6 +94,10 @@ func readHasExtraByte(r io.Reader) (bool, error) {
 			return false, err
 		}
 	}
+}
+
+func (p *PDPService) placeRef(ctx context.Context, pieceRef int64) error {
+	return openpieces.Place(ctx, p.db, p.hs, p.local, p.pieceIO, pieceRef)
 }
 
 func needsSaveCache(rawSize int64) bool {
@@ -211,6 +216,11 @@ func (p *PDPService) claimDirectUpload(ctx context.Context, uploadID, service, p
 	}
 	if !committed {
 		return parkedPieceClaim{}, errors.New("failed to commit direct upload claim")
+	}
+	if claim.complete {
+		if err := p.placeRef(ctx, claim.pieceRefID); err != nil {
+			return parkedPieceClaim{}, err
+		}
 	}
 	return claim, nil
 }
@@ -376,9 +386,6 @@ func (p *PDPService) finalizeDirectUpload(ctx context.Context, uploadID, service
 		if err := insertPDPReference(tx, service, pieceCID, claim.pieceRefID, rawSize); err != nil {
 			return false, err
 		}
-		if err := deleteClaimedUpload(tx, uploadID, claim.pieceRefID); err != nil {
-			return false, err
-		}
 		return true, nil
 	}, harmonydb.OptionRetry())
 	if err != nil {
@@ -386,6 +393,18 @@ func (p *PDPService) finalizeDirectUpload(ctx context.Context, uploadID, service
 	}
 	if !committed {
 		return errors.New("failed to commit direct upload completion")
+	}
+	if err := p.placeRef(ctx, claim.pieceRefID); err != nil {
+		return err
+	}
+	// Drop the upload only after the piece is in open-pieces, so a retry of
+	// this request can place again if the copy failed.
+	n, err := p.db.Exec(ctx, `DELETE FROM pdp_piece_uploads WHERE id = $1 AND piece_ref = $2`, uploadID, claim.pieceRefID)
+	if err != nil {
+		return fmt.Errorf("failed to delete pdp_piece_uploads row: %w", err)
+	}
+	if n != 1 {
+		return fmt.Errorf("failed to delete pdp_piece_uploads row: expected 1 row, got %d", n)
 	}
 	return nil
 }
@@ -646,6 +665,7 @@ func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 	var uploadUUID uuid.UUID
 	var uploadURL string
 	var responseStatus int
+	var placedRef int64
 
 	_, err = p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
 		dmh, err := multihash.Decode(pieceCidV1.Hash())
@@ -681,6 +701,7 @@ func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 			}
 			log.Debugw("[handlePiecePost] -- new pdp_piecerefs", "parkedPieceRefID", parkedPieceRefID, "pieceCidV1", pieceCidV1)
 
+			placedRef = parkedPieceRefID
 			responseStatus = http.StatusOK
 			return true, nil // Commit the transaction
 		}
@@ -707,6 +728,12 @@ func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		httpServerError(w, http.StatusInternalServerError, "Failed to process request: "+err.Error(), err)
 		return
+	}
+	if responseStatus == http.StatusOK {
+		if err := p.placeRef(ctx, placedRef); err != nil {
+			httpServerError(w, http.StatusInternalServerError, "Failed to place piece in open-pieces", err)
+			return
+		}
 	}
 	log.Debugw("[handlePiecePost] -- writing response", "uploadUUID", uploadUUID, "pieceCidV2", pieceCidV2)
 
@@ -762,9 +789,28 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Debugw("[handlePieceUpload] -- upload lookup done", "uploadUUID", uploadUUID)
-	// A non-null ref is an active direct-write claim (or a completed legacy upload).
+	// A non-null ref is an active direct-write claim, or a finalize that
+	// published the PDP ref and then failed while copying into open-pieces.
 	if pieceRef.Valid {
-		httpServerError(w, http.StatusConflict, "Data has already been uploaded", err)
+		var published bool
+		err = p.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pdp_piecerefs WHERE piece_ref = $1)`, pieceRef.Int64).Scan(&published)
+		if err != nil {
+			httpServerError(w, http.StatusInternalServerError, "Database error", err)
+			return
+		}
+		if !published {
+			httpServerError(w, http.StatusConflict, "Data has already been uploaded", err)
+			return
+		}
+		if err := p.placeRef(ctx, pieceRef.Int64); err != nil {
+			httpServerError(w, http.StatusInternalServerError, "Failed to place piece in open-pieces", err)
+			return
+		}
+		if _, err := p.db.Exec(ctx, `DELETE FROM pdp_piece_uploads WHERE id = $1 AND piece_ref = $2`, uploadUUID.String(), pieceRef.Int64); err != nil {
+			httpServerError(w, http.StatusInternalServerError, "Failed to finalize piece upload", err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 
@@ -847,9 +893,7 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	finalizeCtx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
-	if err := p.finalizeDirectUpload(finalizeCtx, uploadUUID.String(), serviceID, pieceCidV1.String(), claim, checkSize); err != nil {
+	if err := p.finalizeDirectUpload(ctx, uploadUUID.String(), serviceID, pieceCidV1.String(), claim, checkSize); err != nil {
 		httpServerError(w, http.StatusInternalServerError, "Failed to finalize piece upload", err)
 		return
 	}
@@ -1181,6 +1225,10 @@ func (p *PDPService) handleFinalizeStreamingUpload(w http.ResponseWriter, r *htt
 	if !comm {
 		log.Errorw("Failed to process piece upload", "error", "failed to commit transaction")
 		httpServerError(w, http.StatusInternalServerError, "Failed to process piece upload", err)
+		return
+	}
+	if err := p.placeRef(ctx, pref); err != nil {
+		httpServerError(w, http.StatusInternalServerError, "Failed to place piece in open-pieces", err)
 		return
 	}
 	w.WriteHeader(http.StatusOK)

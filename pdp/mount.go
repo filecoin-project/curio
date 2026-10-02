@@ -10,6 +10,8 @@ import (
 	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/ethchain"
+	"github.com/filecoin-project/curio/lib/hashspace"
+	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/piecestore"
 	ipni_provider "github.com/filecoin-project/curio/market/ipni/ipni-provider"
 )
@@ -22,6 +24,8 @@ type MountDeps struct {
 	Chain     api.Chain
 	EthSender ETHTxSender
 	AlertTask *alertmanager.AlertTask
+	HashSpace *hashspace.Cluster
+	Local     *paths.Local
 }
 
 // MountRoutes registers PDP HTTP routes on an existing router.
@@ -33,7 +37,7 @@ func MountRoutes(ctx context.Context, r chi.Router, d MountDeps, ipp *ipni_provi
 		return xerrors.Errorf("piece IO required for PDP routes")
 	}
 
-	pdsvc := NewPDPService(ctx, d.DB, d.PieceIO, d.EthClient, d.Chain, d.EthSender, d.AlertTask, ipp)
+	pdsvc := NewPDPService(ctx, d.DB, d.PieceIO, d.EthClient, d.Chain, d.EthSender, d.AlertTask, ipp, d.HashSpace, d.Local)
 	Routes(r, pdsvc)
 	return nil
 }
