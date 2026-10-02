@@ -57,7 +57,34 @@ func Load(kind string, roots []string) (*Space, error) {
 			return nil, xerrors.Errorf("duplicate storage root %s", root)
 		}
 		seen[root] = struct{}{}
-		d, err := loadDisk(kind, root)
+		d, err := /* loadDisk */ func(kind, root string) (*disk, error) {
+			removeLayoutTemp(root, kind)
+			path := filepath.Join(root, kind, layoutFile)
+			layout, err := readLayout(path)
+			if err != nil {
+				return nil, err
+			}
+			info, err := os.Stat(path)
+			if err != nil {
+				return nil, err
+			}
+			d := &disk{
+				root:    root,
+				tracker: &sizeTracker{},
+				version: layout.Version,
+			}
+			d.tracker.Set(layout.Used)
+			if d.intervals, err = decodeIntervals(layout.Ranges); err != nil {
+				return nil, xerrors.Errorf("%s ranges: %w", path, err)
+			}
+			if d.moveSources, err = decodeIntervals(layout.MoveSources); err != nil {
+				return nil, xerrors.Errorf("%s move sources: %w", path, err)
+			}
+			if err := d.catchUp(kind, info.ModTime()); err != nil {
+				return nil, err
+			}
+			return d, nil
+		}(kind, root)
 		if err != nil {
 			return nil, err
 		}
@@ -65,35 +92,6 @@ func Load(kind string, roots []string) (*Space, error) {
 	}
 	s.startFlush()
 	return s, nil
-}
-
-func loadDisk(kind, root string) (*disk, error) {
-	removeLayoutTemp(root, kind)
-	path := filepath.Join(root, kind, layoutFile)
-	layout, err := readLayout(path)
-	if err != nil {
-		return nil, err
-	}
-	info, err := os.Stat(path)
-	if err != nil {
-		return nil, err
-	}
-	d := &disk{
-		root:    root,
-		tracker: &sizeTracker{},
-		version: layout.Version,
-	}
-	d.tracker.Set(layout.Used)
-	if d.intervals, err = decodeIntervals(layout.Ranges); err != nil {
-		return nil, xerrors.Errorf("%s ranges: %w", path, err)
-	}
-	if d.moveSources, err = decodeIntervals(layout.MoveSources); err != nil {
-		return nil, xerrors.Errorf("%s move sources: %w", path, err)
-	}
-	if err := d.catchUp(kind, info.ModTime()); err != nil {
-		return nil, err
-	}
-	return d, nil
 }
 
 // Used is the in-memory byte counter for this space, summed across roots.
@@ -591,36 +589,34 @@ func (d *disk) catchUp(kind string, cutoff time.Time) error {
 		if !info.IsDir() || !info.ModTime().After(cutoff) {
 			continue
 		}
-		if err := d.addNewFiles(filepath.Join(dir, name), cutoff); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (d *disk) addNewFiles(dir string, cutoff time.Time) error {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return xerrors.Errorf("reading %s: %w", dir, err)
-	}
-	for _, e := range entries {
-		if e.IsDir() || strings.HasPrefix(e.Name(), ".") {
-			continue
-		}
-		info, err := e.Info()
-		if err != nil {
-			if os.IsNotExist(err) {
-				continue
+		if err := /* disk.addNewFiles */ func(dir string, cutoff time.Time) error {
+			entries, err := os.ReadDir(dir)
+			if err != nil {
+				return xerrors.Errorf("reading %s: %w", dir, err)
 			}
+			for _, e := range entries {
+				if e.IsDir() || strings.HasPrefix(e.Name(), ".") {
+					continue
+				}
+				info, err := e.Info()
+				if err != nil {
+					if os.IsNotExist(err) {
+						continue
+					}
+					return err
+				}
+				if !info.Mode().IsRegular() || !info.ModTime().After(cutoff) {
+					continue
+				}
+				if info.Size() < 0 {
+					return xerrors.Errorf("negative size for %s", e.Name())
+				}
+				d.tracker.Add(info.Size())
+			}
+			return nil
+		}(filepath.Join(dir, name), cutoff); err != nil {
 			return err
 		}
-		if !info.Mode().IsRegular() || !info.ModTime().After(cutoff) {
-			continue
-		}
-		if info.Size() < 0 {
-			return xerrors.Errorf("negative size for %s", e.Name())
-		}
-		d.tracker.Add(info.Size())
 	}
 	return nil
 }

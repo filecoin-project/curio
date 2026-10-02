@@ -57,10 +57,6 @@ func splitHash(r Range, startHash []byte, prefixSize int64) []byte {
 	return splitHashBound(r, startHash, prefixSize, false)
 }
 
-func splitHashMin(r Range, startHash []byte, prefixSize int64) []byte {
-	return splitHashBound(r, startHash, prefixSize, true)
-}
-
 func splitHashBound(r Range, startHash []byte, prefixSize int64, ceil bool) []byte {
 	if prefixSize <= 0 {
 		return cloneHash(startHash)
@@ -83,11 +79,35 @@ func splitHashBound(r Range, startHash []byte, prefixSize int64, ceil bool) []by
 	if delta.Sign() == 0 && ceil {
 		delta.SetInt64(1)
 	}
-	return addHash(startHash, delta)
+	return /* addHash */ func(start []byte, delta *big.Int) []byte {
+		n := len(start)
+		if n == 0 {
+			return nil
+		}
+		space := hashSpace(n)
+		v := hashInt(start, n)
+		v.Add(v, delta)
+		v.Mod(v, space)
+		return /* intHash */ func(v *big.Int, n int) []byte {
+			raw := v.Bytes()
+			out := make([]byte, n)
+			if len(raw) > n {
+				copy(out, raw[len(raw)-n:])
+				return out
+			}
+			copy(out[n-len(raw):], raw)
+			return out
+		}(v, n)
+	}(startHash, delta)
 }
 
 func interval(from, to []byte) *big.Int {
-	n := hashLen(from, to)
+	n := /* hashLen */ func(a, b []byte) int {
+		if len(a) > len(b) {
+			return len(a)
+		}
+		return len(b)
+	}(from, to)
 	if n == 0 {
 		return new(big.Int)
 	}
@@ -104,13 +124,6 @@ func interval(from, to []byte) *big.Int {
 	return d
 }
 
-func hashLen(a, b []byte) int {
-	if len(a) > len(b) {
-		return len(a)
-	}
-	return len(b)
-}
-
 func hashSpace(n int) *big.Int {
 	return new(big.Int).Lsh(big.NewInt(1), uint(8*n))
 }
@@ -122,29 +135,6 @@ func hashInt(h []byte, n int) *big.Int {
 	padded := make([]byte, n)
 	copy(padded[n-len(h):], h)
 	return new(big.Int).SetBytes(padded)
-}
-
-func addHash(start []byte, delta *big.Int) []byte {
-	n := len(start)
-	if n == 0 {
-		return nil
-	}
-	space := hashSpace(n)
-	v := hashInt(start, n)
-	v.Add(v, delta)
-	v.Mod(v, space)
-	return intHash(v, n)
-}
-
-func intHash(v *big.Int, n int) []byte {
-	raw := v.Bytes()
-	out := make([]byte, n)
-	if len(raw) > n {
-		copy(out, raw[len(raw)-n:])
-		return out
-	}
-	copy(out[n-len(raw):], raw)
-	return out
 }
 
 func cloneHash(h []byte) []byte {

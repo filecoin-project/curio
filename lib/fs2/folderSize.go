@@ -148,12 +148,30 @@ func ListHashesInterval(directory, low, high, after string, limit int) ([]string
 		}
 		hash := hashFromRel(rel)
 		if d.IsDir() {
-			if !subtreeInInterval(hash, low, high) || prefixAtOrBefore(hash, after) {
+			if ! /* subtreeInInterval */ func(prefix, low, high string) bool {
+				if low != "" && high != "" && low > high {
+					return subtreeCanMatch(prefix, low, "") || subtreeCanMatch(prefix, "", high)
+				}
+				return subtreeCanMatch(prefix, low, high)
+			}(hash, low, high) || /* prefixAtOrBefore */ func(prefix, after string) bool {
+				if after == "" || prefix == "" {
+					return false
+				}
+				if strings.HasPrefix(after, prefix) {
+					return false
+				}
+				return prefix < after
+			}(hash, after) {
 				return filepath.SkipDir
 			}
 			return nil
 		}
-		if !hashInInterval(hash, low, high) || (after != "" && hash <= after) {
+		if ! /* hashInInterval */ func(hash, low, high string) bool {
+			if low != "" && high != "" && low > high {
+				return hashInRange(hash, low, "") || hashInRange(hash, "", high)
+			}
+			return hashInRange(hash, low, high)
+		}(hash, low, high) || (after != "" && hash <= after) {
 			return nil
 		}
 		mode := d.Type()
@@ -182,28 +200,5 @@ func ListHashesInterval(directory, low, high, after string, limit int) ([]string
 	return out, nil
 }
 
-func hashInInterval(hash, low, high string) bool {
-	if low != "" && high != "" && low > high {
-		return hashInRange(hash, low, "") || hashInRange(hash, "", high)
-	}
-	return hashInRange(hash, low, high)
-}
-
-func subtreeInInterval(prefix, low, high string) bool {
-	if low != "" && high != "" && low > high {
-		return subtreeCanMatch(prefix, low, "") || subtreeCanMatch(prefix, "", high)
-	}
-	return subtreeCanMatch(prefix, low, high)
-}
-
 // prefixAtOrBefore reports whether every hash under prefix sorts at or
 // before after, so the directory cannot contain a later hash.
-func prefixAtOrBefore(prefix, after string) bool {
-	if after == "" || prefix == "" {
-		return false
-	}
-	if strings.HasPrefix(after, prefix) {
-		return false
-	}
-	return prefix < after
-}
