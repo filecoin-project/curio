@@ -16,6 +16,7 @@ import (
 	"github.com/filecoin-project/curio/tasks/gc"
 	"github.com/filecoin-project/curio/tasks/indexing"
 	"github.com/filecoin-project/curio/tasks/message"
+	"github.com/filecoin-project/curio/tasks/openpieces"
 	"github.com/filecoin-project/curio/tasks/pay"
 	"github.com/filecoin-project/curio/tasks/pdp"
 	"github.com/filecoin-project/curio/tasks/pdpv0"
@@ -82,13 +83,24 @@ func buildPDPTasks(ctx context.Context, d *Deps, chainSched *chainsched.CurioCha
 	pdpv0.NewProvingPeriodWatcher(w)
 	pdpv0.NewTerminateServiceWatcher(w)
 
+	notify := pdpv0.NewPDPNotifyTask(db)
+	pull := pdpv0.NewPDPPullPieceTask(ctx, db, d.PieceIO, cfg.Subsystems.PDPPullPieceMaxTasks)
+	if d.HashSpace != nil {
+		notify.UseOpenPieces(d.HashSpace, d.LocalStore, d.PieceIO)
+		pull.UseOpenPieces(d.HashSpace, d.LocalStore, d.PieceIO)
+		tasks = append(tasks,
+			openpieces.NewMoveTask(db, d.HashSpace),
+			openpieces.NewDropTask(db, d.HashSpace),
+		)
+	}
+
 	tasks = append(tasks,
 		pdpv0.NewProveTask(db, ethClient, d.Chain, w, senderEth, d.CachedPieceReader, d.IndexStore),
 		pdpv0.NewNextProvingPeriodTask(db, ethClient, d.Chain, w, senderEth),
 		pdpv0.NewInitProvingPeriodTask(db, ethClient, d.Chain, w, senderEth),
 		pdpv0.NewProcessDeletionsTask(db, ethClient, d.Chain, w, senderEth),
-		pdpv0.NewPDPNotifyTask(db),
-		pdpv0.NewPDPPullPieceTask(ctx, db, d.PieceIO, cfg.Subsystems.PDPPullPieceMaxTasks),
+		notify,
+		pull,
 		pdpv0.NewTerminateServiceTask(db, ethClient, senderEth),
 		pdpv0.NewDeleteDataSetTask(db, ethClient, senderEth),
 		pdpv0.NewCleanupPiecesTask(db, ethClient, senderEth),
