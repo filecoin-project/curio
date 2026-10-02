@@ -40,6 +40,7 @@ import (
 	"github.com/filecoin-project/curio/lib/curiochain"
 	"github.com/filecoin-project/curio/lib/ethchain"
 	harmonypeerhttp "github.com/filecoin-project/curio/lib/harmony_peer_http"
+	"github.com/filecoin-project/curio/lib/hashspace"
 	"github.com/filecoin-project/curio/lib/lazy"
 	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/lib/paths"
@@ -179,6 +180,7 @@ type Deps struct {
 	EthSender         *message.SenderETH // set when PDP ETH send task is registered; nil otherwise
 	PeerHTTP          *harmonypeerhttp.PeerHTTP
 	WakeDealPoller    func()
+	HashSpace         *hashspace.Cluster // set when PDP is enabled; nil otherwise
 }
 
 const (

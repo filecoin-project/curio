@@ -22,6 +22,8 @@ func MountPDPRoutes(ctx context.Context, r chi.Router, d *Deps, sd *servicedeps.
 		Chain:     d.Chain,
 		EthSender: sd.EthSender,
 		AlertTask: sd.AlertTask,
+		HashSpace: d.HashSpace,
+		Local:     d.LocalStore,
 	}, ipp)
 }
 

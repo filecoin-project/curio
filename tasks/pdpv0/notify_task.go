@@ -15,8 +15,12 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
+	"github.com/filecoin-project/curio/lib/hashspace"
 	"github.com/filecoin-project/curio/lib/passcall"
+	"github.com/filecoin-project/curio/lib/paths"
+	"github.com/filecoin-project/curio/lib/piecestore"
 	"github.com/filecoin-project/curio/lib/proof"
+	"github.com/filecoin-project/curio/tasks/openpieces"
 	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
@@ -25,15 +29,29 @@ import (
 // publish and delete their upload intent in the transaction that marks storage
 // done.
 type PDPNotifyTask struct {
-	db *harmonydb.DB
+	db    *harmonydb.DB
+	hs    *hashspace.Cluster
+	local *paths.Local
+	pio   piecestore.PieceIO
 }
 
 func NewPDPNotifyTask(db *harmonydb.DB) *PDPNotifyTask {
 	return &PDPNotifyTask{db: db}
 }
 
+// UseOpenPieces copies a published piece into open-pieces before Do returns.
+func (t *PDPNotifyTask) UseOpenPieces(hs *hashspace.Cluster, local *paths.Local, pio piecestore.PieceIO) {
+	t.hs = hs
+	t.local = local
+	t.pio = pio
+}
+
 func (t *PDPNotifyTask) Do(ctx context.Context, taskID harmonytask.TaskID, _ func() bool) (bool, error) {
+	var placedRef sql.NullInt64
+	var uploadID string
 	committed, err := t.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		placedRef = sql.NullInt64{}
+		uploadID = ""
 		var upload struct {
 			id            string
 			service       string
@@ -101,17 +119,8 @@ func (t *PDPNotifyTask) Do(ctx context.Context, taskID harmonytask.TaskID, _ fun
 			}
 		}
 
-		n, err = tx.Exec(`
-			DELETE FROM pdp_piece_uploads
-			WHERE id = $1 AND notify_task_id = $2 AND piece_ref = $3
-		`, upload.id, taskID, upload.pieceRef.Int64)
-		if err != nil {
-			return false, fmt.Errorf("delete published legacy PDP upload %s: %w", upload.id, err)
-		}
-		if n != 1 {
-			return false, fmt.Errorf("delete published legacy PDP upload %s: expected 1 row, got %d", upload.id, n)
-		}
-
+		placedRef = upload.pieceRef
+		uploadID = upload.id
 		return true, nil
 	}, harmonydb.OptionRetry())
 	if err != nil {
@@ -119,6 +128,22 @@ func (t *PDPNotifyTask) Do(ctx context.Context, taskID harmonytask.TaskID, _ fun
 	}
 	if !committed {
 		return false, fmt.Errorf("legacy PDP upload task %d did not commit", taskID)
+	}
+	if !placedRef.Valid {
+		return true, nil
+	}
+	if err := openpieces.Place(ctx, t.db, t.hs, t.local, t.pio, placedRef.Int64); err != nil {
+		return false, err
+	}
+	n, err := t.db.Exec(ctx, `
+		DELETE FROM pdp_piece_uploads
+		WHERE id = $1 AND notify_task_id = $2 AND piece_ref = $3
+	`, uploadID, taskID, placedRef.Int64)
+	if err != nil {
+		return false, fmt.Errorf("delete published legacy PDP upload %s: %w", uploadID, err)
+	}
+	if n != 1 {
+		return false, fmt.Errorf("delete published legacy PDP upload %s: expected 1 row, got %d", uploadID, n)
 	}
 	return true, nil
 }
