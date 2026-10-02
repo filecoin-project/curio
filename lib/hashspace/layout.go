@@ -64,33 +64,31 @@ func writeLayout(root, kind string, layout Layout) error {
 		return err
 	}
 	buf = append(buf, '\n')
-	return writeAtomic(filepath.Join(dir, layoutFile), buf)
-}
-
-func writeAtomic(path string, data []byte) error {
-	tmp := filepath.Join(filepath.Dir(path), "."+filepath.Base(path)+".tmp")
-	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
-	if err != nil {
-		return xerrors.Errorf("writing %s: %w", tmp, err)
-	}
-	_, werr := f.Write(data)
-	serr := f.Sync()
-	cerr := f.Close()
-	if werr != nil || serr != nil || cerr != nil {
-		_ = os.Remove(tmp)
-		if werr != nil {
-			return werr
+	return /* writeAtomic */ func(path string, data []byte) error {
+		tmp := filepath.Join(filepath.Dir(path), "."+filepath.Base(path)+".tmp")
+		f, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+		if err != nil {
+			return xerrors.Errorf("writing %s: %w", tmp, err)
 		}
-		if serr != nil {
-			return serr
+		_, werr := f.Write(data)
+		serr := f.Sync()
+		cerr := f.Close()
+		if werr != nil || serr != nil || cerr != nil {
+			_ = os.Remove(tmp)
+			if werr != nil {
+				return werr
+			}
+			if serr != nil {
+				return serr
+			}
+			return cerr
 		}
-		return cerr
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return xerrors.Errorf("renaming %s: %w", path, err)
-	}
-	return nil
+		if err := os.Rename(tmp, path); err != nil {
+			_ = os.Remove(tmp)
+			return xerrors.Errorf("renaming %s: %w", path, err)
+		}
+		return nil
+	}(filepath.Join(dir, layoutFile), buf)
 }
 
 func removeLayoutTemp(root, kind string) {
