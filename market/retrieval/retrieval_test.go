@@ -718,7 +718,42 @@ func TestPiecePathHeadRouting(t *testing.T) {
 
 	for _, method := range []string{http.MethodGet, http.MethodHead} {
 		rctx := chi.NewRouteContext()
-		matched := mux.Match(rctx, method, "/piece/bafkqaaa")
+		matched := mux.Match(rctx, method, "/public/bafkqaaa")
+		require.True(t, matched, "%s should match /public/{cid}", method)
+
+		rctx = chi.NewRouteContext()
+		matched = mux.Match(rctx, method, "/piece/bafkqaaa")
 		require.True(t, matched, "%s should match /piece/{cid}", method)
+	}
+}
+
+func TestPiecePathRedirectsToPublic(t *testing.T) {
+	ctx := context.Background()
+
+	store := &trustlesstestutil.CorrectedMemStore{
+		ParentStore: &memstore.Store{Bag: make(map[string][]byte)},
+	}
+	lsys := cidlink.DefaultLinkSystem()
+	lsys.SetReadStorage(store)
+	lsys.SetWriteStorage(store)
+	lsys.TrustedStorage = true
+
+	has := func(ctx context.Context, s cid.Cid) (bool, error) {
+		return store.Has(ctx, s.KeyString())
+	}
+
+	provider := NewRetrievalProviderWithLinkSystem(ctx, lsys, has)
+	mux := chi.NewMux()
+	Router(mux, provider, testDenyFilter())
+
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		req := httptest.NewRequest(method, "/piece/bafkqaaa?download=1", nil)
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+
+		res := w.Result()
+		defer func() { _ = res.Body.Close() }()
+		require.Equal(t, http.StatusMovedPermanently, res.StatusCode, "%s /piece/{cid}", method)
+		require.Equal(t, "/public/bafkqaaa?download=1", res.Header.Get("Location"), "%s Location", method)
 	}
 }

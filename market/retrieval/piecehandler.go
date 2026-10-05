@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/ipfs/go-cid"
 	"go.opencensus.io/stats"
 
@@ -31,16 +32,13 @@ func (rp *Provider) handleByPieceCid(w http.ResponseWriter, r *http.Request) {
 	startTime := time.Now()
 	stats.Record(ctx, remoteblockstore.HttpPieceByCidRequestCount.M(1))
 
-	// Remove the path up to the piece cid
-	prefixLen := len(piecePrefix)
-	if len(r.URL.Path) <= prefixLen {
+	pieceCidStr := chi.URLParam(r, "cid")
+	if pieceCidStr == "" {
 		log.Errorf("path '%s' is missing piece CID", r.URL.Path)
 		w.WriteHeader(http.StatusBadRequest)
 		stats.Record(ctx, remoteblockstore.HttpPieceByCid400ResponseCount.M(1))
 		return
 	}
-
-	pieceCidStr := r.URL.Path[prefixLen:]
 	log.Debugw("piece request received for CID", "cid", pieceCidStr)
 	pieceCid, err := cid.Parse(pieceCidStr)
 	if err != nil {
