@@ -98,6 +98,11 @@ func Solve(state State, event Event) (Result, error) {
 			return Result{}, err
 		}
 		w.balance()
+	case EventClaim:
+		if err := w.repair(); err != nil {
+			return Result{}, err
+		}
+		w.claim(disk)
 	case EventVacate:
 		w.mountPoints[disk].frozen = true
 		for s := range w.hashSpaces {
@@ -366,6 +371,84 @@ func (w *world) bestTake(src, dest int, budget int64) (candidate, bool) {
 		return candidate{}, false
 	}
 	return *best, true
+}
+
+// claim moves one step of ranges onto dest toward its capacity-weighted share
+// of all used bytes. Each source gives at most CLAIM_STEP_PERCENT of the
+// smaller of its and dest's capacity, and only bytes above its own share.
+// dest must be a mount index. A frozen dest is left as it is.
+func (w *world) claim(dest int) {
+	active := w.activeDisks()
+	var sumCap, total int64
+	for _, d := range active {
+		sumCap += w.mountPoints[d].capacity
+		total += w.mountPoints[d].used
+	}
+	if sumCap <= 0 || w.mountPoints[dest].frozen {
+		return
+	}
+	share := func(d int) int64 {
+		n := new(big.Int).Mul(big.NewInt(total), big.NewInt(w.mountPoints[d].capacity))
+		return n.Div(n, big.NewInt(sumCap)).Int64()
+	}
+	srcs := slices.DeleteFunc(slices.Clone(active), func(d int) bool { return d == dest })
+	slices.SortStableFunc(srcs, func(a, b int) int {
+		ea, eb := w.mountPoints[a].used-share(a), w.mountPoints[b].used-share(b)
+		switch {
+		case ea > eb:
+			return -1
+		case ea < eb:
+			return 1
+		}
+		return a - b
+	})
+	totalRanges := 0
+	for _, sp := range w.hashSpaces {
+		totalRanges += len(sp.ranges)
+	}
+	for _, src := range srcs {
+		budget := min(w.mountPoints[src].capacity, w.mountPoints[dest].capacity) * CLAIM_STEP_PERCENT / 100
+		for guard := 0; guard < totalRanges*MAX_RANGES_PER_DISK+8 && budget > 0; guard++ {
+			want := min(budget, share(dest)-w.mountPoints[dest].used, w.mountPoints[src].used-share(src))
+			if want <= 0 {
+				break
+			}
+			// A hash cut can round above the requested size. Ask for less
+			// until the bytes that would move fit in want.
+			ask := want
+			var cut candidate
+			ok := false
+			for ask > 0 {
+				cut, ok = w.bestTake(src, dest, ask)
+				if !ok {
+					break
+				}
+				if cut.size <= want {
+					break
+				}
+				over := cut.size - want
+				if over >= ask {
+					ask = 0
+					ok = false
+					break
+				}
+				ask -= over
+			}
+			if !ok {
+				break
+			}
+			if cut.kind != cutWhole {
+				r := w.hashSpaces[cut.space].ranges[cut.idx]
+				if !pointInArc(r.StartHash, r.EndHash, cut.split) {
+					break
+				}
+			}
+			if !w.applyCut(cut.space, cut.idx, cut.kind, dest, cut.size, cut.split) {
+				break
+			}
+			budget -= cut.size
+		}
+	}
 }
 
 // Validate reports whether state is structurally sound and each disk is

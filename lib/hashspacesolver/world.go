@@ -452,7 +452,11 @@ func (w *world) previewCut(space, idx int, kind cutKind, want int64) (split []by
 		if moved <= 0 || moved >= r.Size || len(head) == 0 {
 			return cloneHash(start), 0, nil, nil
 		}
-		return cloneHash(head[len(head)-1].endHash), moved, head, tail
+		split = cloneHash(head[len(head)-1].endHash)
+		if !pointInArc(start, r.EndHash, split) {
+			return cloneHash(start), 0, nil, nil
+		}
+		return split, moved, head, tail
 	}
 	head, tail, kept := splitLayoutPrefix(sp.layouts[idx], start, r.Size-want)
 	moved = r.Size - kept
@@ -462,7 +466,11 @@ func (w *world) previewCut(space, idx int, kind cutKind, want int64) (split []by
 	if len(head) == 0 {
 		return cloneHash(start), moved, head, tail
 	}
-	return cloneHash(head[len(head)-1].endHash), moved, head, tail
+	split = cloneHash(head[len(head)-1].endHash)
+	if !pointInArc(start, r.EndHash, split) {
+		return cloneHash(start), 0, nil, nil
+	}
+	return split, moved, head, tail
 }
 
 // moveWhole assigns ranges[idx] to dest, moves its size from the old disk's

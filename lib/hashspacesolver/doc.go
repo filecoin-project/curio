@@ -88,6 +88,11 @@
 // a split across the two neighbors; a split onto any disk that has room,
 // preferring a cut that adds no range and then a larger cut.
 //
+// Claim moves one step onto the named disk toward its capacity-weighted
+// share of the bytes in use. Each source gives at most CLAIM_STEP_PERCENT
+// of the smaller capacity, and only bytes above its own share. Callers
+// repeat the event until it moves nothing. A frozen disk is left as it is.
+//
 // Balance takes cuts from the fuller disk up to that byte budget. Among
 // cuts that fit, it prefers one that adds no range, then a larger cut,
 // then a smaller range-count change, then the lower space, range, and

@@ -372,6 +372,30 @@ func TestBalanceSkipsVacating(t *testing.T) {
 	require.Equal(t, int64(20), usedOf(out, 1))
 }
 
+func TestClaimStepsTowardCapacityShare(t *testing.T) {
+	// Disk 1 claims while disk 0 owns the circle. Each step moves at most 10%
+	// of the smaller disk, and repeating reaches the capacity-weighted split.
+	st := mk([]int64{2000, 1000}, []byte{0x80, 0x00}, []int64{1200, 0}, []int{0, 1})
+	steps := 0
+	for ; steps < 20; steps++ {
+		out, res := solveOK(t, st, ev(EventClaim, 1))
+		require.LessOrEqual(t, res.BytesMoved, int64(1000*CLAIM_STEP_PERCENT/100))
+		if res.BytesMoved == 0 {
+			break
+		}
+		st = out
+	}
+	require.Greater(t, steps, 1)
+	require.InDelta(t, 400, usedOf(st, 1), 10)
+	require.InDelta(t, 800, usedOf(st, 0), 10)
+}
+
+func TestClaimIdleAtShare(t *testing.T) {
+	st := mk([]int64{100, 100}, []byte{0x40, 0x80}, []int64{40, 40}, []int{0, 1})
+	_, res := solveOK(t, st, ev(EventClaim, 1))
+	require.Empty(t, res.Diff)
+}
+
 func TestMountCapacityIncreasedIdleWhenBalanced(t *testing.T) {
 	st := mk([]int64{100, 100}, []byte{0x40, 0xc0}, []int64{40, 40}, []int{0, 1})
 	_, res := solveOK(t, st, ev(EventMountCapacityIncreased, 1))
@@ -888,7 +912,7 @@ func TestRandomClusterEvents(t *testing.T) {
 			t.Fatalf("iter %d: unexpected solve error: %v", i, err)
 		}
 		out, err := Apply(st, res.Diff)
-		require.NoError(t, err, "iter %d", i)
+		require.NoError(t, err, "iter %d kind %d", i, ev.Kind)
 		require.NoError(t, Validate(out), "iter %d", i)
 		requireEqualState(t, res.State, out)
 		shuffled := append([]Transfer(nil), res.Diff...)
