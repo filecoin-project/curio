@@ -31,13 +31,14 @@ import (
 var log = logging.Logger("hashspace")
 
 const (
-	// EVENT_FULL, EVENT_ARRIVE, EVENT_ABSORB, EVENT_VACATE, and EVENT_BALANCE
-	// are hash_space_pending_event.event_kind values.
+	// EVENT_FULL, EVENT_ARRIVE, EVENT_ABSORB, EVENT_VACATE, EVENT_BALANCE, and
+	// EVENT_CLAIM are hash_space_pending_event.event_kind values.
 	EVENT_FULL    = "full"
 	EVENT_ARRIVE  = "arrive"
 	EVENT_ABSORB  = "absorb"
 	EVENT_VACATE  = "vacate"
 	EVENT_BALANCE = "balance"
+	EVENT_CLAIM   = "claim"
 
 	// ROOM_RETURN_MIN is the capacity increase that asks a disk to take
 	// bytes back after other filesystem activity frees space.
@@ -127,10 +128,13 @@ func NewCluster(ctx context.Context, db *harmonydb.DB, drives []LocalDrive, auth
 		c.roots[d.StorageID] = d.Root
 	}
 
-	var arrived []string
+	var arrived, claimed []string
 	if len(drives) > 0 {
+		if _, err := migratePiecePark(ctx, db, drives); err != nil {
+			return nil, xerrors.Errorf("moving piece-park pieces into open-pieces: %w", err)
+		}
 		var err error
-		arrived, err = c.join(ctx, drives)
+		arrived, claimed, err = c.join(ctx, drives)
 		if err != nil {
 			return nil, xerrors.Errorf("joining hash space: %w", err)
 		}
@@ -159,6 +163,11 @@ func NewCluster(ctx context.Context, db *harmonydb.DB, drives []LocalDrive, auth
 	for _, id := range arrived {
 		if err := c.raise(ctx, id, EVENT_ARRIVE); err != nil {
 			log.Errorw("hash space arrive", "storage", id, "error", err)
+		}
+	}
+	for _, id := range claimed {
+		if err := c.raise(ctx, id, EVENT_CLAIM); err != nil {
+			log.Errorw("hash space claim", "storage", id, "error", err)
 		}
 	}
 	c.noticeSpread(ctx)
@@ -261,7 +270,18 @@ func (c *Cluster) loop(ctx context.Context) {
 		if err := c.reevaluate(ctx); err != nil {
 			log.Warnw("processing pending hash space event", "error", err)
 		}
-		if c.open != nil && time.Since(lastOverlapCheck) >= OVERLAP_CHECK_INTERVAL {
+		if c.open == nil {
+			continue
+		}
+		ids := make([]string, 0, len(c.roots))
+		for id := range c.roots {
+			ids = append(ids, id)
+		}
+		var misplaced bool
+		if err := c.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM hash_space_disk WHERE has_misplaced AND storage_id = ANY($1))`, ids).Scan(&misplaced); err != nil {
+			log.Warnw("checking for hash space disks with misplaced pieces", "error", err)
+		}
+		if misplaced || time.Since(lastOverlapCheck) >= OVERLAP_CHECK_INTERVAL {
 			lastOverlapCheck = time.Now()
 			if _, err := c.FixOverlaps(ctx); err != nil {
 				log.Warnw("checking for misplaced open pieces", "error", err)
@@ -525,6 +545,16 @@ func (c *Cluster) places(ctx context.Context, digest []byte) ([]Location, error)
 	}
 	if ids == nil {
 		return nil, xerrors.Errorf("hash %x: %w", digest, errNoRange)
+	}
+	// A disk with misplaced pieces may hold any hash until they have moved.
+	var misplaced []string
+	if err := c.db.Select(ctx, &misplaced, `SELECT storage_id FROM hash_space_disk WHERE has_misplaced ORDER BY storage_id`); err != nil {
+		return nil, xerrors.Errorf("reading hash space disks with misplaced pieces: %w", err)
+	}
+	for _, id := range misplaced {
+		if indexOf(ids, id) < 0 {
+			ids = append(ids, id)
+		}
 	}
 	// Local disks first.
 	out := make([]Location, 0, len(ids))
@@ -874,6 +904,8 @@ func (c *Cluster) raise(ctx context.Context, storageID, kind string) error {
 			ev.Kind = hashspacesolver.EventVacate
 		case EVENT_BALANCE:
 			ev.Kind = hashspacesolver.EventBalance
+		case EVENT_CLAIM:
+			ev.Kind = hashspacesolver.EventClaim
 		default:
 			return false, xerrors.Errorf("unknown hash space event %q", kind)
 		}
@@ -926,7 +958,14 @@ func (c *Cluster) raise(ctx context.Context, storageID, kind string) error {
 		if planned == 0 {
 			return false, nil
 		}
-		if err := consumePending(tx, storageID, kind); err != nil {
+		// A claim moves one step at a time; it stays queued so the next step
+		// is planned once these moves finish, until a step moves nothing.
+		if kind == EVENT_CLAIM {
+			if _, err := tx.Exec(`INSERT INTO hash_space_pending_event (storage_id, event_kind) VALUES ($1, $2)
+				ON CONFLICT (storage_id, event_kind) DO NOTHING`, storageID, kind); err != nil {
+				return false, err
+			}
+		} else if err := consumePending(tx, storageID, kind); err != nil {
 			return false, err
 		}
 		log.Infow("planned hash space rebalance", "storage", storageID, "event", kind, "moves", planned, "bytes", res.BytesMoved)
@@ -1036,7 +1075,7 @@ func (c *Cluster) reevaluate(ctx context.Context) error {
 					return c.ownsRanges(ctx, storageID)
 				case EVENT_FULL:
 					return !disk.Vacating && overFill(used, disk.Capacity), nil
-				case EVENT_ARRIVE:
+				case EVENT_ARRIVE, EVENT_CLAIM:
 					return !disk.Vacating, nil
 				case EVENT_ABSORB:
 					if disk.Vacating || overFill(used, disk.Capacity) {
@@ -1100,6 +1139,8 @@ func eventPriority(kind string) int {
 		return 3
 	case EVENT_BALANCE:
 		return 4
+	case EVENT_CLAIM:
+		return 5
 	default:
 		return 9
 	}
@@ -1491,6 +1532,9 @@ func (c *Cluster) CompleteMoveSource(ctx context.Context, m *MoveSource) error {
 		if err := c.reevaluate(ctx); err != nil {
 			return err
 		}
+		if _, err := c.FixOverlaps(ctx); err != nil {
+			log.Warnw("checking for misplaced open pieces", "error", err)
+		}
 	}
 	for _, id := range absorb {
 		if err := c.raise(ctx, id, EVENT_ABSORB); err != nil {
@@ -1862,10 +1906,20 @@ func (c *Cluster) casTaskTx(ctx context.Context, addTask harmonytask.AddTaskFunc
 	return xerrors.Errorf("hash space map changed %d times during update", CAS_RETRIES)
 }
 
-func (c *Cluster) join(ctx context.Context, drives []LocalDrive) ([]string, error) {
-	var arrived []string
-	err := c.casTx(ctx, func(tx *harmonydb.Tx) (bool, error) {
-		arrived = nil
+// join adds drives to the cluster map. It returns new drives to present with
+// EVENT_ARRIVE and new drives holding a whole-circle claim, which take
+// EVENT_CLAIM instead.
+func (c *Cluster) join(ctx context.Context, drives []LocalDrive) (arrived, claimed []string, err error) {
+	claims := make(map[string]bool, len(drives))
+	for _, d := range drives {
+		ok, err := isClaim(d.Root)
+		if err != nil {
+			return nil, nil, err
+		}
+		claims[d.StorageID] = ok
+	}
+	err = c.casTx(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		arrived, claimed = nil, nil
 		var known []string
 		if err := tx.Select(&known, `SELECT storage_id FROM hash_space_disk`); err != nil {
 			return false, err
@@ -1910,9 +1964,10 @@ func (c *Cluster) join(ctx context.Context, drives []LocalDrive) ([]string, erro
 				if err != nil {
 					return false, err
 				}
-				if _, err := tx.Exec(`INSERT INTO hash_space_disk (storage_id, capacity, vacating) VALUES ($1, $2, $3)
-					ON CONFLICT (storage_id) DO UPDATE SET capacity = EXCLUDED.capacity, vacating = EXCLUDED.vacating, updated_at = NOW()`,
-					d.StorageID, st.Disks[i], deny); err != nil {
+				if _, err := tx.Exec(`INSERT INTO hash_space_disk (storage_id, capacity, vacating, has_misplaced) VALUES ($1, $2, $3, $4)
+					ON CONFLICT (storage_id) DO UPDATE SET capacity = EXCLUDED.capacity, vacating = EXCLUDED.vacating,
+						has_misplaced = EXCLUDED.has_misplaced, updated_at = NOW()`,
+					d.StorageID, st.Disks[i], deny, claims[d.StorageID]); err != nil {
 					return false, err
 				}
 			}
@@ -1929,17 +1984,23 @@ func (c *Cluster) join(ctx context.Context, drives []LocalDrive) ([]string, erro
 			if err != nil {
 				return false, err
 			}
+			claim := claims[d.StorageID]
 			if indexOf(known, d.StorageID) >= 0 {
-				if _, err := tx.Exec(`UPDATE hash_space_disk SET capacity = $1, vacating = $2, updated_at = NOW() WHERE storage_id = $3`, capacity, deny, d.StorageID); err != nil {
+				if _, err := tx.Exec(`UPDATE hash_space_disk SET capacity = $1, vacating = $2, has_misplaced = has_misplaced OR $3, updated_at = NOW()
+					WHERE storage_id = $4`, capacity, deny, claim, d.StorageID); err != nil {
 					return false, err
 				}
 				continue
 			}
-			if _, err := tx.Exec(`INSERT INTO hash_space_disk (storage_id, capacity, vacating) VALUES ($1, $2, $3)
-				ON CONFLICT (storage_id) DO NOTHING`, d.StorageID, capacity, deny); err != nil {
+			if _, err := tx.Exec(`INSERT INTO hash_space_disk (storage_id, capacity, vacating, has_misplaced) VALUES ($1, $2, $3, $4)
+				ON CONFLICT (storage_id) DO NOTHING`, d.StorageID, capacity, deny, claim); err != nil {
 				return false, err
 			}
-			if !deny {
+			switch {
+			case deny:
+			case claim:
+				claimed = append(claimed, d.StorageID)
+			default:
 				fresh = append(fresh, d.StorageID)
 			}
 		}
@@ -1954,7 +2015,7 @@ func (c *Cluster) join(ctx context.Context, drives []LocalDrive) ([]string, erro
 		}
 		return true, nil
 	})
-	return arrived, err
+	return arrived, claimed, err
 }
 
 // importNewerLayouts writes the ranges of every local layout.json whose
@@ -1990,6 +2051,11 @@ func importNewerLayouts(tx *harmonydb.Tx, drives []LocalDrive, apply bool) ([]st
 			if !apply || layout.Version < current || len(layout.Ranges) == 0 {
 				continue
 			}
+			// A claim from migratePiecePark marks migrated files; its disk
+			// joins through EVENT_CLAIM.
+			if layout.Claim {
+				continue
+			}
 			var rs []rangeRow
 			if err := tx.Select(&rs, `SELECT end_hash, storage_id FROM hash_space_range WHERE space = $1 ORDER BY end_hash`, kind); err != nil {
 				return nil, err
@@ -2010,8 +2076,8 @@ func importNewerLayouts(tx *harmonydb.Tx, drives []LocalDrive, apply bool) ([]st
 			if err := writeSpaceRanges(tx, kind, rs); err != nil {
 				return nil, err
 			}
-			if len(layout.MoveSources) > 0 {
-				log.Warnw("hash space layout move sources not restored", "storage", d.StorageID, "space", kind, "count", len(layout.MoveSources))
+			if len(layout.MoveDests) > 0 {
+				log.Warnw("hash space layout move destinations not restored", "storage", d.StorageID, "space", kind, "count", len(layout.MoveDests))
 			}
 			log.Warnw("hash space database is behind layout.json; restored its ranges",
 				"storage", d.StorageID, "space", kind, "layout_version", layout.Version, "db_version", current-1)
@@ -2038,7 +2104,7 @@ func (c *Cluster) writeLocalLayouts(ctx context.Context) error {
 	now := time.Now().UTC().Truncate(time.Second)
 	for id, root := range c.roots {
 		for _, kind := range spaceKinds {
-			owned, moveSources, err := c.localIntervals(ctx, kind, id)
+			owned, moveDests, err := c.localIntervals(ctx, kind, id)
 			if err != nil {
 				return err
 			}
@@ -2060,7 +2126,7 @@ func (c *Cluster) writeLocalLayouts(ctx context.Context) error {
 				CommittedAt: now,
 				Split:       SPLIT,
 				Ranges:      owned,
-				MoveSources: moveSources,
+				MoveDests:   moveDests,
 			}); err != nil {
 				return err
 			}
@@ -2087,18 +2153,23 @@ func (c *Cluster) refresh(ctx context.Context, force bool) error {
 	if !force && ver == c.lastVersion.Load() {
 		return nil
 	}
+	var misplaced []string
+	if err := c.db.Select(ctx, &misplaced, `SELECT storage_id FROM hash_space_disk WHERE has_misplaced`); err != nil {
+		return err
+	}
 	for _, sp := range []*Space{c.open, c.acl} {
 		if sp == nil {
 			continue
 		}
 		for id, root := range c.roots {
-			owned, moveSources, err := c.localIntervals(ctx, sp.kind, id)
+			owned, moveDests, err := c.localIntervals(ctx, sp.kind, id)
 			if err != nil {
 				return err
 			}
-			if err := sp.SetIntervalsOn(root, ver, owned, moveSources); err != nil {
+			if err := sp.SetIntervalsOn(root, ver, owned, moveDests); err != nil {
 				return err
 			}
+			sp.SetMisplacedOn(root, indexOf(misplaced, id) >= 0)
 		}
 	}
 	c.lastVersion.Store(ver)
@@ -2125,11 +2196,11 @@ func (c *Cluster) localIntervals(ctx context.Context, kind, storageID string) ([
 		FROM hash_space_move_source WHERE space = $1 AND to_storage = $2`, kind, storageID); err != nil {
 		return nil, nil, err
 	}
-	var moveSources []HashRange
+	var moveDests []HashRange
 	for _, m := range ms {
-		moveSources = append(moveSources, HashRange{Start: hexEncode(m.StartHash), End: hexEncode(m.EndHash)})
+		moveDests = append(moveDests, HashRange{Start: hexEncode(m.StartHash), End: hexEncode(m.EndHash)})
 	}
-	return owned, moveSources, nil
+	return owned, moveDests, nil
 }
 
 func (c *Cluster) publishUsed(ctx context.Context) {
@@ -2177,6 +2248,13 @@ func (c *Cluster) publishDisk(ctx context.Context, storageID, root string) (bool
 		return false, err
 	}
 	used := usedOpen + usedACL
+	// A folder with misplaced pieces also holds files outside its ranges, so
+	// its one-range total is summed instead of taken from the folder counter.
+	var misplacedRows []bool
+	if err := c.db.Select(ctx, &misplacedRows, `SELECT has_misplaced FROM hash_space_disk WHERE storage_id = $1`, storageID); err != nil {
+		return false, err
+	}
+	misplaced := len(misplacedRows) > 0 && misplacedRows[0]
 	for _, kind := range spaceKinds {
 		n := usedOpen
 		if kind == DIR_ACL {
@@ -2185,6 +2263,9 @@ func (c *Cluster) publishDisk(ctx context.Context, storageID, root string) (bool
 		// publishRangeSizes
 		var pubErr error
 		owned, _, ierr := c.localIntervals(ctx, kind, storageID)
+		if ierr == nil && misplaced && len(owned) == 1 {
+			n, ierr = sumInterval(filepath.Join(root, kind), owned[0].Start, owned[0].End)
+		}
 		if ierr != nil {
 			pubErr = ierr
 		} else if sizes, serr := sizesForRanges(filepath.Join(root, kind), owned, n); serr != nil {

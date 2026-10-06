@@ -31,6 +31,9 @@ func FirstSetup(drives []Drive) (hashspacesolver.State, error) {
 	}
 	caps := make([]int64, len(drives))
 	both := make([]bool, len(drives))
+	// A whole-circle claim from migratePiecePark seeds like a drive with no
+	// layout, keeping the bytes it counted.
+	claimUsed := make([][2]int64, len(drives))
 	var nBoth, nNeither int
 	for i, d := range drives {
 		if d.Root == "" {
@@ -49,8 +52,26 @@ func FirstSetup(drives []Drive) (hashspacesolver.State, error) {
 		if err != nil {
 			return hashspacesolver.State{}, err
 		}
+		claim, err := isClaim(d.Root)
+		if err != nil {
+			return hashspacesolver.State{}, err
+		}
 		var hasBoth, hasNeither bool
 		switch {
+		case claim:
+			hasNeither = true
+			for s, kind := range spaceKinds {
+				if ok, err := fileExists(filepath.Join(d.Root, kind, layoutFile)); err != nil {
+					return hashspacesolver.State{}, err
+				} else if !ok {
+					continue
+				}
+				_, n, err := accountedLayout(d.Root, kind)
+				if err != nil {
+					return hashspacesolver.State{}, err
+				}
+				claimUsed[i][s] = n
+			}
 		case openOK && aclOK:
 			hasBoth = true
 		case !openOK && !aclOK:
@@ -119,7 +140,7 @@ func FirstSetup(drives []Drive) (hashspacesolver.State, error) {
 		if err != nil {
 			return hashspacesolver.State{}, err
 		}
-		if err := writeState(drives, st, make([][2]int64, len(drives))); err != nil {
+		if err := writeState(drives, st, claimUsed); err != nil {
 			return hashspacesolver.State{}, err
 		}
 		return st, nil
@@ -144,6 +165,7 @@ func FirstSetup(drives []Drive) (hashspacesolver.State, error) {
 			if ok {
 				continue
 			}
+			used[i] = claimUsed[i]
 			deny, err := deniesPiecePark(drives[i].Root)
 			if err != nil {
 				return hashspacesolver.State{}, err

@@ -30,7 +30,10 @@ type disk struct {
 	tracker     *sizeTracker
 	version     int64
 	intervals   []hashInterval
-	moveSources []hashInterval
+	// moveDests are intervals another disk still owns that are moving here.
+	moveDests []hashInterval
+	// misplaced mirrors hash_space_disk.has_misplaced.
+	misplaced bool
 }
 
 type hashInterval struct {
@@ -77,8 +80,8 @@ func Load(kind string, roots []string) (*Space, error) {
 		if d.intervals, err = decodeIntervals(layout.Ranges); err != nil {
 			return nil, xerrors.Errorf("%s ranges: %w", path, err)
 		}
-		if d.moveSources, err = decodeIntervals(layout.MoveSources); err != nil {
-			return nil, xerrors.Errorf("%s move sources: %w", path, err)
+		if d.moveDests, err = decodeIntervals(layout.MoveDests); err != nil {
+			return nil, xerrors.Errorf("%s move destinations: %w", path, err)
 		}
 		if err := d.catchUp(kind, info.ModTime()); err != nil {
 			return nil, err
@@ -131,7 +134,7 @@ func (s *Space) flushLocked() error {
 			CommittedAt: now,
 			Split:       SPLIT,
 			Ranges:      encodeIntervals(d.intervals),
-			MoveSources: encodeIntervals(d.moveSources),
+			MoveDests:   encodeIntervals(d.moveDests),
 		})
 		if err != nil && first == nil {
 			first = err
@@ -150,8 +153,8 @@ func (s *Space) Close() error {
 }
 
 // WriteCID opens a new file for a piece CID that is not already stored.
-// The file is written to the root whose ranges contain the CID hash.
-// Close adds the written byte count. A second Close does not add again.
+// The file is written to the root a move is bringing the hash to, else the
+// root whose ranges contain it. Close adds the written byte count. A second Close does not add again.
 // Abort drops the temp sibling and leaves the counter unchanged.
 // If the CID file already exists, WriteCID returns os.ErrExist and does
 // not change the counter.
@@ -160,13 +163,39 @@ func (s *Space) WriteCID(c cid.Cid) (io.WriteCloser, error) {
 	if err != nil {
 		return nil, err
 	}
-	disks := s.locate(digest)
-	if len(disks) == 0 {
+	d := s.writeTarget(digest)
+	if d == nil {
 		return nil, xerrors.Errorf("cid hash is not owned by any local range")
 	}
-	// The range owner is first. A move destination is only used when no local
-	// disk owns the hash.
-	return s.writeOn(disks[0], hexHash)
+	return s.writeOn(d, hexHash)
+}
+
+// writeTarget picks the local disk a new file for digest goes to: a move
+// destination covering it, else the range owner. Never the move's source, as
+// the mover may already have passed the hash. Misplaced-only disks are skipped.
+func (s *Space) writeTarget(digest []byte) *disk {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, d := range s.disks {
+		if covers(d.moveDests, digest) {
+			return d
+		}
+	}
+	for _, d := range s.disks {
+		if covers(d.intervals, digest) {
+			return d
+		}
+	}
+	return nil
+}
+
+func covers(ivs []hashInterval, digest []byte) bool {
+	for _, iv := range ivs {
+		if hashspacesolver.Contains(iv.start, iv.end, digest) {
+			return true
+		}
+	}
+	return false
 }
 
 // WriteCIDOn is WriteCID on the named root, whether or not that root owns
@@ -310,7 +339,8 @@ func (s *Space) ReadCIDFileFrom(c cid.Cid) (ReadSeekFile, error) {
 
 // locate returns the local disks that may hold digest. The range owner comes
 // first. A disk the bytes are moving to is included as well, so a hash in
-// flight is found on both ends when both disks are local.
+// flight is found on both ends when both disks are local. Every disk with
+// misplaced pieces comes last, since any hash may be there too.
 func (s *Space) locate(digest []byte) []*disk {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -324,19 +354,18 @@ func (s *Space) locate(digest []byte) []*disk {
 		out = append(out, d)
 	}
 	for _, d := range s.disks {
-		for _, iv := range d.intervals {
-			if hashspacesolver.Contains(iv.start, iv.end, digest) {
-				add(d)
-				break
-			}
+		if covers(d.intervals, digest) {
+			add(d)
 		}
 	}
 	for _, d := range s.disks {
-		for _, iv := range d.moveSources {
-			if hashspacesolver.Contains(iv.start, iv.end, digest) {
-				add(d)
-				break
-			}
+		if covers(d.moveDests, digest) {
+			add(d)
+		}
+	}
+	for _, d := range s.disks {
+		if d.misplaced {
+			add(d)
 		}
 	}
 	return out
@@ -527,9 +556,9 @@ func (s *Space) UsedOn(root string) (int64, error) {
 	return d.tracker.Used(), nil
 }
 
-// SetIntervalsOn replaces the owned ranges and move sources of root, read at
-// map version, and rewrites its layout.json.
-func (s *Space) SetIntervalsOn(root string, version int64, owned, moveSources []HashRange) error {
+// SetIntervalsOn replaces the owned ranges and move destinations of root, read
+// at map version, and rewrites its layout.json.
+func (s *Space) SetIntervalsOn(root string, version int64, owned, moveDests []HashRange) error {
 	d, err := s.diskOn(root)
 	if err != nil {
 		return err
@@ -538,7 +567,7 @@ func (s *Space) SetIntervalsOn(root string, version int64, owned, moveSources []
 	if err != nil {
 		return err
 	}
-	mivs, err := decodeIntervals(moveSources)
+	mivs, err := decodeIntervals(moveDests)
 	if err != nil {
 		return err
 	}
@@ -546,8 +575,20 @@ func (s *Space) SetIntervalsOn(root string, version int64, owned, moveSources []
 	defer s.mu.Unlock()
 	d.version = version
 	d.intervals = ivs
-	d.moveSources = mivs
+	d.moveDests = mivs
 	return s.flushLocked()
+}
+
+// SetMisplacedOn records whether root holds pieces outside its own ranges
+// (hash_space_disk.has_misplaced). locate then includes root for every hash.
+func (s *Space) SetMisplacedOn(root string, misplaced bool) {
+	d, err := s.diskOn(root)
+	if err != nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	d.misplaced = misplaced
 }
 
 func decodeIntervals(rs []HashRange) ([]hashInterval, error) {
