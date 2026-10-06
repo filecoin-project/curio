@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -33,6 +34,15 @@ type hsDisk struct {
 	id   string
 	root string
 }
+
+// hsNoopPeer implements harmonytask.PeerConnectorInterface. The engine requires
+// a non-nil connector, and this file is compiled alone in CI.
+type hsNoopPeer struct{}
+
+func (hsNoopPeer) ConnectToPeer(string) (harmonytask.PeerConnection, error) {
+	return nil, fmt.Errorf("noop: no peers")
+}
+func (hsNoopPeer) SetOnConnect(func(string, harmonytask.PeerConnection)) {}
 
 func (d hsDisk) drive() hashspace.LocalDrive {
 	return hashspace.LocalDrive{StorageID: d.id, Root: d.root}
@@ -165,7 +175,7 @@ func TestHashSpaceArrivingDiskMovesPiecesOff(t *testing.T) {
 	// The move task runs for real: the cluster loop plans the moves once the
 	// engine exists, and the engine copies and hands them over.
 	engine, err := harmonytask.New(db, []harmonytask.TaskInterface{openpieces.NewMoveTask(db, cluster)},
-		"hashspace-itest:1234", noopPeerConnector{}, ffigpu.Inspector{})
+		"hashspace-itest:1234", hsNoopPeer{}, ffigpu.Inspector{})
 	require.NoError(t, err)
 	stop := sync.OnceFunc(func() {
 		engine.GracefullyTerminate()

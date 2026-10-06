@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
+	"math/big"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -905,6 +906,19 @@ func (c *Cluster) raise(ctx context.Context, storageID, kind string) error {
 		case EVENT_BALANCE:
 			ev.Kind = hashspacesolver.EventBalance
 		case EVENT_CLAIM:
+			// Migrated pieces sit outside this disk's ranges, so the solver
+			// would see it as empty and take ranges that already hold pieces.
+			// Folder bytes already at its share means there is nothing to claim.
+			satisfied, err := claimSatisfied(tx, storageID)
+			if err != nil {
+				return false, err
+			}
+			if satisfied {
+				if err := consumePending(tx, storageID, kind); err != nil {
+					return false, err
+				}
+				return true, nil
+			}
 			ev.Kind = hashspacesolver.EventClaim
 		default:
 			return false, xerrors.Errorf("unknown hash space event %q", kind)
@@ -987,6 +1001,40 @@ func (c *Cluster) movesActive(ctx context.Context) (bool, error) {
 	var busy bool
 	err := c.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM hash_space_move_source)`).Scan(&busy)
 	return busy, err
+}
+
+// claimSatisfied reports whether storageID already holds at least its
+// capacity-weighted share of every active disk's folder bytes.
+func claimSatisfied(tx *harmonydb.Tx, storageID string) (bool, error) {
+	var rows []struct {
+		StorageID string `db:"storage_id"`
+		UsedOpen  int64  `db:"used_open"`
+		UsedACL   int64  `db:"used_acl"`
+		Capacity  int64  `db:"capacity"`
+		Vacating  bool   `db:"vacating"`
+	}
+	if err := tx.Select(&rows, `SELECT storage_id, used_open, used_acl, capacity, vacating FROM hash_space_disk`); err != nil {
+		return false, err
+	}
+	var sumCap, total, used, cap int64
+	var found bool
+	for _, r := range rows {
+		if r.Vacating || r.Capacity <= 0 {
+			continue
+		}
+		u := r.UsedOpen + r.UsedACL
+		sumCap += r.Capacity
+		total += u
+		if r.StorageID == storageID {
+			used, cap, found = u, r.Capacity, true
+		}
+	}
+	if !found || sumCap <= 0 || cap <= 0 {
+		return false, nil
+	}
+	share := new(big.Int).Mul(big.NewInt(total), big.NewInt(cap))
+	share.Div(share, big.NewInt(sumCap))
+	return used >= share.Int64(), nil
 }
 
 // consumePending removes a queued event inside the transaction that handled it.
