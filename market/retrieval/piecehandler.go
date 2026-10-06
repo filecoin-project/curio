@@ -14,6 +14,7 @@ import (
 
 	"github.com/filecoin-project/curio/lib/cachedreader"
 	"github.com/filecoin-project/curio/lib/pieceprovider"
+	"github.com/filecoin-project/curio/market/retrieval/gate"
 	"github.com/filecoin-project/curio/market/retrieval/remoteblockstore"
 )
 
@@ -77,7 +78,7 @@ func (rp *Provider) handleByPieceCid(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	setHeaders(w, pieceCid, contentType)
+	setHeaders(w, pieceCid, contentType, gate.IsGated(ctx))
 
 	// Let's try to serve the original data without padding
 	sr := io.NewSectionReader(reader, 0, int64(rawSize))
@@ -100,9 +101,14 @@ func sniffContentType(r io.ReaderAt) (string, error) {
 	return http.DetectContentType(buf[:n]), nil
 }
 
-func setHeaders(w http.ResponseWriter, pieceCid cid.Cid, contentType string) {
+func setHeaders(w http.ResponseWriter, pieceCid cid.Cid, contentType string, gated bool) {
 	w.Header().Set("Vary", "Accept-Encoding")
-	w.Header().Set("Cache-Control", "public, max-age=29030400, immutable")
+	if gated {
+		// Authorization-gated content must not be stored by shared caches/CDNs.
+		w.Header().Set("Cache-Control", "private, no-store")
+	} else {
+		w.Header().Set("Cache-Control", "public, max-age=29030400, immutable")
+	}
 	w.Header().Set("Content-Type", contentType)
 	if contentType != "application/octet-stream" {
 		if exts, err := mime.ExtensionsByType(contentType); err == nil && len(exts) > 0 {

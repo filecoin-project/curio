@@ -72,7 +72,7 @@ func TestIPFSPathRouting(t *testing.T) {
 
 	// Set up router
 	mux := chi.NewMux()
-	Router(mux, provider, testDenyFilter())
+	Router(mux, provider, testDenyFilter(), nil, nil)
 
 	testCases := []struct {
 		name         string
@@ -166,7 +166,7 @@ func TestRouterSetup(t *testing.T) {
 	provider := NewRetrievalProviderWithLinkSystem(ctx, lsys, has)
 
 	mux := chi.NewMux()
-	Router(mux, provider, testDenyFilter())
+	Router(mux, provider, testDenyFilter(), nil, nil)
 
 	// Test that non-IPFS routes work
 	req := httptest.NewRequest(http.MethodGet, "/info", nil)
@@ -207,7 +207,7 @@ func TestTrustlessGatewaySentinel(t *testing.T) {
 
 	provider := NewRetrievalProviderWithLinkSystem(ctx, lsys, has)
 	mux := chi.NewMux()
-	Router(mux, provider, testDenyFilter())
+	Router(mux, provider, testDenyFilter(), nil, nil)
 
 	testCases := []struct {
 		name   string
@@ -273,7 +273,7 @@ func TestTrustlessGatewayHeaders(t *testing.T) {
 
 	provider := NewRetrievalProviderWithLinkSystem(ctx, lsys, has)
 	mux := chi.NewMux()
-	Router(mux, provider, testDenyFilter())
+	Router(mux, provider, testDenyFilter(), nil, nil)
 
 	t.Run("CAR response headers", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/ipfs/"+rootEnt.Root.String(), nil)
@@ -327,7 +327,7 @@ func TestTrustlessGatewayAcceptHeader(t *testing.T) {
 
 	provider := NewRetrievalProviderWithLinkSystem(ctx, lsys, has)
 	mux := chi.NewMux()
-	Router(mux, provider, testDenyFilter())
+	Router(mux, provider, testDenyFilter(), nil, nil)
 
 	t.Run("Missing Accept header returns 400", func(t *testing.T) {
 		// Note that Frisbii will be forgiving about a wildcard Accept header,
@@ -383,7 +383,7 @@ func TestTrustlessGatewayQueryParameters(t *testing.T) {
 
 	provider := NewRetrievalProviderWithLinkSystem(ctx, lsys, has)
 	mux := chi.NewMux()
-	Router(mux, provider, testDenyFilter())
+	Router(mux, provider, testDenyFilter(), nil, nil)
 
 	testCases := []struct {
 		name       string
@@ -484,7 +484,7 @@ func TestRawBlockRetrieval(t *testing.T) {
 
 	provider := NewRetrievalProviderWithLinkSystem(ctx, lsys, has)
 	mux := chi.NewMux()
-	Router(mux, provider, testDenyFilter())
+	Router(mux, provider, testDenyFilter(), nil, nil)
 
 	// Test retrieval of each individual block
 	for i, c := range allCIDs {
@@ -548,7 +548,7 @@ func TestMissingBlockReturns404(t *testing.T) {
 
 	provider := NewRetrievalProviderWithLinkSystem(ctx, lsys, has)
 	mux := chi.NewMux()
-	Router(mux, provider, testDenyFilter())
+	Router(mux, provider, testDenyFilter(), nil, nil)
 
 	// Create a CID that doesn't exist in the store
 	nonExistentCID := "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi"
@@ -626,7 +626,7 @@ func TestDagScopeCAR(t *testing.T) {
 
 	provider := NewRetrievalProviderWithLinkSystem(ctx, lsys, has)
 	mux := chi.NewMux()
-	Router(mux, provider, testDenyFilter())
+	Router(mux, provider, testDenyFilter(), nil, nil)
 
 	t.Run("dag-scope=block returns single block CAR", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/ipfs/"+dirRootEnt.Root.String()+"?dag-scope=block", nil)
@@ -714,7 +714,7 @@ func TestPiecePathHeadRouting(t *testing.T) {
 
 	provider := NewRetrievalProviderWithLinkSystem(ctx, lsys, has)
 	mux := chi.NewMux()
-	Router(mux, provider, testDenyFilter())
+	Router(mux, provider, testDenyFilter(), nil, nil)
 
 	for _, method := range []string{http.MethodGet, http.MethodHead} {
 		rctx := chi.NewRouteContext()
