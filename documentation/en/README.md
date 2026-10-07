@@ -8,6 +8,8 @@ description: What is Curio and how is it different from Lotus-Miner?
 
 Curio is the new implementation of Filecoin storage protocol. It aims to simplify the setup and operation of storage providers.
 
+Let your AI agent help you earn on Filecoin using your spare hardware and storage capacity. [Filecoin PDP Agent](filecoin-pdp-agent.md) handles provider setup and ongoing operation on your behalf. This option is designed for **full agent control, including access to the private keys Curio uses**.
+
 {% hint style="danger" %}
 Please note that Curio cluster cannot be shared across different networks.
 

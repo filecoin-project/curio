@@ -7,6 +7,7 @@
   * [Harmony Tasks](design/harmony-tasks.md)
 * [Getting Started](getting-started.md)
   * [Curio-PDP](curio-pdp.md)
+  * [Filecoin PDP Agent](filecoin-pdp-agent.md)
 * [Versions](versions.md)
 * [Installation](installation.md)
 * [Setup](setup.md)

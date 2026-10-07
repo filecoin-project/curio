@@ -39,3 +39,8 @@ node_modules
 /bin/
 
 docker/skiff/.env
+
+## Agent and AI
+.agents
+.claude
+skills-lock.json
