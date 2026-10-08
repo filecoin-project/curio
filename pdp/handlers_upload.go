@@ -100,6 +100,16 @@ func needsSaveCache(rawSize int64) bool {
 	return PadPieceSize(rawSize) >= minPaddedPieceSizeForCache
 }
 
+// waitPlaced holds a client-facing completion until the open-pieces placement
+// queued for the piece refs has finished, so the piece can be read from
+// /piece/ once it is reported ready. It never fails the request: the piece is
+// already committed.
+func (p *PDPService) waitPlaced(ctx context.Context, pieceRefs ...int64) {
+	if err := openpieces.WaitPlaced(ctx, p.db, pieceRefs...); err != nil {
+		log.Warnw("waiting for open-pieces placement", "pieceRefs", pieceRefs, "error", err)
+	}
+}
+
 // insertPDPReference runs inside a harmonytask.TxWithTask body that uses
 // openpieces.PlaceAdder; placeTask is that body's task id.
 func insertPDPReference(tx *harmonydb.Tx, placeTask harmonytask.TaskID, service, pieceCID string, pieceRef, rawSize int64) error {
@@ -648,6 +658,7 @@ func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 	var uploadUUID uuid.UUID
 	var uploadURL string
 	var responseStatus int
+	var placedRef int64
 
 	_, err = harmonytask.TxWithTask(ctx, p.db, openpieces.PlaceAdder(), func(tx *harmonydb.Tx, placeTask harmonytask.TaskID) (bool, error) {
 		dmh, err := multihash.Decode(pieceCidV1.Hash())
@@ -686,6 +697,7 @@ func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 			log.Debugw("[handlePiecePost] -- new pdp_piecerefs", "parkedPieceRefID", parkedPieceRefID, "pieceCidV1", pieceCidV1)
 
 			responseStatus = http.StatusOK
+			placedRef = parkedPieceRefID
 			return true, nil // Commit the transaction
 		}
 		log.Debugw("[handlePiecePost] -- parked piece not found", "pieceCidV2", pieceCidV2)
@@ -720,6 +732,7 @@ func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Location", uploadURL)
 		w.WriteHeader(http.StatusCreated)
 	case http.StatusOK:
+		p.waitPlaced(ctx, placedRef)
 		// Return 200 OK with the pieceCID
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
@@ -791,6 +804,7 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if claim.complete {
+		p.waitPlaced(ctx, claim.pieceRefID)
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
@@ -858,6 +872,7 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cleanupClaim = false
+	p.waitPlaced(ctx, claim.pieceRefID)
 
 	log.Debugw("[handlePieceUpload] -- piece upload done, writing response", "uploadUUID", uploadUUID)
 	w.WriteHeader(http.StatusNoContent)
@@ -887,7 +902,17 @@ func (p *PDPService) handleFindPiece(w http.ResponseWriter, r *http.Request) {
 
 	// Verify that a 'parked_pieces' entry exists for the given 'piece_cid'
 	var exist bool
-	err = p.db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pdp_piecerefs WHERE piece_cid = $1) AS exist;`, pieceCidV1.String()).Scan(&exist)
+	// A ref whose open-pieces placement is still queued does not count: the
+	// piece is not served until it is placed.
+	err = p.db.QueryRow(ctx, `SELECT EXISTS (
+			SELECT 1 FROM pdp_piecerefs pr
+			WHERE pr.piece_cid = $1
+			  AND NOT EXISTS (
+			      SELECT 1 FROM hash_space_place hp
+			      WHERE hp.pdp_pieceref = pr.id
+			        AND hp.created_at > NOW() - make_interval(secs => $2::double precision)
+			  )
+		) AS exist;`, pieceCidV1.String(), openpieces.PLACE_WAIT_MAX.Seconds()).Scan(&exist)
 	if err != nil {
 		httpServerError(w, http.StatusInternalServerError, "Database error", err)
 		return
@@ -1192,6 +1217,7 @@ func (p *PDPService) handleFinalizeStreamingUpload(w http.ResponseWriter, r *htt
 		httpServerError(w, http.StatusInternalServerError, "Failed to process piece upload", err)
 		return
 	}
+	p.waitPlaced(ctx, pref)
 	w.WriteHeader(http.StatusOK)
 }
 

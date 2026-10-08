@@ -62,6 +62,7 @@
 * [Developer](developer/README.md)
   * [API](developer/api.md)
   * [Build and Make Variables](developer/make-variables.md)
+  * [Piece retrieval](developer/piece-retrieval.md)
 * [Docker Devnet](docker-devnet.md)
 * [Experimental Features](experimental-features/README.md)
   * [GPU Over Provisioning](experimental-features/gpu-over-provisioning.md)

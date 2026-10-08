@@ -45,9 +45,10 @@ type CachedPieceReader struct {
 
 	sectorReader    *pieceprovider.SectorReader
 	pieceParkReader *pieceprovider.PieceParkReader
-	openPieceReader atomic.Pointer[pieceprovider.OpenPieceReader]
+	openPieceReader atomic.Pointer[openReaderBox]
 
-	idxStor *indexstore.IndexStore
+	aggs            aggregateFinder
+	clusterHasDeals *clusterHasDeals
 
 	pieceReaderCacheMu sync.Mutex
 	pieceReaderCache   *pieceCidKeyCache // Cache for successful readers (10 minutes with TTL extension)
@@ -65,7 +66,10 @@ func NewCachedPieceReader(db *harmonydb.DB, sectorReader *pieceprovider.SectorRe
 		pieceParkReader:  pieceParkReader,
 		pieceReaderCache: prCache,
 		pieceErrorCache:  errorCache,
-		idxStor:          idxStor,
+		clusterHasDeals:  newClusterHasDeals(db),
+	}
+	if idxStor != nil {
+		cpr.aggs = idxStor
 	}
 
 	expireCallback := func(key string, reason ttlcache.EvictionReason, value any) {
@@ -109,31 +113,6 @@ func NewCachedPieceReader(db *harmonydb.DB, sectorReader *pieceprovider.SectorRe
 	errorCache.SetExpirationReasonCallback(errorExpireCallback)
 
 	return cpr
-}
-
-// SetOpenPieceReader makes piece-park reads look in open-pieces first.
-func (cpr *CachedPieceReader) SetOpenPieceReader(r *pieceprovider.OpenPieceReader) {
-	cpr.openPieceReader.Store(r)
-}
-
-// readOpenPiece returns nil when the piece with v1 CID pc is not readable
-// from open-pieces, which is keyed by piece CID v2.
-func (cpr *CachedPieceReader) readOpenPiece(ctx context.Context, pc cid.Cid, rawSize int64) storiface.Reader {
-	opr := cpr.openPieceReader.Load()
-	if opr == nil {
-		return nil
-	}
-	v2, err := commcid.PieceCidV2FromV1(pc, uint64(rawSize))
-	if err != nil {
-		log.Warnw("piece cid v2 for open-pieces read", "piece", pc, "error", err)
-		return nil
-	}
-	r, err := opr.ReadPiece(ctx, v2, rawSize)
-	if err != nil {
-		log.Warnw("reading open piece, falling back to piece park", "piece", pc, "error", err)
-		return nil
-	}
-	return r
 }
 
 type cachedSectionReader struct {
@@ -255,14 +234,7 @@ func (cpr *CachedPieceReader) getPieceReaderFromMarketPieceDeal(ctx context.Cont
 
 	if len(deals) == 0 {
 		if retrieval {
-			var isPDP bool
-			err = cpr.db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pdp_piecerefs WHERE piece_cid = $1);`, pieceCid.String()).Scan(&isPDP)
-			if err != nil {
-				return nil, 0, fmt.Errorf("failed to query pdp_piecerefs for piece cid %s: %w", pieceCid, err)
-			}
-			if !isPDP {
-				return nil, 0, fmt.Errorf("piece cid %s: %w", pieceCid, ErrNoDeal)
-			}
+			return nil, 0, fmt.Errorf("piece cid %s: %w", pieceCid, ErrNoDeal)
 		}
 		reader, rawSize, err := cpr.getPieceReaderFromPiecePark(ctx, nil, &pieceCid, &pieceSize)
 		if err != nil {
@@ -374,10 +346,6 @@ func (cpr *CachedPieceReader) getPieceReaderFromPiecePark(ctx context.Context, p
 		return nil, 0, fmt.Errorf("failed to parse piece cid: %w", err)
 	}
 
-	if r := cpr.readOpenPiece(ctx, pcid, pd[0].PieceRawSize); r != nil {
-		return r, uint64(pd[0].PieceRawSize), nil
-	}
-
 	reader, err := cpr.pieceParkReader.ReadPiece(ctx, storiface.PieceNumber(pd[0].ID), pd[0].PieceRawSize, pcid)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to read piece from piece park: %w", err)
@@ -407,88 +375,30 @@ func (s SubPieceReader) ReadAt(p []byte, off int64) (n int, err error) {
 	return s.sr.ReadAt(p, off)
 }
 
-// errPDPParkNotFound means the piece is not a PDP park parent piece.
-// Callers should fall back to aggregate / market deal resolution.
-var errPDPParkNotFound = errors.New("piece not found in pdp piece park")
+// getPieceReaderFromAggregate reads a subpiece through the market deals of its
+// parent aggregates. known holds the parents the hashspace stage already
+// found; without them they are looked up here.
+func (cpr *CachedPieceReader) getPieceReaderFromAggregate(ctx context.Context, pieceCidV2 cid.Cid, retrieval bool, known *aggregateParents) (storiface.Reader, uint64, error) {
+	_, rawSize, err := commcid.PieceCidV1FromV2(pieceCidV2)
+	if err != nil {
+		return nil, 0, xerrors.Errorf("getting piece commitment from piece CID v2: %w", err)
+	}
 
-// getPieceReaderFromPDPPark resolves parent pieces in one YSQL round-trip
-// (pdp_piecerefs ⋈ parked_piece_refs ⋈ parked_pieces). This is the common
-// Synapse / PDP retrieval path. Returns errPDPParkNotFound when absent so
-// callers can fall back to aggregate (subpieces) or market deals.
-func (cpr *CachedPieceReader) getPieceReaderFromPDPPark(ctx context.Context, piece cid.Cid) (storiface.Reader, uint64, error) {
-	pieceCidV1 := piece
-	var paddedSize abi.PaddedPieceSize
-
-	if commcidv2.IsPieceCidV2(piece) {
-		v1, rawSize, err := commcid.PieceCidV1FromV2(piece)
-		if err != nil {
-			return nil, 0, xerrors.Errorf("getting piece CID v1 from piece CID v2: %w", err)
+	var pieces []indexstore.Record
+	if known != nil {
+		pieces = known.records
+	} else {
+		if cpr.aggs == nil {
+			return nil, 0, fmt.Errorf("failed to find piece in aggregate: no index store")
 		}
-		pieceCidV1 = v1
-		paddedSize = padreader.PaddedSize(rawSize).Padded()
-	}
-
-	var pd []struct {
-		ID           int64  `db:"id"`
-		PieceCid     string `db:"piece_cid"`
-		PieceRawSize int64  `db:"piece_raw_size"`
-	}
-
-	// $2 = 0 means "any padded size" (PieceCID v1 without a size hint).
-	err := cpr.db.Select(ctx, &pd, `
-		SELECT
-		  pp.id,
-		  pp.piece_cid,
-		  pp.piece_raw_size
-		FROM pdp_piecerefs pr
-		JOIN parked_piece_refs pprf ON pprf.ref_id = pr.piece_ref
-		JOIN parked_pieces pp ON pp.id = pprf.piece_id
-		WHERE pr.piece_cid = $1
-		  AND ($2::bigint = 0 OR pp.piece_padded_size = $2)
-		  AND pp.complete = TRUE
-		  AND pp.long_term = TRUE
-		ORDER BY pp.piece_padded_size DESC, pp.id DESC
-		LIMIT 1`, pieceCidV1.String(), int64(paddedSize))
-	if err != nil {
-		return nil, 0, fmt.Errorf("querying pdp piece park for %s: %w", piece, err)
-	}
-	if len(pd) == 0 {
-		return nil, 0, errPDPParkNotFound
-	}
-
-	pcid, err := cid.Parse(pd[0].PieceCid)
-	if err != nil {
-		return nil, 0, fmt.Errorf("failed to parse piece cid: %w", err)
-	}
-
-	if r := cpr.readOpenPiece(ctx, pcid, pd[0].PieceRawSize); r != nil {
-		return r, uint64(pd[0].PieceRawSize), nil
-	}
-
-	reader, err := cpr.pieceParkReader.ReadPiece(ctx, storiface.PieceNumber(pd[0].ID), pd[0].PieceRawSize, pcid)
-	if err != nil {
-		return nil, 0, fmt.Errorf("failed to read piece from piece park: %w", err)
-	}
-	if reader == nil {
-		return nil, 0, fmt.Errorf("piece park reader returned nil for park id %d", pd[0].ID)
-	}
-
-	return reader, uint64(pd[0].PieceRawSize), nil
-}
-
-func (cpr *CachedPieceReader) getPieceReaderFromAggregate(ctx context.Context, pieceCidV2 cid.Cid, retrieval bool) (storiface.Reader, uint64, error) {
-	pieces, err := cpr.idxStor.FindPieceInAggregate(ctx, pieceCidV2)
-	if err != nil {
-		return nil, 0, fmt.Errorf("failed to find piece in aggregate: %w", err)
+		pieces, err = cpr.aggs.FindPieceInAggregate(ctx, pieceCidV2)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to find piece in aggregate: %w", err)
+		}
 	}
 
 	if len(pieces) == 0 {
 		return nil, 0, fmt.Errorf("subpiece %s not found in any aggregate piece", pieceCidV2.String())
-	}
-
-	_, rawSize, err := commcid.PieceCidV1FromV2(pieceCidV2)
-	if err != nil {
-		return nil, 0, xerrors.Errorf("getting piece commitment from piece CID v2: %w", err)
 	}
 
 	var merr error
@@ -527,6 +437,24 @@ func (cpr *CachedPieceReader) GetSharedPieceReader(ctx context.Context, pieceCid
 	}
 	cpr.pieceErrorCacheMu.Unlock()
 
+	// Deal pieces stay on the cached path below. A piece without a cached
+	// reader is looked for in hash space first, and the SQL-backed lookups run
+	// last, only when the cluster has deals to find.
+	var stage hashspaceResult
+	if !cpr.hasCachedReader(pieceCid) {
+		var err error
+		stage, err = cpr.readFromHashspace(ctx, pieceCid)
+		if err != nil {
+			return nil, 0, err
+		}
+		if stage.reader != nil {
+			return boundedReader(stage.reader, stage.rawSize), stage.rawSize, nil
+		}
+		if retrieval && !cpr.clusterHasDeals.HasDeals(ctx) {
+			return nil, 0, fmt.Errorf("piece cid %s: %w", pieceCid, ErrNoDeal)
+		}
+	}
+
 	var r *cachedSectionReader
 
 	// Check if there is already a piece reader in the cache
@@ -555,34 +483,22 @@ func (cpr *CachedPieceReader) GetSharedPieceReader(ctx context.Context, pieceCid
 		cpr.pieceReaderCacheMu.Unlock()
 
 		// Cache miss: populate the slot by resolving a piece reader.
-		// Try PDP park first (Synapse/PDP parent pieces), then MK20
-		// aggregates (subpieces), then market deals (sector / piece park).
+		// Try MK20 aggregates (subpieces) first, then market deals
+		// (sector / piece park).
 		readerCtx, readerCtxCancel := context.WithCancel(context.Background())
 		defer close(r.ready)
 
-		reader, size, err := cpr.getPieceReaderFromPDPPark(readerCtx, pieceCid)
 		var finalErr error
-		switch {
-		case err == nil:
-			// PDP park hit
-		case errors.Is(err, errPDPParkNotFound):
-			log.Debugw("pdp park miss, trying aggregate", "piececid", pieceCid.String(), "err", err)
-			pdpMiss := err
+		reader, size, err := cpr.getPieceReaderFromAggregate(readerCtx, pieceCid, retrieval, stage.parents)
+		if err != nil {
+			log.Debugw("failed to get piece reader from aggregate", "piececid", pieceCid.String(), "err", err)
+			aggErr := err
 
-			reader, size, err = cpr.getPieceReaderFromAggregate(readerCtx, pieceCid, retrieval)
+			reader, size, err = cpr.getPieceReaderFromMarketPieceDeal(readerCtx, pieceCid, retrieval)
 			if err != nil {
-				log.Debugw("failed to get piece reader from aggregate", "piececid", pieceCid.String(), "err", err)
-				aggErr := err
-
-				reader, size, err = cpr.getPieceReaderFromMarketPieceDeal(readerCtx, pieceCid, retrieval)
-				if err != nil {
-					log.Debugw("failed to get piece reader", "piececid", pieceCid, "err", err)
-					finalErr = fmt.Errorf("failed to get piece reader from pdp park, aggregate, sector or piece park: %w, %w, %w", pdpMiss, aggErr, err)
-				}
+				log.Debugw("failed to get piece reader", "piececid", pieceCid, "err", err)
+				finalErr = fmt.Errorf("failed to get piece reader from aggregate, sector or piece park: %w, %w", aggErr, err)
 			}
-		default:
-			log.Debugw("failed to get piece reader from pdp park", "piececid", pieceCid.String(), "err", err)
-			finalErr = fmt.Errorf("failed to get piece reader from pdp park: %w", err)
 		}
 
 		if finalErr != nil {

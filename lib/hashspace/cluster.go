@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -44,8 +45,8 @@ const (
 	// bytes back after other filesystem activity frees space.
 	ROOM_RETURN_MIN = 1 << 30
 
-	// REFRESH_INTERVAL is how often a node reloads the cluster map for its
-	// local roots, republishes used counters, and runs a queued event.
+	// REFRESH_INTERVAL is how often a node republishes used counters and runs a
+	// queued event. Map edits reload the local snapshot and notify other nodes.
 	REFRESH_INTERVAL = FLUSH_INTERVAL
 
 	CAS_RETRIES = 20
@@ -91,6 +92,7 @@ type Cluster struct {
 	roots map[string]string
 
 	lastVersion atomic.Int64
+	snap        atomic.Pointer[mapSnapshot]
 	cancel      context.CancelFunc
 	wg          sync.WaitGroup
 }
@@ -158,6 +160,11 @@ func NewCluster(ctx context.Context, db *harmonydb.DB, drives []LocalDrive, auth
 			return nil, err
 		}
 		c.publishUsed(ctx)
+	}
+	if c.snap.Load() == nil {
+		if err := c.refreshSnapshot(ctx); err != nil {
+			return nil, err
+		}
 	}
 
 	for _, id := range arrived {
@@ -258,9 +265,6 @@ func (c *Cluster) loop(ctx context.Context) {
 			}
 		}(ctx)
 		if c.open != nil {
-			if err := c.refresh(ctx, false); err != nil {
-				log.Warnw("refreshing hash space map", "error", err)
-			}
 			for id := range c.roots {
 				if err := c.CheckCapacity(ctx, id); err != nil {
 					log.Warnw("hash space capacity check", "storage", id, "error", err)
@@ -517,12 +521,15 @@ func (c *Cluster) HasFile(ctx context.Context, pc cid.Cid) (bool, error) {
 // A move that covers the hash yields its source and destination; otherwise
 // the range owner is the only place.
 func (c *Cluster) places(ctx context.Context, digest []byte) ([]Location, error) {
-	var moves []moveSourceRow
-	err := c.db.Select(ctx, &moves, `SELECT id, space, start_hash, end_hash, from_storage, to_storage, size
-		FROM hash_space_move_source WHERE space = $1`, DIR_OPEN)
+	snap, err := c.loadSnapshot(ctx)
 	if err != nil {
-		return nil, xerrors.Errorf("reading hash space moveSources: %w", err)
+		return nil, err
 	}
+	return c.placesIn(snap.ranges, snap.moves, snap.misplaced, digest)
+}
+
+// placesIn is places over a loaded map.
+func (c *Cluster) placesIn(rs []rangeRow, moves []moveSourceRow, misplaced []string, digest []byte) ([]Location, error) {
 	var ids []string
 	for _, m := range moves {
 		if hashspacesolver.Contains(m.StartHash, m.EndHash, digest) {
@@ -531,11 +538,6 @@ func (c *Cluster) places(ctx context.Context, digest []byte) ([]Location, error)
 		}
 	}
 	if ids == nil {
-		var rs []rangeRow
-		err = c.db.Select(ctx, &rs, `SELECT end_hash, storage_id FROM hash_space_range WHERE space = $1 ORDER BY end_hash`, DIR_OPEN)
-		if err != nil {
-			return nil, xerrors.Errorf("reading hash space ranges: %w", err)
-		}
 		for i, r := range rs {
 			if hashspacesolver.Contains(rs[(i-1+len(rs))%len(rs)].EndHash, r.EndHash, digest) {
 				ids = []string{r.StorageID}
@@ -547,10 +549,6 @@ func (c *Cluster) places(ctx context.Context, digest []byte) ([]Location, error)
 		return nil, xerrors.Errorf("hash %x: %w", digest, errNoRange)
 	}
 	// A disk with misplaced pieces may hold any hash until they have moved.
-	var misplaced []string
-	if err := c.db.Select(ctx, &misplaced, `SELECT storage_id FROM hash_space_disk WHERE has_misplaced ORDER BY storage_id`); err != nil {
-		return nil, xerrors.Errorf("reading hash space disks with misplaced pieces: %w", err)
-	}
 	for _, id := range misplaced {
 		if indexOf(ids, id) < 0 {
 			ids = append(ids, id)
@@ -612,12 +610,6 @@ func (c *Cluster) remoteGet(ctx context.Context, storageID string, pc cid.Cid, b
 	return resp.Body, nil
 }
 
-// remote sends one request to each URL of storageID until one answers.
-// handle reports whether it kept the response body open.
-// notifyPeers asks every other node holding a hash-space disk to reload the
-// map now, once per node. Nodes that miss it still pick the change up from
-// hash_space_meta.version on their next refresh.
-
 func (c *Cluster) notifyOne(ctx context.Context, target string) error {
 	ctx, cancel := context.WithTimeout(ctx, NOTIFY_TIMEOUT)
 	defer cancel()
@@ -639,6 +631,100 @@ func (c *Cluster) notifyOne(ctx context.Context, target string) error {
 	return nil
 }
 
+// spreadMap reloads this node's snapshot and tells every other node to reload.
+// Call it after a committed change to ranges, move sources, or misplaced disks.
+func (c *Cluster) spreadMap(ctx context.Context) {
+	if err := c.syncMap(ctx, true); err != nil {
+		log.Warnw("refreshing hash space map", "error", err)
+	}
+	go c.notifyPeers()
+}
+
+// notifyPeers asks every other node to reload the map, once per node. Disk
+// holders are reached through storage_path urls. Any other node is reached
+// through harmony_machines when that value is an HTTP host:port; an opaque
+// machine id is not dialed.
+func (c *Cluster) notifyPeers() {
+	ctx, cancel := context.WithTimeout(context.Background(), REFRESH_INTERVAL)
+	defer cancel()
+	var peers []struct {
+		StorageID string `db:"storage_id"`
+		URLs      string `db:"urls"`
+	}
+	if err := c.db.Select(ctx, &peers, `SELECT d.storage_id, COALESCE(sp.urls, '') AS urls
+		FROM hash_space_disk d JOIN storage_path sp ON sp.storage_id = d.storage_id`); err != nil {
+		log.Warnw("listing hash space nodes to notify", "error", err)
+		return
+	}
+	notified := map[string]bool{}
+	for _, p := range peers {
+		var bases []string
+		for _, u := range strings.Split(p.URLs, storageURLSeparator) {
+			if u != "" {
+				bases = append(bases, strings.TrimSuffix(strings.TrimSuffix(u, "/"), remoteSuffix))
+			}
+		}
+		if c.HasLocal(p.StorageID) {
+			for _, b := range bases {
+				notified[b] = true
+			}
+			continue
+		}
+		done := false
+		for _, b := range bases {
+			done = done || notified[b]
+		}
+		if done {
+			continue
+		}
+		var lastErr error
+		for _, b := range bases {
+			if lastErr = c.notifyOne(ctx, b+notifyPath); lastErr == nil {
+				notified[b] = true
+				break
+			}
+		}
+		if lastErr != nil {
+			log.Debugw("notifying hash space node", "storage", p.StorageID, "error", lastErr)
+		}
+	}
+	// Skip machines that have stopped heartbeating so a dead dial does not use
+	// up the notify budget before a live node is reached.
+	var hosts []string
+	if err := c.db.Select(ctx, &hosts, `SELECT DISTINCT host_and_port FROM harmony_machines
+		WHERE last_contact > CURRENT_TIMESTAMP - INTERVAL '10 minutes'`); err != nil {
+		log.Warnw("listing hash space nodes to notify", "error", err)
+		return
+	}
+	for _, host := range hosts {
+		base, ok := httpBase(host)
+		if !ok || notified[base] {
+			continue
+		}
+		if err := c.notifyOne(ctx, base+notifyPath); err != nil {
+			log.Debugw("notifying hash space node", "host", host, "error", err)
+			continue
+		}
+		notified[base] = true
+	}
+}
+
+// httpBase is the origin for a harmony machine listen address. A host without
+// a numeric port is an id, not a server.
+func httpBase(hostport string) (string, bool) {
+	hostport = strings.TrimSpace(hostport)
+	host, port, err := net.SplitHostPort(hostport)
+	if err != nil || host == "" {
+		return "", false
+	}
+	if _, err := strconv.Atoi(port); err != nil {
+		return "", false
+	}
+	return "http://" + hostport, true
+}
+
+// remote sends one request to each URL of storageID until one answers.
+// handle reports whether it kept the response body open.
 func (c *Cluster) remote(ctx context.Context, method, storageID string, pc cid.Cid, prep func(*http.Request), handle func(*http.Response) (bool, error)) error {
 	hexHash, _, err := cidHashHex(pc)
 	if err != nil {
@@ -657,9 +743,9 @@ func (c *Cluster) remoteHash(ctx context.Context, method, storageID, kind, hexHa
 	} else {
 		hexHash += "?space=" + kind
 	}
-	var urls string
-	if err := c.db.QueryRow(ctx, `SELECT COALESCE(urls, '') FROM storage_path WHERE storage_id = $1`, storageID).Scan(&urls); err != nil {
-		return xerrors.Errorf("looking up storage %s urls: %w", storageID, err)
+	urls, err := c.storageURLs(ctx, storageID)
+	if err != nil {
+		return err
 	}
 	lastErr := xerrors.Errorf("storage %s has no urls", storageID)
 	for _, u := range strings.Split(urls, storageURLSeparator) {
@@ -998,9 +1084,14 @@ func consumePending(tx *harmonydb.Tx, storageID, kind string) error {
 // dropDeadMoves removes move rows whose harmony task is gone. A failed task
 // otherwise leaves the row behind and every rebalance treats the cluster as busy.
 func (c *Cluster) dropDeadMoves(ctx context.Context) {
-	if _, err := c.db.Exec(ctx, `DELETE FROM hash_space_move_source
-		WHERE task_id NOT IN (SELECT id FROM harmony_task)`); err != nil {
+	n, err := c.db.Exec(ctx, `DELETE FROM hash_space_move_source
+		WHERE task_id NOT IN (SELECT id FROM harmony_task)`)
+	if err != nil {
 		log.Warnw("dropping hash space moves whose task is gone", "error", err)
+		return
+	}
+	if n > 0 {
+		c.spreadMap(ctx)
 	}
 }
 
@@ -1803,15 +1894,12 @@ func (c *Cluster) deleteHash(ctx context.Context, storageID, kind, hexHash strin
 
 // Refresh reloads local ranges and move sources from the cluster map now.
 func (c *Cluster) Refresh(ctx context.Context) error {
-	if c.open == nil {
-		return nil
-	}
-	return c.refresh(ctx, true)
+	return c.syncMap(ctx, true)
 }
 
 // casTx runs fn with hash_space_meta.version compare-and-set so map edits
 // from different nodes serialize. fn returning false rolls back. A commit
-// reloads the local map and notifies the other hash-space nodes.
+// reloads the local map and notifies the other nodes.
 func (c *Cluster) casTx(ctx context.Context, fn func(tx *harmonydb.Tx) (bool, error)) error {
 	return c.casTaskTx(ctx, nil, func(tx *harmonydb.Tx, _ harmonytask.TaskID) (bool, error) {
 		return fn(tx)
@@ -1845,55 +1933,7 @@ func (c *Cluster) casTaskTx(ctx context.Context, addTask harmonytask.AddTaskFunc
 		}
 		if !stale {
 			if committed {
-				if c.open != nil {
-					if err := c.refresh(ctx, true); err != nil {
-						log.Warnw("refreshing hash space map", "error", err)
-					}
-				}
-				/* Cluster.notifyPeers */ func() {
-					go func() {
-						ctx, cancel := context.WithTimeout(context.Background(), REFRESH_INTERVAL)
-						defer cancel()
-						var peers []struct {
-							StorageID string `db:"storage_id"`
-							URLs      string `db:"urls"`
-						}
-						if err := c.db.Select(ctx, &peers, `SELECT d.storage_id, COALESCE(sp.urls, '') AS urls
-			FROM hash_space_disk d JOIN storage_path sp ON sp.storage_id = d.storage_id`); err != nil {
-							log.Warnw("listing hash space nodes to notify", "error", err)
-							return
-						}
-						notified := map[string]bool{}
-						for _, p := range peers {
-							if c.HasLocal(p.StorageID) {
-								continue
-							}
-							var bases []string
-							for _, u := range strings.Split(p.URLs, storageURLSeparator) {
-								if u != "" {
-									bases = append(bases, strings.TrimSuffix(strings.TrimSuffix(u, "/"), remoteSuffix))
-								}
-							}
-							done := false
-							for _, b := range bases {
-								done = done || notified[b]
-							}
-							if done {
-								continue
-							}
-							var lastErr error
-							for _, b := range bases {
-								if lastErr = c.notifyOne(ctx, b+notifyPath); lastErr == nil {
-									notified[b] = true
-									break
-								}
-							}
-							if lastErr != nil {
-								log.Debugw("notifying hash space node", "storage", p.StorageID, "error", lastErr)
-							}
-						}
-					}()
-				}()
+				c.spreadMap(ctx)
 			}
 			return nil
 		}
@@ -2146,6 +2186,9 @@ func (c *Cluster) mapVersion(ctx context.Context) (int64, error) {
 }
 
 func (c *Cluster) refresh(ctx context.Context, force bool) error {
+	if err := c.refreshSnapshot(ctx); err != nil {
+		return err
+	}
 	ver, err := c.mapVersion(ctx)
 	if err != nil {
 		return err
