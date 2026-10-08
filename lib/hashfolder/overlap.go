@@ -157,14 +157,28 @@ func (c *Cluster) FixOverlaps(ctx context.Context) (int, error) {
 		}
 	}
 	if len(found) == 0 {
+		cleared := false
+		var clearErr error
 		for _, d := range disks {
 			if !d.Misplaced || !c.HasLocal(d.StorageID) || hasStray[d.StorageID] {
 				continue
 			}
-			if _, err := c.db.Exec(ctx, `UPDATE hash_space_disk SET has_misplaced = FALSE, updated_at = NOW() WHERE storage_id = $1`, d.StorageID); err != nil {
-				return 0, err
+			n, err := c.db.Exec(ctx, `UPDATE hash_space_disk SET has_misplaced = FALSE, updated_at = NOW() WHERE storage_id = $1`, d.StorageID)
+			if err != nil {
+				clearErr = err
+				break
 			}
+			if n == 0 {
+				continue
+			}
+			cleared = true
 			log.Infow("misplaced pieces reached their range owners", "storage", d.StorageID)
+		}
+		if cleared {
+			c.spreadMap(ctx)
+		}
+		if clearErr != nil {
+			return 0, clearErr
 		}
 		return 0, nil
 	}
