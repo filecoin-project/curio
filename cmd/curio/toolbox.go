@@ -238,6 +238,8 @@ func filfoxMessage(cid string) (FilfoxMsg, error) {
 		return FilfoxMsg{}, xerrors.Errorf("creating request failed: %w", err)
 	}
 
+	req.Header.Set("User-Agent", "Curio")
+
 	res, err := client.Do(req)
 	if err != nil {
 		return FilfoxMsg{}, xerrors.Errorf("request failed: %w", err)
