@@ -88,7 +88,7 @@ SKIFF_IMAGE=filecoin/curio-pdp:calibnet docker compose -f docker-compose.yaml -f
 
 This starts:
 
-* **Forest** — Filecoin chain node (official `ghcr.io/chainsafe/forest`); first start downloads a snapshot (mainnet is large)
+* **Forest** — Filecoin chain node (official `ghcr.io/chainsafe/forest:latest`, the latest stable release); first start downloads a snapshot (mainnet is large)
 * **Yugabyte** — YSQL and YCQL on the Compose network `skiff-net` only (not published on the host)
 * **Curio-PDP** — local admin GUI on `127.0.0.1:4701`; public PDP API on `80`/`443` only
 
@@ -97,6 +97,20 @@ This starts:
 {% endhint %}
 
 HarmonyDB migrations run on connect. Curio starts once Forest RPC accepts connections; wallet balance and FWSS registration need Forest to finish syncing.
+
+**Forest updates.** The default image follows the [latest stable Forest release](https://docs.forest.chainsafe.io/knowledge_base/docker_tips/#tags). Running containers do not upgrade automatically. From `curio/docker/skiff`, fetch and apply an update:
+
+```bash
+docker compose up -d --no-deps --pull always forest
+```
+
+For calibration network:
+
+```bash
+docker compose -f docker-compose.yaml -f docker-compose.calibnet.yaml up -d --no-deps --pull always forest
+```
+
+To pin a specific release instead, set `FOREST_IMAGE=ghcr.io/chainsafe/forest:<version-tag>` in `.env`. Updates briefly interrupt Forest RPC while the container restarts.
 
 ### 2. Admin GUI over SSH
 

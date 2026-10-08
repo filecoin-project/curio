@@ -57,7 +57,7 @@ services:
 
   forest:
     container_name: skiff-forest
-    image: ${FOREST_IMAGE:-ghcr.io/chainsafe/forest:v0.35.0}
+    image: ${FOREST_IMAGE:-ghcr.io/chainsafe/forest:latest}
     init: true
     restart: unless-stopped
     logging: *default-logging
