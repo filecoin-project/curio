@@ -88,7 +88,7 @@ SKIFF_IMAGE=filecoin/curio-pdp:calibnet docker compose -f docker-compose.yaml -f
 
 This starts:
 
-* **Forest** — Filecoin chain node (official `ghcr.io/chainsafe/forest`); first start downloads a snapshot (mainnet is large)
+* **Forest** — Filecoin chain node (official `ghcr.io/chainsafe/forest:latest`, the latest stable release); first start downloads a snapshot (mainnet is large)
 * **Yugabyte** — YSQL and YCQL on the Compose network `skiff-net` only (not published on the host)
 * **Curio-PDP** — local admin GUI on `127.0.0.1:4701`; public PDP API on `80`/`443` only
 
@@ -214,6 +214,70 @@ DATA_STORAGE=/var/lib/curio-data ./curio
 ```
 
 You can also set `[Subsystems].DataPath` in the `base` config layer, or pass `--data=/var/lib/curio-data`.
+
+## Updating components
+
+Run these commands from `curio/docker/skiff` with the stack already running. Update Forest and Curio-PDP independently so each command restarts only the selected component.
+
+### Forest
+
+The default image follows the [latest stable Forest release](https://docs.forest.chainsafe.io/knowledge_base/docker_tips/#tags). Running containers do not upgrade automatically. From `curio/docker/skiff`, fetch and apply an update:
+
+```bash
+docker compose up -d --no-deps --pull always forest
+```
+
+For calibration network:
+
+```bash
+docker compose -f docker-compose.yaml -f docker-compose.calibnet.yaml up -d --no-deps --pull always forest
+```
+
+To pin a specific release instead, set `FOREST_IMAGE=ghcr.io/chainsafe/forest:<version-tag>` in `.env`. Updates briefly interrupt Forest RPC while the container restarts.
+
+### Curio-PDP (Skiff)
+
+Published images use `filecoin/curio-pdp:latest` for mainnet and `filecoin/curio-pdp:calibnet` for calibration. Running containers do not upgrade automatically. Set `SKIFF_IMAGE` in `.env` to the tag for your network; the repository's `:dev` setting is for local builds.
+
+For mainnet, set:
+
+```bash
+SKIFF_IMAGE=filecoin/curio-pdp:latest
+```
+
+Then fetch and apply the update:
+
+```bash
+docker compose up -d --no-deps --no-build --pull always skiff
+docker compose ps skiff
+docker compose logs --tail=100 -f skiff
+```
+
+For calibration, set `SKIFF_IMAGE=filecoin/curio-pdp:calibnet` in `.env`, then run:
+
+```bash
+docker compose -f docker-compose.yaml -f docker-compose.calibnet.yaml up -d --no-deps --no-build --pull always skiff
+docker compose -f docker-compose.yaml -f docker-compose.calibnet.yaml ps skiff
+docker compose -f docker-compose.yaml -f docker-compose.calibnet.yaml logs --tail=100 -f skiff
+```
+
+To select a specific release, use `filecoin/curio-pdp:<version>` for mainnet or `filecoin/curio-pdp:<version>-calibnet` for calibration, then run the same update command. Keep the image network consistent with your Forest node.
+
+The update recreates the Skiff container using the existing bind-mounted repo and storage paths. PDP proving, the public API, and the admin GUI pause while Skiff restarts. Database migrations run on startup; before upgrading, review the release notes and back up Yugabyte using the [database backup guide](administration/yugabyte-backup.md). Restoring an older image alone does not undo database migrations.
+
+For a locally built image, update your source checkout to the desired revision, then rebuild from the repository root:
+
+```bash
+make docker/curio-pdp
+SKIFF_IMAGE=filecoin/curio-pdp:dev docker compose -f docker/skiff/docker-compose.yaml up -d --no-deps --no-build --pull never --force-recreate skiff
+```
+
+For a local calibration build:
+
+```bash
+make docker/curio-pdp-calibnet
+SKIFF_IMAGE=filecoin/curio-pdp:calibnet-dev docker compose -f docker/skiff/docker-compose.yaml -f docker/skiff/docker-compose.calibnet.yaml up -d --no-deps --no-build --pull never --force-recreate skiff
+```
 
 ## Troubleshooting
 
