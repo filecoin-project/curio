@@ -1,0 +1,4 @@
+interface:
+  display_name: "Filecoin PDP Agent"
+  short_description: "Run a Curio PDP provider with an AI agent"
+  default_prompt: "Use $filecoin-pdp-agent to deploy or take over my Curio PDP provider and manage its ongoing operation."
