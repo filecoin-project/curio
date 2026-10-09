@@ -68,12 +68,12 @@ func TestFirstSetupSkipsPieceDenied(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(a, sectorStoreFile), []byte(`{"MaxStorage":4000}`), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(b, sectorStoreFile), []byte(`{"MaxStorage":12000,"DenyTypes":["piece"]}`), 0o644))
 
-	st, err := FirstSetup([]Drive{{Root: a}, {Root: b}})
+	st, err := FirstSetup([]Drive{{StorageID: "a", Root: a}, {StorageID: "b", Root: b}})
 	require.NoError(t, err)
-	require.Equal(t, []int64{4000, 12000}, st.MountpointCapacity)
-	for _, sp := range st.Spaces {
-		require.Len(t, sp.Ranges, 1)
-		require.Equal(t, 0, sp.Owner[0])
+	require.Equal(t, []hashspacesolver.MountPoint{{Capacity: 4000, StorageID: "a"}, {Capacity: 12000, StorageID: "b"}}, st.MountPoints)
+	for _, sp := range st.HashSpaces {
+		require.Len(t, sp, 1)
+		require.Equal(t, "a", sp[0].StorageID)
 	}
 	for _, kind := range []string{DIR_OPEN, DIR_ACL} {
 		layout, err := readLayout(filepath.Join(b, kind, layoutFile))
@@ -84,19 +84,19 @@ func TestFirstSetupSkipsPieceDenied(t *testing.T) {
 
 func TestFirstSetupArriveSkipsPieceDenied(t *testing.T) {
 	first := t.TempDir()
-	_, err := FirstSetup([]Drive{{Root: first, Capacity: 100}})
+	_, err := FirstSetup([]Drive{{StorageID: "first", Root: first, Capacity: 100}})
 	require.NoError(t, err)
 	second := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(second, sectorStoreFile), []byte(`{"DenyTypes":["piece"]}`), 0o644))
 	st, err := FirstSetup([]Drive{
-		{Root: first, Capacity: 100},
-		{Root: second, Capacity: 100},
+		{StorageID: "first", Root: first, Capacity: 100},
+		{StorageID: "second", Root: second, Capacity: 100},
 	})
 	require.NoError(t, err)
-	require.Equal(t, []int64{100, 100}, st.MountpointCapacity)
-	for _, sp := range st.Spaces {
-		require.Len(t, sp.Ranges, 1)
-		require.Equal(t, 0, sp.Owner[0])
+	require.Equal(t, []hashspacesolver.MountPoint{{Capacity: 100, StorageID: "first"}, {Capacity: 100, StorageID: "second"}}, st.MountPoints)
+	for _, sp := range st.HashSpaces {
+		require.Len(t, sp, 1)
+		require.Equal(t, "first", sp[0].StorageID)
 	}
 }
 
@@ -152,7 +152,7 @@ func TestDeleteCIDSubtractsAndMissingDoesNotUnderflow(t *testing.T) {
 
 func TestTwoSpacesUsedAreIndependent(t *testing.T) {
 	root := t.TempDir()
-	_, err := FirstSetup([]Drive{{Root: root, Capacity: 1 << 30}})
+	_, err := FirstSetup([]Drive{{StorageID: "root", Root: root, Capacity: 1 << 30}})
 	require.NoError(t, err)
 	openSp := mustLoad(t, DIR_OPEN, root)
 	aclSp := mustLoad(t, DIR_ACL, root)
@@ -173,19 +173,18 @@ func TestFirstSetupSeedsEveryDrive(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(a, sectorStoreFile), []byte(`{"MaxStorage":4000}`), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(b, sectorStoreFile), []byte(`{"MaxStorage":12000}`), 0o644))
 
-	st, err := FirstSetup([]Drive{{Root: a}, {Root: b}})
+	st, err := FirstSetup([]Drive{{StorageID: "a", Root: a}, {StorageID: "b", Root: b}})
 	require.NoError(t, err)
-	require.Equal(t, []int64{4000, 12000}, st.MountpointCapacity)
+	require.Equal(t, []hashspacesolver.MountPoint{{Capacity: 4000, StorageID: "a"}, {Capacity: 12000, StorageID: "b"}}, st.MountPoints)
 	require.NoError(t, hashspacesolver.Validate(st))
-	require.Len(t, st.Spaces, 2)
 
 	quarter := make([]byte, HASH_BYTES)
 	quarter[0] = 0x40
-	for _, sp := range st.Spaces {
-		require.Len(t, sp.Ranges, 2)
-		require.ElementsMatch(t, []int{0, 1}, append([]int(nil), sp.Owner...))
+	for _, sp := range st.HashSpaces {
+		require.Len(t, sp, 2)
+		require.ElementsMatch(t, []string{"a", "b"}, []string{sp[0].StorageID, sp[1].StorageID})
 		var sawQuarter, sawZero bool
-		for _, r := range sp.Ranges {
+		for _, r := range sp {
 			start := r.StartHash
 			require.True(t, hashspacesolver.Contains(start, r.EndHash, r.EndHash))
 			if !bytes.Equal(start, r.EndHash) {
@@ -198,7 +197,7 @@ func TestFirstSetupSeedsEveryDrive(t *testing.T) {
 				sawQuarter = true
 			}
 			owners := 0
-			for _, other := range sp.Ranges {
+			for _, other := range sp {
 				if hashspacesolver.Contains(other.StartHash, other.EndHash, r.EndHash) {
 					owners++
 				}
@@ -223,18 +222,18 @@ func TestFirstSetupSeedsEveryDrive(t *testing.T) {
 
 func TestFirstSetupArriveDoesNotReseed(t *testing.T) {
 	first := t.TempDir()
-	_, err := FirstSetup([]Drive{{Root: first, Capacity: 100}})
+	_, err := FirstSetup([]Drive{{StorageID: "first", Root: first, Capacity: 100}})
 	require.NoError(t, err)
 	second := t.TempDir()
 	st, err := FirstSetup([]Drive{
-		{Root: first, Capacity: 100},
-		{Root: second, Capacity: 100},
+		{StorageID: "first", Root: first, Capacity: 100},
+		{StorageID: "second", Root: second, Capacity: 100},
 	})
 	require.NoError(t, err)
-	require.Equal(t, []int64{100, 100}, st.MountpointCapacity)
+	require.Equal(t, []hashspacesolver.MountPoint{{Capacity: 100, StorageID: "first"}, {Capacity: 100, StorageID: "second"}}, st.MountPoints)
 	require.NoError(t, hashspacesolver.Validate(st))
-	require.Len(t, st.Spaces[0].Ranges, 1)
-	require.Len(t, st.Spaces[1].Ranges, 1)
+	require.Len(t, st.HashSpaces[0], 1)
+	require.Len(t, st.HashSpaces[1], 1)
 
 	fresh, err := readLayout(filepath.Join(second, DIR_OPEN, layoutFile))
 	require.NoError(t, err)
@@ -280,14 +279,14 @@ func TestRestartKeepsUsedAndAddsOnlyNewerFiles(t *testing.T) {
 func TestSplitTwoDashMatchesFS2AndRange(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "ab"), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "ab", "cdefg"), bytes.Repeat([]byte{'x'}, 42), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "ab", "cdefc"), bytes.Repeat([]byte{'x'}, 42), 0o644))
 
-	res, err := fs2.SumFileSizesRange(dir, "abcdefe", "abcdefg", 0)
+	res, err := fs2.SumFileSizesRange(dir, "abcdefa", "abcdefc", 0)
 	require.NoError(t, err)
 	require.Equal(t, int64(42), res.Bytes)
 	require.Equal(t, int64(1), res.Files)
-	require.True(t, hashspacesolver.Contains([]byte("abcdefe"), []byte("abcdefg"), []byte("abcdefg")))
-	require.False(t, hashspacesolver.Contains([]byte("abcdefg"), []byte("abcdefh"), []byte("abcdefg")))
+	require.True(t, hashspacesolver.Contains([]byte("abcdefa"), []byte("abcdefc"), []byte("abcdefc")))
+	require.False(t, hashspacesolver.Contains([]byte("abcdefc"), []byte("abcdefd"), []byte("abcdefc")))
 
 	c := mustPiece(t, 0x11)
 	hexHash := mustHashHex(t, c)
@@ -305,12 +304,12 @@ func TestSplitTwoDashMatchesFS2AndRange(t *testing.T) {
 func TestMultiRangeUsesFS2NotFolderUsed(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "ab"), 0o755))
-	require.NoError(t, os.MkdirAll(filepath.Join(dir, "mn"), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "ab", "cdefg"), bytes.Repeat([]byte{'a'}, 42), 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "mn", "opqrs"), bytes.Repeat([]byte{'m'}, 9), 0o644))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "de"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "ab", "cdefc"), bytes.Repeat([]byte{'a'}, 42), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "de", "f0123"), bytes.Repeat([]byte{'m'}, 9), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, layoutFile), bytes.Repeat([]byte{'L'}, 10), 0o644))
 
-	ranges := []HashRange{{Start: "a", End: "b"}, {Start: "l", End: "n"}}
+	ranges := []HashRange{{Start: "a", End: "b"}, {Start: "c", End: "e"}}
 	sizes, err := sizesForRanges(dir, ranges, 999)
 	require.NoError(t, err)
 	require.Equal(t, []int64{42, 9}, sizes)
@@ -425,7 +424,7 @@ func TestPieceV1Rejected(t *testing.T) {
 
 func TestWriteCIDPrefersMoveDestination(t *testing.T) {
 	src, dst := t.TempDir(), t.TempDir()
-	_, err := FirstSetup([]Drive{{Root: src, Capacity: 1 << 30}, {Root: dst, Capacity: 1 << 30}})
+	_, err := FirstSetup([]Drive{{StorageID: "src", Root: src, Capacity: 1 << 30}, {StorageID: "dst", Root: dst, Capacity: 1 << 30}})
 	require.NoError(t, err)
 	sp := mustLoad(t, DIR_OPEN, src, dst)
 
@@ -453,7 +452,7 @@ func TestWriteCIDPrefersMoveDestination(t *testing.T) {
 func loadOne(t *testing.T, cap int64) (string, *Space) {
 	t.Helper()
 	root := t.TempDir()
-	_, err := FirstSetup([]Drive{{Root: root, Capacity: cap}})
+	_, err := FirstSetup([]Drive{{StorageID: "root", Root: root, Capacity: cap}})
 	require.NoError(t, err)
 	return root, mustLoad(t, DIR_OPEN, root)
 }
