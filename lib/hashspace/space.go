@@ -26,10 +26,10 @@ type Space struct {
 }
 
 type disk struct {
-	root        string
-	tracker     *sizeTracker
-	version     int64
-	intervals   []hashInterval
+	root      string
+	tracker   *sizeTracker
+	version   int64
+	intervals []hashInterval
 	// moveDests are intervals another disk still owns that are moving here.
 	moveDests []hashInterval
 	// misplaced mirrors hash_space_disk.has_misplaced.
