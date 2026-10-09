@@ -812,9 +812,41 @@ func wnPostCheck(al *alerts) {
 			continue
 		}
 		if !*wn.Included {
-			al.alertMap[Name].alertString += fmt.Sprintf("Epoch %d: does not contain our block %s. ", wn.Epoch, wn.Block)
+			// A missed block stays inside the lookback window for FullAlertInterval while
+			// this check runs every AlertManagerInterval. Record each epoch and block once.
+			problem := winningPostMissedBlockProblem(wn.Epoch, wn.Block)
+			if strings.Contains(al.alertMap[Name].alertString, problem) {
+				continue
+			}
+			already, err := winningPostProblemAlreadyAlerted(al, problem)
+			if err != nil {
+				log.Errorf("checking existing winning post alert: %s", err)
+			} else if already {
+				continue
+			}
+			al.alertMap[Name].alertString += problem + " "
 		}
 	}
+}
+
+func winningPostMissedBlockProblem(epoch abi.ChainEpoch, block string) string {
+	return fmt.Sprintf("Epoch %d: does not contain our block %s.", epoch, block)
+}
+
+func winningPostProblemAlreadyAlerted(al *alerts, problem string) (bool, error) {
+	var already bool
+	err := al.db.QueryRow(al.ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM alert_history
+			WHERE alert_name = $1
+			  AND strpos(message, $2) > 0
+		)
+	`, Name_WinningPost, problem).Scan(&already)
+	if err != nil {
+		return false, xerrors.Errorf("checking existing winning post alert: %w", err)
+	}
+	return already, nil
 }
 
 func chainSyncCheck(al *alerts) {
