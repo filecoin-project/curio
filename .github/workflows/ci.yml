@@ -221,6 +221,8 @@ jobs:
             target: "./itests/harmonydb_test.go"
           - name: test-itest-harmonytask
             target: "./itests/harmonytask/..."
+          - name: test-itest-hashspace-arrive
+            target: "./itests/hashspace_arrive_test.go"
           - name: test-itest-park-piece
             target: "./itests/park_piece_test.go"
           - name: test-itest-pdp-message-size

@@ -349,6 +349,30 @@ func TestBalanceSkipsVacating(t *testing.T) {
 	require.Equal(t, int64(20), usedOf(out, 1))
 }
 
+func TestClaimStepsTowardCapacityShare(t *testing.T) {
+	// Disk 1 claims while disk 0 owns the circle. Each step moves at most 10%
+	// of the smaller disk, and repeating reaches the capacity-weighted split.
+	st := mk([]int64{2000, 1000}, []byte{0x80}, []int64{1200}, []int{0})
+	steps := 0
+	for ; steps < 20; steps++ {
+		out, res := solveOK(t, st, ev(EventClaim, 1))
+		require.LessOrEqual(t, res.BytesMoved, int64(1000*CLAIM_STEP_PERCENT/100))
+		if res.BytesMoved == 0 {
+			break
+		}
+		st = out
+	}
+	require.Greater(t, steps, 1)
+	require.InDelta(t, 400, usedOf(st, 1), 10)
+	require.InDelta(t, 800, usedOf(st, 0), 10)
+}
+
+func TestClaimIdleAtShare(t *testing.T) {
+	st := mk([]int64{100, 100}, []byte{0x40, 0x80}, []int64{40, 40}, []int{0, 1})
+	_, res := solveOK(t, st, ev(EventClaim, 1))
+	require.Empty(t, res.Diff)
+}
+
 func TestAbsorbIdleWhenBalanced(t *testing.T) {
 	st := mk([]int64{100, 100}, []byte{0x40, 0xc0}, []int64{40, 40}, []int{0, 1})
 	_, res := solveOK(t, st, ev(EventAbsorb, 1))
@@ -820,7 +844,7 @@ func TestApplyRejectsUnknownRange(t *testing.T) {
 
 func TestAllClusterEvents(t *testing.T) {
 	rng := rand.New(rand.NewSource(42))
-	kinds := []EventKind{EventArrive, EventFull, EventVacate, EventAbsorb, EventBalance}
+	kinds := []EventKind{EventArrive, EventFull, EventVacate, EventAbsorb, EventBalance, EventClaim}
 	for i := 0; i < 64; i++ {
 		st := randomValidState(rng)
 		require.NoError(t, Validate(st), "iter %d seed state", i)

@@ -27,6 +27,10 @@ const FILL_LIMIT_PERCENT = 80
 // 70% and a disk at 20% differ by 50 and rebalance; a smaller gap does not.
 const SPREAD_POINTS = 50
 
+// CLAIM_STEP_PERCENT caps one EventClaim step: bytes moved between a pair of
+// disks stay within this percent of the smaller disk's capacity.
+const CLAIM_STEP_PERCENT = 10
+
 // Range is the half-open hash interval (StartHash, EndHash] holding Size
 // bytes on the mountpoint StorageID. StartHash == EndHash is the full circle.
 // Within a hash space, each StartHash must equal the EndHash of the range
@@ -76,10 +80,14 @@ const (
 	// EventBalance moves half the fill-percentage gap from a fuller disk
 	// onto a disk at least SPREAD_POINTS behind it.
 	EventBalance
+	// EventClaim moves ranges onto a disk that already holds pieces from the
+	// whole circle, one CLAIM_STEP_PERCENT step toward its capacity-weighted
+	// share of all used bytes. Callers repeat it until it moves nothing.
+	EventClaim
 )
 
 // Event asks the solver to react to the mountpoint StorageID arriving,
-// filling, vacating, or absorbing. EventBalance ignores StorageID.
+// filling, vacating, absorbing, or claiming. EventBalance ignores StorageID.
 type Event struct {
 	Kind      EventKind
 	StorageID string

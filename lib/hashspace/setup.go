@@ -31,6 +31,9 @@ func FirstSetup(drives []Drive) (hashspacesolver.State, error) {
 	}
 	caps := make([]int64, len(drives))
 	both := make([]bool, len(drives))
+	// A whole-circle claim from migratePiecePark seeds like a drive with no
+	// layout, keeping the bytes it counted.
+	claimUsed := make([][2]int64, len(drives))
 	var nBoth, nNeither int
 	for i, d := range drives {
 		if d.Root == "" {
@@ -44,25 +47,46 @@ func FirstSetup(drives []Drive) (hashspacesolver.State, error) {
 			return hashspacesolver.State{}, err
 		}
 		caps[i] = cap
-		hasBoth, hasNeither, err := /* layoutPresence */ func(root string) (hasBoth, hasNeither bool, err error) {
-			openOK, err := fileExists(filepath.Join(root, DIR_OPEN, layoutFile))
-			if err != nil {
-				return false, false, err
-			}
-			aclOK, err := fileExists(filepath.Join(root, DIR_ACL, layoutFile))
-			if err != nil {
-				return false, false, err
-			}
-			if openOK && aclOK {
-				return true, false, nil
-			}
-			if !openOK && !aclOK {
-				return false, true, nil
-			}
-			return false, false, xerrors.Errorf("%s has a layout for only one hash space", root)
-		}(d.Root)
+		claim, err := isClaim(d.Root)
 		if err != nil {
 			return hashspacesolver.State{}, err
+		}
+		var hasBoth, hasNeither bool
+		if claim {
+			hasNeither = true
+			for s, kind := range spaceKinds {
+				if ok, err := fileExists(filepath.Join(d.Root, kind, layoutFile)); err != nil {
+					return hashspacesolver.State{}, err
+				} else if !ok {
+					continue
+				}
+				_, n, err := accountedLayout(d.Root, kind)
+				if err != nil {
+					return hashspacesolver.State{}, err
+				}
+				claimUsed[i][s] = n
+			}
+		} else {
+			hasBoth, hasNeither, err = /* layoutPresence */ func(root string) (hasBoth, hasNeither bool, err error) {
+				openOK, err := fileExists(filepath.Join(root, DIR_OPEN, layoutFile))
+				if err != nil {
+					return false, false, err
+				}
+				aclOK, err := fileExists(filepath.Join(root, DIR_ACL, layoutFile))
+				if err != nil {
+					return false, false, err
+				}
+				if openOK && aclOK {
+					return true, false, nil
+				}
+				if !openOK && !aclOK {
+					return false, true, nil
+				}
+				return false, false, xerrors.Errorf("%s has a layout for only one hash space", root)
+			}(d.Root)
+			if err != nil {
+				return hashspacesolver.State{}, err
+			}
 		}
 		both[i] = hasBoth
 		if hasBoth {
@@ -125,7 +149,7 @@ func FirstSetup(drives []Drive) (hashspacesolver.State, error) {
 		if err != nil {
 			return hashspacesolver.State{}, err
 		}
-		if err := writeState(drives, st, make([][2]int64, len(drives))); err != nil {
+		if err := writeState(drives, st, claimUsed); err != nil {
 			return hashspacesolver.State{}, err
 		}
 		return st, nil
@@ -151,6 +175,7 @@ func FirstSetup(drives []Drive) (hashspacesolver.State, error) {
 				if ok {
 					continue
 				}
+				used[i] = claimUsed[i]
 				deny, err := deniesPiecePark(drives[i].Root)
 				if err != nil {
 					return hashspacesolver.State{}, err

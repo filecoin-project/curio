@@ -57,6 +57,11 @@ func Solve(state State, event Event) (Result, error) {
 			return Result{}, err
 		}
 		w.balance()
+	case EventClaim:
+		if err := w.repair(); err != nil {
+			return Result{}, err
+		}
+		w.claim(disk)
 	default:
 		return Result{}, xerrors.Errorf("unknown event kind %d", event.Kind)
 	}
@@ -530,6 +535,68 @@ func (w *world) balance() {
 			return
 		}
 		budget -= cut.size
+	}
+}
+
+// claim moves one step of ranges onto dest toward its capacity-weighted share
+// of all used bytes. Each source gives at most CLAIM_STEP_PERCENT of the
+// smaller of its and dest's capacity, and only bytes above its own share.
+func (w *world) claim(dest int) {
+	active := w.activeDisks()
+	var sumCap, total int64
+	for _, d := range active {
+		sumCap += w.disks[d]
+		total += w.used[d]
+	}
+	if sumCap <= 0 || w.frozen[dest] {
+		return
+	}
+	share := func(d int) int64 {
+		n := new(big.Int).Mul(big.NewInt(total), big.NewInt(w.disks[d]))
+		return n.Div(n, big.NewInt(sumCap)).Int64()
+	}
+	srcs := slices.DeleteFunc(slices.Clone(active), func(d int) bool { return d == dest })
+	slices.SortStableFunc(srcs, func(a, b int) int {
+		ea, eb := w.used[a]-share(a), w.used[b]-share(b)
+		switch {
+		case ea > eb:
+			return -1
+		case ea < eb:
+			return 1
+		}
+		return a - b
+	})
+	totalRanges := 0
+	for _, sp := range w.spaces {
+		totalRanges += len(sp.ranges)
+	}
+	for _, src := range srcs {
+		budget := min(w.disks[src], w.disks[dest]) * CLAIM_STEP_PERCENT / 100
+		for guard := 0; guard < totalRanges*MAX_RANGES_PER_DISK+8 && budget > 0; guard++ {
+			want := min(budget, share(dest)-w.used[dest], w.used[src]-share(src))
+			if want <= 0 {
+				break
+			}
+			var best *candidate
+			for s := range w.spaces {
+				for _, idx := range w.rangeIndexes(s, src) {
+					for _, c := range w.sizedCuts(s, idx, want, want, dest) {
+						if c.size > want {
+							continue
+						}
+						c.over = want
+						if best == nil || betterSteal(c, *best, want) {
+							cp := c
+							best = &cp
+						}
+					}
+				}
+			}
+			if best == nil || !w.applyCut(best.space, best.idx, best.kind, dest, best.size, best.split) {
+				break
+			}
+			budget -= best.size
+		}
 	}
 }
 

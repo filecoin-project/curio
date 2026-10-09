@@ -422,6 +422,33 @@ func TestPieceV1Rejected(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestWriteCIDPrefersMoveDestination(t *testing.T) {
+	src, dst := t.TempDir(), t.TempDir()
+	_, err := FirstSetup([]Drive{{StorageID: "src", Root: src, Capacity: 1 << 30}, {StorageID: "dst", Root: dst, Capacity: 1 << 30}})
+	require.NoError(t, err)
+	sp := mustLoad(t, DIR_OPEN, src, dst)
+
+	owned := []HashRange{{Start: hexHash(0x00), End: hexHash(0x30)}}
+	moving := []HashRange{{Start: hexHash(0x10), End: hexHash(0x20)}}
+	require.NoError(t, sp.SetIntervalsOn(src, 1, owned, nil))
+	require.NoError(t, sp.SetIntervalsOn(dst, 1, nil, moving))
+
+	inMove, outside := mustPiece(t, 0x11), mustPiece(t, 0x25)
+	commit(t, sp, inMove, []byte("moving"))
+	commit(t, sp, outside, []byte("settled"))
+
+	exists := func(root string, c cid.Cid) bool {
+		p, err := piecePath(root, DIR_OPEN, mustHashHex(t, c))
+		require.NoError(t, err)
+		_, err = os.Stat(p)
+		return err == nil
+	}
+	require.True(t, exists(dst, inMove), "a hash inside a move goes to the destination")
+	require.False(t, exists(src, inMove), "never to the source")
+	require.True(t, exists(src, outside), "a hash outside any move goes to the owner")
+	require.False(t, exists(dst, outside))
+}
+
 func loadOne(t *testing.T, cap int64) (string, *Space) {
 	t.Helper()
 	root := t.TempDir()
