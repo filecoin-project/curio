@@ -55,7 +55,7 @@ type world struct {
 
 func newWorld(state State) (*world, error) {
 	if err := /* checkStructure */ func(state State) error {
-		for i, sz := range state.Disks {
+		for i, sz := range state.MountpointCapacity {
 			if sz < 0 {
 				return xerrors.Errorf("disk %d has negative size", i)
 			}
@@ -80,7 +80,7 @@ func newWorld(state State) (*world, error) {
 					return xerrors.Errorf("space %d: duplicate EndHash at range %d", s, i)
 				}
 				seen[key] = struct{}{}
-				if sp.Owner[i] < 0 || sp.Owner[i] >= len(state.Disks) {
+				if sp.Owner[i] < 0 || sp.Owner[i] >= len(state.MountpointCapacity) {
 					return xerrors.Errorf("space %d range %d owner %d out of range", s, i, sp.Owner[i])
 				}
 			}
@@ -92,14 +92,14 @@ func newWorld(state State) (*world, error) {
 	}(state); err != nil {
 		return nil, err
 	}
-	if len(state.Vacating) != 0 && len(state.Vacating) != len(state.Disks) {
-		return nil, xerrors.Errorf("vacating length %d != %d disks", len(state.Vacating), len(state.Disks))
+	if len(state.Vacating) != 0 && len(state.Vacating) != len(state.MountpointCapacity) {
+		return nil, xerrors.Errorf("vacating length %d != %d disks", len(state.Vacating), len(state.MountpointCapacity))
 	}
 	w := &world{
-		disks:  append([]int64(nil), state.Disks...),
+		disks:  append([]int64(nil), state.MountpointCapacity...),
 		spaces: make([]spaceWorld, len(state.Spaces)),
-		used:   make([]int64, len(state.Disks)),
-		frozen: make([]bool, len(state.Disks)),
+		used:   make([]int64, len(state.MountpointCapacity)),
+		frozen: make([]bool, len(state.MountpointCapacity)),
 	}
 	copy(w.frozen, state.Vacating)
 	for s, sp := range state.Spaces {
@@ -153,8 +153,8 @@ func (w *world) snapshot() State {
 		}
 	}
 	return State{
-		Disks:  append([]int64(nil), w.disks...),
-		Spaces: spaces,
+		MountpointCapacity: append([]int64(nil), w.disks...),
+		Spaces:             spaces,
 	}
 }
 

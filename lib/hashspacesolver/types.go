@@ -44,11 +44,11 @@ type Space struct {
 
 // State is an assignment of ranges to disks across one or more spaces.
 //
-// Disks[i] is disk i's shared capacity. Spaces are independent circles that
+// MountpointCapacity[i] is disk i's shared capacity. Spaces are independent circles that
 // share that capacity; Owner[j] within a space is the disk holding Ranges[j].
 type State struct {
-	Disks  []int64
-	Spaces []Space
+	MountpointCapacity []int64
+	Spaces             []Space
 	// Vacating marks disks that must not receive ranges. Existing ranges
 	// stay until EventVacate moves them off.
 	Vacating []bool
@@ -77,7 +77,7 @@ const (
 )
 
 // Event asks the solver to react to one disk arriving, filling, or vacating.
-// Disk is an index into State.Disks.
+// Disk is an index into State.MountpointCapacity.
 type Event struct {
 	Kind EventKind
 	Disk int
