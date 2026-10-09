@@ -16,25 +16,16 @@ func sizesForRanges(dir string, ranges []HashRange, folderUsed int64) ([]int64, 
 	}
 	out := make([]int64, len(ranges))
 	for i, r := range ranges {
-		n, err := sumInterval(dir, r.Start, r.End)
+		// start == end, both set, is the whole circle.
+		low, high := r.Start, r.End
+		if low != "" && low == high {
+			low, high = "", ""
+		}
+		res, err := fs2.SumFileSizesInterval(dir, low, high, 0)
 		if err != nil {
 			return nil, err
 		}
-		out[i] = n
+		out[i] = res.Bytes
 	}
 	return out, nil
-}
-
-// sumInterval sums the piece files in dir whose hash lies in (start, end].
-// start == end, both set, is the whole circle.
-func sumInterval(dir, start, end string) (int64, error) {
-	low, high := start, end
-	if start != "" && start == end {
-		low, high = "", ""
-	}
-	res, err := fs2.SumFileSizesInterval(dir, low, high, 0)
-	if err != nil {
-		return 0, err
-	}
-	return res.Bytes, nil
 }
