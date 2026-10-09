@@ -1000,7 +1000,7 @@ type HTTPConfig struct {
 	// "*" allows everyone, it's best to specify the UI servers' hostname.
 	CORSOrigins []string
 
-	// CSP sets the Content Security Policy for content served via the /piece/ retrieval endpoint.
+	// CSP sets the Content Security Policy for content served via the /public/ retrieval endpoint.
 	// Valid values: "off", "self", "inline" (Default: "inline")
 	//
 	// Since storage providers serve user-uploaded content on their domain, CSP helps control
