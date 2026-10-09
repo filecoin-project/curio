@@ -104,6 +104,8 @@ func attachRouters(ctx context.Context, r *chi.Mux, d *deps.Deps, sd *ServiceDep
 			Chain:     d.Chain,
 			EthSender: sd.EthSender,
 			AlertTask: sd.AlertTask,
+			HashSpace: d.HashSpace,
+			Local:     d.LocalStore,
 		}, ipp); err != nil {
 			return nil, err
 		}
