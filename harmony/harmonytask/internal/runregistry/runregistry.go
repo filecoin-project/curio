@@ -23,10 +23,13 @@ type Registry struct {
 	tasks map[int64]*Handle
 }
 
-// Handle is the caller-visible control surface for a running task. All fields
-// are either immutable after Start (startTime, cancel, done) or atomic
-// (preempted), so reading them does not require the Registry mutex.
+// Handle is the caller-visible control surface for a pending or running task.
+// Identity/timing/cancel fields are immutable after publication. The handle
+// mutex protects the entry/cancellation decision; preempted is atomic.
 type Handle struct {
+	mu        sync.Mutex
+	pending   bool
+	cancelled bool
 	id        int64
 	startTime time.Time
 	cancel    context.CancelFunc
@@ -40,6 +43,7 @@ type Entry struct {
 	ID        int64
 	StartTime time.Time
 	Preempted bool
+	Pending   bool
 }
 
 // New returns an empty Registry.
@@ -52,16 +56,74 @@ func New() *Registry {
 // is responsible for calling Finish when the task's goroutine exits so the
 // Handle's done channel is closed and the registry entry is removed.
 func (r *Registry) Start(id int64, cancel context.CancelFunc) *Handle {
+	return r.start(id, cancel, false, nil)
+}
+
+func (r *Registry) StartPending(id int64, cancel context.CancelFunc, beforePublish func(*Handle)) *Handle {
+	return r.start(id, cancel, true, beforePublish)
+}
+
+func (r *Registry) start(id int64, cancel context.CancelFunc, pending bool, beforePublish func(*Handle)) *Handle {
 	h := &Handle{
+		pending:   pending,
 		id:        id,
 		startTime: time.Now(),
 		cancel:    cancel,
 		done:      make(chan struct{}),
 	}
+	if beforePublish != nil {
+		beforePublish(h)
+	}
 	r.mu.Lock()
 	r.tasks[id] = h
 	r.mu.Unlock()
 	return h
+}
+
+// Enter linearizes pending cancellation against the short, non-I/O entry hook.
+// Once the hook commits, there is no cancellation exit before Do.
+func (h *Handle) Enter(gate func() error) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.cancelled || !h.pending {
+		return context.Canceled
+	}
+	if err := gate(); err != nil {
+		return err
+	}
+	h.pending = false
+	return nil
+}
+
+func (h *Handle) IsPending() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.pending
+}
+
+// CancelPending never cancels a task that won the entry race.
+func (h *Handle) CancelPending() bool {
+	h.mu.Lock()
+	if !h.pending || h.cancelled {
+		h.mu.Unlock()
+		return false
+	}
+	h.cancelled = true
+	h.mu.Unlock()
+	if h.cancel != nil {
+		h.cancel()
+	}
+	return true
+}
+
+// FinishHandle cannot remove a newer handle for the same ID.
+func (r *Registry) FinishHandle(h *Handle) {
+	r.mu.Lock()
+	if r.tasks[h.id] == h {
+		delete(r.tasks, h.id)
+		close(h.done)
+	}
+	r.mu.Unlock()
 }
 
 // Finish removes the task from the registry and closes its done channel so
@@ -97,6 +159,7 @@ func (r *Registry) Snapshot() []Entry {
 			ID:        id,
 			StartTime: h.startTime,
 			Preempted: h.preempted.Load(),
+			Pending:   h.IsPending(),
 		})
 	}
 	r.mu.Unlock()
@@ -112,6 +175,9 @@ func (h *Handle) IsPreempted() bool { return h.preempted.Load() }
 // Preempt marks the handle as preempted and cancels its context. Callers may
 // then WaitDone to bound how long they wait for the goroutine to exit.
 func (h *Handle) Preempt() {
+	h.mu.Lock()
+	h.cancelled = true
+	h.mu.Unlock()
 	h.preempted.Store(true)
 	if h.cancel != nil {
 		h.cancel()

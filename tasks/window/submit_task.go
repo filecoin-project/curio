@@ -27,6 +27,12 @@ import (
 	"github.com/filecoin-project/lotus/chain/types"
 )
 
+func (w *WdPostSubmitTask) GetSpids(ctx context.Context, db *harmonydb.DB, taskIDs []int64) ([]harmonytask.TaskSPID, error) {
+	var spids []harmonytask.TaskSPID
+	err := db.Select(ctx, &spids, `SELECT submit_task_id AS task_id, sp_id FROM wdpost_proofs WHERE submit_task_id = ANY($1::BIGINT[])`, taskIDs)
+	return spids, err
+}
+
 type WdPoStSubmitTaskApi interface {
 	ChainHead(context.Context) (*types.TipSet, error)
 

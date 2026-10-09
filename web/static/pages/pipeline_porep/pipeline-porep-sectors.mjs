@@ -1,6 +1,8 @@
 import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
-import RPCCall from '/lib/jsonrpc.mjs';
+import { RPCCallHTTP } from '/lib/jsonrpc.mjs';
 import { formatDateTwo } from '/lib/dateutil.mjs';
+import { visiblePoRepSectors } from './visibility.mjs';
+import { PoRepPagePoller } from './page-poller.mjs';
 import '/ux/compact-epoch.mjs';
 import '/ux/task.mjs';
 
@@ -74,35 +76,81 @@ export const pipelineStyles = css`
 class PipelinePorepSectors extends LitElement {
     static properties = {
         data: { type: Array },
+        hidePendingSDR: { type: Boolean, attribute: 'hide-pending-sdr' },
+        snapshot: { state: true },
+        loading: { state: true },
+        error: { state: true },
+        paused: { state: true },
+        offset: { state: true },
     };
 
     constructor() {
         super();
         this.data = [];
-        this.loadData();
+        this.hidePendingSDR = false;
+        this.snapshot = null;
+        this.loading = true;
+        this.error = '';
+        this.paused = false;
+        this.offset = 0;
+        this.lastSuccess = null;
+        this.poller = new PoRepPagePoller({
+            request: (signal) => RPCCallHTTP('PipelinePorepPage', [{
+                Offset: this.offset, HidePendingSDR: this.hidePendingSDR,
+            }], {signal}),
+            onStart: () => { this.loading = true; },
+            onSuccess: (snapshot) => {
+                if (!snapshot || !Array.isArray(snapshot.Sectors) || snapshot.Sectors.length > 100) {
+                    throw new Error('Invalid PoRep page response');
+                }
+                this.snapshot = snapshot;
+                this.data = snapshot.Sectors;
+                this.lastSuccess = new Date();
+                this.loading = false;
+                this.error = '';
+            },
+            onError: (error) => {
+                this.loading = false;
+                this.error = error?.message || String(error);
+            },
+        });
+        this.visibilityChanged = () => this.updateActivity();
     }
 
-    async loadData() {
-        this.data = await RPCCall('PipelinePorepSectors');
-        // Refresh every 3 seconds
-        setTimeout(() => this.loadData(), 3000);
+    connectedCallback() {
+        super.connectedCallback();
+        document.addEventListener('visibilitychange', this.visibilityChanged);
+        this.updateActivity();
+    }
+
+    disconnectedCallback() {
+        this.poller.setActive(false);
+        document.removeEventListener('visibilitychange', this.visibilityChanged);
+        super.disconnectedCallback();
+    }
+
+    updateActivity() {
+        this.poller.setActive(this.isConnected && !this.paused && !document.hidden);
         this.requestUpdate();
+    }
+
+    changePage(offset) {
+        this.offset = Math.max(0, offset);
+        this.poller.refresh();
+    }
+
+    changeFilter(event) {
+        this.hidePendingSDR = event.target.checked;
+        this.changePage(0);
     }
 
     static styles = [pipelineStyles];
 
     render() {
-        // Count how many are "waiting for precommit":
-        // (PreCommitReadyAt != null && !AfterPrecommitMsg && !TaskPrecommitMsg)
-        const waitingForPrecommitCount = this.data.filter(
-            (s) => s.AfterSynthetic && s.PreCommitReadyAt && !s.AfterPrecommitMsg && !s.TaskPrecommitMsg
-        ).length;
-
-        // Count how many are "waiting for commit":
-        // (CommitReadyAt != null && !AfterCommitMsg && !TaskCommitMsg)
-        const waitingForCommitCount = this.data.filter(
-            (s) => s.CommitReadyAt && !s.AfterCommitMsg && !s.TaskCommitMsg
-        ).length;
+        const snapshot = this.snapshot;
+        // While changing pages/filters keep the last successful snapshot and
+        // its applied filter together; do not relabel old rows as new results.
+        const visibleSectors = visiblePoRepSectors(this.data, snapshot?.HidePendingSDR ?? false);
 
         return html`
       <link rel="stylesheet" href="/ux/vendor/bootstrap.min.css">
@@ -112,14 +160,39 @@ class PipelinePorepSectors extends LitElement {
         onload="document.body.style.visibility = 'initial'"
       />
 
-      <!-- Show counters for waiting states -->
+      <p role="status">
+        ${!snapshot ? (this.error ? 'Unable to load PoRep sectors.' : 'Loading PoRep sectors…')
+            : this.error ? 'Stale snapshot — refresh failed.'
+            : !this.poller.active ? 'Paused snapshot.'
+            : this.loading ? 'Refreshing — showing the last successful snapshot.' : 'Snapshot loaded.'}
+        ${this.error ? html`<span role="alert">${this.error} Automatic retry when active.</span>` : ''}
+        ${this.lastSuccess ? html`Last success: ${this.lastSuccess.toLocaleString()}. Server snapshot: ${snapshot.ObservedAt}.` : ''}
+      </p>
+      <button @click=${() => this.poller.refresh()} ?disabled=${!this.poller.active}>Refresh now</button>
+      <button @click=${() => { this.paused = !this.paused; this.updateActivity(); }}>${this.paused ? 'Resume refresh' : 'Pause refresh'}</button>
       <div style="margin: 1em 0;">
-        <strong>Waiting for PreCommit:</strong> ${waitingForPrecommitCount}
+        <strong>Waiting for PreCommit:</strong> ${snapshot?.WaitingForPrecommit ?? '—'}
         &nbsp;&nbsp;|&nbsp;&nbsp;
-        <strong>Waiting for Commit:</strong> ${waitingForCommitCount}
+        <strong>Waiting for Commit:</strong> ${snapshot?.WaitingForCommit ?? '—'}
       </div>
 
       <!-- Main table: one row per sector -->
+      <label>
+        <input type="checkbox" .checked=${this.hidePendingSDR}
+          @change=${this.changeFilter} />
+        Hide unclaimed, unfinished SDR sectors in this view
+      </label>
+      ${snapshot ? html`<p class="counts">Showing ${visibleSectors.length} of ${this.data.length} sectors on this page;
+        ${snapshot.Matching} matching of ${snapshot.Total} total pipeline sectors.
+        ${snapshot.Total - snapshot.Matching} filtered on the server; ${this.data.length - visibleSectors.length} hidden locally.
+        Counters above include the entire pipeline snapshot, not just this page.</p>
+        ${snapshot.Matching === 0 ? html`<p>${snapshot.Total === 0 ? 'No pipeline sectors.' : 'No sectors match this filter.'}</p>` : ''}
+        <button @click=${() => this.changePage(snapshot.Offset - snapshot.Limit)} ?disabled=${snapshot.Offset === 0 || this.loading}>Previous</button>
+        <button @click=${() => this.changePage(snapshot.Offset + snapshot.Limit)} ?disabled=${snapshot.Offset + snapshot.Limit >= snapshot.Matching || this.loading}>Next</button>
+        <button @click=${() => this.changePage(0)} ?disabled=${snapshot.Offset === 0 || this.loading}>First page</button>
+        <span>Offset ${snapshot.Offset}; up to ${snapshot.Limit} per page. Active/failed/post-SDR sectors first.</span>` : ''}
+      <p>Task labels use this pipeline snapshot (owned does not prove Do entry). Chain/seed readiness is not queried here;
+        open Details for on-chain information and task links for history/actions.</p>
       <table class="table table-dark table-striped">
         <thead>
           <tr>
@@ -133,7 +206,7 @@ class PipelinePorepSectors extends LitElement {
           </tr>
         </thead>
         <tbody>
-          ${this.data.map((sector) => this.renderSectorRow(sector))}
+          ${visibleSectors.map((sector) => this.renderSectorRow(sector))}
         </tbody>
       </table>
     `;
@@ -170,7 +243,7 @@ class PipelinePorepSectors extends LitElement {
         </td>
 
         <!-- Pipeline sub-table -->
-        <td>${renderSectorPipeline(sector)}</td>
+        <td>${renderSectorPipeline({...sector, TaskSnapshot: true})}</td>
 
         <!-- Details link -->
         <td>
@@ -259,6 +332,7 @@ export function renderSectorPipeline(sector) {
               <div>
                 ${sector.AfterSeed
                   ? 'done'
+                  : sector.TaskSnapshot ? (sector.SeedEpoch == null ? '—' : `epoch ${sector.SeedEpoch} (readiness unknown)`)
                   : html`<compact-pretty-epoch .epoch=${sector.SeedEpoch}></compact-pretty-epoch>`}
               </div>
             </td>
@@ -287,7 +361,7 @@ export function renderSectorPipeline(sector) {
         sector.StartedMoveStorage
     )}
             <td
-              class="${sector.ChainSector
+              class="${sector.ChainSector == null ? '' : sector.ChainSector
         ? 'pipeline-success'
         : sector.ChainAlloc
             ? 'pipeline-active'
@@ -295,7 +369,7 @@ export function renderSectorPipeline(sector) {
             >
               <div>On Chain</div>
               <div>
-                ${sector.ChainSector
+                ${sector.ChainSector == null ? 'unknown' : sector.ChainSector
         ? 'yes'
         : sector.ChainAlloc
             ? 'allocated'
@@ -306,7 +380,7 @@ export function renderSectorPipeline(sector) {
               rowspan="2"
               class="${sector.Failed
         ? 'pipeline-failed'
-        : sector.ChainActive
+            : sector.ChainActive == null ? '' : sector.ChainActive
             ? 'pipeline-success'
             : 'pipeline-active'}"
             >
@@ -314,7 +388,7 @@ export function renderSectorPipeline(sector) {
               <div>
                 ${sector.Failed
         ? 'Failed'
-        : sector.ChainActive
+        : sector.ChainActive == null ? 'Chain status unknown' : sector.ChainActive
             ? 'Sealed'
             : 'Sealing'}
               </div>
@@ -354,13 +428,13 @@ export function renderSectorPipeline(sector) {
         sector.AfterCommitMsgSuccess
     )}
             <td
-              class="${sector.ChainActive
+              class="${sector.ChainActive == null ? '' : sector.ChainActive
         ? 'pipeline-success'
         : 'pipeline-failed'}"
             >
               <div>Active</div>
               <div>
-                ${sector.ChainActive
+                ${sector.ChainActive == null ? 'unknown' : sector.ChainActive
         ? 'yes'
         : sector.ChainUnproven
             ? 'unproven'
@@ -419,7 +493,7 @@ export function renderSectorState(name, rowspan, sector, task, after, started) {
         return html`
         <td
           rowspan="${rowspan}"
-          class="${missing
+          class="${sector.TaskSnapshot && after ? 'pipeline-success' : missing
             ? 'pipeline-failed'
             : started
                 ? 'pipeline-active'
@@ -427,9 +501,11 @@ export function renderSectorState(name, rowspan, sector, task, after, started) {
         >
           <div>${name}</div>
           <div style="font-size: 0.9em;">
-            <task-status .taskId=${task}></task-status>
+            ${sector.TaskSnapshot ? html`<a href="/pages/task/id/?id=${task}">${task}</a>
+                ${after ? 'done' : missing ? 'not queued' : started ? 'owned' : 'queued'}`
+                : html`<task-status .taskId=${task}></task-status>`}
           </div>
-          ${missing ? html`<div><b>FAILED</b></div>` : ''}
+          ${missing && !sector.TaskSnapshot ? html`<div><b>FAILED</b></div>` : ''}
         </td>
       `;
     }

@@ -1,6 +1,7 @@
 package harmonytask
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -77,6 +78,7 @@ func TestTaskLessByPostedTime(t *testing.T) {
 func TestEmitRetryTaskWaitsBeforeReemit(t *testing.T) {
 	const wait = 80 * time.Millisecond
 	h := &taskTypeHandler{
+		TaskEngine: &TaskEngine{cfg: taskEngineConfig{ctx: context.Background()}},
 		TaskTypeDetails: TaskTypeDetails{
 			Name:      "RetryWaitT",
 			Max:       taskhelp.Max(5),
@@ -87,7 +89,7 @@ func TestEmitRetryTaskWaitsBeforeReemit(t *testing.T) {
 	ee := eventEmitter{schedulerChannel: ch}
 
 	start := time.Now()
-	h.emitRetryTask(ee, task{ID: 99, Retries: 0}, false)
+	h.emitRetryTask(ee, &task{ID: 99, Retries: 1, UpdateTime: start})
 
 	select {
 	case ev := <-ch:
@@ -105,6 +107,7 @@ func TestEmitRetryTaskWaitsBeforeReemit(t *testing.T) {
 
 func TestEmitRetryTaskPreemptedReemitsImmediately(t *testing.T) {
 	h := &taskTypeHandler{
+		TaskEngine: &TaskEngine{cfg: taskEngineConfig{ctx: context.Background()}},
 		TaskTypeDetails: TaskTypeDetails{
 			Name: "PreemptT",
 			Max:  taskhelp.Max(5),
@@ -117,7 +120,8 @@ func TestEmitRetryTaskPreemptedReemitsImmediately(t *testing.T) {
 	ee := eventEmitter{schedulerChannel: ch}
 
 	start := time.Now()
-	h.emitRetryTask(ee, task{ID: 5, Retries: 1, PostedTime: time.Unix(1, 0).UTC()}, true)
+	// recordCompletion preserves this already-satisfied clock on preemption.
+	h.emitRetryTask(ee, &task{ID: 5, Retries: 1, PostedTime: time.Unix(1, 0).UTC(), UpdateTime: start.Add(-2 * time.Hour)})
 
 	select {
 	case ev := <-ch:
@@ -142,7 +146,7 @@ func TestEmitRetryTaskStopsAtMaxFailures(t *testing.T) {
 	ch := make(chan schedulerEvent, 1)
 	ee := eventEmitter{schedulerChannel: ch}
 
-	h.emitRetryTask(ee, task{ID: 11, Retries: 2}, false)
+	h.emitRetryTask(ee, nil) // Completion returns no retry for a terminal task.
 
 	select {
 	case ev := <-ch:
