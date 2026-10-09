@@ -21,8 +21,8 @@ func checkSumArgs(directory, low, high string, queueDepth uint32) error {
 	if strings.IndexByte(directory, 0) >= 0 {
 		return fmt.Errorf("sum file sizes: directory cannot contain a NUL byte")
 	}
-	if !cidCharsOnly(low) || !cidCharsOnly(high) {
-		return fmt.Errorf("sum file sizes: bounds must contain only base32 CID characters")
+	if !hexCharsOnly(low) || !hexCharsOnly(high) {
+		return fmt.Errorf("sum file sizes: bounds must contain only hex characters")
 	}
 	if queueDepth > 4096 {
 		return fmt.Errorf("sum file sizes: queue depth %d exceeds 4096", queueDepth)
@@ -30,11 +30,11 @@ func checkSumArgs(directory, low, high string, queueDepth uint32) error {
 	return nil
 }
 
-// cidCharsOnly reports whether s is empty or uses the CIDv1 base32 alphabet (a-z, 2-7).
-func cidCharsOnly(s string) bool {
+// hexCharsOnly reports whether s is empty or uses only hex digits (0-9, a-f, A-F).
+func hexCharsOnly(s string) bool {
 	for i := 0; i < len(s); i++ {
 		c := s[i]
-		if (c < 'a' || c > 'z') && (c < '2' || c > '7') {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') && (c < 'A' || c > 'F') {
 			return false
 		}
 	}
