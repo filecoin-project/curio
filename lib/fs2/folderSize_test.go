@@ -56,6 +56,18 @@ func TestSumFileSizesRange(t *testing.T) {
 	if _, err := SumFileSizesRange("dir\x00", "", "", 0); err == nil {
 		t.Fatal("expected error for NUL in path")
 	}
+	if _, err := SumFileSizesRange(dir, "AbC", "", 0); err != nil {
+		t.Fatalf("mixed-case hex bound: %v", err)
+	}
+	if _, err := SumFileSizesRange(dir, "g", "", 0); err == nil {
+		t.Fatal("expected error for non-hex letter")
+	}
+	if _, err := SumFileSizesRange(dir, "", "ab/cd", 0); err == nil {
+		t.Fatal("expected error for path separator in bound")
+	}
+	if _, err := SumFileSizesRange(dir, "..", "", 0); err == nil {
+		t.Fatal("expected error for dot bound")
+	}
 	if _, err := SumFileSizesRange(".", "", "", 4097); err == nil {
 		t.Fatal("expected error for queue depth over 4096")
 	}
@@ -66,26 +78,26 @@ func TestConcatenatedHashPath(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(dir, "ab"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeFile(t, filepath.Join(dir, "ab", "cdefg"), 42)
-	if err := os.MkdirAll(filepath.Join(dir, "xy", "zt"), 0o755); err != nil {
+	writeFile(t, filepath.Join(dir, "ab", "cdef1"), 42)
+	if err := os.MkdirAll(filepath.Join(dir, "9e", "8d"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeFile(t, filepath.Join(dir, "xy", "zt", "uvw"), 9)
+	writeFile(t, filepath.Join(dir, "9e", "8d", "7c6"), 9)
 
-	result, err := SumFileSizesRange(dir, "abcdefe", "abcdefg", 0)
+	result, err := SumFileSizesRange(dir, "abcdef0", "abcdef1", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result.Bytes != 42 || result.Files != 1 {
-		t.Fatalf("(abcdefe, abcdefg]: got %+v, want 42 bytes / 1 file", result)
+		t.Fatalf("(abcdef0, abcdef1]: got %+v, want 42 bytes / 1 file", result)
 	}
 
-	result, err = SumFileSizesRange(dir, "abcdefg", "abcdefh", 0)
+	result, err = SumFileSizesRange(dir, "abcdef1", "abcdef2", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result.Bytes != 0 || result.Files != 0 {
-		t.Fatalf("(abcdefg, abcdefh]: got %+v, want empty (exclusive low)", result)
+		t.Fatalf("(abcdef1, abcdef2]: got %+v, want empty (exclusive low)", result)
 	}
 
 	result, err = SumFileSizesRange(dir, "ab", "ac", 0)
@@ -96,21 +108,21 @@ func TestConcatenatedHashPath(t *testing.T) {
 		t.Fatalf("(ab, ac]: got %+v, want 42 bytes / 1 file", result)
 	}
 
-	result, err = SumFileSizesRange(dir, "xyztuvv", "xyztuvw", 0)
+	result, err = SumFileSizesRange(dir, "9e8d7c5", "9e8d7c6", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result.Bytes != 9 || result.Files != 1 {
-		t.Fatalf("xy/zt/uvw hash: got %+v, want 9 bytes / 1 file", result)
+		t.Fatalf("9e/8d/7c6 hash: got %+v, want 9 bytes / 1 file", result)
 	}
 }
 
 func TestSubtreePrune(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.Mkdir(filepath.Join(dir, "zz"), 0o755); err != nil {
+	if err := os.Mkdir(filepath.Join(dir, "ff"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeFile(t, filepath.Join(dir, "zz", "file"), 100)
+	writeFile(t, filepath.Join(dir, "ff", "file"), 100)
 	writeFile(t, filepath.Join(dir, "a"), 7)
 
 	result, err := SumFileSizesRange(dir, "", "a", 0)

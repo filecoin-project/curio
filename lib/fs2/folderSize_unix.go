@@ -13,9 +13,9 @@ import (
 // Linux uses it when io_uring cannot be created. Other Unix systems use it
 // as their only scanner.
 //
-// QueueDepth is accepted for API compatibility and ignored.
-func sumFileSizesRangeSimple(directory, low, high string, queueDepth uint32) (Result, error) {
-	if err := checkSumArgs(directory, low, high, queueDepth); err != nil {
+// kBufSize is accepted for API compatibility and ignored.
+func sumFileSizesRangeSimple(directory, low, high string, kBufSize uint32) (Result, error) {
+	if err := checkSumArgs(directory, low, high, kBufSize); err != nil {
 		return Result{}, err
 	}
 
