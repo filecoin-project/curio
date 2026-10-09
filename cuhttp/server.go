@@ -98,12 +98,13 @@ func attachRouters(ctx context.Context, r *chi.Mux, d *deps.Deps, sd *ServiceDep
 
 	if sd.EthSender != nil {
 		if err := pdp.MountRoutes(ctx, r, pdp.MountDeps{
-			DB:        d.DB,
-			PieceIO:   piecestore.New(d.Stor, d.LocalStore, d.Si),
-			EthClient: must.One(d.EthClient.Get()),
-			Chain:     d.Chain,
-			EthSender: sd.EthSender,
-			AlertTask: sd.AlertTask,
+			DB:               d.DB,
+			PieceIO:          piecestore.New(d.Stor, d.LocalStore, d.Si),
+			EthClient:        must.One(d.EthClient.Get()),
+			Chain:            d.Chain,
+			EthSender:        sd.EthSender,
+			AlertTask:        sd.AlertTask,
+			AuthorizerConfig: d.Cfg.Subsystems.PDPAuthorizers,
 		}, ipp); err != nil {
 			return nil, err
 		}
