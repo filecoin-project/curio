@@ -26,6 +26,23 @@ func SliceSize(r Range, start, end []byte) (int64, error) {
 	return sliceSize(r, start, end), nil
 }
 
+// Contains reports whether p lies in the half-open circle interval (start, end].
+// The endpoint end is included and start is excluded. A start equal to end
+// covers the whole circle, including that point. Callers pass equal-width hashes.
+// An empty p is outside every interval.
+func Contains(start, end, p []byte) bool {
+	if len(p) == 0 {
+		return false
+	}
+	if bytes.Equal(start, end) {
+		return true
+	}
+	if bytes.Compare(start, end) < 0 {
+		return bytes.Compare(start, p) < 0 && bytes.Compare(p, end) <= 0
+	}
+	return bytes.Compare(start, p) < 0 || bytes.Compare(p, end) <= 0
+}
+
 // LinkStarts sets each range's StartHash to the EndHash of the range before
 // it in hash order. It is for callers that only store end hashes.
 func LinkStarts(ranges []Range) {

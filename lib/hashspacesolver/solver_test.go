@@ -278,6 +278,106 @@ func TestArriveNoData(t *testing.T) {
 	require.Empty(t, res.Diff)
 }
 
+func TestAbsorbIdleAtFillLimit(t *testing.T) {
+	// Disk 0 is at its fill limit, not over it. Room on disk 1 does not
+	// pull bytes just to even the disks.
+	st := mk([]int64{100, 100}, []byte{0x80}, []int64{90}, []int{0})
+	_, res := solveOK(t, st, ev(EventAbsorb, 1))
+	require.Empty(t, res.Diff)
+}
+
+func TestAbsorbTakesOnlyExcess(t *testing.T) {
+	st := mk([]int64{100, 100}, []byte{0x80}, []int64{100}, []int{0})
+	out, res := solveOK(t, st, ev(EventAbsorb, 1))
+	require.NotEmpty(t, res.Diff)
+	require.Equal(t, int64(100), usedOf(out, 0)+usedOf(out, 1))
+	require.Equal(t, rebalanceTargetOf(100), usedOf(out, 0))
+	require.Equal(t, int64(20), usedOf(out, 1))
+}
+
+func TestAbsorbStopsAtDestTarget(t *testing.T) {
+	st := mk([]int64{100, 20}, []byte{0x80}, []int64{100}, []int{0})
+	out, res := solveOK(t, st, ev(EventAbsorb, 1))
+	require.NotEmpty(t, res.Diff)
+	require.Equal(t, int64(100), usedOf(out, 0)+usedOf(out, 1))
+	require.LessOrEqual(t, usedOf(out, 1), rebalanceTargetOf(20))
+	require.Greater(t, usedOf(out, 1), int64(0))
+	require.GreaterOrEqual(t, usedOf(out, 0), rebalanceTargetOf(capacityOf(st, 0)))
+}
+
+func TestVacatingDiskReceivesNothing(t *testing.T) {
+	st := mk([]int64{100, 100, 100}, []byte{0x80}, []int64{100}, []int{0})
+	st.MountPoints[1].Vacating = true
+	out, res := solveOK(t, st, ev(EventFull, 0))
+	require.NotEmpty(t, res.Diff)
+	require.Equal(t, int64(0), usedOf(out, 1))
+	require.LessOrEqual(t, usedOf(out, 0), rebalanceTargetOf(capacityOf(st, 0)))
+	require.Equal(t, int64(100), usedOf(out, 0)+usedOf(out, 2))
+	require.Greater(t, usedOf(out, 2), int64(0))
+
+	st = mk([]int64{100, 100}, []byte{0x80}, []int64{100}, []int{0})
+	st.MountPoints[1].Vacating = true
+	out, res = solveOK(t, st, ev(EventAbsorb, 1))
+	require.Empty(t, res.Diff)
+	require.Equal(t, int64(100), usedOf(out, 0))
+	require.Equal(t, int64(0), usedOf(out, 1))
+}
+
+func TestBalanceBytesFromFillFractions(t *testing.T) {
+	// 70% and 20% of a capacity whose used*cap product does not fit in int64.
+	const cap = int64(5) << 40
+	require.Equal(t, cap/4, BalanceBytes(cap*7/10, cap, cap*2/10, cap))
+	require.Equal(t, int64(0), BalanceBytes(cap*6/10, cap, cap*2/10, cap))
+
+	// 90% of the larger disk and 10% of the smaller. Half of the 80 point gap
+	// is 40% of the smaller capacity.
+	capHi, capLo := int64(10)<<30, int64(5)<<30
+	require.Equal(t, capLo*4/10, BalanceBytes(capHi*9/10, capHi, capLo/10, capLo))
+}
+
+func TestBalanceHalfGap(t *testing.T) {
+	// (0x00, 0x46] is 70 hash steps and 70 bytes, so the 25-byte cut lands
+	// on a hash.
+	st := mk([]int64{100, 100}, []byte{0x46, 0x00}, []int64{70, 20}, []int{0, 1})
+	out, res := solveOK(t, st, ev(EventBalance, 1))
+	require.NotEmpty(t, res.Diff)
+	require.Equal(t, int64(90), usedOf(out, 0)+usedOf(out, 1))
+	require.Equal(t, int64(45), usedOf(out, 0))
+	require.Equal(t, int64(45), usedOf(out, 1))
+}
+
+func TestBalanceIdleUnderSpread(t *testing.T) {
+	st := mk([]int64{100, 100}, []byte{0x40, 0x80}, []int64{60, 20}, []int{0, 1})
+	_, res := solveOK(t, st, ev(EventBalance, 1))
+	require.Empty(t, res.Diff)
+}
+
+func TestBalanceUsesSmallerCapacity(t *testing.T) {
+	// 180/200 is 90%, 10/100 is 10%. Half of that 80 point gap is 40% of the
+	// smaller disk.
+	st := mk([]int64{200, 100}, []byte{0xB4, 0x00}, []int64{180, 10}, []int{0, 1})
+	out, res := solveOK(t, st, ev(EventBalance, 1))
+	require.NotEmpty(t, res.Diff)
+	require.Equal(t, int64(190), usedOf(out, 0)+usedOf(out, 1))
+	require.Equal(t, int64(140), usedOf(out, 0))
+	require.Equal(t, int64(50), usedOf(out, 1))
+}
+
+func TestBalanceSkipsVacating(t *testing.T) {
+	st := mk([]int64{100, 100}, []byte{0x40, 0x80}, []int64{70, 20}, []int{0, 1})
+	st.MountPoints[1].Vacating = true
+	out, res := solveOK(t, st, ev(EventBalance, 1))
+	require.Empty(t, res.Diff)
+	require.Equal(t, int64(70), usedOf(out, 0))
+	require.Equal(t, int64(20), usedOf(out, 1))
+}
+
+func TestAbsorbIdleWhenBalanced(t *testing.T) {
+	st := mk([]int64{100, 100}, []byte{0x40, 0xc0}, []int64{40, 40}, []int{0, 1})
+	_, res := solveOK(t, st, ev(EventAbsorb, 1))
+	require.Empty(t, res.Diff)
+}
+
 func TestArriveIdleWhenUnderFillLimit(t *testing.T) {
 	st := mk(
 		[]int64{20, 20},
@@ -827,12 +927,16 @@ func randomValidState(rng *rand.Rand) State {
 
 func randomEvent(rng *rand.Rand, st State) (State, Event) {
 	n := len(st.MountPoints)
-	switch rng.Intn(3) {
+	switch rng.Intn(5) {
 	case 0:
 		st.MountPoints = append(append([]MountPoint(nil), st.MountPoints...), MountPoint{FreeSpace: 60 + int64(rng.Intn(40)), StorageID: sid(n)})
 		return st, ev(EventArrive, n)
 	case 1:
 		return st, ev(EventFull, rng.Intn(n))
+	case 2:
+		return st, ev(EventAbsorb, rng.Intn(n))
+	case 3:
+		return st, ev(EventBalance, rng.Intn(n))
 	default:
 		return st, ev(EventVacate, rng.Intn(n))
 	}

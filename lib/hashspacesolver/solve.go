@@ -2,13 +2,16 @@ package hashspacesolver
 
 import (
 	"bytes"
+	"math"
+	"math/big"
 	"slices"
 
 	"golang.org/x/xerrors"
 )
 
-// Solve computes a minimum-movement target for a disk arriving, filling, or
-// vacating. The resulting assignment keeps every active disk's FreeSpace at
+// Solve computes a minimum-movement target for a disk arriving, filling,
+// vacating, absorbing, or for a balance across the cluster. The resulting
+// assignment keeps every active disk's FreeSpace at
 // or above zero and at or under MAX_RANGES_PER_DISK contiguous ranges per
 // space.
 //
@@ -24,13 +27,17 @@ func Solve(state State, event Event) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	disk, ok := w.mountOf[event.StorageID]
-	if !ok {
-		return Result{}, xerrors.Errorf("unknown event StorageID %q", event.StorageID)
+	var disk int
+	if event.Kind != EventBalance {
+		var ok bool
+		disk, ok = w.mountOf[event.StorageID]
+		if !ok {
+			return Result{}, xerrors.Errorf("unknown event StorageID %q", event.StorageID)
+		}
 	}
 
 	switch event.Kind {
-	case EventArrive:
+	case EventArrive, EventAbsorb:
 		if err := w.repair(); err != nil {
 			return Result{}, err
 		}
@@ -88,6 +95,11 @@ func Solve(state State, event Event) (Result, error) {
 				w.applyCut(cut.space, cut.idx, cut.kind, cut.dest, cut.size, cut.split)
 			}
 		}
+	case EventBalance:
+		if err := w.repair(); err != nil {
+			return Result{}, err
+		}
+		w.balance()
 	case EventVacate:
 		w.mountPoints[disk].frozen = true
 		for s := range w.hashSpaces {
@@ -225,6 +237,137 @@ func Solve(state State, event Event) (Result, error) {
 		bytes += t.Size
 	}
 	return Result{State: w.snapshot(), Diff: diff, BytesMoved: bytes}, nil
+}
+
+// BalanceBytes is the number of bytes to move from the fuller disk onto the
+// emptier one so the emptier gains half their fill-percentage gap. Fill is
+// the fraction used/cap on each disk, and half that gap times the emptier
+// capacity is the byte count. It is zero when the gap is below SPREAD_POINTS.
+func BalanceBytes(usedHi, capHi, usedLo, capLo int64) int64 {
+	if capHi <= 0 || capLo <= 0 || usedHi <= 0 || usedLo < 0 {
+		return 0
+	}
+	hi := float64(usedHi) / float64(capHi)
+	lo := float64(usedLo) / float64(capLo)
+	gap := hi - lo
+	// A ratio of two int64s can sit an ulp under an exact percentage.
+	if gap*100 < float64(SPREAD_POINTS)-1e-9 {
+		return 0
+	}
+	nFloat := gap / 2 * float64(capLo)
+	if nFloat <= 0 {
+		return 0
+	}
+	n := usedHi
+	if nFloat < float64(math.MaxInt64) && nFloat < float64(usedHi) {
+		n = int64(math.Round(nFloat))
+	}
+	if free := capLo - usedLo; free < n {
+		n = free
+	}
+	if n < 0 {
+		return 0
+	}
+	return n
+}
+
+// fuller reports whether a's used/cap fraction is greater than b's.
+// A non-positive capacity is not fuller. The products are compared exactly,
+// so a used*cap that does not fit in int64 still orders correctly.
+func fuller(usedA, capA, usedB, capB int64) bool {
+	if capA <= 0 || capB <= 0 {
+		return false
+	}
+	left := new(big.Int).Mul(big.NewInt(usedA), big.NewInt(capB))
+	right := new(big.Int).Mul(big.NewInt(usedB), big.NewInt(capA))
+	return left.Cmp(right) > 0
+}
+
+// balance moves half the widest fill gap onto the emptier disk. A gap under
+// SPREAD_POINTS moves nothing, and a frozen disk is neither end. The
+// destination is not filled past its rebalance target.
+func (w *world) balance() {
+	hi, lo := -1, -1
+	var budget int64
+	for _, a := range w.activeDisks() {
+		capA := w.mountPoints[a].capacity
+		usedA := w.mountPoints[a].used
+		if capA <= 0 || usedA <= 0 {
+			continue
+		}
+		for _, b := range w.activeDisks() {
+			capB := w.mountPoints[b].capacity
+			if a == b || capB <= 0 {
+				continue
+			}
+			usedB := w.mountPoints[b].used
+			if !fuller(usedA, capA, usedB, capB) {
+				continue
+			}
+			n := BalanceBytes(usedA, capA, usedB, capB)
+			if n > budget {
+				hi, lo, budget = a, b, n
+			}
+		}
+	}
+	if budget <= 0 {
+		return
+	}
+	totalRanges := 0
+	for _, sp := range w.hashSpaces {
+		totalRanges += len(sp.ranges)
+	}
+	for guard := 0; guard < totalRanges*MAX_RANGES_PER_DISK+len(w.mountPoints)+8; guard++ {
+		if budget <= 0 {
+			return
+		}
+		cut, ok := w.bestTake(hi, lo, budget)
+		if !ok || !w.applyCut(cut.space, cut.idx, cut.kind, lo, cut.size, cut.split) {
+			return
+		}
+		budget -= cut.size
+	}
+}
+
+// bestTake is the preferred cut of at most budget bytes from src onto dest.
+// Returns false when no cut fits. src and dest must be mount indexes.
+func (w *world) bestTake(src, dest int, budget int64) (candidate, bool) {
+	var best *candidate
+	for s := range w.hashSpaces {
+		for _, idx := range w.rangeIndexes(s, src) {
+			for _, c := range w.sizedCuts(s, idx, budget, budget, dest) {
+				c.dest = dest
+				// Prefer a cut that adds no range, then a larger cut, then a
+				// smaller range-count change, then a lower space, idx, and kind.
+				keep := best == nil
+				if !keep {
+					a, b := c, *best
+					aAbs, bAbs := a.dlt <= 0, b.dlt <= 0
+					if aAbs != bAbs {
+						keep = aAbs
+					} else if a.size != b.size {
+						keep = a.size > b.size
+					} else if a.dlt != b.dlt {
+						keep = a.dlt < b.dlt
+					} else if a.space != b.space {
+						keep = a.space < b.space
+					} else if a.idx != b.idx {
+						keep = a.idx < b.idx
+					} else {
+						keep = a.kind < b.kind
+					}
+				}
+				if keep {
+					cp := c
+					best = &cp
+				}
+			}
+		}
+	}
+	if best == nil {
+		return candidate{}, false
+	}
+	return *best, true
 }
 
 // Validate reports whether state is structurally sound and each disk is

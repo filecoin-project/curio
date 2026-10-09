@@ -22,9 +22,10 @@
 // before Solve returns. A repair that cannot lower an over-cap count fails
 // the event.
 //
-// A frozen disk accepts nothing. Vacate freezes the named disk for the rest
-// of the plan and leaves its capacity out of the room the other disks have.
-// Shedding from a frozen disk is an error.
+// A frozen disk accepts nothing. A mount marked Vacating starts frozen.
+// Vacate freezes the named disk for the rest of the plan and leaves its
+// capacity out of the room the other disks have. Shedding from a frozen
+// disk is an error.
 //
 // An arrive or fill cut stays within the receiver's room under
 // REBALANCE_TARGET_PERCENT. A steal is no larger than the source's excess
@@ -51,6 +52,12 @@
 // Remaining ranges are placed largest first. Not enough capacity on the
 // other disks, or a range that cannot be placed, fails the event.
 //
+// Absorb steals the same way arrive does, onto the named disk.
+//
+// Balance moves half the widest fill-percentage gap onto the emptier disk
+// when that gap is at least SPREAD_POINTS. A smaller gap moves nothing.
+// A frozen disk is neither end. The named disk is ignored.
+//
 // # Priorities
 //
 // A cut is a whole range, a prefix, or a suffix. Landing against a neighbor
@@ -74,6 +81,11 @@
 // range-count change, then the most free space, then the lower disk index;
 // a split across the two neighbors; a split onto any disk that has room,
 // preferring a cut that adds no range and then a larger cut.
+//
+// Balance takes cuts from the fuller disk up to that byte budget. Among
+// cuts that fit, it prefers one that adds no range, then a larger cut,
+// then a smaller range-count change, then the lower space, range, and
+// cut kind.
 //
 // Repair, used by every event, gives away the smallest range another disk
 // can take whole. Ties prefer a smaller range-count change, then the lower
