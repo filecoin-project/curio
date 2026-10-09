@@ -1,4 +1,4 @@
-//go:build unix && !linux && !darwin
+//go:build unix && !darwin
 
 package fs2
 
@@ -9,15 +9,12 @@ import (
 	"path/filepath"
 )
 
-// SumFileSizesRange sums logical file sizes for regular files under directory
-// whose concatenated hash paths compare in the bytewise interval (low, high].
-// An empty low or high bound leaves that side of the interval open.
+// sumFileSizesRangeSimple walks directory with the standard library.
+// Linux uses it when io_uring cannot be created. Other Unix systems use it
+// as their only scanner.
 //
-// QueueDepth is accepted for API compatibility and ignored. Linux and Darwin
-// use their own scanners; this walk covers the other Unix systems.
-//
-// Performance is poor: see comments in the other implementations.
-func SumFileSizesRange(directory, low, high string, queueDepth uint32) (Result, error) {
+// QueueDepth is accepted for API compatibility and ignored.
+func sumFileSizesRangeSimple(directory, low, high string, queueDepth uint32) (Result, error) {
 	if err := checkSumArgs(directory, low, high, queueDepth); err != nil {
 		return Result{}, err
 	}

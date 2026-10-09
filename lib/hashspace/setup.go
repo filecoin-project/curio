@@ -131,8 +131,8 @@ func FirstSetup(drives []Drive) (hashspacesolver.State, error) {
 				return hashspacesolver.State{}, err
 			}
 			st := hashspacesolver.State{
-				Disks:  append([]int64(nil), caps...),
-				Spaces: []hashspacesolver.Space{open, acl},
+				MountpointCapacity: append([]int64(nil), caps...),
+				Spaces:             []hashspacesolver.Space{open, acl},
 			}
 			st, err = hashspacesolver.Apply(st, nil)
 			if err != nil {
@@ -421,7 +421,7 @@ func stateFromOwned(caps []int64, perSpace [][]ownedRange) (hashspacesolver.Stat
 		}
 		spaces[s] = hashspacesolver.Space{Ranges: ranges, Owner: owners}
 	}
-	st := hashspacesolver.State{Disks: append([]int64(nil), caps...), Spaces: spaces}
+	st := hashspacesolver.State{MountpointCapacity: append([]int64(nil), caps...), Spaces: spaces}
 	if err := hashspacesolver.Validate(st); err != nil {
 		return hashspacesolver.State{}, err
 	}
