@@ -31,6 +31,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/itests/helpers"
 	"github.com/filecoin-project/curio/lib/cachedreader"
+	"github.com/filecoin-project/curio/lib/hashspace"
 	"github.com/filecoin-project/curio/lib/pieceprovider"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/denylist"
@@ -95,8 +96,10 @@ func TestRetrievals(t *testing.T) {
 	minerID := abi.ActorID(mid)
 	sectorSize := sealSectorSize
 
+	hs := helpers.NewHashSpaceCluster(t, ctx, db, "retrievals-itest-hs")
+
 	seedPlan := buildRetrievalSeedPlan(fixtures)
-	seedState := seedRetrievalFixtures(t, ctx, dir, db, idxStore, spID, minerID, sealProof, sectorSize, seedPlan, fixtures)
+	seedState := seedRetrievalFixtures(t, ctx, dir, db, idxStore, hs, spID, minerID, sealProof, sectorSize, seedPlan, fixtures)
 
 	denylistData, err = json.Marshal([]struct {
 		Anchor string `json:"anchor"`
@@ -109,10 +112,11 @@ func TestRetrievals(t *testing.T) {
 	harness := helpers.StartCurioHarnessWithCleanup(ctx, t, dir, db, idxStore, full, baseCfg.Apis.StorageRPCSecret, helpers.CurioHarnessOptions{})
 
 	dependencies := harness.Dependencies
+	dependencies.CachedPieceReader.SetOpenPieceReader(pieceprovider.NewOpenPieceReader(hs))
 
 	baseURL := "http://" + baseCfg.HTTP.ListenAddress
 	helpers.WaitForHTTP(t, baseURL)
-	runRetrievalScenarios(t, ctx, dir, db, idxStore, dependencies, baseURL, spID, minerID, sealProof, sectorSize, fixtures, seedState)
+	runRetrievalScenarios(t, ctx, dir, db, idxStore, hs, dependencies, baseURL, spID, minerID, sealProof, sectorSize, fixtures, seedState)
 }
 
 type retrievalFixtureSeed struct {
@@ -155,7 +159,6 @@ type retrievalParkedPieceIDs struct {
 	parkWithDealPieceID int64
 	pdpPieceID          int64
 	cacheReusePieceID   int64
-	pdpv0AggregateID    int64
 	pdpv0FallbackID     int64
 }
 
@@ -296,6 +299,7 @@ func seedRetrievalFixtures(
 	dir string,
 	db *harmonydb.DB,
 	idxStore *indexstore.IndexStore,
+	hs *hashspace.Cluster,
 	spID int64,
 	minerID abi.ActorID,
 	sealProof abi.RegisteredSealProof,
@@ -331,10 +335,16 @@ func seedRetrievalFixtures(
 
 	require.NoError(t, helpers.WriteParkedPieceFixture(dir, parkedIDs.parkOnlyPieceID, fixtures.parkNoDeal.CarBytes))
 	require.NoError(t, helpers.WriteParkedPieceFixture(dir, parkedIDs.parkWithDealPieceID, fixtures.parkWithDeal.CarBytes))
-	require.NoError(t, helpers.WriteParkedPieceFixture(dir, parkedIDs.pdpPieceID, fixtures.pdpParked.CarBytes))
 	require.NoError(t, helpers.WriteParkedPieceFixture(dir, parkedIDs.cacheReusePieceID, fixtures.cacheReuse.CarBytes))
-	require.NoError(t, helpers.WriteParkedPieceFixture(dir, parkedIDs.pdpv0AggregateID, fixtures.pdpv0Aggregate.CarBytes))
-	require.NoError(t, helpers.WriteParkedPieceFixture(dir, parkedIDs.pdpv0FallbackID, fixtures.pdpv0Fallback.CarBytes))
+
+	// PDP pieces are placed: their parked_pieces rows stay, the bytes are in
+	// open-pieces only. The aggregate's subpieces are in no hashspace disk, so
+	// reading them takes the CQL aggregate lookup.
+	helpers.PlaceOpenPiece(t, ctx, hs, fixtures.pdpParked)
+	helpers.PlaceOpenPiece(t, ctx, hs, fixtures.pdpv0Fallback)
+	helpers.PlaceOpenPiece(t, ctx, hs, fixtures.pdpv0Aggregate)
+	helpers.RequireNotInOpenPieces(t, ctx, hs, fixtures.pdpv0AggregateSubpieceA)
+	helpers.RequireNotInOpenPieces(t, ctx, hs, fixtures.pdpv0AggregateSubpieceB)
 
 	for _, seed := range seeds {
 		if seed.SkipIndex {
@@ -351,6 +361,8 @@ func seedRetrievalFixtures(
 	require.NoError(t, addAggregateIndexWithoutUniquenessCheck(ctx, idxStore, fixtures.aggregateRetrySuccess, fixtures.aggregateRetrySuccessSubPieces))
 	require.NoError(t, helpers.AddPDPv0IndexFromPiece(t, ctx, idxStore, fixtures.pdpv0Aggregate))
 	require.NoError(t, helpers.AddPDPv0IndexFromPiece(t, ctx, idxStore, fixtures.pdpv0Fallback))
+	requireSubpieceParent(t, ctx, idxStore, fixtures.pdpv0AggregateSubpieceA, fixtures.pdpv0Aggregate)
+	requireSubpieceParent(t, ctx, idxStore, fixtures.pdpv0AggregateSubpieceB, fixtures.pdpv0Aggregate)
 
 	return retrievalSeedState{
 		cacheReusePieceID: parkedIDs.cacheReusePieceID,
@@ -435,18 +447,6 @@ func seedParkedRetrievalFixturesTx(tx *harmonydb.Tx, fixtures retrievalFixtures)
 		return retrievalParkedPieceIDs{}, err
 	}
 
-	pdpv0AggregateID, err := helpers.InsertCompletedParkedPiece(tx, fixtures.pdpv0Aggregate.PieceCIDV1.String(), fixtures.pdpv0Aggregate.PieceSize, fixtures.pdpv0Aggregate.RawSize, true)
-	if err != nil {
-		return retrievalParkedPieceIDs{}, err
-	}
-	pdpv0AggregateRefID, err := helpers.InsertParkedPieceRef(tx, pdpv0AggregateID, "", nil, true)
-	if err != nil {
-		return retrievalParkedPieceIDs{}, err
-	}
-	if _, err := tx.Exec(`INSERT INTO pdp_piecerefs (service, piece_cid, piece_ref, created_at) VALUES ($1, $2, $3, NOW())`, "retrievals-itest-pdp", fixtures.pdpv0Aggregate.PieceCIDV1.String(), pdpv0AggregateRefID); err != nil {
-		return retrievalParkedPieceIDs{}, err
-	}
-
 	pdpv0FallbackID, err := helpers.InsertCompletedParkedPiece(tx, fixtures.pdpv0Fallback.PieceCIDV1.String(), fixtures.pdpv0Fallback.PieceSize, fixtures.pdpv0Fallback.RawSize, true)
 	if err != nil {
 		return retrievalParkedPieceIDs{}, err
@@ -464,7 +464,6 @@ func seedParkedRetrievalFixturesTx(tx *harmonydb.Tx, fixtures retrievalFixtures)
 		parkWithDealPieceID: parkWithDealPieceID,
 		pdpPieceID:          pdpPieceID,
 		cacheReusePieceID:   cacheReusePieceID,
-		pdpv0AggregateID:    pdpv0AggregateID,
 		pdpv0FallbackID:     pdpv0FallbackID,
 	}, nil
 }
@@ -475,6 +474,7 @@ func runRetrievalScenarios(
 	dir string,
 	db *harmonydb.DB,
 	idxStore *indexstore.IndexStore,
+	hs *hashspace.Cluster,
 	dependencies *deps.Deps,
 	baseURL string,
 	spID int64,
@@ -618,6 +618,113 @@ func runRetrievalScenarios(
 		require.Equal(t, fixtures.pdpParked.CarBytes, body)
 		helpers.AssertPieceResponseHeaders(t, headers, fixtures.pdpParked.PieceCIDV1.String(), len(fixtures.pdpParked.CarBytes))
 	})
+
+	t.Run("pdp piece that is not placed is not served from piece-park", func(t *testing.T) {
+		fixture := helpers.CreatePieceFixture(t, dir, 391)
+		committed, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+			pieceID, err := helpers.InsertCompletedParkedPiece(tx, fixture.PieceCIDV1.String(), fixture.PieceSize, fixture.RawSize, true)
+			if err != nil {
+				return false, err
+			}
+			refID, err := helpers.InsertParkedPieceRef(tx, pieceID, "", nil, true)
+			if err != nil {
+				return false, err
+			}
+			if _, err := tx.Exec(`INSERT INTO pdp_piecerefs (service, piece_cid, piece_ref, created_at) VALUES ($1, $2, $3, NOW())`, "retrievals-itest-pdp", fixture.PieceCIDV1.String(), refID); err != nil {
+				return false, err
+			}
+			return true, helpers.WriteParkedPieceFixture(dir, pieceID, fixture.CarBytes)
+		})
+		require.NoError(t, err)
+		require.True(t, committed)
+
+		status, _ := helpers.HTTPGet(t, baseURL, "/piece/"+fixture.PieceCIDV1.String(), nil)
+		require.Equal(t, http.StatusNotFound, status)
+		status, _ = helpers.HTTPGet(t, baseURL, "/piece/"+fixture.PieceCIDV2.String(), nil)
+		require.Equal(t, http.StatusNotFound, status)
+	})
+
+	t.Run("pdpv0 subpiece is found only through the CQL aggregate lookup", func(t *testing.T) {
+		subA := helpers.CreatePieceFixture(t, dir, 171)
+		subB := helpers.CreatePieceFixture(t, dir, 173)
+		parent, _ := helpers.CreateAggregateFixtureFromSubpieces(t, []helpers.PieceFixture{subA, subB})
+		helpers.PlaceOpenPiece(t, ctx, hs, parent)
+		helpers.RequireNotInOpenPieces(t, ctx, hs, subA)
+		helpers.RequireNotInOpenPieces(t, ctx, hs, subB)
+
+		require.NoError(t, helpers.AddPDPv0IndexFromPiece(t, ctx, idxStore, parent))
+		requireSubpieceParent(t, ctx, idxStore, subA, parent)
+
+		status, body, headers := helpers.HTTPGetWithHeaders(t, baseURL, "/piece/"+subA.PieceCIDV2.String(), nil)
+		require.Equal(t, http.StatusOK, status)
+		require.Equal(t, subA.CarBytes, body)
+		helpers.AssertPieceResponseHeaders(t, headers, subA.PieceCIDV2.String(), len(subA.CarBytes))
+
+		// Negative control: the parent is still on disk, only the index is gone.
+		require.NoError(t, idxStore.RemoveAggregateIndex(ctx, parent.PieceCIDV2))
+		require.Eventually(t, func() bool {
+			recs, err := idxStore.FindPieceInAggregate(ctx, subA.PieceCIDV2)
+			return err == nil && len(recs) == 0
+		}, 15*time.Second, 250*time.Millisecond)
+
+		status, body, _ = helpers.HTTPGetWithHeaders(t, baseURL, "/piece/"+subA.PieceCIDV2.String(), nil)
+		require.Equal(t, http.StatusNotFound, status)
+		require.Empty(t, body)
+	})
+
+	t.Run("subpiece placed in open-pieces is served without its aggregate parent", func(t *testing.T) {
+		subA := helpers.CreatePieceFixture(t, dir, 181)
+		subB := helpers.CreatePieceFixture(t, dir, 183)
+		parent, _ := helpers.CreateAggregateFixtureFromSubpieces(t, []helpers.PieceFixture{subA, subB})
+		require.NoError(t, helpers.AddPDPv0IndexFromPiece(t, ctx, idxStore, parent))
+		requireSubpieceParent(t, ctx, idxStore, subA, parent)
+
+		// The parent is nowhere, so only a direct hit can serve subA.
+		helpers.PlaceOpenPiece(t, ctx, hs, subA)
+
+		status, body, _ := helpers.HTTPGetWithHeaders(t, baseURL, "/piece/"+subA.PieceCIDV2.String(), nil)
+		require.Equal(t, http.StatusOK, status)
+		require.Equal(t, subA.CarBytes, body)
+
+		status, _ = helpers.HTTPGet(t, baseURL, "/piece/"+subB.PieceCIDV2.String(), nil)
+		require.Equal(t, http.StatusNotFound, status)
+	})
+
+	for _, tc := range []struct {
+		name        string
+		firstPlaced bool
+	}{
+		{"subpiece with two parents is served when only the first is in open-pieces", true},
+		{"subpiece with two parents is served when only the second is in open-pieces", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sub := helpers.CreatePieceFixture(t, dir, 191)
+			sibA := helpers.CreatePieceFixture(t, dir, 193)
+			sibB := helpers.CreatePieceFixture(t, dir, 197)
+			parentA, subsA := helpers.CreateAggregateFixtureFromSubpieces(t, []helpers.PieceFixture{sub, sibA})
+			parentB, subsB := helpers.CreateAggregateFixtureFromSubpieces(t, []helpers.PieceFixture{sub, sibB})
+			require.NoError(t, addAggregateIndexWithoutUniquenessCheck(ctx, idxStore, parentA, subsA))
+			require.NoError(t, addAggregateIndexWithoutUniquenessCheck(ctx, idxStore, parentB, subsB))
+
+			first, second := parentA, parentB
+			if bytes.Compare(parentB.PieceCIDV2.Bytes(), parentA.PieceCIDV2.Bytes()) < 0 {
+				first, second = parentB, parentA
+			}
+			placed := second
+			if tc.firstPlaced {
+				placed = first
+			}
+			helpers.PlaceOpenPiece(t, ctx, hs, placed)
+
+			recs, err := idxStore.FindPieceInAggregate(ctx, sub.PieceCIDV2)
+			require.NoError(t, err)
+			require.Len(t, recs, 2)
+
+			status, body, _ := helpers.HTTPGetWithHeaders(t, baseURL, "/piece/"+sub.PieceCIDV2.String(), nil)
+			require.Equal(t, http.StatusOK, status)
+			require.Equal(t, sub.CarBytes, body)
+		})
+	}
 
 	newCachedPieceReader := func() *cachedreader.CachedPieceReader {
 		return cachedreader.NewCachedPieceReader(
@@ -1217,4 +1324,21 @@ func allZeroBytes(data []byte) bool {
 		}
 	}
 	return true
+}
+
+// requireSubpieceParent asserts the CQL index maps sub to parent.
+func requireSubpieceParent(t *testing.T, ctx context.Context, idx *indexstore.IndexStore, sub, parent helpers.PieceFixture) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		recs, err := idx.FindPieceInAggregate(ctx, sub.PieceCIDV2)
+		if err != nil {
+			return false
+		}
+		for _, r := range recs {
+			if r.Cid.Equals(parent.PieceCIDV2) && r.Size > 0 {
+				return true
+			}
+		}
+		return false
+	}, 15*time.Second, 250*time.Millisecond, "aggregate index for %s", sub.PieceCIDV2)
 }

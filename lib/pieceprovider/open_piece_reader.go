@@ -25,24 +25,26 @@ func NewOpenPieceReader(hs *hashspace.Cluster) *OpenPieceReader {
 	return &OpenPieceReader{hs: hs}
 }
 
-// ReadPiece opens pc (a piece CID v1) from open-pieces. It returns nil, nil
-// when pc has not been placed.
+// ReadPiece opens pc (a piece CID v2) from open-pieces. It returns nil, nil
+// when no disk that may hold pc has it. Finding the disks uses only the
+// in-memory cluster map, and they are checked in parallel, so a miss costs no
+// SQL.
 //
 // Every range read opens the file at the last location that worked. If the
 // file is gone there (moved by a rebalance, or dropped from a finished move source), the
 // places are looked up again and the read moves on to the other one, so a
 // long-lived cached reader follows the piece.
 func (o *OpenPieceReader) ReadPiece(ctx context.Context, pc cid.Cid, rawSize int64) (storiface.Reader, error) {
-	locs, err := o.hs.Locations(ctx, pc.String())
+	holder, err := o.find(ctx, pc)
 	if err != nil {
 		return nil, err
 	}
-	if len(locs) == 0 {
+	if holder == "" {
 		return nil, nil
 	}
 
 	rctx, cancel := context.WithCancel(ctx)
-	fr := &failoverRange{hs: o.hs, pc: pc, ctx: rctx, current: locs[0].StorageID}
+	fr := &failoverRange{hs: o.hs, pc: pc, ctx: rctx, current: holder}
 	pr, err := (&pieceReader{
 		getReader: fr.get,
 		len:       abi.UnpaddedPieceSize(rawSize),
@@ -57,6 +59,72 @@ func (o *OpenPieceReader) ReadPiece(ctx context.Context, pc cid.Cid, rawSize int
 		return nil, err
 	}
 	return pr, nil
+}
+
+// find returns the storage id of a disk that has pc, or "" when none does.
+// Every candidate is checked at once and the first hit wins, local disks
+// being the quickest to answer. A candidate that errors counts as a miss; the
+// error is returned only when no candidate has the piece.
+func (o *OpenPieceReader) find(ctx context.Context, pc cid.Cid) (string, error) {
+	return findHolder(ctx, o.hs, pc)
+}
+
+// holderFinder is the part of the cluster that finding a holder uses.
+type holderFinder interface {
+	Candidates(pc cid.Cid) ([]hashspace.Location, error)
+	StatAt(ctx context.Context, storageID string, pc cid.Cid) (bool, error)
+}
+
+func findHolder(ctx context.Context, hs holderFinder, pc cid.Cid) (string, error) {
+	locs, err := hs.Candidates(pc)
+	if err != nil {
+		return "", err
+	}
+	switch len(locs) {
+	case 0:
+		return "", nil
+	case 1:
+		ok, err := hs.StatAt(ctx, locs[0].StorageID, pc)
+		if err != nil || !ok {
+			return "", err
+		}
+		return locs[0].StorageID, nil
+	}
+
+	sctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	type probe struct {
+		storageID string
+		ok        bool
+		err       error
+	}
+	results := make(chan probe, len(locs))
+	for _, l := range locs {
+		go func(id string) {
+			ok, err := hs.StatAt(sctx, id, pc)
+			results <- probe{storageID: id, ok: ok, err: err}
+		}(l.StorageID)
+	}
+
+	var firstErr error
+	for range locs {
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case p := <-results:
+			if p.ok {
+				return p.storageID, nil
+			}
+			if p.err != nil {
+				log.Debugw("probing open piece location", "piece", pc, "storage", p.storageID, "error", p.err)
+				if firstErr == nil {
+					firstErr = p.err
+				}
+			}
+		}
+	}
+	return "", firstErr
 }
 
 type failoverRange struct {
