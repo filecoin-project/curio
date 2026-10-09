@@ -24,16 +24,16 @@ const (
 //
 // Performance: 1e6 files took 2s and 1 MB RAM on MacBook Pro M2
 // .......vs unix impl taking 20s and 442 MB RAM on the same machine.
-func SumFileSizesRange(directory, low, high string, queueDepth uint32) (Result, error) {
-	if err := checkSumArgs(directory, low, high, queueDepth); err != nil {
+func SumFileSizesRange(directory, low, high string, kBufSize uint32) (Result, error) {
+	if err := checkSumArgs(directory, low, high, kBufSize); err != nil {
 		return Result{}, err
 	}
-	if queueDepth == 0 {
-		queueDepth = 128
+	if kBufSize == 0 {
+		kBufSize = 128
 	}
 
 	var result Result
-	err := sumDirDarwin(directory, "", low, high, queueDepth, &result)
+	err := sumDirDarwin(directory, "", low, high, kBufSize, &result)
 	if err != nil {
 		return result, fmt.Errorf("sum file sizes: %w", err)
 	}

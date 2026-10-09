@@ -10,6 +10,6 @@ package fs2
 // use their own scanners; this walk covers the other Unix systems.
 //
 // Performance is poor: see comments in the other implementations.
-func SumFileSizesRange(directory, low, high string, queueDepth uint32) (Result, error) {
-	return sumFileSizesRangeSimple(directory, low, high, queueDepth)
+func SumFileSizesRange(directory, low, high string, kBufSize uint32) (Result, error) {
+	return sumFileSizesRangeSimple(directory, low, high, kBufSize)
 }
