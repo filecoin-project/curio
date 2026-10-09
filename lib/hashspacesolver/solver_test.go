@@ -17,6 +17,7 @@ func mk(disks []int64, end []byte, size []int64, owner []int) State {
 	for i := range end {
 		rs[i] = Range{EndHash: []byte{end[i]}, Size: size[i]}
 	}
+	LinkStarts(rs)
 	return State{
 		Disks: append([]int64(nil), disks...),
 		Spaces: []Space{{
@@ -38,6 +39,7 @@ func spaceOf(end []byte, size []int64, owner []int) Space {
 	for i := range end {
 		rs[i] = Range{EndHash: []byte{end[i]}, Size: size[i]}
 	}
+	LinkStarts(rs)
 	return Space{Ranges: rs, Owner: append([]int(nil), owner...)}
 }
 
@@ -452,7 +454,7 @@ func TestUnknownEventKind(t *testing.T) {
 
 func TestStructuralErrors(t *testing.T) {
 	t.Run("owner length", func(t *testing.T) {
-		st := State{Disks: []int64{10}, Spaces: []Space{{Ranges: []Range{{EndHash: h(1), Size: 1}}}}}
+		st := State{Disks: []int64{10}, Spaces: []Space{{Ranges: []Range{{StartHash: h(1), EndHash: h(1), Size: 1}}}}}
 		_, err := Solve(st, Event{Kind: EventFull, Disk: 0})
 		require.Error(t, err)
 	})
@@ -713,12 +715,13 @@ func TestApplyMovesMiddleOfRange(t *testing.T) {
 	st := mk([]int64{200, 200}, []byte{0x40, 0xc0}, []int64{40, 80}, []int{1, 0})
 	src := 1
 	r := st.Spaces[0].Ranges[src]
-	start := StartHash(st.Spaces[0].Ranges, src)
 	midStart, midEnd := h(0x60), h(0xa0)
-	require.False(t, hashEq(midStart, start))
+	require.False(t, hashEq(midStart, r.StartHash))
 	require.False(t, hashEq(midEnd, r.EndHash))
-	left := SliceSize(r, start, midStart)
-	mid := SliceSize(r, start, midEnd) - left
+	left, err := SliceSize(r, r.StartHash, midStart)
+	require.NoError(t, err)
+	mid, err := SliceSize(r, midStart, midEnd)
+	require.NoError(t, err)
 	require.Positive(t, left)
 	require.Positive(t, mid)
 	require.Less(t, left+mid, r.Size)
@@ -810,6 +813,7 @@ func randomValidState(rng *rand.Rand) State {
 			owner[i] = di % nDisks
 			used[owner[i]] += sz
 		}
+		LinkStarts(ranges)
 		spaces[s] = Space{Ranges: ranges, Owner: owner}
 	}
 	return State{Disks: disks, Spaces: spaces}

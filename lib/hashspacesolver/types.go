@@ -4,8 +4,9 @@
 //
 // Disks are a list of total sizes (capacities) shared by all spaces. Each
 // Space is an independent circular hash partition: ranges are half-open
-// intervals from the previous EndHash to their own, with Size bytes of data.
-// SliceSize reports how much of a range's data lies in a sub-interval.
+// intervals (StartHash, EndHash] with Size bytes of data, and together they
+// tile the circle once. SliceSize reports how much of a range's data lies in
+// a sub-interval.
 //
 // Solve returns a target State plus an order-independent Diff of absolute
 // interval transfers. Each byte moves at most once, from its original disk
@@ -30,11 +31,13 @@ const SPREAD_POINTS = 50
 // disks stay within this percent of the smaller disk's capacity.
 const CLAIM_STEP_PERCENT = 10
 
-// Range is one contiguous hash-space interval. It covers hashes after the
-// previous range's EndHash up to EndHash, and holds Size bytes.
+// Range is the half-open hash interval (StartHash, EndHash] holding Size
+// bytes. StartHash == EndHash is the full circle. Within a Space, each
+// StartHash must equal the EndHash of the range before it.
 type Range struct {
-	EndHash []byte
-	Size    int64
+	StartHash []byte
+	EndHash   []byte
+	Size      int64
 }
 
 // Space is one independent hash circle assigned across disks.

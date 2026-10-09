@@ -931,6 +931,7 @@ func (c *Cluster) raise(ctx context.Context, storageID, kind string) error {
 					sp.Ranges[i] = hashspacesolver.Range{EndHash: r.EndHash, Size: r.Size}
 					sp.Owner[i] = owner
 				}
+				hashspacesolver.LinkStarts(sp.Ranges)
 				st.Spaces = append(st.Spaces, sp)
 			}
 			return st, ids, nil
@@ -2532,20 +2533,28 @@ func transferRanges(rs []rangeRow, start, end []byte, from, to string) ([]rangeR
 			out = append(out, r)
 			continue
 		}
-		full := hashspacesolver.Range{EndHash: r.EndHash, Size: r.Size}
+		full := hashspacesolver.Range{StartHash: rStart, EndHash: r.EndHash, Size: r.Size}
 		var prefix int64
 		if !bytes.Equal(start, rStart) {
-			prefix = hashspacesolver.SliceSize(full, rStart, start)
-			out = append(out, rangeRow{EndHash: cloneBytes(start), StorageID: from, Size: prefix})
+			var err error
+			if prefix, err = hashspacesolver.SliceSize(full, rStart, start); err != nil {
+				return nil, err
+			}
 		}
-		moved := hashspacesolver.SliceSize(full, start, end)
-		if bytes.Equal(end, r.EndHash) {
-			out = append(out, rangeRow{EndHash: r.EndHash, StorageID: to, Size: moved})
-			continue
+		moved, err := hashspacesolver.SliceSize(full, start, end)
+		if err != nil {
+			return nil, err
 		}
 		suffix := r.Size - prefix - moved
 		if suffix < 0 {
-			suffix = 0
+			return nil, xerrors.Errorf("range (%x, %x] holds %d, split into %d + %d", rStart, r.EndHash, r.Size, prefix, moved)
+		}
+		if !bytes.Equal(start, rStart) {
+			out = append(out, rangeRow{EndHash: cloneBytes(start), StorageID: from, Size: prefix})
+		}
+		if bytes.Equal(end, r.EndHash) {
+			out = append(out, rangeRow{EndHash: r.EndHash, StorageID: to, Size: moved})
+			continue
 		}
 		out = append(out,
 			rangeRow{EndHash: cloneBytes(end), StorageID: to, Size: moved},
