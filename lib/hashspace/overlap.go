@@ -172,11 +172,6 @@ func (c *Cluster) FixOverlaps(ctx context.Context) (int, error) {
 				continue
 			}
 			cleared = true
-			for _, sp := range []*Space{c.open, c.acl} {
-				if sp != nil {
-					sp.SetMisplacedOn(c.roots[d.StorageID], false)
-				}
-			}
 			log.Infow("misplaced pieces reached their range owners", "storage", d.StorageID)
 		}
 		if cleared {

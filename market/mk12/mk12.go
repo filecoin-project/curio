@@ -264,6 +264,13 @@ func (m *MK12) ExecuteDeal(ctx context.Context, dp *DealParams, clientPeer peer.
 // It returns a validationError. If a nicer error message should be sent to the
 // client, the reason string will be set to that nicer error message.
 func (m *MK12) validateDealProposal(ctx context.Context, deal *ProviderDealState) *validationError {
+	// Verified deal checks
+	if deal.ClientDealProposal.Proposal.VerifiedDeal {
+		return &validationError{
+			reason: "new verified deals are not supported",
+		}
+	}
+
 	head, err := m.api.ChainHead(ctx)
 	if err != nil {
 		return &validationError{
@@ -342,7 +349,7 @@ func (m *MK12) validateDealProposal(ctx context.Context, deal *ProviderDealState
 		return &validationError{error: err}
 	}
 
-	bounds, err := m.api.StateDealProviderCollateralBounds(ctx, proposal.PieceSize, proposal.VerifiedDeal, types.EmptyTSK)
+	bounds, err := m.api.StateDealProviderCollateralBounds(ctx, proposal.PieceSize, false, types.EmptyTSK)
 	if err != nil {
 		return &validationError{
 			reason: "server error: getting collateral bounds",
@@ -390,31 +397,6 @@ func (m *MK12) validateDealProposal(ctx context.Context, deal *ProviderDealState
 	if clientMarketBalance.Available.LessThan(proposal.ClientBalanceRequirement()) {
 		err := xerrors.Errorf("client available funds in escrow %d not enough to meet storage cost for deal %d", clientMarketBalance.Available, proposal.ClientBalanceRequirement())
 		return &validationError{error: err}
-	}
-
-	// Verified deal checks
-	if proposal.VerifiedDeal {
-		// Get data cap
-		dataCap, err := m.api.StateVerifiedClientStatus(ctx, proposal.Client, tsk)
-		if err != nil {
-			return &validationError{
-				reason: "server error: getting verified datacap",
-				error:  xerrors.Errorf("node error fetching verified data cap: %w", err),
-			}
-		}
-
-		if dataCap == nil {
-			return &validationError{
-				reason: "client is not a verified client",
-				error:  errors.New("node error fetching verified data cap: data cap missing -- client not verified"),
-			}
-		}
-
-		pieceSize := big.NewIntUnsigned(uint64(proposal.PieceSize))
-		if dataCap.LessThan(pieceSize) {
-			err := xerrors.Errorf("verified deal DataCap %d too small for proposed piece size %d", dataCap, pieceSize)
-			return &validationError{error: err}
-		}
 	}
 
 	return nil

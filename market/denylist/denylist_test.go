@@ -517,7 +517,7 @@ func TestLoadDenylists_PeriodicChangedEmptyListUpdatesEtag(t *testing.T) {
 	if updated == nil {
 		t.Fatal("expected servers map to be stored")
 	}
-	if (*updated)[ts.URL] != newEtag {
+	if (*updated)[ts.URL] != newEtag { //nolint:staticcheck // t.Fatal above terminates the test goroutine when updated is nil.
 		t.Fatalf("expected etag to update to %s, got %s", newEtag, (*updated)[ts.URL])
 	}
 }

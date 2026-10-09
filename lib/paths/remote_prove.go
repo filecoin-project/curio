@@ -261,11 +261,12 @@ func (r *Remote) GeneratePoRepVanillaProof(ctx context.Context, sr storiface.Sec
 
 			// Read the response body
 			body, err := io.ReadAll(resp.Body)
-			if err != nil {
-				merr = multierror.Append(merr, xerrors.Errorf("resp.Body ReadAll: %w", err)) //nolint:ineffassign
-				log.Warnw("GeneratePoRepVanillaProof read response body failed", "url", url, "error", err)
-			}
 			_ = resp.Body.Close()
+			if err != nil {
+				merr = multierror.Append(merr, xerrors.Errorf("resp.Body ReadAll: %w", err))
+				log.Warnw("GeneratePoRepVanillaProof read response body failed", "url", url, "error", err)
+				continue
+			}
 
 			// Return the proof if successful
 			return body, nil

@@ -17,7 +17,6 @@ import (
 	commcid "github.com/filecoin-project/go-fil-commcid"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/curio/tasks/openpieces"
 )
 
 // pullAllowInsecure relaxes security validations for development/testing environments.
@@ -97,9 +96,6 @@ func (r *PullRequest) Validate() error {
 
 	if len(r.Pieces) == 0 {
 		return fmt.Errorf("at least one piece is required")
-	}
-	if len(r.Pieces) > MaxAddPiecesBatchSize {
-		return fmt.Errorf("piece count (%d) exceeds the maximum allowed per pull (%d)", len(r.Pieces), MaxAddPiecesBatchSize)
 	}
 
 	// Validate each piece (CID format validation is done later by ParsePieceCidV2).
@@ -364,25 +360,17 @@ func (s *dbPullStore) GetPullStatus(ctx context.Context, pullID int64) ([]PullPi
 		TaskID       *int64 `db:"task_id"`
 		TaskExists   bool   `db:"task_exists"`
 		Retries      int    `db:"retries"`
-		PlacePending bool   `db:"place_pending"`
 	}
 
-	// A complete item whose open-pieces placement is still queued is not ready:
-	// /piece/ serves it only once placed. The age cap releases a stuck placement.
 	err := s.db.Select(ctx, &items, `
 		SELECT fi.piece_cid, fi.piece_raw_size,
 		       fi.complete, fi.failed,
-		       fi.task_id, (ht.id IS NOT NULL) AS task_exists, COALESCE(ht.retries, 0) AS retries,
-		       (fi.complete AND EXISTS (
-		           SELECT 1 FROM hash_space_place hp
-		           WHERE hp.piece_ref = fi.parked_piece_ref
-		             AND hp.created_at > NOW() - make_interval(secs => $2::double precision)
-		       )) AS place_pending
+		       fi.task_id, (ht.id IS NOT NULL) AS task_exists, COALESCE(ht.retries, 0) AS retries
 		FROM pdp_piece_pull_items fi
 		LEFT JOIN harmony_task ht ON ht.id = fi.task_id
 		WHERE fi.fetch_id = $1
 		ORDER BY fi.piece_cid, fi.source_url
-	`, pullID, openpieces.PLACE_WAIT_MAX.Seconds())
+	`, pullID)
 	if err != nil {
 		return nil, fmt.Errorf("query pull items: %w", err)
 	}
@@ -397,13 +385,9 @@ func (s *dbPullStore) GetPullStatus(ctx context.Context, pullID int64) ([]PullPi
 		if err != nil {
 			return nil, fmt.Errorf("reconstruct piece CIDv2 for %q/%d: %w", item.PieceCid, item.PieceRawSize, err)
 		}
-		status := pullStatusFromItem(item.Complete, item.Failed, item.TaskID, item.TaskExists, item.Retries)
-		if status == PullStatusComplete && item.PlacePending {
-			status = PullStatusInProgress
-		}
 		result[i] = PullPieceStatus{
 			PieceCid: cidV2.String(),
-			Status:   status,
+			Status:   pullStatusFromItem(item.Complete, item.Failed, item.TaskID, item.TaskExists, item.Retries),
 		}
 	}
 

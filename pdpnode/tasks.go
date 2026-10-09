@@ -83,13 +83,24 @@ func buildPDPTasks(ctx context.Context, d *Deps, chainSched *chainsched.CurioCha
 	pdpv0.NewProvingPeriodWatcher(w)
 	pdpv0.NewTerminateServiceWatcher(w)
 
+	notify := pdpv0.NewPDPNotifyTask(db)
+	pull := pdpv0.NewPDPPullPieceTask(ctx, db, d.PieceIO, cfg.Subsystems.PDPPullPieceMaxTasks)
+	if d.HashSpace != nil {
+		notify.UseOpenPieces(d.HashSpace, d.LocalStore, d.PieceIO)
+		pull.UseOpenPieces(d.HashSpace, d.LocalStore, d.PieceIO)
+		tasks = append(tasks,
+			openpieces.NewMoveTask(db, d.HashSpace),
+			openpieces.NewDropTask(db, d.HashSpace),
+		)
+	}
+
 	tasks = append(tasks,
 		pdpv0.NewProveTask(db, ethClient, d.Chain, w, senderEth, d.CachedPieceReader, d.IndexStore),
 		pdpv0.NewNextProvingPeriodTask(db, ethClient, d.Chain, w, senderEth),
 		pdpv0.NewInitProvingPeriodTask(db, ethClient, d.Chain, w, senderEth),
 		pdpv0.NewProcessDeletionsTask(db, ethClient, d.Chain, w, senderEth),
-		pdpv0.NewPDPNotifyTask(db),
-		pdpv0.NewPDPPullPieceTask(ctx, db, d.PieceIO, cfg.Subsystems.PDPPullPieceMaxTasks),
+		notify,
+		pull,
 		pdpv0.NewTerminateServiceTask(db, ethClient, senderEth),
 		pdpv0.NewDeleteDataSetTask(db, ethClient, senderEth),
 		pdpv0.NewCleanupPiecesTask(db, ethClient, senderEth),
@@ -101,14 +112,6 @@ func buildPDPTasks(ctx context.Context, d *Deps, chainSched *chainsched.CurioCha
 		pdpv0.NewDatasetIdxTask(db, ethClient),
 		pdpv0.NewRepairMissingPiecesTask(db, ethClient, d.PieceIO, d.HashSpace),
 	)
-
-	if d.HashSpace != nil {
-		tasks = append(tasks,
-			openpieces.NewPlaceTask(db, d.HashSpace, d.LocalStore, d.PieceIO),
-			openpieces.NewMoveTask(db, d.HashSpace),
-			openpieces.NewDropTask(db, d.HashSpace),
-		)
-	}
 
 	// Start PDP watcher after all internal watcher are created
 	w.Run(ctx)

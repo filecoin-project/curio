@@ -23,3 +23,27 @@ export function applySkiffDocumentClass(variant) {
         document.documentElement.classList.remove('skiff-mode');
     }
 }
+
+const REPEAT_VISITOR_KEY = 'RepeatVisitor';
+
+/** First Skiff visit with no PDP wallet goes to the setup guide once. */
+export async function maybeRedirectSkiffFirstVisit() {
+    if (localStorage.getItem(REPEAT_VISITOR_KEY)) {
+        return false;
+    }
+    if ((await getUIVariant()) !== 'skiff') {
+        return false;
+    }
+    let keyStatus;
+    try {
+        keyStatus = await RPCCall('PDPKeyStatus');
+    } catch {
+        return false;
+    }
+    if (keyStatus?.configured) {
+        return false;
+    }
+    localStorage.setItem(REPEAT_VISITOR_KEY, '1');
+    window.location.replace('/pages/pdp-guide/');
+    return true;
+}

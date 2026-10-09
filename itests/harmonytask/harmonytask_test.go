@@ -51,6 +51,7 @@ type testTask struct {
 	doneCh        chan harmonytask.TaskID
 	doFunc        func(context.Context, harmonytask.TaskID, func() bool) (bool, error)
 	canAcceptFunc func([]harmonytask.TaskID, *harmonytask.TaskEngine) ([]harmonytask.TaskID, error)
+	iAmBored      func(harmonytask.AddTaskFunc) error
 	stopCh        chan struct{}
 
 	mu        sync.Mutex
@@ -107,6 +108,7 @@ func (t *testTask) TypeDetails() harmonytask.TaskTypeDetails {
 		MaxFailures:   t.maxFail,
 		RetryWait:     t.retryWait,
 		TimeSensitive: t.timeSensitive,
+		IAmBored:      t.iAmBored,
 	}
 	if t.maxN > 0 {
 		ttd.Max = taskhelp.Max(t.maxN)
@@ -272,6 +274,7 @@ func getDB(t *testing.T) *harmonydb.DB {
 	_, _ = db.Exec(ctx, `DELETE FROM harmony_task_follow`)
 	_, _ = db.Exec(ctx, `DELETE FROM harmony_task_impl`)
 	_, _ = db.Exec(ctx, `DELETE FROM harmony_task_singletons`)
+	_, _ = db.Exec(ctx, `DELETE FROM harmony_task_singleton_disabled`)
 	_, _ = db.Exec(ctx, `DELETE FROM harmony_task`)
 	_, _ = db.Exec(ctx, `DELETE FROM harmony_machine_details`)
 	_, _ = db.Exec(ctx, `DELETE FROM harmony_machines`)
@@ -494,15 +497,18 @@ func TestSchedulerPipelineDownstreamOrder(t *testing.T) {
 	}
 	t.Cleanup(cleanupTasks(tChild, tMid, tRoot))
 
+	// Seed all three rows before the engine exists so its first scheduling
+	// pass sees them simultaneously, rather than racing AddTaskByName's
+	// near-instant event-driven claim against sequential posts.
+	ctx := context.Background()
+	for i, name := range []string{"Pipe2Ch", "Pipe2Mid", "Pipe2Rt"} {
+		_, err := db.Exec(ctx, `INSERT INTO harmony_task (posted_time, added_by, name) VALUES ($1, 0, $2)`,
+			time.Now().Add(time.Duration(i)*time.Millisecond), name)
+		require.NoError(t, err)
+	}
+
 	e := makeEngineWithResources(t, db, []harmonytask.TaskInterface{tChild, tMid, tRoot}, "pipe2:1000", resources.Resources{Cpu: 1, Ram: 1 << 20})
 	e.TestONLY_SetPollDuration(50 * time.Millisecond)
-
-	// Post oldest→newest along the pipeline so the global oldest anchor is Pipe2Ch.
-	e.AddTaskByName("Pipe2Ch", func(id harmonytask.TaskID, tx *harmonydb.Tx) (bool, error) { return true, nil })
-	time.Sleep(50 * time.Millisecond)
-	e.AddTaskByName("Pipe2Mid", func(id harmonytask.TaskID, tx *harmonydb.Tx) (bool, error) { return true, nil })
-	time.Sleep(50 * time.Millisecond)
-	e.AddTaskByName("Pipe2Rt", func(id harmonytask.TaskID, tx *harmonydb.Tx) (bool, error) { return true, nil })
 
 	waitForTasks(t, tChild.doneCh, 1, taskTimeout)
 	waitForTasks(t, tMid.doneCh, 1, taskTimeout)
@@ -1052,7 +1058,7 @@ func TestPreemptionSkippedWhenCanAcceptRefuses(t *testing.T) {
 		}
 	}
 
-	victim := newTestTaskWithOpts("TSNoPreemptVictim", machineCPU, resources.Resources{Cpu: 1, Ram: 1 << 20}, false)
+	victim := newTestTaskWithOpts("TSNoPreVictim", machineCPU, resources.Resources{Cpu: 1, Ram: 1 << 20}, false)
 	victim.doFunc = blockUntilPreempt(preempted)
 
 	ts := newTestTaskWithOpts("TSNoPreemptTS", 1, resources.Resources{Cpu: 1, Ram: 1 << 20}, true)
@@ -1072,7 +1078,7 @@ func TestPreemptionSkippedWhenCanAcceptRefuses(t *testing.T) {
 	e.TestONLY_SetPollDuration(time.Hour)
 
 	for i := 0; i < machineCPU; i++ {
-		e.AddTaskByName("TSNoPreemptVictim", func(id harmonytask.TaskID, tx *harmonydb.Tx) (bool, error) { return true, nil })
+		e.AddTaskByName("TSNoPreVictim", func(id harmonytask.TaskID, tx *harmonydb.Tx) (bool, error) { return true, nil })
 	}
 	waitForTasks(t, running, machineCPU, taskTimeout)
 
@@ -1147,17 +1153,23 @@ func TestPreemptedTaskReclaimable(t *testing.T) {
 	require.GreaterOrEqual(t, count, 1, "preempted task should have completed successfully after re-claim")
 }
 
-// TestContextCancellationOnGracefulShutdown verifies that when GracefullyTerminate
-// is called, running tasks receive context cancellation and exit.
+// TestContextCancellationOnGracefulShutdown asserts that graceful shutdown
+// does NOT cancel a running, non-time-sensitive task's context.
 func TestContextCancellationOnGracefulShutdown(t *testing.T) {
 	db := getDB(t)
 
 	ctxCancelled := make(chan struct{}, 1)
+	release := make(chan struct{})
+	completed := make(chan struct{}, 1)
 	blocker := newTestTask("ShutdownBlock", 1)
 	blocker.doFunc = func(ctx context.Context, id harmonytask.TaskID, so func() bool) (bool, error) {
-		<-ctx.Done()
-		ctxCancelled <- struct{}{}
-		return false, ctx.Err()
+		go func() {
+			<-ctx.Done()
+			ctxCancelled <- struct{}{}
+		}()
+		<-release
+		completed <- struct{}{}
+		return true, nil
 	}
 	t.Cleanup(cleanupTasks(blocker))
 
@@ -1169,13 +1181,29 @@ func TestContextCancellationOnGracefulShutdown(t *testing.T) {
 	e.AddTaskByName("ShutdownBlock", func(id harmonytask.TaskID, tx *harmonydb.Tx) (bool, error) { return true, nil })
 	time.Sleep(500 * time.Millisecond) // let task start
 
-	e.GracefullyTerminate()
+	// blocker is not TimeSensitive, so GracefullyTerminate must not wait for it.
+	terminated := make(chan struct{})
+	go func() {
+		e.GracefullyTerminate()
+		close(terminated)
+	}()
+	select {
+	case <-terminated:
+	case <-time.After(5 * time.Second):
+		t.Fatal("GracefullyTerminate did not return promptly for a non-time-sensitive task")
+	}
 
 	select {
 	case <-ctxCancelled:
-		// Context was cancelled as expected
+		t.Fatal("GracefullyTerminate cancelled a running non-time-sensitive task's context")
+	case <-time.After(500 * time.Millisecond):
+	}
+
+	close(release)
+	select {
+	case <-completed:
 	case <-time.After(5 * time.Second):
-		t.Fatal("task did not receive context cancellation within 5s")
+		t.Fatal("task did not complete after being released")
 	}
 }
 
