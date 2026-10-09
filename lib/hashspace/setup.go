@@ -36,6 +36,9 @@ func FirstSetup(drives []Drive) (hashspacesolver.State, error) {
 		if d.Root == "" {
 			return hashspacesolver.State{}, xerrors.Errorf("drive %d has an empty root", i)
 		}
+		if d.StorageID == "" {
+			return hashspacesolver.State{}, xerrors.Errorf("drive %s has no storage ID", d.Root)
+		}
 		cap, err := capacityOf(d)
 		if err != nil {
 			return hashspacesolver.State{}, err
@@ -98,17 +101,17 @@ func FirstSetup(drives []Drive) (hashspacesolver.State, error) {
 			return hashspacesolver.State{}, errNoPieceDrive
 		}
 		st, err := /* seedState */ func(caps, seedCaps []int64) (hashspacesolver.State, error) {
-			open, err := seedSpace(seedCaps)
+			open, err := seedSpace(drives, seedCaps)
 			if err != nil {
 				return hashspacesolver.State{}, err
 			}
-			acl, err := seedSpace(seedCaps)
+			acl, err := seedSpace(drives, seedCaps)
 			if err != nil {
 				return hashspacesolver.State{}, err
 			}
 			st := hashspacesolver.State{
-				MountpointCapacity: append([]int64(nil), caps...),
-				Spaces:             []hashspacesolver.Space{open, acl},
+				MountPoints: mountPoints(drives, caps),
+				HashSpaces:  [2][]hashspacesolver.Range{open, acl},
 			}
 			st, err = hashspacesolver.Apply(st, nil)
 			if err != nil {
@@ -132,7 +135,7 @@ func FirstSetup(drives []Drive) (hashspacesolver.State, error) {
 			if err != nil {
 				return hashspacesolver.State{}, err
 			}
-			return stateFromOwned(caps, perSpace)
+			return stateFromOwned(drives, caps, perSpace)
 		}(drives, caps)
 	default:
 		return /* arriveNew */ func(drives []Drive, caps []int64, hasLayout []bool) (hashspacesolver.State, error) {
@@ -140,7 +143,7 @@ func FirstSetup(drives []Drive) (hashspacesolver.State, error) {
 			if err != nil {
 				return hashspacesolver.State{}, err
 			}
-			st, err := stateFromOwned(caps, perSpace)
+			st, err := stateFromOwned(drives, caps, perSpace)
 			if err != nil {
 				return hashspacesolver.State{}, err
 			}
@@ -156,11 +159,11 @@ func FirstSetup(drives []Drive) (hashspacesolver.State, error) {
 					continue
 				}
 				res, err := hashspacesolver.Solve(st, hashspacesolver.Event{
-					Kind: hashspacesolver.EventArrive,
-					Disk: i,
+					Kind:      hashspacesolver.EventArrive,
+					StorageID: drives[i].StorageID,
 				})
 				if err != nil {
-					return hashspacesolver.State{}, xerrors.Errorf("arrive disk %d: %w", i, err)
+					return hashspacesolver.State{}, xerrors.Errorf("arrive %s: %w", drives[i].StorageID, err)
 				}
 				st = res.State
 			}
@@ -239,24 +242,33 @@ func fileExists(path string) (bool, error) {
 	return false, err
 }
 
-func seedSpace(capacities []int64) (hashspacesolver.Space, error) {
+func mountPoints(drives []Drive, caps []int64) []hashspacesolver.MountPoint {
+	out := make([]hashspacesolver.MountPoint, len(drives))
+	for i, d := range drives {
+		out[i] = hashspacesolver.MountPoint{Capacity: caps[i], StorageID: d.StorageID}
+	}
+	return out
+}
+
+// seedSpace cuts one range per drive with positive capacity, sized by that
+// capacity. capacities is indexed like drives.
+func seedSpace(drives []Drive, capacities []int64) ([]hashspacesolver.Range, error) {
 	var total int64
 	for i, c := range capacities {
 		if c < 0 {
-			return hashspacesolver.Space{}, xerrors.Errorf("disk %d has negative capacity", i)
+			return nil, xerrors.Errorf("disk %d has negative capacity", i)
 		}
 		if total > math.MaxInt64-c {
-			return hashspacesolver.Space{}, xerrors.Errorf("disk capacities overflow")
+			return nil, xerrors.Errorf("disk capacities overflow")
 		}
 		total += c
 	}
 	if total <= 0 {
-		return hashspacesolver.Space{}, xerrors.Errorf("drives have no capacity")
+		return nil, xerrors.Errorf("drives have no capacity")
 	}
 	span := new(big.Int).Lsh(big.NewInt(1), HASH_BYTES*8)
 	var prefix int64
 	var ranges []hashspacesolver.Range
-	var owners []int
 	seen := map[string]struct{}{}
 	for i, c := range capacities {
 		if c == 0 {
@@ -280,21 +292,20 @@ func seedSpace(capacities []int64) (hashspacesolver.Space, error) {
 				return out
 			}(num)
 			if isZeroHash(end) {
-				return hashspacesolver.Space{}, xerrors.Errorf("disk %d capacity does not advance the hash cut", i)
+				return nil, xerrors.Errorf("disk %d capacity does not advance the hash cut", i)
 			}
 		}
 		if _, ok := seen[string(end)]; ok {
-			return hashspacesolver.Space{}, xerrors.Errorf("disk %d repeats a hash cut", i)
+			return nil, xerrors.Errorf("disk %d repeats a hash cut", i)
 		}
 		seen[string(end)] = struct{}{}
-		ranges = append(ranges, hashspacesolver.Range{EndHash: end, Size: 0})
-		owners = append(owners, i)
+		ranges = append(ranges, hashspacesolver.Range{EndHash: end, Size: 0, StorageID: drives[i].StorageID})
 		if prefix >= total {
 			break
 		}
 	}
 	hashspacesolver.LinkStarts(ranges)
-	return hashspacesolver.Space{Ranges: ranges, Owner: owners}, nil
+	return ranges, nil
 }
 
 func isZeroHash(h []byte) bool {
@@ -372,8 +383,8 @@ func accountedLayout(root, kind string) (Layout, int64, error) {
 	return layout, d.tracker.Used(), nil
 }
 
-func stateFromOwned(caps []int64, perSpace [][]ownedRange) (hashspacesolver.State, error) {
-	spaces := make([]hashspacesolver.Space, len(perSpace))
+func stateFromOwned(drives []Drive, caps []int64, perSpace [][]ownedRange) (hashspacesolver.State, error) {
+	st := hashspacesolver.State{MountPoints: mountPoints(drives, caps)}
 	for s, rs := range perSpace {
 		/* sortOwned */ func(rs []ownedRange) {
 			for i := 1; i < len(rs); i++ {
@@ -385,18 +396,16 @@ func stateFromOwned(caps []int64, perSpace [][]ownedRange) (hashspacesolver.Stat
 			}
 		}(rs)
 		ranges := make([]hashspacesolver.Range, len(rs))
-		owners := make([]int, len(rs))
 		for i, r := range rs {
 			ranges[i] = hashspacesolver.Range{
 				StartHash: append([]byte(nil), r.start...),
 				EndHash:   append([]byte(nil), r.end...),
 				Size:      r.size,
+				StorageID: drives[r.disk].StorageID,
 			}
-			owners[i] = r.disk
 		}
-		spaces[s] = hashspacesolver.Space{Ranges: ranges, Owner: owners}
+		st.HashSpaces[s] = ranges
 	}
-	st := hashspacesolver.State{MountpointCapacity: append([]int64(nil), caps...), Spaces: spaces}
 	if err := hashspacesolver.Validate(st); err != nil {
 		return hashspacesolver.State{}, err
 	}
@@ -404,32 +413,19 @@ func stateFromOwned(caps []int64, perSpace [][]ownedRange) (hashspacesolver.Stat
 }
 
 func writeState(drives []Drive, st hashspacesolver.State, used [][2]int64) error {
-	if len(st.Spaces) != 2 {
-		return xerrors.Errorf("expected 2 hash spaces, got %d", len(st.Spaces))
-	}
 	now := time.Now().UTC().Truncate(time.Second)
 	kinds := []string{DIR_OPEN, DIR_ACL}
 	for i, d := range drives {
 		for s, kind := range kinds {
-			ranges, err := /* hashRangesFor */ func(st hashspacesolver.State, space, disk int) ([]HashRange, error) {
-				if space < 0 || space >= len(st.Spaces) {
-					return nil, xerrors.Errorf("unknown space %d", space)
+			ranges := make([]HashRange, 0)
+			for _, r := range st.HashSpaces[s] {
+				if r.StorageID != d.StorageID {
+					continue
 				}
-				sp := st.Spaces[space]
-				out := make([]HashRange, 0)
-				for i, r := range sp.Ranges {
-					if sp.Owner[i] != disk {
-						continue
-					}
-					out = append(out, HashRange{
-						Start: hexEncode(r.StartHash),
-						End:   hexEncode(r.EndHash),
-					})
-				}
-				return out, nil
-			}(st, s, i)
-			if err != nil {
-				return err
+				ranges = append(ranges, HashRange{
+					Start: hexEncode(r.StartHash),
+					End:   hexEncode(r.EndHash),
+				})
 			}
 			var folderUsed int64
 			if i < len(used) {

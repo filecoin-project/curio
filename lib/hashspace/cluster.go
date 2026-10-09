@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -816,68 +817,62 @@ func (c *Cluster) raise(ctx context.Context, storageID, kind string) error {
 			return false, errMovesActive
 		}
 
-		st, ids, err := /* loadClusterState */ func(tx *harmonydb.Tx) (hashspacesolver.State, []string, error) {
+		st, err := /* loadClusterState */ func(tx *harmonydb.Tx) (hashspacesolver.State, error) {
 			var disks []struct {
 				StorageID string `db:"storage_id"`
 				Capacity  int64  `db:"capacity"`
 				Vacating  bool   `db:"vacating"`
 			}
 			if err := tx.Select(&disks, `SELECT storage_id, capacity, vacating FROM hash_space_disk ORDER BY storage_id`); err != nil {
-				return hashspacesolver.State{}, nil, err
+				return hashspacesolver.State{}, err
 			}
-			ids := make([]string, len(disks))
-			st := hashspacesolver.State{
-				MountpointCapacity: make([]int64, len(disks)),
-				Vacating:           make([]bool, len(disks)),
-			}
+			st := hashspacesolver.State{MountPoints: make([]hashspacesolver.MountPoint, len(disks))}
+			known := make(map[string]bool, len(disks))
 			for i, d := range disks {
-				ids[i] = d.StorageID
-				st.MountpointCapacity[i] = d.Capacity
-				st.Vacating[i] = d.Vacating
+				st.MountPoints[i] = hashspacesolver.MountPoint{Capacity: d.Capacity, StorageID: d.StorageID, Vacating: d.Vacating}
+				known[d.StorageID] = true
 			}
-			for _, kind := range spaceKinds {
+			for s, kind := range spaceKinds {
 				var rs []rangeRow
 				if err := tx.Select(&rs, `SELECT end_hash, storage_id, size FROM hash_space_range WHERE space = $1 ORDER BY end_hash`, kind); err != nil {
-					return hashspacesolver.State{}, nil, err
+					return hashspacesolver.State{}, err
 				}
 				if len(rs) == 0 {
-					return hashspacesolver.State{}, nil, xerrors.Errorf("hash space %s has no ranges", kind)
+					return hashspacesolver.State{}, xerrors.Errorf("hash space %s has no ranges", kind)
 				}
-				sp := hashspacesolver.Space{Ranges: make([]hashspacesolver.Range, len(rs)), Owner: make([]int, len(rs))}
+				ranges := make([]hashspacesolver.Range, len(rs))
 				for i, r := range rs {
-					owner := indexOf(ids, r.StorageID)
-					if owner < 0 {
-						return hashspacesolver.State{}, nil, xerrors.Errorf("range owner %s is not a hash space disk", r.StorageID)
+					if !known[r.StorageID] {
+						return hashspacesolver.State{}, xerrors.Errorf("range owner %s is not a hash space disk", r.StorageID)
 					}
-					sp.Ranges[i] = hashspacesolver.Range{EndHash: r.EndHash, Size: r.Size}
-					sp.Owner[i] = owner
+					ranges[i] = hashspacesolver.Range{EndHash: r.EndHash, Size: r.Size, StorageID: r.StorageID}
 				}
-				hashspacesolver.LinkStarts(sp.Ranges)
-				st.Spaces = append(st.Spaces, sp)
+				hashspacesolver.LinkStarts(ranges)
+				st.HashSpaces[s] = ranges
 			}
-			return st, ids, nil
+			return st, nil
 		}(tx)
 		if err != nil {
 			return false, err
 		}
-		disk := indexOf(ids, storageID)
+		disk := slices.IndexFunc(st.MountPoints, func(mp hashspacesolver.MountPoint) bool { return mp.StorageID == storageID })
 		if disk < 0 {
 			return true, consumePending(tx, storageID, kind)
 		}
-		ev := hashspacesolver.Event{Disk: disk}
+		ev := hashspacesolver.Event{StorageID: storageID}
 		switch kind {
 		case EVENT_FULL:
-			if !isOverFull( /* ownedBytes */ func(st hashspacesolver.State, disk int) int64 {
+			if !isOverFull( /* ownedBytes */ func(st hashspacesolver.State, storageID string) int64 {
 				var n int64
-				for _, sp := range st.Spaces {
-					for i, r := range sp.Ranges {
-						if sp.Owner[i] == disk {
+				for _, rs := range st.HashSpaces {
+					for _, r := range rs {
+						if r.StorageID == storageID {
 							n += r.Size
 						}
 					}
 				}
 				return n
-			}(st, disk), st.MountpointCapacity[disk]) {
+			}(st, storageID), st.MountPoints[disk].Capacity) {
 				return true, consumePending(tx, storageID, kind)
 			}
 			ev.Kind = hashspacesolver.EventFull
@@ -905,12 +900,12 @@ func (c *Cluster) raise(ctx context.Context, storageID, kind string) error {
 			if ev.Kind == hashspacesolver.EventFull {
 				return true, nil
 			}
-			return true, storeState(tx, res.State, ids)
+			return true, storeState(tx, res.State)
 		}
 
 		var moves []hashspacesolver.Transfer
 		for _, t := range res.Diff {
-			if t.Size <= 0 || t.From < 0 || t.From == t.To {
+			if t.Size <= 0 || t.From == "" || t.From == t.To {
 				continue
 			}
 			if t.Space < 0 || t.Space >= len(spaceKinds) {
@@ -927,8 +922,8 @@ func (c *Cluster) raise(ctx context.Context, storageID, kind string) error {
 
 		// One task copies onto one destination disk. The node that holds that
 		// disk can run every row, so the move task never has to hand work off.
-		byDest := map[int][]hashspacesolver.Transfer{}
-		var destOrder []int
+		byDest := map[string][]hashspacesolver.Transfer{}
+		var destOrder []string
 		for _, t := range moves {
 			if _, ok := byDest[t.To]; !ok {
 				destOrder = append(destOrder, t.To)
@@ -945,7 +940,7 @@ func (c *Cluster) raise(ctx context.Context, storageID, kind string) error {
 			for _, t := range byDest[to] {
 				n += t.Size
 			}
-			if n > best || (n == best && ids[to] < ids[pick]) {
+			if n > best || (n == best && to < pick) {
 				best = n
 				pick = to
 			}
@@ -956,7 +951,7 @@ func (c *Cluster) raise(ctx context.Context, storageID, kind string) error {
 			n, err := tx.Exec(`INSERT INTO hash_space_move_source (space, start_hash, end_hash, from_storage, to_storage, size, task_id)
 				VALUES ($1, $2, $3, $4, $5, $6, $7)
 				ON CONFLICT (space, start_hash, end_hash) DO NOTHING`,
-				spaceKinds[t.Space], t.StartHash, t.EndHash, ids[t.From], ids[t.To], t.Size, id)
+				spaceKinds[t.Space], t.StartHash, t.EndHash, t.From, t.To, t.Size, id)
 			if err != nil {
 				return false, xerrors.Errorf("inserting hash space move source: %w", err)
 			}
@@ -975,7 +970,7 @@ func (c *Cluster) raise(ctx context.Context, storageID, kind string) error {
 		} else if err := consumePending(tx, storageID, kind); err != nil {
 			return false, err
 		}
-		log.Infow("planned hash space rebalance", "storage", storageID, "event", kind, "to", ids[pick], "moves", planned, "bytes", best)
+		log.Infow("planned hash space rebalance", "storage", storageID, "event", kind, "to", pick, "moves", planned, "bytes", best)
 		return true, nil
 	})
 	if errors.Is(err, errMovesActive) {
@@ -1910,7 +1905,7 @@ func (c *Cluster) join(ctx context.Context, drives []LocalDrive) ([]string, erro
 			}
 			hd := make([]Drive, len(drives))
 			for i, d := range drives {
-				hd[i] = Drive{Root: d.Root}
+				hd[i] = Drive{StorageID: d.StorageID, Root: d.Root}
 			}
 			st, err := FirstSetup(hd)
 			if errors.Is(err, errNoPieceDrive) {
@@ -1930,20 +1925,18 @@ func (c *Cluster) join(ctx context.Context, drives []LocalDrive) ([]string, erro
 			if err != nil {
 				return false, err
 			}
-			ids := make([]string, len(drives))
 			for i, d := range drives {
-				ids[i] = d.StorageID
 				deny, err := deniesPiecePark(d.Root)
 				if err != nil {
 					return false, err
 				}
 				if _, err := tx.Exec(`INSERT INTO hash_space_disk (storage_id, capacity, vacating) VALUES ($1, $2, $3)
 					ON CONFLICT (storage_id) DO UPDATE SET capacity = EXCLUDED.capacity, vacating = EXCLUDED.vacating, updated_at = NOW()`,
-					d.StorageID, st.MountpointCapacity[i], deny); err != nil {
+					d.StorageID, st.MountPoints[i].Capacity, deny); err != nil {
 					return false, err
 				}
 			}
-			return true, storeState(tx, st, ids)
+			return true, storeState(tx, st)
 		}
 
 		var fresh []string
@@ -2298,15 +2291,11 @@ func (c *Cluster) publishDisk(ctx context.Context, storageID, root string) (bool
 // ordered by storage id. Each space's range sizes are the totals the owning
 // node published from that directory.
 
-func storeState(tx *harmonydb.Tx, st hashspacesolver.State, ids []string) error {
-	if len(st.Spaces) != len(spaceKinds) {
-		return xerrors.Errorf("expected %d hash spaces, got %d", len(spaceKinds), len(st.Spaces))
-	}
+func storeState(tx *harmonydb.Tx, st hashspacesolver.State) error {
 	for s, kind := range spaceKinds {
-		sp := st.Spaces[s]
-		rs := make([]rangeRow, len(sp.Ranges))
-		for i, r := range sp.Ranges {
-			rs[i] = rangeRow{EndHash: r.EndHash, StorageID: ids[sp.Owner[i]], Size: r.Size}
+		rs := make([]rangeRow, len(st.HashSpaces[s]))
+		for i, r := range st.HashSpaces[s] {
+			rs[i] = rangeRow{EndHash: r.EndHash, StorageID: r.StorageID, Size: r.Size}
 		}
 		if err := writeSpaceRanges(tx, kind, rs); err != nil {
 			return err
