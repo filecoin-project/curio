@@ -19,7 +19,7 @@ func mk(disks []int64, end []byte, size []int64, owner []int) State {
 	}
 	LinkStarts(rs)
 	return State{
-		Disks: append([]int64(nil), disks...),
+		MountpointCapacity: append([]int64(nil), disks...),
 		Spaces: []Space{{
 			Ranges: rs,
 			Owner:  append([]int(nil), owner...),
@@ -29,8 +29,8 @@ func mk(disks []int64, end []byte, size []int64, owner []int) State {
 
 func mk2(disks []int64, a, b Space) State {
 	return State{
-		Disks:  append([]int64(nil), disks...),
-		Spaces: []Space{cloneSpace(a), cloneSpace(b)},
+		MountpointCapacity: append([]int64(nil), disks...),
+		Spaces:             []Space{cloneSpace(a), cloneSpace(b)},
 	}
 }
 
@@ -60,19 +60,19 @@ func solveOK(t *testing.T, st State, ev Event) (State, Result) {
 		}
 	}
 	if ev.Kind == EventFull {
-		require.LessOrEqual(t, usedOf(out, ev.Disk), out.Disks[ev.Disk])
+		require.LessOrEqual(t, usedOf(out, ev.Disk), out.MountpointCapacity[ev.Disk])
 	}
 	return out, res
 }
 
 func requireEqualState(t *testing.T, a, b State) {
 	t.Helper()
-	require.Equal(t, a.Disks, b.Disks)
+	require.Equal(t, a.MountpointCapacity, b.MountpointCapacity)
 	require.Equal(t, len(a.Spaces), len(b.Spaces))
 	for s := range a.Spaces {
-		wa, err := newWorld(State{Disks: a.Disks, Spaces: []Space{a.Spaces[s]}})
+		wa, err := newWorld(State{MountpointCapacity: a.MountpointCapacity, Spaces: []Space{a.Spaces[s]}})
 		require.NoError(t, err)
-		wb, err := newWorld(State{Disks: b.Disks, Spaces: []Space{b.Spaces[s]}})
+		wb, err := newWorld(State{MountpointCapacity: b.MountpointCapacity, Spaces: []Space{b.Spaces[s]}})
 		require.NoError(t, err)
 		require.Equal(t, wa.spaces[0].owner, wb.spaces[0].owner, "space %d owners", s)
 		require.Equal(t, len(wa.spaces[0].ranges), len(wb.spaces[0].ranges), "space %d ranges", s)
@@ -221,7 +221,7 @@ func TestArriveRelievesOverflowLargeDisks(t *testing.T) {
 }
 
 func TestArriveNoData(t *testing.T) {
-	st := State{Disks: []int64{10, 10}}
+	st := State{MountpointCapacity: []int64{10, 10}}
 	_, res := solveOK(t, st, Event{Kind: EventArrive, Disk: 1})
 	require.Empty(t, res.Diff)
 }
@@ -432,31 +432,31 @@ func TestRepairDonatesEmptyRange(t *testing.T) {
 	st := mk([]int64{1000, 1000, 1000}, end, size, owner)
 	require.Equal(t, 9, rangeCountOf(st, 0, 0))
 	out, _ := solveOK(t, st, Event{Kind: EventArrive, Disk: 2})
-	for d := range out.Disks {
+	for d := range out.MountpointCapacity {
 		require.LessOrEqual(t, rangeCountOf(out, 0, d), MAX_RANGES_PER_DISK)
 	}
 }
 
 func TestUnknownEventDisk(t *testing.T) {
-	st := State{Disks: []int64{10}}
+	st := State{MountpointCapacity: []int64{10}}
 	_, err := Solve(st, Event{Kind: EventArrive, Disk: 3})
 	require.Error(t, err)
 }
 
 func TestUnknownEventKind(t *testing.T) {
-	st := State{Disks: []int64{10}}
+	st := State{MountpointCapacity: []int64{10}}
 	_, err := Solve(st, Event{Kind: 0, Disk: 0})
 	require.Error(t, err)
 }
 
 func TestStructuralErrors(t *testing.T) {
 	t.Run("owner length", func(t *testing.T) {
-		st := State{Disks: []int64{10}, Spaces: []Space{{Ranges: []Range{{StartHash: h(1), EndHash: h(1), Size: 1}}}}}
+		st := State{MountpointCapacity: []int64{10}, Spaces: []Space{{Ranges: []Range{{StartHash: h(1), EndHash: h(1), Size: 1}}}}}
 		_, err := Solve(st, Event{Kind: EventFull, Disk: 0})
 		require.Error(t, err)
 	})
 	t.Run("negative disk", func(t *testing.T) {
-		st := State{Disks: []int64{-1}}
+		st := State{MountpointCapacity: []int64{-1}}
 		_, err := Solve(st, Event{Kind: EventFull, Disk: 0})
 		require.Error(t, err)
 	})
@@ -510,7 +510,7 @@ func TestArriveAtMostThreeRanges(t *testing.T) {
 	require.NotEmpty(t, res.Diff)
 	require.LessOrEqual(t, rangeCountOf(out, 0, 4), MAX_RANGES_PER_DISK)
 	for d := 0; d < 4; d++ {
-		require.LessOrEqual(t, usedOf(out, d), fillLimitOf(out.Disks[d]), "disk %d", d)
+		require.LessOrEqual(t, usedOf(out, d), fillLimitOf(out.MountpointCapacity[d]), "disk %d", d)
 	}
 	require.GreaterOrEqual(t, usedOf(out, 4), int64(56))
 }
@@ -784,14 +784,14 @@ func TestAllClusterEvents(t *testing.T) {
 		st := randomValidState(rng)
 		require.NoError(t, Validate(st), "iter %d seed state", i)
 		for _, kind := range kinds {
-			disks := make([]int, len(st.Disks))
+			disks := make([]int, len(st.MountpointCapacity))
 			for d := range disks {
 				disks[d] = d
 			}
 			in := st
 			if kind == EventArrive {
-				in.Disks = append(append([]int64(nil), st.Disks...), 80)
-				disks = []int{len(st.Disks)}
+				in.MountpointCapacity = append(append([]int64(nil), st.MountpointCapacity...), 80)
+				disks = []int{len(st.MountpointCapacity)}
 			}
 			for _, disk := range disks {
 				ev := Event{Kind: kind, Disk: disk}
@@ -840,5 +840,5 @@ func randomValidState(rng *rand.Rand) State {
 		LinkStarts(ranges)
 		spaces[s] = Space{Ranges: ranges, Owner: owner}
 	}
-	return State{Disks: disks, Spaces: spaces}
+	return State{MountpointCapacity: disks, Spaces: spaces}
 }
