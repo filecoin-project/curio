@@ -370,33 +370,10 @@ func (s *SubmitTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwn
 			unsealed: newUnsealedCID,
 		}
 
-		ssize, err := onChainInfo.SealProof.SectorSize()
+		secCollateral, err := s.calculateSectorCollateral(ctx, onChainInfo, ts, nv, uint64(verifiedSize))
 		if err != nil {
-			return false, xerrors.Errorf("getting sector size: %w", err)
+			return false, err
 		}
-
-		duration := onChainInfo.Expiration - ts.Height()
-		// TODO(NV29): Use sector size directly and remove verifiedSize once pre-NV29 support is dropped.
-		pledgeSize := uint64(verifiedSize)
-		if nv >= network.Version29 {
-			pledgeSize = uint64(ssize)
-		}
-
-		// TODO(NV29): Remove only the network-version guard once pre-NV29 support is dropped.
-		alreadyMaxQAP := nv >= network.Version29 && miner.SectorIsFullQaPower(onChainInfo)
-		secCollateral := big.Zero()
-		if !alreadyMaxQAP {
-			secCollateral, err = s.api.StateMinerInitialPledgeForSector(ctx, duration, ssize, pledgeSize, ts.Key())
-			if err != nil {
-				return false, xerrors.Errorf("calculating pledge: %w", err)
-			}
-
-			secCollateral = big.Sub(secCollateral, onChainInfo.InitialPledge)
-			if secCollateral.LessThan(big.Zero()) {
-				secCollateral = big.Zero()
-			}
-		}
-
 		collateral = big.Add(collateral, secCollateral)
 
 		// Prepare params
@@ -426,9 +403,7 @@ func (s *SubmitTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwn
 		}
 		balance, err := s.api.StateMinerAvailableBalance(ctx, maddr, ts.Key())
 		if err != nil {
-			if err != nil {
-				return false, xerrors.Errorf("getting miner balance: %w", err)
-			}
+			return false, xerrors.Errorf("getting miner balance: %w", err)
 		}
 		collateral = big.Sub(collateral, balance)
 		if collateral.LessThan(big.Zero()) {
@@ -482,6 +457,34 @@ func (s *SubmitTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwn
 	}
 
 	return true, nil
+}
+
+func (s *SubmitTask) calculateSectorCollateral(ctx context.Context, onChainInfo *miner.SectorOnChainInfo, ts *types.TipSet, nv network.Version, verifiedSize uint64) (abi.TokenAmount, error) {
+	ssize, err := onChainInfo.SealProof.SectorSize()
+	if err != nil {
+		return big.Zero(), xerrors.Errorf("getting sector size: %w", err)
+	}
+
+	// TODO(NV29): Remove the network-version guard and verifiedSize argument once pre-NV29 support is dropped.
+	if nv >= network.Version29 {
+		if miner.SectorIsFullQaPower(onChainInfo) {
+			return big.Zero(), nil
+		}
+		verifiedSize = uint64(ssize)
+	}
+
+	estimate, err := s.api.StateMinerInitialPledgeForSector(ctx, onChainInfo.Expiration-ts.Height(), ssize, verifiedSize, ts.Key())
+	if err != nil {
+		return big.Zero(), xerrors.Errorf("calculating pledge: %w", err)
+	}
+
+	// The API floors its 110% estimate; round up when removing that buffer to recover the pledge.
+	scaled := big.Mul(estimate, big.NewInt(100))
+	pledge := big.Div(big.Add(scaled, big.NewInt(109)), big.NewInt(110))
+	delta := big.Max(big.Sub(pledge, onChainInfo.InitialPledge), big.Zero())
+
+	// Apply 10% headroom only to the additional pledge.
+	return big.Div(big.Mul(delta, big.NewInt(110)), big.NewInt(100)), nil
 }
 
 func (s *SubmitTask) transferUpdatedSectorData(ctx context.Context, spID int64, transferMap map[int64]*updateCids, mcid cid.Cid) error {
