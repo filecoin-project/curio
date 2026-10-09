@@ -54,6 +54,26 @@ func TestTransferRanges(t *testing.T) {
 		{EndHash: h(0xc0), StorageID: "b", Size: 40},
 	}, out)
 
+	// Middle of a sized range is measured from the range start, so the three
+	// pieces keep the byte total.
+	out, err = transferRanges(sized, h(0x60), h(0xa0), "b", "c")
+	require.NoError(t, err)
+	require.Equal(t, []rangeRow{
+		{EndHash: h(0x40), StorageID: "a", Size: 40},
+		{EndHash: h(0x60), StorageID: "b", Size: 20},
+		{EndHash: h(0xa0), StorageID: "c", Size: 40},
+		{EndHash: h(0xc0), StorageID: "b", Size: 20},
+	}, out)
+
+	// Suffix of a sized range moves only the suffix bytes.
+	out, err = transferRanges(sized, h(0x80), h(0xc0), "b", "c")
+	require.NoError(t, err)
+	require.Equal(t, []rangeRow{
+		{EndHash: h(0x40), StorageID: "a", Size: 40},
+		{EndHash: h(0x80), StorageID: "b", Size: 40},
+		{EndHash: h(0xc0), StorageID: "c", Size: 40},
+	}, out)
+
 	// Single full-circle range split.
 	one := []rangeRow{{EndHash: h(0x80), StorageID: "a"}}
 	out, err = transferRanges(one, h(0x80), h(0x10), "a", "b")
