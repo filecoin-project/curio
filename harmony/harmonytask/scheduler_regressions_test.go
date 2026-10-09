@@ -104,6 +104,7 @@ func TestResolveAcceptedIDsEmptyCacheLiveCanAccept(t *testing.T) {
 func TestConsiderWorkSkipsAlreadyRunning(t *testing.T) {
 	stub := &stubAcceptTask{}
 	h := &taskTypeHandler{
+		TaskEngine:      &TaskEngine{cfg: taskEngineConfig{ctx: context.Background()}},
 		TaskInterface:   stub,
 		TaskTypeDetails: stub.TypeDetails(),
 		running:         runregistry.New(),
