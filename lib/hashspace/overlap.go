@@ -164,11 +164,6 @@ func (c *Cluster) FixOverlaps(ctx context.Context) (int, error) {
 			if _, err := c.db.Exec(ctx, `UPDATE hash_space_disk SET has_misplaced = FALSE, updated_at = NOW() WHERE storage_id = $1`, d.StorageID); err != nil {
 				return 0, err
 			}
-			for _, sp := range []*Space{c.open, c.acl} {
-				if sp != nil {
-					sp.SetMisplacedOn(c.roots[d.StorageID], false)
-				}
-			}
 			log.Infow("misplaced pieces reached their range owners", "storage", d.StorageID)
 		}
 		return 0, nil

@@ -77,7 +77,7 @@ func main() {
 				Name:    "data",
 				EnvVars: []string{"DATA_STORAGE", "SKIFF_DATA", "CURIO_DATA"},
 				Value:   "/data",
-				Usage:   "root directory to scan for writable storage (this path and all subdirectories)",
+				Usage:   "preferred root for storage folder candidates (select paths in the admin GUI)",
 			},
 			&cli.StringFlag{
 				Name:    "machine-host",

@@ -112,7 +112,6 @@ const (
 	PDPv0_ProcDel    = "PDPv0_ProcDel"
 
 	// Open-pieces hash space
-	HashSpacePlace = "HashSpacePlace"
-	HashSpaceMove  = "HashSpaceMove"
-	HashSpaceDrop  = "HashSpaceDrop"
+	HashSpaceMove = "HashSpaceMove"
+	HashSpaceDrop = "HashSpaceDrop"
 )

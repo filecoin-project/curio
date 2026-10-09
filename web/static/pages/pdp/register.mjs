@@ -17,14 +17,14 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
         name: { type: String },
         description: { type: String },
         location: { type: String },
-        capacityTiB: { type: String },
+        capacityGiB: { type: String },
 
         // PDP update state
         pdpServiceURL: { type: String },
         pdpIpniPiece: { type: Boolean },
         pdpIpniIpfs: { type: Boolean },
         pdpLocation: { type: String },
-        pdpCapacityTiB: { type: String },
+        pdpCapacityGiB: { type: String },
 
         // deregister confirmation input
         deregisterConfirmation: { type: String },
@@ -92,14 +92,14 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
         this.name = '';
         this.description = '';
         this.location = '';
-        this.capacityTiB = '';
+        this.capacityGiB = '';
 
         // PDP update state
         this.pdpServiceURL = '';
         this.pdpIpniPiece = true;
         this.pdpIpniIpfs = true;
         this.pdpLocation = '';
-        this.pdpCapacityTiB = '';
+        this.pdpCapacityGiB = '';
 
         this.capabilities = {};
 
@@ -146,7 +146,7 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
         this.name = '';
         this.description = '';
         this.location = '';
-        this.capacityTiB = '';
+        this.capacityGiB = '';
         this.showRegisterModal = true;
     }
     closeRegister() { this.showRegisterModal = false; }
@@ -163,14 +163,14 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
         const name = this.name.trim();
         const description = this.description.trim();
         const location = this.location.trim();
-        const capacityTiB = this.parsePositiveInteger(this.capacityTiB);
+        const capacityGiB = this.parsePositiveInteger(this.capacityGiB);
 
         if (!name || !description || !location) {
             alert('Please fill all fields (name, description, location, storage capacity).');
             return;
         }
-        if (capacityTiB === null) {
-            alert('Storage capacity must be a positive whole number of TiB.');
+        if (capacityGiB === null || capacityGiB < 100) {
+            alert('Storage capacity must be a whole number of GiB, at least 100.');
             return;
         }
 
@@ -180,7 +180,7 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
         }
 
         try {
-            await RPCCall('FSRegister', [name, description, location, capacityTiB]);
+            await RPCCall('FSRegister', [name, description, location, capacityGiB]);
             this.showRegisterModal = false;
             await this.loadStatus();
             alert('Provider registered successfully. Please wait for the 5 epochs to see the updated status.');
@@ -275,7 +275,7 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
         this.pdpIpniPiece = pdp.ipni_piece || false;
         this.pdpIpniIpfs = pdp.ipni_ipfs || false;
         this.pdpLocation = pdp.location || '';
-        this.pdpCapacityTiB = String(pdp.capacity_tib || '');
+        this.pdpCapacityGiB = String(pdp.capacity_gib || '');
         this.capabilities = this.status?.capabilities || {};
         this.showUpdatePDPModal = true;
     }
@@ -293,11 +293,11 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
     async submitUpdatePDP(e) {
         e.preventDefault();
 
-        const capacityTiB = this.parsePositiveInteger(this.pdpCapacityTiB);
+        const capacityGiB = this.parsePositiveInteger(this.pdpCapacityGiB);
         const pdpOffering = {
             service_url: this.pdpServiceURL.trim(),
             location: this.pdpLocation.trim(),
-            capacity_tib: capacityTiB,
+            capacity_gib: capacityGiB,
         };
 
         // Validate location format
@@ -311,8 +311,8 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
             alert('Please provide all required fields with valid data.');
             return;
         }
-        if (pdpOffering.capacity_tib === null) {
-            alert('Storage capacity must be a positive whole number of TiB.');
+        if (pdpOffering.capacity_gib === null || pdpOffering.capacity_gib < 100) {
+            alert('Storage capacity must be a whole number of GiB, at least 100.');
             return;
         }
 
@@ -350,7 +350,7 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
             <table class="table table-dark table-striped table-bordered mb-0">
                 <tbody>
                 ${this.renderKV('Service URL', pdp.service_url)}
-                ${this.renderKV('Storage Capacity (TiB)', pdp.capacity_tib)}
+                ${this.renderKV('Storage Capacity (GiB)', pdp.capacity_gib)}
                 ${this.renderKV('Location', pdp.location)}
                 ${this.renderKV('Capabilities', this.renderCapabilities(capabilities))}
                 </tbody>
@@ -450,9 +450,9 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
                                         <div class="form-text text-warning">Location must be in format "C=US;ST=California;L=San Francisco"</div>
                                     </div>
                                     <div class="mb-3">
-                                        <label class="form-label">Storage Capacity (TiB)</label>
-                                        <input class="form-control" type="number" min="1" step="1" .value=${this.capacityTiB}
-                                               @input=${e=>this.capacityTiB=e.target.value} required />
+                                        <label class="form-label">Storage Capacity (GiB)</label>
+                                        <input class="form-control" type="number" min="100" step="1" .value=${this.capacityGiB}
+                                               @input=${e=>this.capacityGiB=e.target.value} required />
                                     </div>
                                 </div>
                                 <div class="modal-footer">
@@ -522,14 +522,14 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
                                         <div class="form-text text-warning">Location must be in format "C=US;ST=California;L=San Francisco"</div>
                                     </div>
                                     <div class="mb-3">
-                                        <label class="form-label">Storage Capacity (TiB)</label>
+                                        <label class="form-label">Storage Capacity (GiB)</label>
                                         <input
                                                 class="form-control"
                                                 type="number"
-                                                min="1"
+                                                min="100"
                                                 step="1"
-                                                .value=${this.pdpCapacityTiB}
-                                                @input=${e => this.pdpCapacityTiB = e.target.value}
+                                                .value=${this.pdpCapacityGiB}
+                                                @input=${e => this.pdpCapacityGiB = e.target.value}
                                                 required
                                         />
                                     </div>

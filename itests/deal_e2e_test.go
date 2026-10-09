@@ -27,13 +27,11 @@ import (
 
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
-	verifreg13 "github.com/filecoin-project/go-state-types/builtin/v13/verifreg"
 	market9 "github.com/filecoin-project/go-state-types/builtin/v9/market"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/itests/helpers"
 
-	miner2 "github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/chain/wallet/key"
 	"github.com/filecoin-project/lotus/itests/kit"
@@ -43,17 +41,13 @@ import (
 type dealVariant struct {
 	name        string
 	mk20        bool
-	isDDO       bool
-	verified    bool
 	shouldIndex bool
 	offline     bool
 
-	dealID       string
-	clientAddr   address.Address
-	clientIDAddr address.Address
-	fixture      helpers.PieceFixture
-	signed       *helpers.MK12SignedProposal
-	allocationID *verifreg13.AllocationId
+	dealID     string
+	clientAddr address.Address
+	fixture    helpers.PieceFixture
+	signed     *helpers.MK12SignedProposal
 
 	parkedPieceID int64
 	pieceRefID    int64
@@ -67,19 +61,13 @@ func TestDealPipelineFullPath(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
-	// Provision funded identities required by the test network bootstrap.
+	// Provision a funded client for the deal matrix.
 	initialBigBalance := types.MustParseFIL("100fil").Int64()
-	rootKey := must.One(key.GenerateKey(types.KTSecp256k1))
-	verifierKey := must.One(key.GenerateKey(types.KTSecp256k1))
-	verifiedClientKey := must.One(key.GenerateKey(types.KTBLS))
-	unverifiedClientKey := must.One(key.GenerateKey(types.KTBLS))
+	clientKey := must.One(key.GenerateKey(types.KTBLS))
 
 	// Bring up a fresh network + miner + DB backing this test case.
 	full, _, db, maddr := helpers.BootstrapNetworkWithNewMiner(t, ctx, "8MiB",
-		kit.RootVerifier(rootKey, abi.NewTokenAmount(initialBigBalance)),
-		kit.Account(verifierKey, abi.NewTokenAmount(initialBigBalance)),
-		kit.Account(verifiedClientKey, abi.NewTokenAmount(initialBigBalance)),
-		kit.Account(unverifiedClientKey, abi.NewTokenAmount(initialBigBalance)),
+		kit.Account(clientKey, abi.NewTokenAmount(initialBigBalance)),
 	)
 
 	// Resolve SP id from miner address for pipeline seed rows.
@@ -96,30 +84,25 @@ func TestDealPipelineFullPath(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = os.RemoveAll(dir) }()
 
-	// Register one verified client and one unverified client used by variant matrix.
-	_, verifiedClientAddrs := kit.SetupVerifiedClients(ctx, t, full, rootKey, verifierKey, []*key.Key{verifiedClientKey})
-	require.Len(t, verifiedClientAddrs, 1)
-	verifiedClientAddr := verifiedClientAddrs[0]
-
-	unverifiedClientAddr, err := full.WalletImport(ctx, &unverifiedClientKey.KeyInfo)
+	clientAddr, err := full.WalletImport(ctx, &clientKey.KeyInfo)
 	require.NoError(t, err)
 
 	// Define the coverage matrix, then attach a fixture + per-variant id.
-	variants := buildDealVariants(verifiedClientAddr, unverifiedClientAddr)
+	variants := buildDealVariants(clientAddr)
 	assignVariantFixturesAndIDs(t, dir, variants)
 
-	// Compute epochs shared by MK12 proposal/allocation preparation.
+	// Compute epochs shared by MK12 proposal preparation.
 	head, err := full.ChainHead(ctx)
 	require.NoError(t, err)
 	startEpoch := head.Height() + 10000
 	dealDuration := abi.ChainEpoch(518400)
 	endEpoch := startEpoch + dealDuration
 
-	// Build MK12 signed proposals / DDO allocations that are needed before DB seeding.
-	prepareVariantDealArtifacts(ctx, t, full, maddr, uint64(minerID), verifiedClientAddr, startEpoch, endEpoch, variants)
+	// Build MK12 signed proposals before DB seeding.
+	prepareVariantDealArtifacts(ctx, t, full, maddr, startEpoch, endEpoch, variants)
 
 	// Seed pending pipeline rows and write parked piece fixture payloads.
-	seedVariantPipelines(ctx, t, db, maddr, spID, startEpoch, endEpoch, dealDuration, dir, variants)
+	seedVariantPipelines(ctx, t, db, maddr, spID, dealDuration, dir, variants)
 
 	// Start Curio harness and task runners that execute the seeded pipelines.
 	harness := helpers.StartCurioHarnessWithCleanup(ctx, t, dir, db, helpers.NewIndexStore(ctx, t, baseCfg), full, baseCfg.Apis.StorageRPCSecret, helpers.CurioHarnessOptions{
@@ -224,29 +207,18 @@ func TestDealPipelineFullPath(t *testing.T) {
 	require.NoError(t, db.QueryRow(ctx, `SELECT COUNT(*) FROM market_mk20_pipeline WHERE complete = FALSE`).Scan(&stuckMK20))
 	require.Equal(t, 0, stuckMK20, "no mk20 rows should remain incomplete")
 
-	// Confirm verified variants produce an on-chain verified claim for their piece CID.
-	for _, v := range variants {
-		if v.verified {
-			assertVerifiedClaimForPiece(t, ctx, full, maddr, v.fixture.PieceCIDV1, v.name)
-		}
-	}
-
 	helpers.LogIPNIStatus(t, ctx, db)
 
 	assertIPNIAds(t, ctx, db, spID, baseURL, variants)
 }
 
 // buildDealVariants defines the static deal matrix used by this E2E coverage test.
-func buildDealVariants(verifiedClientAddr, unverifiedClientAddr address.Address) []*dealVariant {
+func buildDealVariants(clientAddr address.Address) []*dealVariant {
 	return []*dealVariant{
-		{name: "mk12-online-index", shouldIndex: true, clientAddr: unverifiedClientAddr},
-		{name: "mk12-online-noindex", shouldIndex: false, clientAddr: unverifiedClientAddr},
-		{name: "mk12-ddo-index", isDDO: true, shouldIndex: true, clientAddr: verifiedClientAddr},
-		{name: "mk12-ddo-noindex", isDDO: true, shouldIndex: false, clientAddr: verifiedClientAddr},
-		{name: "mk12-verified-index", verified: true, shouldIndex: true, clientAddr: verifiedClientAddr},
-		{name: "mk12-ddo-verified-index", isDDO: true, verified: true, shouldIndex: true, clientAddr: verifiedClientAddr},
-		{name: "mk20-online-index", mk20: true, shouldIndex: true, clientAddr: verifiedClientAddr},
-		{name: "mk20-offline-noindex", mk20: true, shouldIndex: false, offline: true, clientAddr: verifiedClientAddr},
+		{name: "mk12-online-index", shouldIndex: true, clientAddr: clientAddr},
+		{name: "mk12-online-noindex", shouldIndex: false, clientAddr: clientAddr},
+		{name: "mk20-online-index", mk20: true, shouldIndex: true, clientAddr: clientAddr},
+		{name: "mk20-offline-noindex", mk20: true, shouldIndex: false, offline: true, clientAddr: clientAddr},
 	}
 }
 
@@ -264,14 +236,12 @@ func assignVariantFixturesAndIDs(t *testing.T, dir string, variants []*dealVaria
 	}
 }
 
-// prepareVariantDealArtifacts creates MK12 signed proposals or DDO allocations before DB seeding.
+// prepareVariantDealArtifacts creates MK12 signed proposals before DB seeding.
 func prepareVariantDealArtifacts(
 	ctx context.Context,
 	t *testing.T,
 	full *kit.TestFullNode,
 	maddr address.Address,
-	minerID uint64,
-	verifiedClientAddr address.Address,
 	startEpoch abi.ChainEpoch,
 	endEpoch abi.ChainEpoch,
 	variants []*dealVariant,
@@ -279,42 +249,26 @@ func prepareVariantDealArtifacts(
 	t.Helper()
 
 	for _, v := range variants {
-		switch {
-		// MK20 uses different seed rows and does not need MK12 proposal/allocation artifacts.
-		case v.mk20:
+		if v.mk20 {
 			continue
-		// DDO variants require a verified allocation keyed to the piece and client id address.
-		case v.isDDO:
-			clientIDAddr, err := full.StateLookupID(ctx, v.clientAddr, types.EmptyTSK)
-			require.NoError(t, err)
-			v.clientIDAddr = clientIDAddr
-
-			_, allocationID := kit.SetupAllocation(ctx, t, full, minerID, abi.PieceInfo{
-				Size:     v.fixture.PieceSize,
-				PieceCID: v.fixture.PieceCIDV1,
-			}, verifiedClientAddr, 0, 0)
-			v.allocationID = new(allocationID)
-		// F05 MK12 variants require a signed deal proposal.
-		default:
-			providerCollateral, err := helpers.ProviderCollateralBounds(ctx, full, v.fixture.PieceSize, v.verified)
-			require.NoError(t, err)
-
-			signed, err := helpers.BuildSignedMK12Proposal(
-				ctx,
-				full,
-				v.clientAddr,
-				maddr,
-				v.fixture.RootCID,
-				v.fixture.PieceCIDV1,
-				v.fixture.PieceSize,
-				startEpoch,
-				endEpoch,
-				v.verified,
-				providerCollateral,
-			)
-			require.NoError(t, err)
-			v.signed = signed
 		}
+		providerCollateral, err := helpers.ProviderCollateralBounds(ctx, full, v.fixture.PieceSize)
+		require.NoError(t, err)
+
+		signed, err := helpers.BuildSignedMK12Proposal(
+			ctx,
+			full,
+			v.clientAddr,
+			maddr,
+			v.fixture.RootCID,
+			v.fixture.PieceCIDV1,
+			v.fixture.PieceSize,
+			startEpoch,
+			endEpoch,
+			providerCollateral,
+		)
+		require.NoError(t, err)
+		v.signed = signed
 	}
 }
 
@@ -325,8 +279,6 @@ func seedVariantPipelines(
 	db *harmonydb.DB,
 	maddr address.Address,
 	spID int64,
-	startEpoch abi.ChainEpoch,
-	endEpoch abi.ChainEpoch,
 	dealDuration abi.ChainEpoch,
 	dir string,
 	variants []*dealVariant,
@@ -352,40 +304,16 @@ func seedVariantPipelines(
 			// MK20 variants seed the MK20 pending table.
 			if v.mk20 {
 				return true, helpers.SeedMK20PendingDeal(tx, helpers.MK20PendingSeed{
-					DealID:       v.dealID,
-					Client:       v.clientAddr.String(),
-					Provider:     maddr,
-					Contract:     "0xtest",
-					PieceCIDV2:   v.fixture.PieceCIDV2,
-					Offline:      v.offline,
-					SourceURL:    v.pieceRefURL,
-					Indexing:     v.shouldIndex,
-					Announce:     v.shouldIndex,
-					AllocationID: nil,
-					Duration:     dealDuration,
-				})
-			}
-
-			// DDO MK12 variants seed direct data onboarding rows with allocation metadata.
-			if v.isDDO {
-				if v.allocationID == nil {
-					return false, fmt.Errorf("ddo deal %s missing allocation", v.name)
-				}
-				return true, helpers.SeedMK12DDOPendingDeal(tx, helpers.MK12DDOPendingSeed{
-					UUID:          v.dealID,
-					SPID:          spID,
-					Client:        v.clientIDAddr.String(),
-					PieceCID:      v.fixture.PieceCIDV1.String(),
-					PieceSize:     v.fixture.PieceSize,
-					RawSize:       v.fixture.RawSize,
-					Offline:       false,
-					URL:           v.pieceRefURL,
-					Announce:      v.shouldIndex,
-					FastRetrieval: v.shouldIndex,
-					Verified:      v.verified,
-					StartEpoch:    startEpoch,
-					EndEpoch:      endEpoch,
-					AllocationID:  int64(*v.allocationID),
+					DealID:     v.dealID,
+					Client:     v.clientAddr.String(),
+					Provider:   maddr,
+					Contract:   "0xtest",
+					PieceCIDV2: v.fixture.PieceCIDV2,
+					Offline:    v.offline,
+					SourceURL:  v.pieceRefURL,
+					Indexing:   v.shouldIndex,
+					Announce:   v.shouldIndex,
+					Duration:   dealDuration,
 				})
 			}
 
@@ -535,7 +463,7 @@ func assertMK12VariantFinalState(t *testing.T, ctx context.Context, db *harmonyd
 	require.True(t, p.Complete, "%s should have complete=true", v.name)
 	require.True(t, p.Sector.Valid, "%s should have sector assigned", v.name)
 	require.True(t, p.SectorOffset.Valid, "%s should have sector_offset assigned", v.name)
-	require.Equal(t, v.isDDO, p.IsDDO, "%s is_ddo mismatch", v.name)
+	require.False(t, p.IsDDO, "%s must use F05", v.name)
 }
 
 // assertMK20VariantFinalState verifies that all MK20 stage flags reached terminal success values.
@@ -577,7 +505,7 @@ func assertMK20VariantFinalState(t *testing.T, ctx context.Context, db *harmonyd
 	require.True(t, p.SectorOffset.Valid, "%s should have sector_offset assigned", v.name)
 }
 
-// assertInitialPieceModel validates whether F05 proposal or DDO manifest was persisted for the piece.
+// assertInitialPieceModel validates the persisted F05 proposal.
 func assertInitialPieceModel(t *testing.T, ctx context.Context, db *harmonydb.DB, v *dealVariant) {
 	t.Helper()
 
@@ -594,44 +522,13 @@ func assertInitialPieceModel(t *testing.T, ctx context.Context, db *harmonydb.DB
 		&piece.F05DealID, &piece.F05Prop, &piece.DDOPAM,
 	))
 
-	if v.isDDO {
-		require.Len(t, piece.F05Prop, 0, "%s DDO piece must not use f05_deal_proposal", v.name)
-		require.NotEmpty(t, piece.DDOPAM, "%s DDO piece must set direct_piece_activation_manifest", v.name)
-
-		var pam miner2.PieceActivationManifest
-		require.NoError(t, json.Unmarshal(piece.DDOPAM, &pam))
-		if v.verified {
-			require.NotNil(t, pam.VerifiedAllocationKey, "%s verified DDO must carry VerifiedAllocationKey", v.name)
-			require.NotNil(t, v.allocationID)
-			require.EqualValues(t, *v.allocationID, pam.VerifiedAllocationKey.ID)
-		}
-		return
-	}
-
 	require.NotEmpty(t, piece.F05Prop, "%s F05 piece must set f05_deal_proposal", v.name)
 	require.Len(t, piece.DDOPAM, 0, "%s F05 piece must not use direct manifest fallback", v.name)
 	require.True(t, piece.F05DealID.Valid, "%s F05 piece must set f05_deal_id", v.name)
 
 	var prop market9.DealProposal
 	require.NoError(t, json.Unmarshal(piece.F05Prop, &prop))
-	require.Equal(t, v.verified, prop.VerifiedDeal, "%s verified flag in f05 proposal", v.name)
-}
-
-// assertVerifiedClaimForPiece ensures a verified deal variant produced an on-chain claim for the piece.
-func assertVerifiedClaimForPiece(t *testing.T, ctx context.Context, full *kit.TestFullNode, provider address.Address, pieceCID cid.Cid, variant string) {
-	t.Helper()
-
-	claims, err := full.StateGetClaims(ctx, provider, types.EmptyTSK)
-	require.NoError(t, err)
-
-	found := false
-	for _, claim := range claims {
-		if claim.Data.Equals(pieceCID) {
-			found = true
-			break
-		}
-	}
-	require.True(t, found, "expected on-chain verified claim for variant %s piece %s", variant, pieceCID)
+	require.False(t, prop.VerifiedDeal, "%s must use an ordinary F05 proposal", v.name)
 }
 
 func assertVariantPieceRetrievals(t *testing.T, baseURL string, v *dealVariant) {

@@ -51,6 +51,21 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchai
 		return xerrors.Errorf("failed to get USDFC address: %w", err)
 	}
 
+	// Tracking rows remain until the watcher finishes processing the settlement.
+	var pendingTransactions []struct {
+		Rails []int64 `db:"rail_ids"`
+	}
+	err = db.Select(ctx, &pendingTransactions, `SELECT rail_ids FROM filecoin_payment_transactions`)
+	if err != nil {
+		return xerrors.Errorf("failed to get pending settlement rails: %w", err)
+	}
+	pendingRails := make(map[int64]struct{})
+	for _, pending := range pendingTransactions {
+		for _, railID := range pending.Rails {
+			pendingRails[railID] = struct{}{}
+		}
+	}
+
 	var railIds []*big.Int
 
 	current, err := ethClient.BlockNumber(ctx)
@@ -81,6 +96,10 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchai
 	var toSettle []toSettleRail
 	currentEpoch := new(big.Int).SetUint64(current)
 	for _, rail := range railIds {
+		if _, pending := pendingRails[rail.Int64()]; pending {
+			continue
+		}
+
 		railID := new(big.Int).Set(rail)
 		view, err := payment.GetRail(&bind.CallOpts{Context: ctx}, rail)
 		if err != nil {
@@ -128,11 +147,13 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchai
 	}
 
 	type settleRailTx struct {
-		rail int64
-		upTo int64
+		rail   int64
+		upTo   int64
+		target int64
 	}
 
 	transactionsToSend := make(map[*types.Transaction]settleRailTx)
+
 	for _, detail := range toSettle {
 		settleUpTo, err := calculateSettleUpTo(ctx, pabi, &paymentContractAddr, ethClient, detail.railId, from, detail.settledUpTo, detail.target)
 		if err != nil {
@@ -165,8 +186,9 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchai
 		})
 
 		transactionsToSend[txEth] = settleRailTx{
-			rail: detail.railId.Int64(),
-			upTo: settleUpTo,
+			rail:   detail.railId.Int64(),
+			upTo:   settleUpTo,
+			target: detail.target.Int64(),
 		}
 	}
 
@@ -189,6 +211,8 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchai
 		txHashHex := strings.ToLower(txHash.Hex())
 		log.Infow("sent settle transaction", "txHash", txHashHex, "railIDs", details.rail, "settleUpTo", details.upTo)
 
+		retry := details.upTo < details.target
+
 		// Insert into message_waits_eth and filecoin_payment_transactions atomically
 		committed, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
 			// Insert into message_waits_eth for confirmation tracking
@@ -201,7 +225,7 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchai
 			}
 
 			// Insert into filecoin_payment_transactions
-			n, err = tx.Exec(`INSERT INTO filecoin_payment_transactions (tx_hash, rail_ids) VALUES ($1, $2)`, txHashHex, []int64{details.rail})
+			n, err = tx.Exec(`INSERT INTO filecoin_payment_transactions (tx_hash, rail_ids, retry) VALUES ($1, $2, $3)`, txHashHex, []int64{details.rail}, retry)
 			if err != nil {
 				return false, xerrors.Errorf("failed to insert into filecoin_payment_transactions: %w", err)
 			}
@@ -276,7 +300,7 @@ func activeRailSettlementDue(rail PaymentsRailView, current uint64) bool {
 	// Active rails are settled before the lockup period becomes the only
 	// remaining guarantee. This protects the SP from a client withdrawing funds
 	// after Filecoin Pay can no longer keep enough account lockup reserved.
-	settleInterval := big.NewInt(builtin.EpochsInDay * 7)
+	settleInterval := big.NewInt(builtin.EpochsInDay * 3)
 
 	// Keep one day of lockup as a safety buffer. Once settlement is this close to
 	// the lockup horizon, every pass should try to settle so the SP does not rely
@@ -319,8 +343,9 @@ func calculateSettleUpTo(ctx context.Context, pabi *abi.ABI, paymentContractAddr
 		if err != nil {
 			if isGasEstimateOutOfGas(err) {
 				delta := big.NewInt(0).Sub(next, settledUpTo)
-				halfDelta := big.NewInt(0).Div(delta, big.NewInt(2))
-				next = big.NewInt(0).Add(settledUpTo, halfDelta)
+				reducedDelta := new(big.Int).Mul(delta, big.NewInt(3))
+				reducedDelta.Div(reducedDelta, big.NewInt(4))
+				next = big.NewInt(0).Add(settledUpTo, reducedDelta)
 				if next.Cmp(settledUpTo) <= 0 {
 					return 0, xerrors.Errorf("failed to estimate gas: %w", err)
 				}

@@ -8,7 +8,7 @@ repository = "https://github.com/supranational/supra_seal"
 
 [dependencies]
 blst = "^0.3.11"
-sppark = "^0.1.5"
+sppark = { git = "https://github.com/curiostorage/sppark.git", rev = "813d73cfcb3afdc166c00960b37734b23504ac96" }
 
 [features]
 default = []

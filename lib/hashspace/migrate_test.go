@@ -59,7 +59,7 @@ func TestFirstSetupSeedsClaimsKeepingUsed(t *testing.T) {
 	}
 }
 
-func TestLocateIncludesMisplacedDisks(t *testing.T) {
+func TestDeleteFindsMisplacedFile(t *testing.T) {
 	a, b := t.TempDir(), t.TempDir()
 	_, err := FirstSetup([]Drive{{Root: a, Capacity: 1000}, {Root: b, Capacity: 1000}})
 	require.NoError(t, err)
@@ -71,7 +71,7 @@ func TestLocateIncludesMisplacedDisks(t *testing.T) {
 		c = mustPiece(t, byte(i))
 		_, digest, err := cidHashHex(c)
 		require.NoError(t, err)
-		if disks := sp.locate(digest); len(disks) == 1 && disks[0].root == a {
+		if d, ok := sp.locate(digest); ok && d.root == a {
 			break
 		}
 	}
@@ -81,8 +81,6 @@ func TestLocateIncludesMisplacedDisks(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, w.Close())
 
-	require.ErrorIs(t, sp.DeleteCID(c), os.ErrNotExist)
-	sp.SetMisplacedOn(b, true)
 	require.NoError(t, sp.DeleteCID(c))
 	path, err := piecePath(b, DIR_OPEN, mustHashHex(t, c))
 	require.NoError(t, err)

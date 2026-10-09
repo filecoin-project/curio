@@ -22,17 +22,18 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
+	"github.com/filecoin-project/curio/lib/hashspace"
 	"github.com/filecoin-project/curio/lib/parkpiece"
+	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/piecestore"
 	"github.com/filecoin-project/curio/lib/promise"
+	"github.com/filecoin-project/curio/lib/proof"
 	"github.com/filecoin-project/curio/lib/robusthttp"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/pdp"
 	"github.com/filecoin-project/curio/tasks/openpieces"
 	"github.com/filecoin-project/curio/tasks/tasknames"
 )
-
-const pullMinPieceSizeForCache = abi.PaddedPieceSize(uint64(32 * 1024 * 1024))
 
 const pullItemMaxAttempts = 3
 
@@ -41,12 +42,12 @@ var (
 	PullPiecePollInterval = 5 * time.Second
 
 	// PullAttemptTimeout is the maximum duration for a single download attempt.
-	PullAttemptTimeout = 10 * time.Minute
+	PullAttemptTimeout = 2 * time.Hour
 
 	// PullItemBudget is the wall-clock budget for a pull item. It is checked
 	// only at scheduling boundaries so an in-flight successful write can still
 	// complete the item.
-	PullItemBudget = 30 * time.Minute
+	PullItemBudget = 6 * time.Hour
 
 	// PullIdleReadTimeout cancels a download if no bytes are received for this
 	// duration, detecting stalled connections that hold TCP sockets open
@@ -138,12 +139,23 @@ var (
 // the local piece file best-effort. Cleanup errors are logged and do not replace
 // the main task error.
 type PDPPullPieceTask struct {
-	db  *harmonydb.DB
-	pio piecestore.PieceIO
+	db    *harmonydb.DB
+	pio   piecestore.PieceIO
+	hs    *hashspace.Cluster
+	local *paths.Local
 
 	TF promise.Promise[harmonytask.AddTaskFunc]
 
 	max int
+}
+
+// UseOpenPieces copies a piece into open-pieces when its PDP ref is published.
+func (t *PDPPullPieceTask) UseOpenPieces(hs *hashspace.Cluster, local *paths.Local, pio piecestore.PieceIO) {
+	t.hs = hs
+	t.local = local
+	if pio != nil {
+		t.pio = pio
+	}
 }
 
 func NewPDPPullPieceTask(ctx context.Context, db *harmonydb.DB, pio piecestore.PieceIO, max int) *PDPPullPieceTask {
@@ -237,7 +249,9 @@ type pullItemToComplete struct {
 
 // completeAlreadyParkedItems completes pull items whose long-term piece already exists.
 func (t *PDPPullPieceTask) completeAlreadyParkedItems(ctx context.Context) error {
-	_, err := harmonytask.TxWithTask(ctx, t.db, openpieces.PlaceAdder(), func(tx *harmonydb.Tx, placeTask harmonytask.TaskID) (bool, error) {
+	var placedRefs []int64
+	_, err := t.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		placedRefs = nil
 		var items []pullItemToComplete
 		err := tx.Select(&items, `
 			SELECT DISTINCT ON (fi.fetch_id, fi.piece_cid, fi.source_url)
@@ -273,15 +287,21 @@ func (t *PDPPullPieceTask) completeAlreadyParkedItems(ctx context.Context) error
 			if item.PieceRef != nil {
 				existingRef = *item.PieceRef
 			}
-			err := completePullItemWithParkedPiece(tx, placeTask, item.Service, item.FetchID, item.PieceCid, uint64(item.PieceRawSize), item.SourceURL, item.ParkedPieceID, existingRef)
+			ref, err := completePullItemWithParkedPiece(tx, item.Service, item.FetchID, item.PieceCid, uint64(item.PieceRawSize), item.SourceURL, item.ParkedPieceID, existingRef)
 			if err != nil {
 				return false, xerrors.Errorf("complete already parked pull item %d/%s: %w", item.FetchID, item.PieceCid, err)
+			}
+			if ref != 0 {
+				placedRefs = append(placedRefs, ref)
 			}
 		}
 
 		return len(items) > 0, nil
-	})
-	return err
+	}, harmonydb.OptionRetry())
+	if err != nil {
+		return err
+	}
+	return t.placeRefs(ctx, placedRefs)
 }
 
 // expireStalePullItems fails unscheduled over-budget rows and cleans pull-created refs.
@@ -873,7 +893,9 @@ func (t *PDPPullPieceTask) Do(ctx context.Context, taskID harmonytask.TaskID, st
 			continue
 		}
 
-		comm, err := harmonytask.TxWithTask(ctx, t.db, openpieces.PlaceAdder(), func(tx *harmonydb.Tx, placeTask harmonytask.TaskID) (bool, error) {
+		var placedRefs []int64
+		comm, err := t.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+			placedRefs = nil
 			n, err := tx.Exec(`
 				UPDATE parked_pieces
 				SET complete = TRUE
@@ -919,14 +941,17 @@ func (t *PDPPullPieceTask) Do(ctx context.Context, taskID harmonytask.TaskID, st
 					existingRef = *item.PieceRef
 				}
 
-				err := completePullItemWithParkedPiece(tx, placeTask, item.Service, item.FetchID, item.PieceCid, uint64(item.PieceRawSize), item.SourceURL, item.ParkedPieceID, existingRef)
+				ref, err := completePullItemWithParkedPiece(tx, item.Service, item.FetchID, item.PieceCid, uint64(item.PieceRawSize), item.SourceURL, item.ParkedPieceID, existingRef)
 				if err != nil {
 					return false, xerrors.Errorf("complete pull item %d/%s: %w", item.FetchID, item.PieceCid, err)
+				}
+				if ref != 0 {
+					placedRefs = append(placedRefs, ref)
 				}
 			}
 
 			return true, nil
-		})
+		}, harmonydb.OptionRetry())
 		if err != nil {
 			return false, err
 		}
@@ -936,8 +961,11 @@ func (t *PDPPullPieceTask) Do(ctx context.Context, taskID harmonytask.TaskID, st
 			return false, mainErr
 		}
 
-		log.Infow("pull piece complete", "pieceCid", group.PieceCid, "pieceID", parkedPieceID, "taskID", taskID)
 		shouldCleanup = false
+		if err := t.placeRefs(ctx, placedRefs); err != nil {
+			return false, err
+		}
+		log.Infow("pull piece complete", "pieceCid", group.PieceCid, "pieceID", parkedPieceID, "taskID", taskID)
 		return true, nil
 	}
 
@@ -1250,10 +1278,19 @@ func cleanupPullCreatedParkedPieceTx(tx *harmonydb.Tx, parkedPieceID int64) (boo
 	return false, nil
 }
 
-// completePullItemWithParkedPiece creates the ref records and marks one item
-// complete. It runs inside a harmonytask.TxWithTask body that uses
-// openpieces.PlaceAdder; placeTask is that body's task id.
-func completePullItemWithParkedPiece(tx *harmonydb.Tx, placeTask harmonytask.TaskID, service string, fetchID int64, pieceCID string, rawSize uint64, sourceURL string, parkedPieceID int64, existingPieceRef int64) error {
+func (t *PDPPullPieceTask) placeRefs(ctx context.Context, refs []int64) error {
+	for _, ref := range refs {
+		if err := openpieces.Place(ctx, t.db, t.hs, t.local, t.pio, ref); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// completePullItemWithParkedPiece creates the ref records and marks one item complete.
+// The returned ref is the parked piece ref that was published, or 0 when the
+// item was already complete.
+func completePullItemWithParkedPiece(tx *harmonydb.Tx, service string, fetchID int64, pieceCID string, rawSize uint64, sourceURL string, parkedPieceID int64, existingPieceRef int64) (int64, error) {
 	n, err := tx.Exec(`
 		UPDATE pdp_piece_pull_items
 		SET complete = TRUE,
@@ -1268,13 +1305,13 @@ func completePullItemWithParkedPiece(tx *harmonydb.Tx, placeTask harmonytask.Tas
 			AND failed = FALSE
 	`, fetchID, pieceCID, rawSize, sourceURL)
 	if err != nil {
-		return xerrors.Errorf("mark pull item complete: %w", err)
+		return 0, xerrors.Errorf("mark pull item complete: %w", err)
 	}
 	if n == 0 {
-		return nil
+		return 0, nil
 	}
 	if n != 1 {
-		return xerrors.Errorf("mark pull item complete: expected 1, got %d", n)
+		return 0, xerrors.Errorf("mark pull item complete: expected 1, got %d", n)
 	}
 
 	pieceRef := existingPieceRef
@@ -1288,7 +1325,7 @@ func completePullItemWithParkedPiece(tx *harmonydb.Tx, placeTask harmonytask.Tas
 			RETURNING ref_id
 		`, parkedPieceID, sourceURL).Scan(&pieceRef)
 		if err != nil {
-			return xerrors.Errorf("insert parked_piece_refs: %w", err)
+			return 0, xerrors.Errorf("insert parked_piece_refs: %w", err)
 		}
 
 		n, err = tx.Exec(`
@@ -1300,25 +1337,26 @@ func completePullItemWithParkedPiece(tx *harmonydb.Tx, placeTask harmonytask.Tas
 				AND source_url = $4
 		`, fetchID, pieceCID, rawSize, sourceURL, pieceRef)
 		if err != nil {
-			return xerrors.Errorf("attach parked_piece_ref to completed pull item: %w", err)
+			return 0, xerrors.Errorf("attach parked_piece_ref to completed pull item: %w", err)
 		}
 		if n != 1 {
-			return xerrors.Errorf("attach parked_piece_ref to completed pull item: expected 1, got %d", n)
+			return 0, xerrors.Errorf("attach parked_piece_ref to completed pull item: expected 1, got %d", n)
 		}
 	}
 
-	needsSaveCache := padreader.PaddedSize(rawSize).Padded() >= pullMinPieceSizeForCache
-	var pdpRef int64
-	err = tx.QueryRow(`
+	needsSaveCache := padreader.PaddedSize(rawSize).Padded() > proof.MIN_PADDED_PIECE_SIZE_FOR_CACHE
+	n, err = tx.Exec(`
 		INSERT INTO pdp_piecerefs (service, piece_cid, piece_ref, created_at, needs_save_cache)
 		VALUES ($1, $2, $3, NOW(), $4)
-		RETURNING id
-	`, service, pieceCID, pieceRef, needsSaveCache).Scan(&pdpRef)
+	`, service, pieceCID, pieceRef, needsSaveCache)
 	if err != nil {
-		return xerrors.Errorf("insert pdp_piecerefs: %w", err)
+		return 0, xerrors.Errorf("insert pdp_piecerefs: %w", err)
+	}
+	if n != 1 {
+		return 0, xerrors.Errorf("insert pdp_piecerefs: expected 1, got %d", n)
 	}
 
-	return openpieces.QueuePlace(tx, placeTask, pdpRef)
+	return pieceRef, nil
 }
 
 // findCompleteParkedPiece returns the oldest complete long-term row for a piece key.
