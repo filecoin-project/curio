@@ -827,12 +827,12 @@ func (c *Cluster) raise(ctx context.Context, storageID, kind string) error {
 			}
 			ids := make([]string, len(disks))
 			st := hashspacesolver.State{
-				Disks:    make([]int64, len(disks)),
-				Vacating: make([]bool, len(disks)),
+				MountpointCapacity: make([]int64, len(disks)),
+				Vacating:           make([]bool, len(disks)),
 			}
 			for i, d := range disks {
 				ids[i] = d.StorageID
-				st.Disks[i] = d.Capacity
+				st.MountpointCapacity[i] = d.Capacity
 				st.Vacating[i] = d.Vacating
 			}
 			for _, kind := range spaceKinds {
@@ -877,7 +877,7 @@ func (c *Cluster) raise(ctx context.Context, storageID, kind string) error {
 					}
 				}
 				return n
-			}(st, disk), st.Disks[disk]) {
+			}(st, disk), st.MountpointCapacity[disk]) {
 				return true, consumePending(tx, storageID, kind)
 			}
 			ev.Kind = hashspacesolver.EventFull
