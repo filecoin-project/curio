@@ -1,12 +1,15 @@
-import { getUIVariant, applySkiffDocumentClass } from '/lib/ui-variant.mjs'
+import { getUIVariant, applySkiffDocumentClass, maybeRedirectSkiffFirstVisit } from '/lib/ui-variant.mjs'
 
 const variant = await getUIVariant()
 const isSkiff = variant === 'skiff'
 applySkiffDocumentClass(variant)
 
 // Skiff primary home is PDP Overview; / redirects so brand → / always works.
+// First visit with no wallet goes to the PDP guide once.
 if (isSkiff) {
-    window.location.replace('/pages/pdp-overview/')
+    if (!(await maybeRedirectSkiffFirstVisit())) {
+        window.location.replace('/pages/pdp-overview/')
+    }
 } else {
     await Promise.all([
         import('/chain-status.mjs'),

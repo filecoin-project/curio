@@ -120,14 +120,29 @@ const (
 	_ = uint64(120 - unsafe.Sizeof(ioUringParams{}))
 )
 
+// ioUringAvailable is set when a ring can be created and closed at startup.
+// Sysctl and seccomp policies that disable io_uring leave this false.
+var ioUringAvailable bool
+
+func init() {
+	ring, err := newUring(1)
+	if err != nil {
+		return
+	}
+	ring.close()
+	ioUringAvailable = true
+}
+
 // SumFileSizesRange sums logical file sizes for regular files under directory
 // whose concatenated hash paths compare in the bytewise interval (low, high].
 // An empty low or high bound leaves that side of the interval open.
 //
-// QueueDepth is the io_uring queue size and the maximum number of outstanding
-// statx requests for one directory. Zero selects 128.
+// kBufSize is the io_uring queue size and the maximum number of outstanding
+// statx requests for one directory. Zero selects 128. It is ignored when
+// io_uring is unavailable and the portable directory walk is used instead.
 //
-// Requires: Linux 5.15+ (all Ubuntu LTSs support it). liburing not required (reimplemented here).
+// liburing is not required. A ring is created and closed during init; if that
+// fails, calls use the portable walk.
 //
 // Performance: 1e6 files on a FireCuda 530 (low-end NVMe, ext4, cold & warm cache) took
 // 0.7s     and  10 MB RSS ( 60 total alloc), vs
@@ -139,15 +154,18 @@ const (
 //	 7.6s           2.4/3.0s  Unix impl.
 //
 // RSS stays ~10 MB vs ~180 MB. Cold, both wait on disk metadata reads.
-func SumFileSizesRange(directory, low, high string, queueDepth uint32) (Result, error) {
-	if err := checkSumArgs(directory, low, high, queueDepth); err != nil {
+func SumFileSizesRange(directory, low, high string, kBufSize uint32) (Result, error) {
+	if !ioUringAvailable {
+		return sumFileSizesRangeSimple(directory, low, high, kBufSize)
+	}
+	if err := checkSumArgs(directory, low, high, kBufSize); err != nil {
 		return Result{}, err
 	}
-	if queueDepth == 0 {
-		queueDepth = 128
+	if kBufSize == 0 {
+		kBufSize = 128
 	}
 
-	ring, err := newUring(queueDepth)
+	ring, err := newUring(kBufSize)
 	if err != nil {
 		return Result{}, fmt.Errorf("sum file sizes: %w", err)
 	}

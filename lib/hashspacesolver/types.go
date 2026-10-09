@@ -2,10 +2,11 @@
 // at most eight contiguous hash-space ranges per space while moving as
 // little data as possible.
 //
-// Disks are a list of total sizes (capacities) shared by all spaces. Each
-// Space is an independent circular hash partition: ranges are half-open
-// intervals from the previous EndHash to their own, with Size bytes of data.
-// SliceSize reports how much of a range's data lies in a sub-interval.
+// MountPoints are disks, named by StorageID, whose capacities are shared by
+// all spaces. Each hash space is an independent circular partition: ranges are half-open
+// intervals (StartHash, EndHash] with Size bytes of data, and together they
+// tile the circle once. SliceSize reports how much of a range's data lies in
+// a sub-interval.
 //
 // Solve returns a target State plus an order-independent Diff of absolute
 // interval transfers. Each byte moves at most once, from its original disk
@@ -26,29 +27,33 @@ const FILL_LIMIT_PERCENT = 80
 // 70% and a disk at 20% differ by 50 and rebalance; a smaller gap does not.
 const SPREAD_POINTS = 50
 
-// Range is one contiguous hash-space interval. It covers hashes after the
-// previous range's EndHash up to EndHash, and holds Size bytes.
+// Range is the half-open hash interval (StartHash, EndHash] holding Size
+// bytes on the mountpoint StorageID. StartHash == EndHash is the full circle.
+// Within a hash space, each StartHash must equal the EndHash of the range
+// before it.
 type Range struct {
-	EndHash []byte
-	Size    int64
+	StartHash []byte
+	EndHash   []byte
+	Size      int64
+	StorageID string
 }
 
-// Space is one independent hash circle assigned across disks.
-type Space struct {
-	Ranges []Range
-	Owner  []int
-}
-
-// State is an assignment of ranges to disks across one or more spaces.
-//
-// Disks[i] is disk i's shared capacity. Spaces are independent circles that
-// share that capacity; Owner[j] within a space is the disk holding Ranges[j].
-type State struct {
-	Disks  []int64
-	Spaces []Space
-	// Vacating marks disks that must not receive ranges. Existing ranges
+// MountPoint is one disk's capacity, named by its storage path ID.
+type MountPoint struct {
+	Capacity  int64
+	StorageID string
+	// Vacating marks a disk that must not receive ranges. Existing ranges
 	// stay until EventVacate moves them off.
-	Vacating []bool
+	Vacating bool
+}
+
+// State is an assignment of ranges to mountpoints across the hash spaces.
+//
+// Each HashSpaces entry is an independent circle; a nil entry is an unused
+// space. All spaces share MountPoints capacity.
+type State struct {
+	MountPoints []MountPoint
+	HashSpaces  [2][]Range
 }
 
 // EventKind selects which disk-lifecycle problem to solve.
@@ -73,21 +78,22 @@ const (
 	EventBalance
 )
 
-// Event asks the solver to react to one disk arriving, filling, or vacating.
-// Disk is an index into State.Disks.
+// Event asks the solver to react to the mountpoint StorageID arriving,
+// filling, vacating, or absorbing. EventBalance ignores StorageID.
 type Event struct {
-	Kind EventKind
-	Disk int
+	Kind      EventKind
+	StorageID string
 }
 
-// Transfer moves an absolute hash interval from one disk to another within
-// one space. Intervals are half-open (StartHash, EndHash].
+// Transfer moves an absolute hash interval from one mountpoint to another
+// within one space. Intervals are half-open (StartHash, EndHash]. From and
+// To are StorageIDs.
 type Transfer struct {
 	Space     int
 	StartHash []byte
 	EndHash   []byte
-	From      int
-	To        int
+	From      string
+	To        string
 	Size      int64
 }
 

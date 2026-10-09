@@ -25,14 +25,13 @@ import (
 	"github.com/filecoin-project/curio/lib/parkpiece"
 	"github.com/filecoin-project/curio/lib/piecestore"
 	"github.com/filecoin-project/curio/lib/promise"
+	"github.com/filecoin-project/curio/lib/proof"
 	"github.com/filecoin-project/curio/lib/robusthttp"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/pdp"
 	"github.com/filecoin-project/curio/tasks/openpieces"
 	"github.com/filecoin-project/curio/tasks/tasknames"
 )
-
-const pullMinPieceSizeForCache = abi.PaddedPieceSize(uint64(32 * 1024 * 1024))
 
 const pullItemMaxAttempts = 3
 
@@ -41,12 +40,12 @@ var (
 	PullPiecePollInterval = 5 * time.Second
 
 	// PullAttemptTimeout is the maximum duration for a single download attempt.
-	PullAttemptTimeout = 10 * time.Minute
+	PullAttemptTimeout = 2 * time.Hour
 
 	// PullItemBudget is the wall-clock budget for a pull item. It is checked
 	// only at scheduling boundaries so an in-flight successful write can still
 	// complete the item.
-	PullItemBudget = 30 * time.Minute
+	PullItemBudget = 6 * time.Hour
 
 	// PullIdleReadTimeout cancels a download if no bytes are received for this
 	// duration, detecting stalled connections that hold TCP sockets open
@@ -1307,7 +1306,7 @@ func completePullItemWithParkedPiece(tx *harmonydb.Tx, placeTask harmonytask.Tas
 		}
 	}
 
-	needsSaveCache := padreader.PaddedSize(rawSize).Padded() >= pullMinPieceSizeForCache
+	needsSaveCache := padreader.PaddedSize(rawSize).Padded() > proof.MIN_PADDED_PIECE_SIZE_FOR_CACHE
 	var pdpRef int64
 	err = tx.QueryRow(`
 		INSERT INTO pdp_piecerefs (service, piece_cid, piece_ref, created_at, needs_save_cache)

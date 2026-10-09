@@ -1,0 +1,23 @@
+# Calibnet overlay for the Curio-PDP stack.
+# Usage:
+#   docker compose -f docker-compose.yaml -f docker-compose.calibnet.yaml up -d
+# Or: make skiff/calibnet/up
+
+services:
+  forest:
+    command:
+      - --chain=calibnet
+      - --auto-download-snapshot
+      - --rpc-address=0.0.0.0:2345
+      - --healthcheck-address=0.0.0.0:2346
+      - --save-token=/forest-token/token
+      - --encrypt-keystore
+      - "false"
+
+  skiff:
+    image: ${SKIFF_IMAGE:-filecoin/curio-pdp:calibnet-dev}
+    build:
+      context: ../..
+      dockerfile: docker/skiff/Dockerfile
+      args:
+        SKIFF_MAKE_TARGET: ${SKIFF_MAKE_TARGET:-calibnet-skiff}

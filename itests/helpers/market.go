@@ -13,8 +13,6 @@ import (
 	"github.com/filecoin-project/go-address"
 	cborutil "github.com/filecoin-project/go-cbor-util"
 	"github.com/filecoin-project/go-state-types/abi"
-	verifreg13 "github.com/filecoin-project/go-state-types/builtin/v13/verifreg"
-	verifreg16 "github.com/filecoin-project/go-state-types/builtin/v16/verifreg"
 	market9 "github.com/filecoin-project/go-state-types/builtin/v9/market"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -33,7 +31,7 @@ type MK12SignedProposal struct {
 	LabelCBOR         []byte
 }
 
-func BuildSignedMK12Proposal(ctx context.Context, full v1api.FullNode, clientAddr address.Address, providerAddr address.Address, root cid.Cid, pieceCID cid.Cid, pieceSize abi.PaddedPieceSize, startEpoch abi.ChainEpoch, endEpoch abi.ChainEpoch, verified bool, providerCollateral abi.TokenAmount) (*MK12SignedProposal, error) {
+func BuildSignedMK12Proposal(ctx context.Context, full v1api.FullNode, clientAddr address.Address, providerAddr address.Address, root cid.Cid, pieceCID cid.Cid, pieceSize abi.PaddedPieceSize, startEpoch abi.ChainEpoch, endEpoch abi.ChainEpoch, providerCollateral abi.TokenAmount) (*MK12SignedProposal, error) {
 	label, err := market9.NewLabelFromString(root.String())
 	if err != nil {
 		return nil, xerrors.Errorf("new deal label: %w", err)
@@ -42,7 +40,7 @@ func BuildSignedMK12Proposal(ctx context.Context, full v1api.FullNode, clientAdd
 	proposal := market9.DealProposal{
 		PieceCID:             pieceCID,
 		PieceSize:            pieceSize,
-		VerifiedDeal:         verified,
+		VerifiedDeal:         false,
 		Client:               clientAddr,
 		Provider:             providerAddr,
 		Label:                label,
@@ -101,8 +99,8 @@ func BuildSignedMK12Proposal(ctx context.Context, full v1api.FullNode, clientAdd
 	}, nil
 }
 
-func ProviderCollateralBounds(ctx context.Context, full v1api.FullNode, pieceSize abi.PaddedPieceSize, verified bool) (abi.TokenAmount, error) {
-	bounds, err := full.StateDealProviderCollateralBounds(ctx, pieceSize, verified, types.EmptyTSK)
+func ProviderCollateralBounds(ctx context.Context, full v1api.FullNode, pieceSize abi.PaddedPieceSize) (abi.TokenAmount, error) {
+	bounds, err := full.StateDealProviderCollateralBounds(ctx, pieceSize, false, types.EmptyTSK)
 	if err != nil {
 		return abi.TokenAmount{}, xerrors.Errorf("state deal provider collateral bounds: %w", err)
 	}
@@ -205,75 +203,17 @@ func SeedMK12F05PendingDeal(tx *harmonydb.Tx, s MK12F05PendingSeed) error {
 	return nil
 }
 
-type MK12DDOPendingSeed struct {
-	UUID          string
-	SPID          int64
-	Client        string
-	PieceCID      string
-	PieceSize     abi.PaddedPieceSize
-	RawSize       int64
-	Offline       bool
-	URL           string
-	Announce      bool
-	FastRetrieval bool
-	Verified      bool
-	StartEpoch    abi.ChainEpoch
-	EndEpoch      abi.ChainEpoch
-	AllocationID  int64
-}
-
-func SeedMK12DDOPendingDeal(tx *harmonydb.Tx, s MK12DDOPendingSeed) error {
-	n, err := tx.Exec(`INSERT INTO market_direct_deals (
-			uuid, sp_id, client, offline, verified,
-			start_epoch, end_epoch, allocation_id,
-			piece_cid, piece_size, raw_size,
-			fast_retrieval, announce_to_ipni
-		) VALUES ($1, $2, $3, $4, $5,
-			$6, $7, $8,
-			$9, $10, $11,
-			$12, $13)`,
-		s.UUID, s.SPID, s.Client, s.Offline, s.Verified,
-		s.StartEpoch, s.EndEpoch, s.AllocationID,
-		s.PieceCID, s.PieceSize, s.RawSize,
-		s.FastRetrieval, s.Announce,
-	)
-	if err != nil {
-		return xerrors.Errorf("insert market_direct_deals row: %w", err)
-	}
-	if n != 1 {
-		return xerrors.Errorf("insert market_direct_deals row: expected 1 row, got %d", n)
-	}
-
-	n, err = tx.Exec(`INSERT INTO market_mk12_deal_pipeline (
-			uuid, sp_id, piece_cid, piece_size, raw_size,
-			offline, url, should_index, announce, is_ddo
-		) VALUES ($1, $2, $3, $4, $5,
-			$6, $7, $8, $9, TRUE)`,
-		s.UUID, s.SPID, s.PieceCID, s.PieceSize, s.RawSize,
-		s.Offline, s.URL, s.FastRetrieval, s.Announce,
-	)
-	if err != nil {
-		return xerrors.Errorf("insert market_mk12_deal_pipeline row for ddo: %w", err)
-	}
-	if n != 1 {
-		return xerrors.Errorf("insert market_mk12_deal_pipeline row for ddo: expected 1 row, got %d", n)
-	}
-
-	return nil
-}
-
 type MK20PendingSeed struct {
-	DealID       string
-	Client       string
-	Provider     address.Address
-	Contract     string
-	PieceCIDV2   cid.Cid
-	Offline      bool
-	SourceURL    string
-	Indexing     bool
-	Announce     bool
-	AllocationID *verifreg13.AllocationId
-	Duration     abi.ChainEpoch
+	DealID     string
+	Client     string
+	Provider   address.Address
+	Contract   string
+	PieceCIDV2 cid.Cid
+	Offline    bool
+	SourceURL  string
+	Indexing   bool
+	Announce   bool
+	Duration   abi.ChainEpoch
 }
 
 func SeedMK20PendingDeal(tx *harmonydb.Tx, s MK20PendingSeed) error {
@@ -302,11 +242,6 @@ func SeedMK20PendingDeal(tx *harmonydb.Tx, s MK20PendingSeed) error {
 		}
 	}
 
-	var allocationID *verifreg16.AllocationId
-	if s.AllocationID != nil {
-		allocationID = new(verifreg16.AllocationId(*s.AllocationID))
-	}
-
 	deal := &mk20.Deal{
 		Identifier: id,
 		Client:     s.Client,
@@ -315,7 +250,6 @@ func SeedMK20PendingDeal(tx *harmonydb.Tx, s MK20PendingSeed) error {
 			DDOV1: &mk20.DDOV1{
 				Provider:      s.Provider,
 				Duration:      s.Duration,
-				AllocationId:  allocationID,
 				MarketAddress: s.Contract,
 			},
 			RetrievalV1: &mk20.RetrievalV1{

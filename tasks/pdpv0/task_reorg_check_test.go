@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"math/big"
 	"testing"
 	"time"
@@ -12,8 +13,18 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/trie"
+	"github.com/ipfs/go-cid"
+	"github.com/stretchr/testify/require"
+
+	"github.com/filecoin-project/go-address"
+	"github.com/filecoin-project/go-state-types/abi"
+	"github.com/filecoin-project/go-state-types/crypto"
+
+	"github.com/filecoin-project/curio/build"
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 
 	"github.com/filecoin-project/lotus/chain/actors/policy"
+	chainTypes "github.com/filecoin-project/lotus/chain/types"
 )
 
 type mockEthReorg struct {
@@ -229,4 +240,208 @@ func TestConfirmationForCheck_sendOnlyTooRecent(t *testing.T) {
 	if err != nil || ready {
 		t.Fatalf("expected not ready, ready=%v err=%v", ready, err)
 	}
+}
+
+type replacementReorgEth struct {
+	*mockEthReorg
+	receipts     map[common.Hash]*ethtypes.Receipt
+	receiptCalls []common.Hash
+	headCalls    int
+}
+
+func (m *replacementReorgEth) TransactionReceipt(_ context.Context, hash common.Hash) (*ethtypes.Receipt, error) {
+	m.receiptCalls = append(m.receiptCalls, hash)
+	if receipt, ok := m.receipts[hash]; ok {
+		return receipt, nil
+	}
+	return nil, ethereum.NotFound
+}
+
+func (m *replacementReorgEth) BlockByNumber(ctx context.Context, number *big.Int) (*ethtypes.Block, error) {
+	if number == nil {
+		m.headCalls++
+	}
+	return m.mockEthReorg.BlockByNumber(ctx, number)
+}
+
+type replacementReorgChain struct {
+	head *chainTypes.TipSet
+}
+
+func (m replacementReorgChain) ChainHead(context.Context) (*chainTypes.TipSet, error) {
+	return m.head, nil
+}
+
+func TestReorgCheckReplacementHashes(t *testing.T) {
+	const confirmHeight = uint64(100)
+	headHeight := confirmHeight + uint64(policy.ChainFinality)
+	txs := []*ethtypes.Transaction{
+		ethtypes.NewTx(&ethtypes.LegacyTx{Nonce: 42, Gas: 21_000, GasPrice: big.NewInt(1)}),
+		ethtypes.NewTx(&ethtypes.LegacyTx{Nonce: 42, Gas: 21_000, GasPrice: big.NewInt(2)}),
+		ethtypes.NewTx(&ethtypes.LegacyTx{Nonce: 42, Gas: 21_000, GasPrice: big.NewInt(3)}),
+	}
+
+	for _, tc := range []struct {
+		name               string
+		wait               bool
+		confirmedTx        int
+		legacyWait         bool
+		replacementHistory bool
+		missingBlockHash   bool
+		chainTx            int
+		absent             bool
+		rollback           bool
+	}{
+		{name: "confirmed replacement after history cleanup", wait: true, confirmedTx: 1, chainTx: 1},
+		{name: "missing replacement rolls back original wait", wait: true, confirmedTx: 1, chainTx: 1, absent: true, rollback: true},
+		{name: "confirmed replacement overrides newer replacement", wait: true, confirmedTx: 1, replacementHistory: true, chainTx: 1},
+		{name: "receipt fallback queries confirmed replacement", wait: true, confirmedTx: 1, missingBlockHash: true, chainTx: 1},
+		{name: "send only resolves latest replacement", replacementHistory: true, chainTx: 2},
+		{name: "missing send only replacement records original event", replacementHistory: true, chainTx: 2, absent: true, rollback: true},
+		{name: "legacy wait falls back to original", wait: true, legacyWait: true, chainTx: 0},
+		{name: "unreplaced send falls back to original", chainTx: 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := t.Context()
+			db, err := harmonydb.NewFromConfigWithITestID(t)
+			require.NoError(t, err)
+
+			now := time.Now().UTC()
+			sendTime := now.Add(-time.Duration(policy.ChainFinality+1) * time.Duration(build.BlockDelaySecs) * time.Second)
+			from := common.HexToAddress("0x1234").Hex()
+			originalHash := txs[0].Hash().Hex()
+			_, err = db.Exec(ctx, `
+				INSERT INTO message_sends_eth (
+					from_address, to_address, send_reason, unsigned_tx, unsigned_hash,
+					nonce, signed_hash, send_time, send_success
+				) VALUES ($1, $1, $2, $3, $4, 42, $4, $5, TRUE)`,
+				from, reasonPDPProve, []byte{1}, originalHash, sendTime)
+			require.NoError(t, err)
+
+			if tc.replacementHistory {
+				_, err = db.Exec(ctx, `
+					INSERT INTO message_send_eth_replacements (
+						from_address, nonce, original_signed_hash, replaces_signed_hash,
+						claim_id, signed_hash, send_time, send_success
+					) VALUES
+						($1, 42, $2, $2, 'first-replacement', $3, $5, TRUE),
+						($1, 42, $2, $3, 'latest-replacement', $4, $5, TRUE)`,
+					from, originalHash, txs[1].Hash().Hex(), txs[2].Hash().Hex(), sendTime)
+				require.NoError(t, err)
+			}
+
+			canonicalTxs := make(map[uint64]*ethtypes.Transaction)
+			if !tc.absent {
+				canonicalTxs[confirmHeight] = txs[tc.chainTx]
+			}
+			head, byHash := testBlockChain(t, []uint64{confirmHeight, headHeight}, canonicalTxs)
+			confirmationBlock := byHash[head.ParentHash()]
+			receipt := &ethtypes.Receipt{
+				TxHash:      txs[tc.chainTx].Hash(),
+				BlockNumber: new(big.Int).SetUint64(confirmHeight),
+				BlockHash:   confirmationBlock.Hash(),
+				Status:      ethtypes.ReceiptStatusSuccessful,
+			}
+			if tc.wait {
+				var confirmedHash any
+				if !tc.legacyWait {
+					confirmedHash = txs[tc.confirmedTx].Hash().Hex()
+				}
+				storedReceipt := fmt.Sprintf(`{"blockHash":%q}`, receipt.BlockHash.Hex())
+				if tc.missingBlockHash {
+					storedReceipt = `{}`
+				}
+				_, err = db.Exec(ctx, `
+					INSERT INTO message_waits_eth (
+						signed_tx_hash, tx_status, tx_success, confirmed_block_number, confirmed_tx_hash, tx_receipt
+					) VALUES ($1, 'confirmed', TRUE, $2, $3, $4::jsonb)`,
+					originalHash, confirmHeight, confirmedHash, storedReceipt)
+				require.NoError(t, err)
+			}
+
+			eth := &replacementReorgEth{
+				mockEthReorg: &mockEthReorg{head: head, byHash: byHash},
+				receipts:     make(map[common.Hash]*ethtypes.Receipt),
+			}
+			if !tc.absent {
+				eth.receipts[receipt.TxHash] = receipt
+			}
+			task := NewReorgCheckTask(db, eth, replacementReorgChain{head: replacementReorgTipSet(t, headHeight, now)})
+			done, err := task.Do(ctx, 1, func() bool { return true })
+			require.NoError(t, err)
+			require.True(t, done)
+
+			if !tc.wait || tc.missingBlockHash {
+				require.Equal(t, []common.Hash{txs[tc.chainTx].Hash()}, eth.receiptCalls)
+			} else {
+				require.Empty(t, eth.receiptCalls)
+			}
+			if tc.wait || !tc.absent {
+				require.Equal(t, 1, eth.headCalls, "candidate must reach the canonical inclusion check")
+			}
+
+			var events []struct {
+				TxHash string `db:"tx_hash"`
+			}
+			require.NoError(t, db.Select(ctx, &events, `SELECT tx_hash FROM pdpv0_reorg_events`))
+			if tc.rollback {
+				require.Len(t, events, 1)
+				require.Equal(t, originalHash, events[0].TxHash)
+			} else {
+				require.Empty(t, events)
+			}
+
+			if tc.wait {
+				var status string
+				var success sql.NullBool
+				var confirmed sql.NullString
+				var height sql.NullInt64
+				var hasReceipt bool
+				err = db.QueryRow(ctx, `
+					SELECT tx_status, tx_success, confirmed_tx_hash, confirmed_block_number, tx_receipt IS NOT NULL
+					FROM message_waits_eth WHERE signed_tx_hash = $1`, originalHash).
+					Scan(&status, &success, &confirmed, &height, &hasReceipt)
+				require.NoError(t, err)
+				if tc.rollback {
+					require.Equal(t, "reorged", status)
+					require.False(t, success.Valid)
+					require.False(t, confirmed.Valid)
+					require.False(t, height.Valid)
+					require.False(t, hasReceipt)
+				} else {
+					require.Equal(t, "confirmed", status)
+					require.Equal(t, sql.NullBool{Bool: true, Valid: true}, success)
+					require.Equal(t, sql.NullInt64{Int64: int64(confirmHeight), Valid: true}, height)
+					require.True(t, hasReceipt)
+					if tc.legacyWait {
+						require.False(t, confirmed.Valid)
+					} else {
+						require.Equal(t, sql.NullString{String: txs[tc.confirmedTx].Hash().Hex(), Valid: true}, confirmed)
+					}
+				}
+			}
+		})
+	}
+}
+
+func replacementReorgTipSet(t *testing.T, height uint64, now time.Time) *chainTypes.TipSet {
+	t.Helper()
+	miner, err := address.NewIDAddress(1)
+	require.NoError(t, err)
+	root, err := cid.Decode("bafy2bzacea3wsdh6y3a36tb3skempjoxqpuyompjbmfeyf34fi3uy6uue42v4")
+	require.NoError(t, err)
+	head, err := chainTypes.NewTipSet([]*chainTypes.BlockHeader{{
+		Miner:                 miner,
+		Ticket:                &chainTypes.Ticket{VRFProof: []byte{1}},
+		Height:                abi.ChainEpoch(height),
+		ParentStateRoot:       root,
+		Messages:              root,
+		ParentMessageReceipts: root,
+		BlockSig:              &crypto.Signature{Type: crypto.SigTypeSecp256k1},
+		BLSAggregate:          &crypto.Signature{Type: crypto.SigTypeSecp256k1},
+		Timestamp:             uint64(now.Unix()),
+		ParentBaseFee:         chainTypes.NewInt(100),
+	}})
+	require.NoError(t, err)
+	return head
 }

@@ -875,7 +875,7 @@
             "type": "object",
             "properties": {
                 "allocation_id": {
-                    "description": "AllocationId represents an allocation identifier for the deal.",
+                    "description": "AllocationId is retained for previously accepted deals and rejected on new intake.",
                     "allOf": [
                         {
                             "$ref": "#/definitions/github_com_filecoin-project_go-state-types_builtin_v16_verifreg.AllocationId"
@@ -883,7 +883,7 @@
                     ]
                 },
                 "duration": {
-                    "description": "Duration represents the deal duration in epochs. This value is ignored for the deal with allocationID.\nIt must be at least 518400",
+                    "description": "Duration represents the deal duration in epochs.\nIt must be at least 518400",
                     "type": "integer"
                 },
                 "market_address": {
