@@ -23,6 +23,10 @@ const MAX_RANGES_PER_DISK = 8
 // remains the hard physical limit.
 const FILL_LIMIT_PERCENT = 80
 
+// SPREAD_POINTS is the fill-percentage gap that starts a balance. A disk at
+// 70% and a disk at 20% differ by 50 and rebalance; a smaller gap does not.
+const SPREAD_POINTS = 50
+
 // Range is the half-open hash interval (StartHash, EndHash] holding Size
 // bytes on the mountpoint StorageID. StartHash == EndHash is the full circle.
 // Within a hash space, each StartHash must equal the EndHash of the range
@@ -38,6 +42,9 @@ type Range struct {
 type MountPoint struct {
 	Capacity  int64
 	StorageID string
+	// Vacating marks a disk that must not receive ranges. Existing ranges
+	// stay until EventVacate moves them off.
+	Vacating bool
 }
 
 // State is an assignment of ranges to mountpoints across the hash spaces.
@@ -62,10 +69,17 @@ const (
 	EventFull
 	// EventVacate empties a disk so it can leave the cluster.
 	EventVacate
+	// EventAbsorb moves overflow onto a disk that gained capacity. Bytes move
+	// only from disks above FILL_LIMIT_PERCENT, and only until those disks
+	// are back at the limit or the destination is at its own limit.
+	EventAbsorb
+	// EventBalance moves half the fill-percentage gap from a fuller disk
+	// onto a disk at least SPREAD_POINTS behind it.
+	EventBalance
 )
 
 // Event asks the solver to react to the mountpoint StorageID arriving,
-// filling, or vacating.
+// filling, vacating, or absorbing. EventBalance ignores StorageID.
 type Event struct {
 	Kind      EventKind
 	StorageID string

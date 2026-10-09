@@ -59,10 +59,53 @@ type world struct {
 	spaces []spaceWorld
 	used   []int64
 	frozen []bool
+	// vacating is the input MountPoint.Vacating, echoed by snapshot. frozen
+	// starts from it and also covers a disk EventVacate is emptying.
+	vacating []bool
 }
 
 func newWorld(state State) (*world, error) {
-	if err := checkStructure(state); err != nil {
+	if err := /* checkStructure */ func(state State) error {
+		ids := make(map[string]struct{}, len(state.MountPoints))
+		for i, mp := range state.MountPoints {
+			if mp.StorageID == "" {
+				return xerrors.Errorf("mountpoint %d has empty StorageID", i)
+			}
+			if _, ok := ids[mp.StorageID]; ok {
+				return xerrors.Errorf("duplicate mountpoint StorageID %s", mp.StorageID)
+			}
+			ids[mp.StorageID] = struct{}{}
+			if mp.Capacity < 0 {
+				return xerrors.Errorf("mountpoint %s has negative capacity", mp.StorageID)
+			}
+		}
+		for s, ranges := range state.HashSpaces {
+			var hlen int
+			seen := make(map[string]struct{}, len(ranges))
+			for i, r := range ranges {
+				if err := checkRange(r); err != nil {
+					return xerrors.Errorf("space %d range %d: %w", s, i, err)
+				}
+				if hlen == 0 {
+					hlen = len(r.EndHash)
+				} else if len(r.EndHash) != hlen {
+					return xerrors.Errorf("space %d range %d EndHash length %d != %d", s, i, len(r.EndHash), hlen)
+				}
+				key := string(r.EndHash)
+				if _, ok := seen[key]; ok {
+					return xerrors.Errorf("space %d: duplicate EndHash at range %d", s, i)
+				}
+				seen[key] = struct{}{}
+				if _, ok := ids[r.StorageID]; !ok {
+					return xerrors.Errorf("space %d range %d: unknown StorageID %q", s, i, r.StorageID)
+				}
+			}
+			if err := checkTiling(ranges); err != nil {
+				return xerrors.Errorf("space %d: %w", s, err)
+			}
+		}
+		return nil
+	}(state); err != nil {
 		return nil, err
 	}
 	n := len(state.MountPoints)
@@ -71,13 +114,16 @@ func newWorld(state State) (*world, error) {
 		ids:    make([]string, n),
 		diskOf: make(map[string]int, n),
 		spaces: make([]spaceWorld, len(state.HashSpaces)),
-		used:   make([]int64, n),
-		frozen: make([]bool, n),
+		used:     make([]int64, n),
+		frozen:   make([]bool, n),
+		vacating: make([]bool, n),
 	}
 	for i, mp := range state.MountPoints {
 		w.disks[i] = mp.Capacity
 		w.ids[i] = mp.StorageID
 		w.diskOf[mp.StorageID] = i
+		w.frozen[i] = mp.Vacating
+		w.vacating[i] = mp.Vacating
 	}
 	for s, ranges := range state.HashSpaces {
 		arcs := make([]arc, len(ranges))
@@ -110,7 +156,7 @@ func cloneRange(r Range) Range {
 func (w *world) snapshot() State {
 	st := State{MountPoints: make([]MountPoint, len(w.disks))}
 	for i, c := range w.disks {
-		st.MountPoints[i] = MountPoint{Capacity: c, StorageID: w.ids[i]}
+		st.MountPoints[i] = MountPoint{Capacity: c, StorageID: w.ids[i], Vacating: w.vacating[i]}
 	}
 	for s, sp := range w.spaces {
 		if len(sp.ranges) == 0 {
@@ -159,26 +205,6 @@ func (w *world) overflow(d int) int64 {
 		return 0
 	}
 	return n
-}
-
-func (w *world) totalUsed() int64 {
-	var s int64
-	for _, sp := range w.spaces {
-		for _, r := range sp.ranges {
-			s += r.Size
-		}
-	}
-	return s
-}
-
-func (w *world) totalCapacity() int64 {
-	var s int64
-	for i, cap := range w.disks {
-		if !w.frozen[i] {
-			s += cap
-		}
-	}
-	return s
 }
 
 func (w *world) ownsRange(disk int) bool {
@@ -243,21 +269,19 @@ func (w *world) destDelta(space, idx, kind, dest int) int {
 	}
 }
 
-func (w *world) canAccept(space, dest int, size int64, delta int) bool {
-	if dest < 0 || dest >= len(w.disks) || w.frozen[dest] {
-		return false
-	}
-	if w.used[dest]+size > w.disks[dest] {
-		return false
-	}
-	return w.rangeCount(space, dest)+delta <= MAX_RANGES_PER_DISK
-}
-
 func (w *world) canTake(space, idx, kind, dest int, size int64) bool {
 	if dest == w.spaces[space].ranges[idx].disk {
 		return false
 	}
-	return w.canAccept(space, dest, size, w.destDelta(space, idx, kind, dest))
+	return /* world.canAccept */ func(space, dest int, size int64, delta int) bool {
+		if dest < 0 || dest >= len(w.disks) || w.frozen[dest] {
+			return false
+		}
+		if w.used[dest]+size > w.disks[dest] {
+			return false
+		}
+		return w.rangeCount(space, dest)+delta <= MAX_RANGES_PER_DISK
+	}(space, dest, size, w.destDelta(space, idx, kind, dest))
 }
 
 func (w *world) applyCut(space, idx, kind, dest int, size int64, split []byte) bool {
@@ -315,11 +339,6 @@ func (w *world) applyCut(space, idx, kind, dest int, size int64, split []byte) b
 	}
 	w.mergeSpace(space)
 	return true
-}
-
-func (w *world) cutActual(space, idx, kind int, want int64) ([]byte, int64) {
-	split, moved, _, _ := w.previewCut(space, idx, kind, want)
-	return split, moved
 }
 
 // previewCut splits a range into the bytes that move (head for a prefix,
@@ -448,85 +467,6 @@ func (w *world) mergeSpace(space int) {
 	}
 }
 
-func (w *world) neighbors(space, idx int) (left, right int, okL, okR bool) {
-	sp := &w.spaces[space]
-	n := len(sp.ranges)
-	if n < 2 {
-		return 0, 0, false, false
-	}
-	src := sp.ranges[idx].disk
-	l := sp.ranges[(idx-1+n)%n].disk
-	r := sp.ranges[(idx+1)%n].disk
-	if l != src && !w.frozen[l] {
-		left, okL = l, true
-	}
-	if r != src && !w.frozen[r] {
-		right, okR = r, true
-	}
-	return
-}
-
-func checkStructure(state State) error {
-	ids := make(map[string]struct{}, len(state.MountPoints))
-	for i, mp := range state.MountPoints {
-		if mp.StorageID == "" {
-			return xerrors.Errorf("mountpoint %d has empty StorageID", i)
-		}
-		if _, ok := ids[mp.StorageID]; ok {
-			return xerrors.Errorf("duplicate mountpoint StorageID %s", mp.StorageID)
-		}
-		ids[mp.StorageID] = struct{}{}
-		if mp.Capacity < 0 {
-			return xerrors.Errorf("mountpoint %s has negative capacity", mp.StorageID)
-		}
-	}
-	for s, ranges := range state.HashSpaces {
-		var hlen int
-		seen := make(map[string]struct{}, len(ranges))
-		for i, r := range ranges {
-			if err := checkRange(r); err != nil {
-				return xerrors.Errorf("space %d range %d: %w", s, i, err)
-			}
-			if hlen == 0 {
-				hlen = len(r.EndHash)
-			} else if len(r.EndHash) != hlen {
-				return xerrors.Errorf("space %d range %d EndHash length %d != %d", s, i, len(r.EndHash), hlen)
-			}
-			key := string(r.EndHash)
-			if _, ok := seen[key]; ok {
-				return xerrors.Errorf("space %d: duplicate EndHash at range %d", s, i)
-			}
-			seen[key] = struct{}{}
-			if _, ok := ids[r.StorageID]; !ok {
-				return xerrors.Errorf("space %d range %d: unknown StorageID %q", s, i, r.StorageID)
-			}
-		}
-		if err := checkTiling(ranges); err != nil {
-			return xerrors.Errorf("space %d: %w", s, err)
-		}
-	}
-	return nil
-}
-
-// checkTiling requires the ranges to cover the circle exactly once: in
-// EndHash order, each range starts where the one before it ends.
-func checkTiling(ranges []Range) error {
-	order := make([]int, len(ranges))
-	for i := range order {
-		order[i] = i
-	}
-	slices.SortFunc(order, func(a, b int) int {
-		return bytes.Compare(ranges[a].EndHash, ranges[b].EndHash)
-	})
-	for k, i := range order {
-		prev := order[(k-1+len(order))%len(order)]
-		if !hashEq(ranges[i].StartHash, ranges[prev].EndHash) {
-			return xerrors.Errorf("range %d starts at %x, but the range before it ends at %x", i, ranges[i].StartHash, ranges[prev].EndHash)
-		}
-	}
-	return nil
-}
-
 func splitSpanPrefix(spans []span, rangeStart []byte, want int64) (head, tail []span, headSize int64) {
 	if want <= 0 {
 		return nil, cloneSpans(spans), 0
@@ -547,7 +487,22 @@ func splitSpanPrefix(spans []span, rangeStart []byte, want int64) (head, tail []
 			acc += s.size
 			continue
 		}
-		left, right, ok := cutOneSpan(s, start, need)
+		left, right, ok := /* cutOneSpan */ func(s span, start []byte, want int64) (left, right span, ok bool) {
+			if want <= 0 || want >= s.size {
+				return span{}, span{}, false
+			}
+			r := Range{StartHash: start, EndHash: s.end, Size: s.size}
+			split := splitHash(r, want)
+			moved := s.sizeIn(start, split)
+			if moved <= 0 || moved >= s.size {
+				split = splitHashBound(r, 1, true)
+				moved = s.sizeIn(start, split)
+			}
+			if moved <= 0 || moved >= s.size || hashEq(split, start) || hashEq(split, s.end) {
+				return span{}, span{}, false
+			}
+			return s.piece(split, moved), s.piece(s.end, s.size-moved), true
+		}(s, start, need)
 		if !ok {
 			tail = append(tail, cloneSpans(spans[i:])...)
 			return head, tail, acc
@@ -558,23 +513,6 @@ func splitSpanPrefix(spans []span, rangeStart []byte, want int64) (head, tail []
 		return head, tail, acc + left.size
 	}
 	return head, nil, acc
-}
-
-func cutOneSpan(s span, start []byte, want int64) (left, right span, ok bool) {
-	if want <= 0 || want >= s.size {
-		return span{}, span{}, false
-	}
-	r := Range{StartHash: start, EndHash: s.end, Size: s.size}
-	split := splitHash(r, want)
-	moved := s.sizeIn(start, split)
-	if moved <= 0 || moved >= s.size {
-		split = splitHashMin(r, 1)
-		moved = s.sizeIn(start, split)
-	}
-	if moved <= 0 || moved >= s.size || hashEq(split, start) || hashEq(split, s.end) {
-		return span{}, span{}, false
-	}
-	return s.piece(split, moved), s.piece(s.end, s.size-moved), true
 }
 
 // spanBytesTo returns how many bytes of spans lie in (rangeStart, at].
