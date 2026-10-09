@@ -613,6 +613,9 @@ func addSealingTasks(
 		sdrMax := taskhelp.Max(cfg.Subsystems.SealSDRMaxTasks)
 
 		sdrTask := seal.NewSDRTask(full, db, sp, slr, sdrMax, cfg.Subsystems.SealSDRMinTasks)
+		if err := sdrTask.ConfigureStartPacing(cfg.Subsystems.SealSDRMinStartInterval, cfg.Subsystems.SealSDRStartJitter, os.Getenv("CURIO_NODE_NAME"), machineHostPort); err != nil {
+			return nil, nil, sp, nil, nil, nil, nil, xerrors.Errorf("configuring SDR start pacing: %w", err)
+		}
 		keyTask := unseal.NewTaskUnsealSDR(slr, db, sdrMax, full)
 
 		activeTasks = append(activeTasks, sdrTask, keyTask)
