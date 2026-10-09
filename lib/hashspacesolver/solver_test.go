@@ -318,6 +318,27 @@ func TestRepairTooManyRanges(t *testing.T) {
 	require.LessOrEqual(t, rangeCountOf(out, 0, 1), MAX_RANGES_PER_DISK)
 }
 
+func TestRepairDonatesEmptyRange(t *testing.T) {
+	end := make([]byte, 18)
+	size := make([]int64, 18)
+	owner := make([]int, 18)
+	for i := range end {
+		end[i] = byte((i + 1) * 10)
+		size[i] = 10
+		owner[i] = 1 + (i/2)%2
+		if i%2 == 0 {
+			owner[i] = 0
+		}
+	}
+	size[4] = 0
+	st := mk([]int64{1000, 1000, 1000}, end, size, owner)
+	require.Equal(t, 9, rangeCountOf(st, 0, 0))
+	out, _ := solveOK(t, st, Event{Kind: EventArrive, Disk: 2})
+	for d := range out.Disks {
+		require.LessOrEqual(t, rangeCountOf(out, 0, d), MAX_RANGES_PER_DISK)
+	}
+}
+
 func TestUnknownEventDisk(t *testing.T) {
 	st := State{Disks: []int64{10}}
 	_, err := Solve(st, Event{Kind: EventArrive, Disk: 3})
