@@ -802,7 +802,7 @@ func (c *Cluster) join(ctx context.Context, drives []LocalDrive) ([]string, erro
 			}
 			hd := make([]Drive, len(drives))
 			for i, d := range drives {
-				hd[i] = Drive{Root: d.Root}
+				hd[i] = Drive{StorageID: d.StorageID, Root: d.Root}
 			}
 			st, err := FirstSetup(hd)
 			if errors.Is(err, errNoPieceDrive) {
@@ -822,35 +822,29 @@ func (c *Cluster) join(ctx context.Context, drives []LocalDrive) ([]string, erro
 			if err != nil {
 				return false, err
 			}
-			ids := make([]string, len(drives))
 			for i, d := range drives {
-				ids[i] = d.StorageID
 				deny, err := deniesPiecePark(d.Root)
 				if err != nil {
 					return false, err
 				}
 				if _, err := tx.Exec(`INSERT INTO hash_space_disk (storage_id, capacity, vacating) VALUES ($1, $2, $3)
 					ON CONFLICT (storage_id) DO UPDATE SET capacity = EXCLUDED.capacity, vacating = EXCLUDED.vacating, updated_at = NOW()`,
-					d.StorageID, st.MountpointCapacity[i], deny); err != nil {
+					d.StorageID, st.MountPoints[i].Capacity, deny); err != nil {
 					return false, err
 				}
 			}
-			return true /* storeState */, func(tx *harmonydb.Tx, st hashspacesolver.State, ids []string) error {
-				if len(st.Spaces) != len(spaceKinds) {
-					return xerrors.Errorf("expected %d hash spaces, got %d", len(spaceKinds), len(st.Spaces))
-				}
+			return true /* storeState */, func(tx *harmonydb.Tx, st hashspacesolver.State) error {
 				for s, kind := range spaceKinds {
-					sp := st.Spaces[s]
-					rs := make([]rangeRow, len(sp.Ranges))
-					for i, r := range sp.Ranges {
-						rs[i] = rangeRow{EndHash: r.EndHash, StorageID: ids[sp.Owner[i]], Size: r.Size}
+					rs := make([]rangeRow, len(st.HashSpaces[s]))
+					for i, r := range st.HashSpaces[s] {
+						rs[i] = rangeRow{EndHash: r.EndHash, StorageID: r.StorageID, Size: r.Size}
 					}
 					if err := writeSpaceRanges(tx, kind, rs); err != nil {
 						return err
 					}
 				}
 				return nil
-			}(tx, st, ids)
+			}(tx, st)
 		}
 
 		var fresh []string
