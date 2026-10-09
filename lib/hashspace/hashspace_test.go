@@ -70,7 +70,7 @@ func TestFirstSetupSkipsPieceDenied(t *testing.T) {
 
 	st, err := FirstSetup([]Drive{{Root: a}, {Root: b}})
 	require.NoError(t, err)
-	require.Equal(t, []int64{4000, 12000}, st.Disks)
+	require.Equal(t, []int64{4000, 12000}, st.MountpointCapacity)
 	for _, sp := range st.Spaces {
 		require.Len(t, sp.Ranges, 1)
 		require.Equal(t, 0, sp.Owner[0])
@@ -93,7 +93,7 @@ func TestFirstSetupArriveSkipsPieceDenied(t *testing.T) {
 		{Root: second, Capacity: 100},
 	})
 	require.NoError(t, err)
-	require.Equal(t, []int64{100, 100}, st.Disks)
+	require.Equal(t, []int64{100, 100}, st.MountpointCapacity)
 	for _, sp := range st.Spaces {
 		require.Len(t, sp.Ranges, 1)
 		require.Equal(t, 0, sp.Owner[0])
@@ -175,7 +175,7 @@ func TestFirstSetupSeedsEveryDrive(t *testing.T) {
 
 	st, err := FirstSetup([]Drive{{Root: a}, {Root: b}})
 	require.NoError(t, err)
-	require.Equal(t, []int64{4000, 12000}, st.Disks)
+	require.Equal(t, []int64{4000, 12000}, st.MountpointCapacity)
 	require.NoError(t, hashspacesolver.Validate(st))
 	require.Len(t, st.Spaces, 2)
 
@@ -231,7 +231,7 @@ func TestFirstSetupArriveDoesNotReseed(t *testing.T) {
 		{Root: second, Capacity: 100},
 	})
 	require.NoError(t, err)
-	require.Equal(t, []int64{100, 100}, st.Disks)
+	require.Equal(t, []int64{100, 100}, st.MountpointCapacity)
 	require.NoError(t, hashspacesolver.Validate(st))
 	require.Len(t, st.Spaces[0].Ranges, 1)
 	require.Len(t, st.Spaces[1].Ranges, 1)
