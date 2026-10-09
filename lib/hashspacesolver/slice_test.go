@@ -74,10 +74,10 @@ func TestLinkStarts(t *testing.T) {
 
 func TestCheckStructureRejectsBrokenTiling(t *testing.T) {
 	st := mk([]int64{10, 10}, []byte{0x40, 0x80}, []int64{1, 1}, []int{0, 1})
-	st.Spaces[0].Ranges[1].StartHash = h(0x50)
+	st.HashSpaces[0][1].StartHash = h(0x50)
 	require.Error(t, Validate(st))
 
 	st = mk([]int64{10, 10}, []byte{0x40, 0x80}, []int64{1, 1}, []int{0, 1})
-	st.Spaces[0].Ranges[0].StartHash = h(0x40)
+	st.HashSpaces[0][0].StartHash = h(0x40)
 	require.Error(t, Validate(st))
 }
