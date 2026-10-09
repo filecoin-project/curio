@@ -126,9 +126,11 @@ const (
 // An empty low or high bound leaves that side of the interval open.
 //
 // QueueDepth is the io_uring queue size and the maximum number of outstanding
-// statx requests for one directory. Zero selects 128.
+// statx requests for one directory. Zero selects 128. It is ignored when
+// io_uring is unavailable and the portable directory walk is used instead.
 //
-// Requires: Linux 5.15+ (all Ubuntu LTSs support it). liburing not required (reimplemented here).
+// liburing is not required. A ring is created and closed during init; if that
+// fails, calls use the portable walk.
 //
 // Performance: 1e6 files on a FireCuda 530 (low-end NVMe, ext4, cold & warm cache) took
 // 0.7s     and  10 MB RSS ( 60 total alloc), vs
@@ -141,6 +143,9 @@ const (
 //
 // RSS stays ~10 MB vs ~180 MB. Cold, both wait on disk metadata reads.
 func SumFileSizesRange(directory, low, high string, queueDepth uint32) (result Result, err error) {
+	if !ioUringAvailable {
+		return sumFileSizesRangeSimple(directory, low, high, queueDepth)
+	}
 	if err = checkSumArgs(directory, low, high, queueDepth); err != nil {
 		return Result{}, err
 	}
@@ -148,63 +153,7 @@ func SumFileSizesRange(directory, low, high string, queueDepth uint32) (result R
 		queueDepth = 128
 	}
 
-	ring, err := /* newUring */ func(entries uint32) (*uring, error) {
-		var params ioUringParams
-		r1, _, errno := unix.Syscall(unix.SYS_IO_URING_SETUP, uintptr(entries), uintptr(unsafe.Pointer(&params)), 0)
-		if errno != 0 {
-			return nil, fmt.Errorf("io_uring_setup: %w", errno)
-		}
-		ringfd := int(r1)
-
-		ring := &uring{fd: ringfd, slots: make([]statSlot, entries)}
-		sqSize := int(params.SqOff.Array) + int(params.SqEntries)*4
-		cqSize := int(params.CqOff.Cqes) + int(params.CqEntries)*int(unsafe.Sizeof(ioUringCQE{}))
-		single := params.Features&ioringFeatSingleMmap != 0
-		if single && cqSize > sqSize {
-			sqSize = cqSize
-		}
-		sqRing, err := unix.Mmap(ringfd, ioringOffSQRing, sqSize, unix.PROT_READ|unix.PROT_WRITE, unix.MAP_SHARED)
-		if err != nil {
-			return nil, closeUring(ringfd, nil, nil, fmt.Errorf("mmap sq ring: %w", err))
-		}
-		ring.sqRing = sqRing
-		if single {
-			ring.cqRing = sqRing
-		} else {
-			cqRing, err := unix.Mmap(ringfd, ioringOffCQRing, cqSize, unix.PROT_READ|unix.PROT_WRITE, unix.MAP_SHARED)
-			if err != nil {
-				return nil, closeUring(ringfd, sqRing, nil, fmt.Errorf("mmap cq ring: %w", err))
-			}
-			ring.cqRing = cqRing
-		}
-		sqeSize := int(params.SqEntries) * int(unsafe.Sizeof(ioUringSQE{}))
-		sqes, err := unix.Mmap(ringfd, ioringOffSQEs, sqeSize, unix.PROT_READ|unix.PROT_WRITE, unix.MAP_SHARED)
-		if err != nil {
-			cq := []byte(nil)
-			if !single {
-				cq = ring.cqRing
-			}
-			return nil, closeUring(ringfd, sqRing, cq, fmt.Errorf("mmap sqes: %w", err))
-		}
-		ring.sqes = sqes
-
-		sqBase := unsafe.Pointer(&sqRing[0])
-		cqBase := unsafe.Pointer(&ring.cqRing[0])
-		ring.sqHead = (*uint32)(unsafe.Add(sqBase, params.SqOff.Head))
-		ring.sqTail = (*uint32)(unsafe.Add(sqBase, params.SqOff.Tail))
-		ring.sqMask = *(*uint32)(unsafe.Add(sqBase, params.SqOff.RingMask))
-		arrayOff := int(params.SqOff.Array)
-		ring.sqArray = unsafe.Slice((*uint32)(unsafe.Add(sqBase, arrayOff)), params.SqEntries)
-		for i := range ring.sqArray {
-			ring.sqArray[i] = uint32(i)
-		}
-		ring.cqHead = (*uint32)(unsafe.Add(cqBase, params.CqOff.Head))
-		ring.cqTail = (*uint32)(unsafe.Add(cqBase, params.CqOff.Tail))
-		ring.cqMask = *(*uint32)(unsafe.Add(cqBase, params.CqOff.RingMask))
-		ring.cqes = unsafe.Slice((*ioUringCQE)(unsafe.Add(cqBase, params.CqOff.Cqes)), params.CqEntries)
-		ring.tail = atomic.LoadUint32(ring.sqTail)
-		return ring, nil
-	}(queueDepth)
+	ring, err := newUring(queueDepth)
 	if err != nil {
 		return Result{}, fmt.Errorf("sum file sizes: %w", err)
 	}
@@ -219,6 +168,77 @@ func SumFileSizesRange(directory, low, high string, queueDepth uint32) (result R
 		return result, fmt.Errorf("sum file sizes: %w", err)
 	}
 	return result, nil
+}
+
+// ioUringAvailable is set when a ring can be created and closed at startup.
+// Sysctl and seccomp policies that disable io_uring leave this false.
+var ioUringAvailable bool
+
+func init() {
+	ring, err := newUring(1)
+	if err != nil {
+		return
+	}
+	_ = ring.close()
+	ioUringAvailable = true
+}
+
+func newUring(entries uint32) (*uring, error) {
+	var params ioUringParams
+	r1, _, errno := unix.Syscall(unix.SYS_IO_URING_SETUP, uintptr(entries), uintptr(unsafe.Pointer(&params)), 0)
+	if errno != 0 {
+		return nil, fmt.Errorf("io_uring_setup: %w", errno)
+	}
+	ringfd := int(r1)
+
+	ring := &uring{fd: ringfd, slots: make([]statSlot, entries)}
+	sqSize := int(params.SqOff.Array) + int(params.SqEntries)*4
+	cqSize := int(params.CqOff.Cqes) + int(params.CqEntries)*int(unsafe.Sizeof(ioUringCQE{}))
+	single := params.Features&ioringFeatSingleMmap != 0
+	if single && cqSize > sqSize {
+		sqSize = cqSize
+	}
+	sqRing, err := unix.Mmap(ringfd, ioringOffSQRing, sqSize, unix.PROT_READ|unix.PROT_WRITE, unix.MAP_SHARED)
+	if err != nil {
+		return nil, closeUring(ringfd, nil, nil, fmt.Errorf("mmap sq ring: %w", err))
+	}
+	ring.sqRing = sqRing
+	if single {
+		ring.cqRing = sqRing
+	} else {
+		cqRing, err := unix.Mmap(ringfd, ioringOffCQRing, cqSize, unix.PROT_READ|unix.PROT_WRITE, unix.MAP_SHARED)
+		if err != nil {
+			return nil, closeUring(ringfd, sqRing, nil, fmt.Errorf("mmap cq ring: %w", err))
+		}
+		ring.cqRing = cqRing
+	}
+	sqeSize := int(params.SqEntries) * int(unsafe.Sizeof(ioUringSQE{}))
+	sqes, err := unix.Mmap(ringfd, ioringOffSQEs, sqeSize, unix.PROT_READ|unix.PROT_WRITE, unix.MAP_SHARED)
+	if err != nil {
+		cq := []byte(nil)
+		if !single {
+			cq = ring.cqRing
+		}
+		return nil, closeUring(ringfd, sqRing, cq, fmt.Errorf("mmap sqes: %w", err))
+	}
+	ring.sqes = sqes
+
+	sqBase := unsafe.Pointer(&sqRing[0])
+	cqBase := unsafe.Pointer(&ring.cqRing[0])
+	ring.sqHead = (*uint32)(unsafe.Add(sqBase, params.SqOff.Head))
+	ring.sqTail = (*uint32)(unsafe.Add(sqBase, params.SqOff.Tail))
+	ring.sqMask = *(*uint32)(unsafe.Add(sqBase, params.SqOff.RingMask))
+	arrayOff := int(params.SqOff.Array)
+	ring.sqArray = unsafe.Slice((*uint32)(unsafe.Add(sqBase, arrayOff)), params.SqEntries)
+	for i := range ring.sqArray {
+		ring.sqArray[i] = uint32(i)
+	}
+	ring.cqHead = (*uint32)(unsafe.Add(cqBase, params.CqOff.Head))
+	ring.cqTail = (*uint32)(unsafe.Add(cqBase, params.CqOff.Tail))
+	ring.cqMask = *(*uint32)(unsafe.Add(cqBase, params.CqOff.RingMask))
+	ring.cqes = unsafe.Slice((*ioUringCQE)(unsafe.Add(cqBase, params.CqOff.Cqes)), params.CqEntries)
+	ring.tail = atomic.LoadUint32(ring.sqTail)
+	return ring, nil
 }
 
 func (ring *uring) close() error {
