@@ -48,11 +48,8 @@ func newWorld(state State) (*world, error) {
 			var hlen int
 			seen := make(map[string]struct{}, len(sp.Ranges))
 			for i, r := range sp.Ranges {
-				if r.Size < 0 {
-					return xerrors.Errorf("space %d range %d has negative size", s, i)
-				}
-				if len(r.EndHash) == 0 {
-					return xerrors.Errorf("space %d range %d has empty EndHash", s, i)
+				if err := checkRange(r); err != nil {
+					return xerrors.Errorf("space %d range %d: %w", s, i, err)
 				}
 				if hlen == 0 {
 					hlen = len(r.EndHash)
@@ -67,6 +64,9 @@ func newWorld(state State) (*world, error) {
 				if sp.Owner[i] < 0 || sp.Owner[i] >= len(state.Disks) {
 					return xerrors.Errorf("space %d range %d owner %d out of range", s, i, sp.Owner[i])
 				}
+			}
+			if err := checkTiling(sp.Ranges); err != nil {
+				return xerrors.Errorf("space %d: %w", s, err)
 			}
 		}
 		return nil
@@ -108,7 +108,7 @@ func newWorld(state State) (*world, error) {
 func cloneRanges(in []Range) []Range {
 	out := make([]Range, len(in))
 	for i, r := range in {
-		out[i] = Range{EndHash: cloneHash(r.EndHash), Size: r.Size}
+		out[i] = Range{StartHash: cloneHash(r.StartHash), EndHash: cloneHash(r.EndHash), Size: r.Size}
 	}
 	return out
 }
@@ -135,7 +135,7 @@ func (w *world) snapshot() State {
 }
 
 func (w *world) startHash(space, i int) []byte {
-	return StartHash(w.spaces[space].ranges, i)
+	return cloneHash(w.spaces[space].ranges[i].StartHash)
 }
 
 func (w *world) free(d int) int64 {
@@ -282,17 +282,18 @@ func (w *world) applyCut(space, idx, kind, dest int, size int64, split []byte) b
 		return false
 	}
 	if kind == cutPrefix {
+		sp.ranges[idx].StartHash = cloneHash(boundary)
 		sp.ranges[idx].Size -= moved
 		sp.spans[idx] = tail
 		w.used[from] -= moved
-		w.insert(space, idx, Range{EndHash: cloneHash(boundary), Size: moved}, dest, head)
+		w.insert(space, idx, Range{StartHash: start, EndHash: cloneHash(boundary), Size: moved}, dest, head)
 	} else {
 		end := cloneHash(r.EndHash)
 		sp.ranges[idx].EndHash = cloneHash(boundary)
 		sp.ranges[idx].Size -= moved
 		sp.spans[idx] = head
 		w.used[from] -= moved
-		w.insert(space, idx+1, Range{EndHash: end, Size: moved}, dest, tail)
+		w.insert(space, idx+1, Range{StartHash: cloneHash(boundary), EndHash: end, Size: moved}, dest, tail)
 	}
 	w.mergeSpace(space)
 	return true
@@ -422,6 +423,7 @@ func (w *world) mergeSpace(space int) {
 			if sp.owner[i] != sp.owner[j] || i == j {
 				continue
 			}
+			sp.ranges[j].StartHash = sp.ranges[i].StartHash
 			sp.ranges[j].Size += sp.ranges[i].Size
 			if len(sp.spans) == n {
 				sp.spans[j] = append(cloneSpans(sp.spans[i]), cloneSpans(sp.spans[j])...)
@@ -462,14 +464,12 @@ func splitSpanPrefix(spans []span, rangeStart []byte, want int64) (head, tail []
 			if want <= 0 || want >= s.size {
 				return span{}, span{}, false
 			}
-			r := Range{EndHash: s.end, Size: s.size}
-			split := splitHash(r, start, want)
-			moved := SliceSize(r, start, split)
+			r := Range{StartHash: start, EndHash: s.end, Size: s.size}
+			split := splitHash(r, want)
+			moved := sliceSize(r, start, split)
 			if moved <= 0 || moved >= s.size {
-				split = /* splitHashMin */ func(r Range, startHash []byte, prefixSize int64) []byte {
-					return splitHashBound(r, startHash, prefixSize, true)
-				}(r, start, 1)
-				moved = SliceSize(r, start, split)
+				split = splitHashBound(r, 1, true)
+				moved = sliceSize(r, start, split)
 			}
 			if moved <= 0 || moved >= s.size || hashEq(split, start) || hashEq(split, s.end) {
 				return span{}, span{}, false

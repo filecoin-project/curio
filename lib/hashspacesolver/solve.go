@@ -112,7 +112,7 @@ func (w *world) applyTransfer(t Transfer) error {
 	sp := &w.spaces[t.Space]
 	idx := -1
 	for i, r := range sp.ranges {
-		start := StartHash(sp.ranges, i)
+		start := r.StartHash
 		if /* coversInterval */ func(rStart, rEnd, tStart, tEnd []byte) bool {
 			// Full-circle transfer: start == end means the whole circle.
 			if hashEq(tStart, tEnd) {
@@ -134,7 +134,7 @@ func (w *world) applyTransfer(t Transfer) error {
 		return xerrors.Errorf("interval owned by %d, want %d", from, t.From)
 	}
 	r := sp.ranges[idx]
-	start := StartHash(sp.ranges, idx)
+	start := r.StartHash
 	if t.Size == 0 {
 		if !hashEq(t.StartHash, start) || !hashEq(t.EndHash, r.EndHash) {
 			return xerrors.Errorf("empty transfer must cover a whole range")
@@ -164,10 +164,11 @@ func (w *world) applyTransfer(t Transfer) error {
 			if !ok {
 				return xerrors.Errorf("prefix split (%x, %x] size %d", start, split, size)
 			}
+			sp.ranges[idx].StartHash = cloneHash(split)
 			sp.ranges[idx].Size -= size
 			sp.spans[idx] = tail
 			w.used[from] -= size
-			w.insert(space, idx, Range{EndHash: cloneHash(split), Size: size}, dest, head)
+			w.insert(space, idx, Range{StartHash: start, EndHash: cloneHash(split), Size: size}, dest, head)
 			w.mergeSpace(space)
 			return nil
 		}(t.Space, idx, t.EndHash, t.Size, t.To)
@@ -196,12 +197,12 @@ func (w *world) applyTransfer(t Transfer) error {
 			sp.ranges[idx].Size = kept
 			sp.spans[idx] = head
 			w.used[from] -= size
-			w.insert(space, idx+1, Range{EndHash: end, Size: size}, dest, tail)
+			w.insert(space, idx+1, Range{StartHash: cloneHash(split), EndHash: end, Size: size}, dest, tail)
 			w.mergeSpace(space)
 			return nil
 		}(t.Space, idx, t.StartHash, t.Size, t.To)
 	}
-	left := SliceSize(r, start, t.StartHash)
+	left := sliceSize(r, start, t.StartHash)
 	if left <= 0 || left+t.Size >= r.Size {
 		return xerrors.Errorf("transfer must be a prefix, suffix, or whole of one range")
 	}
@@ -222,11 +223,12 @@ func (w *world) applyTransfer(t Transfer) error {
 		if !ok {
 			return xerrors.Errorf("middle split at %x", midEnd)
 		}
+		sp.ranges[idx].StartHash = cloneHash(midEnd)
 		sp.ranges[idx].Size = right
 		sp.spans[idx] = tail
 		w.used[from] -= mid
-		w.insert(space, idx, Range{EndHash: cloneHash(midEnd), Size: mid}, dest, midSpans)
-		sp.ranges = slices.Insert(sp.ranges, idx, Range{EndHash: cloneHash(midStart), Size: left})
+		w.insert(space, idx, Range{StartHash: cloneHash(midStart), EndHash: cloneHash(midEnd), Size: mid}, dest, midSpans)
+		sp.ranges = slices.Insert(sp.ranges, idx, Range{StartHash: start, EndHash: cloneHash(midStart), Size: left})
 		sp.owner = slices.Insert(sp.owner, idx, from)
 		sp.spans = slices.Insert(sp.spans, idx, head)
 		w.mergeSpace(space)
