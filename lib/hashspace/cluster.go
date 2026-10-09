@@ -831,7 +831,7 @@ func (c *Cluster) join(ctx context.Context, drives []LocalDrive) ([]string, erro
 				}
 				if _, err := tx.Exec(`INSERT INTO hash_space_disk (storage_id, capacity, vacating) VALUES ($1, $2, $3)
 					ON CONFLICT (storage_id) DO UPDATE SET capacity = EXCLUDED.capacity, vacating = EXCLUDED.vacating, updated_at = NOW()`,
-					d.StorageID, st.Disks[i], deny); err != nil {
+					d.StorageID, st.MountpointCapacity[i], deny); err != nil {
 					return false, err
 				}
 			}
