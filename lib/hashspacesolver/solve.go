@@ -141,7 +141,14 @@ func (w *world) applyTransfer(t Transfer) error {
 		}
 		return w.splitMoveSuffix(t.Space, idx, t.StartHash, t.Size, t.To)
 	}
-	left := SliceSize(r, start, t.StartHash)
+	left, okL := spanBytesTo(sp.spans[idx], start, t.StartHash)
+	end, okR := spanBytesTo(sp.spans[idx], start, t.EndHash)
+	if !okL || !okR {
+		return xerrors.Errorf("transfer (%x, %x] is not inside one range", t.StartHash, t.EndHash)
+	}
+	if end-left != t.Size {
+		return xerrors.Errorf("transfer (%x, %x] size %d, range holds %d there", t.StartHash, t.EndHash, t.Size, end-left)
+	}
 	if left <= 0 || left+t.Size >= r.Size {
 		return xerrors.Errorf("transfer must be a prefix, suffix, or whole of one range")
 	}
