@@ -19,6 +19,25 @@ type span struct {
 	end    []byte
 	size   int64
 	origin int
+	// base is the input range this span was cut from. Sizes inside a span
+	// come from base, so every cut order yields the same bytes per hash.
+	base Range
+}
+
+// sizeIn returns how many of s's bytes lie in (from, to]. Both bounds must be
+// on s's arc.
+func (s span) sizeIn(from, to []byte) int64 {
+	return sliceSize(s.base, from, to)
+}
+
+// piece returns the part of s ending at end with size bytes.
+func (s span) piece(end []byte, size int64) span {
+	return span{
+		end:    cloneHash(end),
+		size:   size,
+		origin: s.origin,
+		base:   cloneRange(s.base),
+	}
 }
 
 type spaceWorld struct {
@@ -89,26 +108,31 @@ func newWorld(state State) (*world, error) {
 			owner:  append([]int(nil), sp.Owner...),
 		}
 		w.sortSpace(s)
-		w.mergeSpace(s)
-		for i, r := range w.spaces[s].ranges {
-			w.used[w.spaces[s].owner[i]] += r.Size
-		}
 		w.spaces[s].spans = make([][]span, len(w.spaces[s].ranges))
 		for i, r := range w.spaces[s].ranges {
 			w.spaces[s].spans[i] = []span{{
 				end:    cloneHash(r.EndHash),
 				size:   r.Size,
 				origin: w.spaces[s].owner[i],
+				base:   cloneRange(r),
 			}}
+		}
+		w.mergeSpace(s)
+		for i, r := range w.spaces[s].ranges {
+			w.used[w.spaces[s].owner[i]] += r.Size
 		}
 	}
 	return w, nil
 }
 
+func cloneRange(r Range) Range {
+	return Range{StartHash: cloneHash(r.StartHash), EndHash: cloneHash(r.EndHash), Size: r.Size}
+}
+
 func cloneRanges(in []Range) []Range {
 	out := make([]Range, len(in))
 	for i, r := range in {
-		out[i] = Range{StartHash: cloneHash(r.StartHash), EndHash: cloneHash(r.EndHash), Size: r.Size}
+		out[i] = cloneRange(r)
 	}
 	return out
 }
@@ -470,17 +494,15 @@ func splitSpanPrefix(spans []span, rangeStart []byte, want int64) (head, tail []
 			}
 			r := Range{StartHash: start, EndHash: s.end, Size: s.size}
 			split := splitHash(r, want)
-			moved := sliceSize(r, start, split)
+			moved := s.sizeIn(start, split)
 			if moved <= 0 || moved >= s.size {
 				split = splitHashBound(r, 1, true)
-				moved = sliceSize(r, start, split)
+				moved = s.sizeIn(start, split)
 			}
 			if moved <= 0 || moved >= s.size || hashEq(split, start) || hashEq(split, s.end) {
 				return span{}, span{}, false
 			}
-			left = span{end: split, size: moved, origin: s.origin}
-			right = span{end: cloneHash(s.end), size: s.size - moved, origin: s.origin}
-			return left, right, true
+			return s.piece(split, moved), s.piece(s.end, s.size-moved), true
 		}(s, start, need)
 		if !ok {
 			tail = append(tail, cloneSpans(spans[i:])...)
@@ -492,6 +514,25 @@ func splitSpanPrefix(spans []span, rangeStart []byte, want int64) (head, tail []
 		return head, tail, acc + left.size
 	}
 	return head, nil, acc
+}
+
+// spanBytesTo returns how many bytes of spans lie in (rangeStart, at].
+func spanBytesTo(spans []span, rangeStart, at []byte) (int64, bool) {
+	var acc int64
+	for i, s := range spans {
+		start := rangeStart
+		if i > 0 {
+			start = spans[i-1].end
+		}
+		if hashEq(at, s.end) {
+			return acc + s.size, true
+		}
+		if pointInArc(start, s.end, at) {
+			return acc + s.sizeIn(start, at), true
+		}
+		acc += s.size
+	}
+	return 0, false
 }
 
 // splitSpansAt divides spans so the prefix has size leftSize and ends at `at`.
@@ -521,8 +562,11 @@ func splitSpansAt(spans []span, rangeStart, at []byte, leftSize int64) (head, ta
 		if taken <= 0 || taken >= s.size || hashEq(at, start) || hashEq(at, s.end) {
 			return nil, nil, false
 		}
-		head = append(head, span{end: cloneHash(at), size: taken, origin: s.origin})
-		tail = append(tail, span{end: cloneHash(s.end), size: s.size - taken, origin: s.origin})
+		if !pointInArc(start, s.end, at) || s.sizeIn(start, at) != taken {
+			return nil, nil, false
+		}
+		head = append(head, s.piece(at, taken))
+		tail = append(tail, s.piece(s.end, s.size-taken))
 		tail = append(tail, cloneSpans(spans[i+1:])...)
 		return head, tail, true
 	}
@@ -530,7 +574,7 @@ func splitSpansAt(spans []span, rangeStart, at []byte, leftSize int64) (head, ta
 }
 
 func cloneSpan(s span) span {
-	return span{end: cloneHash(s.end), size: s.size, origin: s.origin}
+	return s.piece(s.end, s.size)
 }
 
 func cloneSpans(in []span) []span {
