@@ -250,12 +250,16 @@ func (w *world) applyCut(space, idx, kind, dest int, size int64, split []byte) b
 	sp := &w.spaces[space]
 	r := sp.ranges[idx]
 	from := sp.owner[idx]
-	if size <= 0 || from == dest {
+	if from == dest {
 		return false
 	}
-	if size >= r.Size || kind == cutWhole {
+	// A whole move only changes the owner, so an empty range moves too.
+	if kind == cutWhole || size >= r.Size {
 		w.moveWhole(space, idx, dest)
 		return true
+	}
+	if size <= 0 {
+		return false
 	}
 	start := w.startHash(space, idx)
 	var head, tail []span
