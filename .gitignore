@@ -37,3 +37,5 @@ node_modules
 # VIM
 *.swpcmd/curio/internal/translations/toyextract_tmp/
 /bin/
+
+docker/skiff/.env

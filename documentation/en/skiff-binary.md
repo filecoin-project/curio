@@ -1,6 +1,8 @@
 # Skiff binary (`skiff`)
 
-Skiff is a lightweight Curio variant focused on Proof of Data Possession (PDP) storage. It shares the same database schema and configuration tables as `curio`, but omits PoRep/sealing, the deal market (MK20), and the worker JSON-RPC listener.
+Skiff is the lightweight Curio-PDP binary: PDP storage without PoRep/sealing, the deal market (MK20), or the worker JSON-RPC listener. It shares the same database schema and configuration tables as full `curio`.
+
+**Operators:** use the Dockerized [Curio-PDP](curio-pdp.md) path from [Getting Started](getting-started.md#curio-pdp-pdp-only). This page is the native binary, build tags, and flags.
 
 ## Build
 
@@ -57,7 +59,7 @@ Use a single `base` config layer. On first start, skiff **auto-seeds `base`** wi
 - `Subsystems.EnableWebGui = true` for the admin UI
 - `HTTP.Enable = true` for the public `/pdp/*` API
 
-See [Enable PDP](experimental-features/Enable-PDP.md) for full-stack Curio deployment, or the [Curio-PDP runbook](curio-pdp.md) for the skiff PDP-only deployment (Dockerized Yugabyte), including [PDP signing wallet setup via the admin GUI](curio-pdp.md#3-pdp-signing-wallet-admin-gui).
+See [Enable PDP](experimental-features/Enable-PDP.md) for full-stack Curio deployment, or [Curio-PDP](curio-pdp.md) for the Dockerized PDP-only path (from [Getting Started](getting-started.md#curio-pdp-pdp-only)), including [PDP signing wallet setup via the admin GUI](curio-pdp.md#5-pdp-signing-wallet-admin-gui).
 
 ### Chain API
 
@@ -85,4 +87,4 @@ The chain node must match the skiff build network (mainnet, calibration, etc.).
 
 ## Storage
 
-Skiff does not use `storage.json`. On startup it scans the first three directory levels of each mount point for a folder named `filecoin-hot-data` (at most one per mount point). If a discovered path has no `sectorstore.json`, one is created automatically with store enabled.
+Skiff persists attached paths in `$CURIO_REPO_PATH/storage.json` (same model as full Curio). Attach any existing directory from the admin GUI (**Storage** page): enter a custom path, or pick a suggested candidate under `/data` (or `DATA_STORAGE` / `--data` / `[Subsystems].DataPath`). Paths are **not** auto-registered. Attaching a folder creates `sectorstore.json` when missing.

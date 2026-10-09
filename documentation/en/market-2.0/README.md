@@ -64,7 +64,7 @@ Operational note:
 
 Current integration surface:
 
-1. DDO uses `CurioDealViewV1` today.
+1. DDO uses `CurioDealViewV1` before and after NV29. Its deprecated `allocationId` field is always `0` from NV29 onward.
 2. Additional interfaces may be introduced in future product/version evolution without changing the top-level Market 2.0 deal model.
 
 ### Curio Product Developers

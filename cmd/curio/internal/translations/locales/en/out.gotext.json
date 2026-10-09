@@ -534,13 +534,6 @@
             "fuzzy": true
         },
         {
-            "id": "Create a new offline verified DDO deal for Curio",
-            "message": "Create a new offline verified DDO deal for Curio",
-            "translation": "Create a new offline verified DDO deal for Curio",
-            "translatorComment": "Copied from source.",
-            "fuzzy": true
-        },
-        {
             "id": "Create a provider voucher",
             "message": "Create a provider voucher",
             "translation": "Create a provider voucher",
@@ -2121,13 +2114,6 @@
             "fuzzy": true
         },
         {
-            "id": "Remove unsealed copies of sector containing this deal",
-            "message": "Remove unsealed copies of sector containing this deal",
-            "translation": "Remove unsealed copies of sector containing this deal",
-            "translatorComment": "Copied from source.",
-            "fuzzy": true
-        },
-        {
             "id": "Resolve each piece CID to sector(s) via market_piece_deal, then set target_unseal_state for those sectors.\n   Accepts piece CID v1 or v2. Use --target-state to specify the desired state (true or false). Request all at once to minimize the sectors needed to be unsealed (if you have pieces stored in multiple sectors).\n   Use --stdin to read piece CIDs one per line from stdin (for large lists).",
             "message": "Resolve each piece CID to sector(s) via market_piece_deal, then set target_unseal_state for those sectors.\n   Accepts piece CID v1 or v2. Use --target-state to specify the desired state (true or false). Request all at once to minimize the sectors needed to be unsealed (if you have pieces stored in multiple sectors).\n   Use --stdin to read piece CIDs one per line from stdin (for large lists).",
             "translation": "Resolve each piece CID to sector(s) via market_piece_deal, then set target_unseal_state for those sectors.\n   Accepts piece CID v1 or v2. Use --target-state to specify the desired state (true or false). Request all at once to minimize the sectors needed to be unsealed (if you have pieces stored in multiple sectors).\n   Use --stdin to read piece CIDs one per line from stdin (for large lists).",
@@ -2322,13 +2308,6 @@
             "id": "Skip wallet setup for now",
             "message": "Skip wallet setup for now",
             "translation": "Skip wallet setup for now",
-            "translatorComment": "Copied from source.",
-            "fuzzy": true
-        },
-        {
-            "id": "Specify actor address for the deal",
-            "message": "Specify actor address for the deal",
-            "translation": "Specify actor address for the deal",
             "translatorComment": "Copied from source.",
             "fuzzy": true
         },
@@ -3178,13 +3157,6 @@
             "fuzzy": true
         },
         {
-            "id": "indicates that deal index should not be announced to the IPNI",
-            "message": "indicates that deal index should not be announced to the IPNI",
-            "translation": "indicates that deal index should not be announced to the IPNI",
-            "translatorComment": "Copied from source.",
-            "fuzzy": true
-        },
-        {
             "id": "initialize the path first",
             "message": "initialize the path first",
             "translation": "initialize the path first",
@@ -3335,13 +3307,6 @@
             "id": "source config layer",
             "message": "source config layer",
             "translation": "source config layer",
-            "translatorComment": "Copied from source.",
-            "fuzzy": true
-        },
-        {
-            "id": "start epoch by when the deal should be proved by provider on-chain (default: 2 days from now)",
-            "message": "start epoch by when the deal should be proved by provider on-chain (default: 2 days from now)",
-            "translation": "start epoch by when the deal should be proved by provider on-chain (default: 2 days from now)",
             "translatorComment": "Copied from source.",
             "fuzzy": true
         },

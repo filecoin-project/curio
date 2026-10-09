@@ -38,7 +38,7 @@ var commPFixtures = []struct {
 	{786432, 1048576, "baga6ea4seaqdqltvzfcyx5nu3o6yazc6ftuxt6xkhwjywatjmjrbj6shwsqlcaq"},
 	{1040384, 1048576, "baga6ea4seaqio7pi5twddpb4qevcestrwtc77nuou7o2xilhkhkj46irbsolaoq"},
 	{4161536, 4194304, "baga6ea4seaqoarx7s4i2azmftkspmosawixgqg3frdo3iugalasu5burrgu3qbq"},
-	// 32 MiB padded: the production cache threshold (MinSizeForCache)
+	// 32 MiB padded: the production cache threshold
 	{33292288, 33554432, "baga6ea4seaqgseawqou6toeg5spmgnjsamjiqq2bhbamfjtj5e67ytnncwuasiq"},
 	// 128 MiB padded
 	{133169152, 134217728, "baga6ea4seaqk3bkri6x5kqcxezyq63v7ct37rhlsb7pgynmtifmwqivbhvq4why"},

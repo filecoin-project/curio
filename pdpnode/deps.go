@@ -157,7 +157,7 @@ func Open(ctx context.Context, cctx *cli.Context) (*Deps, error) {
 		return nil, xerrors.Errorf("start index store: %w", err)
 	}
 
-	hs, err := NewHashSpace(ctx, db, localStore, si, http.Header(sa))
+	hs, err := NewHashSpace(ctx, db, localStore, si, sa)
 	if err != nil {
 		return nil, xerrors.Errorf("hash space: %w", err)
 	}

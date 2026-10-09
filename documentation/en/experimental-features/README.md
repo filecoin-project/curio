@@ -18,6 +18,10 @@ Current experimental features are listed below.
 [gpu-over-provisioning.md](gpu-over-provisioning.md)
 {% endcontent-ref %}
 
+{% content-ref url="Enable-PDP.md" %}
+[Enable-PDP.md](Enable-PDP.md)
+{% endcontent-ref %}
+
 {% content-ref url="Snark-Market.md" %}
 [Snark-Market.md](Snark-Market.md)
 {% endcontent-ref %}

@@ -280,9 +280,9 @@ description: The default curio configuration
   # type: bool
   #EnablePDP = false
 
-  # DataPath is the root directory Curio-PDP scans for writable storage locations.
-  # The node treats this directory and every subdirectory as a candidate store path.
-  # Overridden by the DATA_STORAGE env var and the --data CLI flag. (Default: /data)
+  # DataPath is the preferred root for Curio-PDP storage folder candidates in the admin GUI.
+  # Operators can also attach any existing path via the Storage page. Candidate scanning is
+  # overridden by the DATA_STORAGE env var and the --data CLI flag. (Default: /data)
   #
   # type: string
   #DataPath = ""
@@ -595,10 +595,10 @@ description: The default curio configuration
   #DelegateTLS = false
 
   # ReadTimeout is the maximum duration for reading the entire or next request, including body, from the client.
-  # Time duration string (e.g., "1h2m3s") in TOML format. (Default: "30m0s")
+  # Time duration string (e.g., "1h2m3s") in TOML format. (Default: "2h0m0s")
   #
   # type: time.Duration
-  #ReadTimeout = "30m0s"
+  #ReadTimeout = "2h0m0s"
 
   # IdleTimeout is the maximum duration of an idle session. If set, idle connections are closed after this duration.
   # Time duration string (e.g., "1h2m3s") in TOML format. (Default: "30m0s")
@@ -835,13 +835,13 @@ description: The default curio configuration
       # The network indexer web UI URL for viewing published announcements
       #
       # type: []string
-      #ServiceURL = ["https://cid.contact", "https://filecoinpin.contact"]
+      #ServiceURL = ["https://cid.contact"]
 
       # The list of URLs of indexing nodes to announce to. This is a list of hosts we talk to tell them about new
       # heads.
       #
       # type: []string
-      #DirectAnnounceURLs = ["https://cid.contact/ingest/announce", "https://filecoinpin.contact/announce"]
+      #DirectAnnounceURLs = ["https://cid.contact/ingest/announce"]
 
     # Indexing configuration for deal indexing
     #

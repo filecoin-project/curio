@@ -42,7 +42,8 @@ path = "tests/c2.rs"
 version = "^0.3.11"
 
 [dependencies.sppark]
-version = "^0.1.13"
+git = "https://github.com/curiostorage/sppark.git"
+rev = "813d73cfcb3afdc166c00960b37734b23504ac96"
 features = ["cuda"]
 
 [build-dependencies.cc]
@@ -50,5 +51,6 @@ version = "^1.0.70"
 features = ["parallel"]
 
 [build-dependencies.sppark]
-version = "^0.1.13"
+git = "https://github.com/curiostorage/sppark.git"
+rev = "813d73cfcb3afdc166c00960b37734b23504ac96"
 features = ["build"]

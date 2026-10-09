@@ -41,22 +41,25 @@ func FirstSetup(drives []Drive) (hashspacesolver.State, error) {
 			return hashspacesolver.State{}, err
 		}
 		caps[i] = cap
-		openOK, err := fileExists(filepath.Join(d.Root, DIR_OPEN, layoutFile))
+		hasBoth, hasNeither, err := /* layoutPresence */ func(root string) (hasBoth, hasNeither bool, err error) {
+			openOK, err := fileExists(filepath.Join(root, DIR_OPEN, layoutFile))
+			if err != nil {
+				return false, false, err
+			}
+			aclOK, err := fileExists(filepath.Join(root, DIR_ACL, layoutFile))
+			if err != nil {
+				return false, false, err
+			}
+			if openOK && aclOK {
+				return true, false, nil
+			}
+			if !openOK && !aclOK {
+				return false, true, nil
+			}
+			return false, false, xerrors.Errorf("%s has a layout for only one hash space", root)
+		}(d.Root)
 		if err != nil {
 			return hashspacesolver.State{}, err
-		}
-		aclOK, err := fileExists(filepath.Join(d.Root, DIR_ACL, layoutFile))
-		if err != nil {
-			return hashspacesolver.State{}, err
-		}
-		var hasBoth, hasNeither bool
-		switch {
-		case openOK && aclOK:
-			hasBoth = true
-		case !openOK && !aclOK:
-			hasNeither = true
-		default:
-			return hashspacesolver.State{}, xerrors.Errorf("%s has a layout for only one hash space", d.Root)
 		}
 		both[i] = hasBoth
 		if hasBoth {
@@ -84,14 +87,14 @@ func FirstSetup(drives []Drive) (hashspacesolver.State, error) {
 		if err != nil {
 			return hashspacesolver.State{}, err
 		}
-		positive := false
-		for _, c := range seedCaps {
-			if c > 0 {
-				positive = true
-				break
+		if ! /* anyPositive */ func(caps []int64) bool {
+			for _, c := range caps {
+				if c > 0 {
+					return true
+				}
 			}
-		}
-		if !positive {
+			return false
+		}(seedCaps) {
 			return hashspacesolver.State{}, errNoPieceDrive
 		}
 		st, err := /* seedState */ func(caps, seedCaps []int64) (hashspacesolver.State, error) {
@@ -124,46 +127,48 @@ func FirstSetup(drives []Drive) (hashspacesolver.State, error) {
 		}
 		return st, nil
 	case nBoth == len(drives):
-		// loadState
-		perSpace, _, err := readOwned(drives, nil)
-		if err != nil {
-			return hashspacesolver.State{}, err
-		}
-		return stateFromOwned(caps, perSpace)
-	default:
-		// arriveNew
-		perSpace, used, err := readOwned(drives, both)
-		if err != nil {
-			return hashspacesolver.State{}, err
-		}
-		st, err := stateFromOwned(caps, perSpace)
-		if err != nil {
-			return hashspacesolver.State{}, err
-		}
-		for i, ok := range both {
-			if ok {
-				continue
-			}
-			deny, err := deniesPiecePark(drives[i].Root)
+		return /* loadState */ func(drives []Drive, caps []int64) (hashspacesolver.State, error) {
+			perSpace, _, err := readOwned(drives, nil)
 			if err != nil {
 				return hashspacesolver.State{}, err
 			}
-			if deny {
-				continue
-			}
-			res, err := hashspacesolver.Solve(st, hashspacesolver.Event{
-				Kind: hashspacesolver.EventArrive,
-				Disk: i,
-			})
+			return stateFromOwned(caps, perSpace)
+		}(drives, caps)
+	default:
+		return /* arriveNew */ func(drives []Drive, caps []int64, hasLayout []bool) (hashspacesolver.State, error) {
+			perSpace, used, err := readOwned(drives, hasLayout)
 			if err != nil {
-				return hashspacesolver.State{}, xerrors.Errorf("arrive disk %d: %w", i, err)
+				return hashspacesolver.State{}, err
 			}
-			st = res.State
-		}
-		if err := writeState(drives, st, used); err != nil {
-			return hashspacesolver.State{}, err
-		}
-		return st, nil
+			st, err := stateFromOwned(caps, perSpace)
+			if err != nil {
+				return hashspacesolver.State{}, err
+			}
+			for i, ok := range hasLayout {
+				if ok {
+					continue
+				}
+				deny, err := deniesPiecePark(drives[i].Root)
+				if err != nil {
+					return hashspacesolver.State{}, err
+				}
+				if deny {
+					continue
+				}
+				res, err := hashspacesolver.Solve(st, hashspacesolver.Event{
+					Kind: hashspacesolver.EventArrive,
+					Disk: i,
+				})
+				if err != nil {
+					return hashspacesolver.State{}, xerrors.Errorf("arrive disk %d: %w", i, err)
+				}
+				st = res.State
+			}
+			if err := writeState(drives, st, used); err != nil {
+				return hashspacesolver.State{}, err
+			}
+			return st, nil
+		}(drives, caps, both)
 	}
 }
 
@@ -178,20 +183,24 @@ func capacityOf(d Drive) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	b, err := os.ReadFile(filepath.Join(d.Root, sectorStoreFile))
-	var maxStorage uint64
-	if err != nil {
-		if !os.IsNotExist(err) {
-			return 0, xerrors.Errorf("reading sectorstore.json in %s: %w", d.Root, err)
+	maxStorage, err := /* readMaxStorage */ func(root string) (uint64, error) {
+		b, err := os.ReadFile(filepath.Join(root, sectorStoreFile))
+		if err != nil {
+			if os.IsNotExist(err) {
+				return 0, nil
+			}
+			return 0, xerrors.Errorf("reading sectorstore.json in %s: %w", root, err)
 		}
-	} else {
 		var meta struct {
 			MaxStorage uint64
 		}
 		if err := json.Unmarshal(b, &meta); err != nil {
-			return 0, xerrors.Errorf("decoding sectorstore.json in %s: %w", d.Root, err)
+			return 0, xerrors.Errorf("decoding sectorstore.json in %s: %w", root, err)
 		}
-		maxStorage = meta.MaxStorage
+		return meta.MaxStorage, nil
+	}(d.Root)
+	if err != nil {
+		return 0, err
 	}
 	if maxStorage > 0 && maxStorage < uint64(fsCap) {
 		return int64(maxStorage), nil
@@ -260,14 +269,16 @@ func seedSpace(capacities []int64) (hashspacesolver.Space, error) {
 		} else {
 			num := new(big.Int).Mul(big.NewInt(prefix), span)
 			num.Quo(num, big.NewInt(total))
-			// intToHash
-			raw := num.Bytes()
-			end = make([]byte, HASH_BYTES)
-			if len(raw) > HASH_BYTES {
-				copy(end, raw[len(raw)-HASH_BYTES:])
-			} else {
-				copy(end[HASH_BYTES-len(raw):], raw)
-			}
+			end = /* intToHash */ func(v *big.Int) []byte {
+				raw := v.Bytes()
+				out := make([]byte, HASH_BYTES)
+				if len(raw) > HASH_BYTES {
+					copy(out, raw[len(raw)-HASH_BYTES:])
+					return out
+				}
+				copy(out[HASH_BYTES-len(raw):], raw)
+				return out
+			}(num)
 			if isZeroHash(end) {
 				return hashspacesolver.Space{}, xerrors.Errorf("disk %d capacity does not advance the hash cut", i)
 			}
@@ -363,14 +374,15 @@ func accountedLayout(root, kind string) (Layout, int64, error) {
 func stateFromOwned(caps []int64, perSpace [][]ownedRange) (hashspacesolver.State, error) {
 	spaces := make([]hashspacesolver.Space, len(perSpace))
 	for s, rs := range perSpace {
-		// sortOwned
-		for i := 1; i < len(rs); i++ {
-			j := i
-			for j > 0 && bytes.Compare(rs[j].end, rs[j-1].end) < 0 {
-				rs[j], rs[j-1] = rs[j-1], rs[j]
-				j--
+		/* sortOwned */ func(rs []ownedRange) {
+			for i := 1; i < len(rs); i++ {
+				j := i
+				for j > 0 && bytes.Compare(rs[j].end, rs[j-1].end) < 0 {
+					rs[j], rs[j-1] = rs[j-1], rs[j]
+					j--
+				}
 			}
-		}
+		}(rs)
 		ranges := make([]hashspacesolver.Range, len(rs))
 		owners := make([]int, len(rs))
 		for i, r := range rs {
@@ -403,21 +415,26 @@ func writeState(drives []Drive, st hashspacesolver.State, used [][2]int64) error
 	kinds := []string{DIR_OPEN, DIR_ACL}
 	for i, d := range drives {
 		for s, kind := range kinds {
-			// hashRangesFor
-			if s < 0 || s >= len(st.Spaces) {
-				return xerrors.Errorf("unknown space %d", s)
-			}
-			sp := st.Spaces[s]
-			ranges := make([]HashRange, 0)
-			for ri, r := range sp.Ranges {
-				if sp.Owner[ri] != i {
-					continue
+			ranges, err := /* hashRangesFor */ func(st hashspacesolver.State, space, disk int) ([]HashRange, error) {
+				if space < 0 || space >= len(st.Spaces) {
+					return nil, xerrors.Errorf("unknown space %d", space)
 				}
-				start := hashspacesolver.StartHash(sp.Ranges, ri)
-				ranges = append(ranges, HashRange{
-					Start: hexEncode(start),
-					End:   hexEncode(r.EndHash),
-				})
+				sp := st.Spaces[space]
+				out := make([]HashRange, 0)
+				for i, r := range sp.Ranges {
+					if sp.Owner[i] != disk {
+						continue
+					}
+					start := hashspacesolver.StartHash(sp.Ranges, i)
+					out = append(out, HashRange{
+						Start: hexEncode(start),
+						End:   hexEncode(r.EndHash),
+					})
+				}
+				return out, nil
+			}(st, s, i)
+			if err != nil {
+				return err
 			}
 			var folderUsed int64
 			if i < len(used) {

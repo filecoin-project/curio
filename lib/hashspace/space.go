@@ -57,51 +57,40 @@ func Load(kind string, roots []string) (*Space, error) {
 			return nil, xerrors.Errorf("duplicate storage root %s", root)
 		}
 		seen[root] = struct{}{}
-		// loadDisk
-		removeLayoutTemp(root, kind)
-		path := filepath.Join(root, kind, layoutFile)
-		layout, err := readLayout(path)
+		d, err := /* loadDisk */ func(kind, root string) (*disk, error) {
+			removeLayoutTemp(root, kind)
+			path := filepath.Join(root, kind, layoutFile)
+			layout, err := readLayout(path)
+			if err != nil {
+				return nil, err
+			}
+			info, err := os.Stat(path)
+			if err != nil {
+				return nil, err
+			}
+			d := &disk{
+				root:    root,
+				tracker: &sizeTracker{},
+				version: layout.Version,
+			}
+			d.tracker.Set(layout.Used)
+			if d.intervals, err = decodeIntervals(layout.Ranges); err != nil {
+				return nil, xerrors.Errorf("%s ranges: %w", path, err)
+			}
+			if d.moveSources, err = decodeIntervals(layout.MoveSources); err != nil {
+				return nil, xerrors.Errorf("%s move sources: %w", path, err)
+			}
+			if err := d.catchUp(kind, info.ModTime()); err != nil {
+				return nil, err
+			}
+			return d, nil
+		}(kind, root)
 		if err != nil {
-			return nil, err
-		}
-		info, err := os.Stat(path)
-		if err != nil {
-			return nil, err
-		}
-		d := &disk{
-			root:    root,
-			tracker: &sizeTracker{},
-			version: layout.Version,
-		}
-		d.tracker.Set(layout.Used)
-		if d.intervals, err = decodeIntervals(layout.Ranges); err != nil {
-			return nil, xerrors.Errorf("%s ranges: %w", path, err)
-		}
-		if d.moveSources, err = decodeIntervals(layout.MoveSources); err != nil {
-			return nil, xerrors.Errorf("%s move sources: %w", path, err)
-		}
-		if err := d.catchUp(kind, info.ModTime()); err != nil {
 			return nil, err
 		}
 		s.disks = append(s.disks, d)
 	}
-	// startFlush
-	ctx, cancel := context.WithCancel(context.Background())
-	s.cancel = cancel
-	s.wg.Add(1)
-	go func() {
-		defer s.wg.Done()
-		ticker := time.NewTicker(FLUSH_INTERVAL)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				_ = s.Flush()
-			}
-		}
-	}()
+	s.startFlush()
 	return s, nil
 }
 
@@ -149,6 +138,25 @@ func (s *Space) Close() error {
 	return s.Flush()
 }
 
+func (s *Space) startFlush() {
+	ctx, cancel := context.WithCancel(context.Background())
+	s.cancel = cancel
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		ticker := time.NewTicker(FLUSH_INTERVAL)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				_ = s.Flush()
+			}
+		}
+	}()
+}
+
 // WriteCID opens a new file for a piece CID that is not already stored.
 // The file is written to the root whose ranges contain the CID hash.
 // Close adds the written byte count. A second Close does not add again.
@@ -160,13 +168,11 @@ func (s *Space) WriteCID(c cid.Cid) (io.WriteCloser, error) {
 	if err != nil {
 		return nil, err
 	}
-	disks := s.locate(digest)
-	if len(disks) == 0 {
+	disk, ok := s.locate(digest)
+	if !ok {
 		return nil, xerrors.Errorf("cid hash is not owned by any local range")
 	}
-	// The range owner is first. A move destination is only used when no local
-	// disk owns the hash.
-	return s.writeOn(disks[0], hexHash)
+	return s.writeOn(disk, hexHash)
 }
 
 // WriteCIDOn is WriteCID on the named root, whether or not that root owns
@@ -212,36 +218,34 @@ func (s *Space) writeOn(disk *disk, hexHash string) (io.WriteCloser, error) {
 	return &cidWriter{space: s, disk: disk, f: f, tmp: tmp, final: final}, nil
 }
 
-// DeleteCID removes the CID file from every local disk that holds its hash:
-// the range owner and, while a move covers it, the destination. A missing
-// file on all of them returns os.ErrNotExist and does not change the counter.
+// DeleteCID removes the CID file and subtracts its size. A missing file
+// returns os.ErrNotExist and does not change the counter.
 func (s *Space) DeleteCID(c cid.Cid) error {
 	hexHash, digest, err := cidHashHex(c)
 	if err != nil {
 		return err
 	}
-	disks := s.locate(digest)
-	if len(disks) == 0 {
+	owner, ok := s.locate(digest)
+	if !ok {
 		return xerrors.Errorf("cid hash is not owned by any local range")
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	removed := false
-	for _, d := range disks {
-		err = removePiece(d, s.kind, hexHash)
-		if err == nil {
-			removed = true
+	err = removePiece(owner, s.kind, hexHash)
+	if err == nil || !os.IsNotExist(err) {
+		return err
+	}
+	for _, d := range s.disks {
+		if d == owner {
 			continue
 		}
+		err = removePiece(d, s.kind, hexHash)
 		if os.IsNotExist(err) {
 			continue
 		}
 		return err
 	}
-	if !removed {
-		return os.ErrNotExist
-	}
-	return nil
+	return os.ErrNotExist
 }
 
 func removePiece(d *disk, kind, hexHash string) error {
@@ -269,25 +273,21 @@ func removePiece(d *disk, kind, hexHash string) error {
 	return nil
 }
 
-// ReadCIDFileFrom opens the CID file. Disks that hold the hash come first
-// (the range owner, then a disk the bytes are moving to). Any other local
-// root is tried after those, so a stray copy is still readable.
+// ReadCIDFileFrom opens the CID file on the root that owns its hash.
+// Other local roots are probed when the file is not on that root.
 func (s *Space) ReadCIDFileFrom(c cid.Cid) (ReadSeekFile, error) {
 	hexHash, digest, err := cidHashHex(c)
 	if err != nil {
 		return nil, err
 	}
-	holders := s.locate(digest)
-	if len(holders) == 0 {
+	owner, ok := s.locate(digest)
+	if !ok {
 		return nil, xerrors.Errorf("cid hash is not owned by any local range")
 	}
-	order := append([]*disk(nil), holders...)
-	held := map[*disk]struct{}{}
-	for _, d := range holders {
-		held[d] = struct{}{}
-	}
+	order := make([]*disk, 0, len(s.disks))
+	order = append(order, owner)
 	for _, d := range s.disks {
-		if _, ok := held[d]; !ok {
+		if d != owner {
 			order = append(order, d)
 		}
 	}
@@ -308,38 +308,26 @@ func (s *Space) ReadCIDFileFrom(c cid.Cid) (ReadSeekFile, error) {
 	return nil, os.ErrNotExist
 }
 
-// locate returns the local disks that may hold digest. The range owner comes
-// first. A disk the bytes are moving to is included as well, so a hash in
-// flight is found on both ends when both disks are local.
-func (s *Space) locate(digest []byte) []*disk {
+// locate returns the root that owns digest, or a root it is being moved to when no
+// local root owns it.
+func (s *Space) locate(digest []byte) (*disk, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	var out []*disk
-	seen := map[*disk]struct{}{}
-	add := func(d *disk) {
-		if _, ok := seen[d]; ok {
-			return
-		}
-		seen[d] = struct{}{}
-		out = append(out, d)
-	}
 	for _, d := range s.disks {
 		for _, iv := range d.intervals {
 			if hashspacesolver.Contains(iv.start, iv.end, digest) {
-				add(d)
-				break
+				return d, true
 			}
 		}
 	}
 	for _, d := range s.disks {
 		for _, iv := range d.moveSources {
 			if hashspacesolver.Contains(iv.start, iv.end, digest) {
-				add(d)
-				break
+				return d, true
 			}
 		}
 	}
-	return out
+	return nil, false
 }
 
 func (s *Space) diskOn(root string) (*disk, error) {
@@ -601,30 +589,33 @@ func (d *disk) catchUp(kind string, cutoff time.Time) error {
 		if !info.IsDir() || !info.ModTime().After(cutoff) {
 			continue
 		}
-		// addNewFiles
-		sub := filepath.Join(dir, name)
-		subEntries, err := os.ReadDir(sub)
-		if err != nil {
-			return xerrors.Errorf("reading %s: %w", sub, err)
-		}
-		for _, sube := range subEntries {
-			if sube.IsDir() || strings.HasPrefix(sube.Name(), ".") {
-				continue
-			}
-			subInfo, err := sube.Info()
+		if err := /* disk.addNewFiles */ func(dir string, cutoff time.Time) error {
+			entries, err := os.ReadDir(dir)
 			if err != nil {
-				if os.IsNotExist(err) {
+				return xerrors.Errorf("reading %s: %w", dir, err)
+			}
+			for _, e := range entries {
+				if e.IsDir() || strings.HasPrefix(e.Name(), ".") {
 					continue
 				}
-				return err
+				info, err := e.Info()
+				if err != nil {
+					if os.IsNotExist(err) {
+						continue
+					}
+					return err
+				}
+				if !info.Mode().IsRegular() || !info.ModTime().After(cutoff) {
+					continue
+				}
+				if info.Size() < 0 {
+					return xerrors.Errorf("negative size for %s", e.Name())
+				}
+				d.tracker.Add(info.Size())
 			}
-			if !subInfo.Mode().IsRegular() || !subInfo.ModTime().After(cutoff) {
-				continue
-			}
-			if subInfo.Size() < 0 {
-				return xerrors.Errorf("negative size for %s", sube.Name())
-			}
-			d.tracker.Add(subInfo.Size())
+			return nil
+		}(filepath.Join(dir, name), cutoff); err != nil {
+			return err
 		}
 	}
 	return nil
