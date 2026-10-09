@@ -25,15 +25,27 @@ type Result struct {
 }
 
 func checkSumArgs(directory, low, high string, queueDepth uint32) error {
-	if strings.IndexByte(directory, 0) >= 0 ||
-		strings.IndexByte(low, 0) >= 0 ||
-		strings.IndexByte(high, 0) >= 0 {
-		return fmt.Errorf("sum file sizes: path and bounds cannot contain NUL bytes")
+	if strings.IndexByte(directory, 0) >= 0 {
+		return fmt.Errorf("sum file sizes: directory cannot contain a NUL byte")
+	}
+	if !hexCharsOnly(low) || !hexCharsOnly(high) {
+		return fmt.Errorf("sum file sizes: bounds must contain only hex characters")
 	}
 	if queueDepth > 4096 {
 		return fmt.Errorf("sum file sizes: queue depth %d exceeds 4096", queueDepth)
 	}
 	return nil
+}
+
+// hexCharsOnly reports whether s is empty or uses only hex digits (0-9, a-f, A-F).
+func hexCharsOnly(s string) bool {
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') && (c < 'A' || c > 'F') {
+			return false
+		}
+	}
+	return true
 }
 
 func hashInRange(hash, low, high string) bool {

@@ -42,11 +42,11 @@ func TestFirstSetupSeedsClaimsKeepingUsed(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok)
 
-	st, err := FirstSetup([]Drive{{Root: a, Capacity: 100_000}, {Root: b, Capacity: 300_000}})
+	st, err := FirstSetup([]Drive{{StorageID: "a", Root: a, Capacity: 100_000}, {StorageID: "b", Root: b, Capacity: 300_000}})
 	require.NoError(t, err)
-	for _, sp := range st.Spaces {
-		require.Len(t, sp.Ranges, 2)
-		require.ElementsMatch(t, []int{0, 1}, sp.Owner)
+	for _, sp := range st.HashSpaces {
+		require.Len(t, sp, 2)
+		require.ElementsMatch(t, []string{"a", "b"}, []string{sp[0].StorageID, sp[1].StorageID})
 	}
 	for root, used := range map[string]int64{a: 1000, b: 2000} {
 		ok, err := isClaim(root)
@@ -61,7 +61,7 @@ func TestFirstSetupSeedsClaimsKeepingUsed(t *testing.T) {
 
 func TestDeleteFindsMisplacedFile(t *testing.T) {
 	a, b := t.TempDir(), t.TempDir()
-	_, err := FirstSetup([]Drive{{Root: a, Capacity: 1000}, {Root: b, Capacity: 1000}})
+	_, err := FirstSetup([]Drive{{StorageID: "a", Root: a, Capacity: 1000}, {StorageID: "b", Root: b, Capacity: 1000}})
 	require.NoError(t, err)
 	sp := mustLoad(t, DIR_OPEN, a, b)
 

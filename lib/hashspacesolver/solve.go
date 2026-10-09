@@ -25,8 +25,9 @@ func Solve(state State, event Event) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	if event.Disk < 0 || event.Disk >= len(w.disks) {
-		return Result{}, xerrors.Errorf("unknown event disk %d", event.Disk)
+	disk, ok := w.diskOf[event.StorageID]
+	if !ok && event.Kind != EventBalance {
+		return Result{}, xerrors.Errorf("unknown event StorageID %q", event.StorageID)
 	}
 
 	switch event.Kind {
@@ -34,23 +35,23 @@ func Solve(state State, event Event) (Result, error) {
 		if err := w.repair(); err != nil {
 			return Result{}, err
 		}
-		w.arrive(event.Disk)
+		w.arrive(disk)
 	case EventFull:
 		if err := w.repair(); err != nil {
 			return Result{}, err
 		}
-		if err := w.shed(event.Disk); err != nil {
+		if err := w.shed(disk); err != nil {
 			return Result{}, err
 		}
 	case EventVacate:
-		if err := w.vacate(event.Disk); err != nil {
+		if err := w.vacate(disk); err != nil {
 			return Result{}, err
 		}
 	case EventAbsorb:
 		if err := w.repair(); err != nil {
 			return Result{}, err
 		}
-		w.absorb(event.Disk)
+		w.absorb(disk)
 	case EventBalance:
 		if err := w.repair(); err != nil {
 			return Result{}, err
@@ -60,7 +61,7 @@ func Solve(state State, event Event) (Result, error) {
 		if err := w.repair(); err != nil {
 			return Result{}, err
 		}
-		w.claim(event.Disk)
+		w.claim(disk)
 	default:
 		return Result{}, xerrors.Errorf("unknown event kind %d", event.Kind)
 	}
@@ -68,7 +69,7 @@ func Solve(state State, event Event) (Result, error) {
 	if err := w.repair(); err != nil {
 		return Result{}, err
 	}
-	if err := w.checkSolved(event); err != nil {
+	if err := w.checkSolved(event.Kind, disk); err != nil {
 		return Result{}, err
 	}
 
@@ -109,8 +110,9 @@ func (w *world) applyTransfer(t Transfer) error {
 	if t.Space < 0 || t.Space >= len(w.spaces) {
 		return xerrors.Errorf("unknown space %d", t.Space)
 	}
-	if t.To < 0 || t.To >= len(w.disks) {
-		return xerrors.Errorf("unknown dest disk %d", t.To)
+	to, ok := w.diskOf[t.To]
+	if !ok {
+		return xerrors.Errorf("unknown dest StorageID %q", to)
 	}
 	if t.Size < 0 {
 		return nil
@@ -135,9 +137,8 @@ func (w *world) applyTransfer(t Transfer) error {
 	if idx < 0 {
 		return xerrors.Errorf("no range covering (%x, %x]", t.StartHash, t.EndHash)
 	}
-	from := sp.owner[idx]
-	if t.From >= 0 && from != t.From {
-		return xerrors.Errorf("interval owned by %d, want %d", from, t.From)
+	if owner := w.ids[sp.ranges[idx].disk]; t.From != "" && owner != t.From {
+		return xerrors.Errorf("interval owned by %s, want %s", owner, t.From)
 	}
 	r := sp.ranges[idx]
 	start := r.StartHash
@@ -145,21 +146,21 @@ func (w *world) applyTransfer(t Transfer) error {
 		if !hashEq(t.StartHash, start) || !hashEq(t.EndHash, r.EndHash) {
 			return xerrors.Errorf("empty transfer must cover a whole range")
 		}
-		w.moveWholeSilent(t.Space, idx, t.To)
+		w.moveWholeSilent(t.Space, idx, to)
 		return nil
 	}
 	if hashEq(t.StartHash, start) && hashEq(t.EndHash, r.EndHash) {
-		w.moveWholeSilent(t.Space, idx, t.To)
+		w.moveWholeSilent(t.Space, idx, to)
 		return nil
 	}
 	if hashEq(t.StartHash, start) {
 		if t.Size >= r.Size {
-			w.moveWholeSilent(t.Space, idx, t.To)
+			w.moveWholeSilent(t.Space, idx, to)
 			return nil
 		}
 		return /* world.splitMovePrefix */ func(space, idx int, split []byte, size int64, dest int) error {
 			sp := &w.spaces[space]
-			from := sp.owner[idx]
+			from := sp.ranges[idx].disk
 			r := sp.ranges[idx]
 			if size >= r.Size {
 				w.moveWholeSilent(space, idx, dest)
@@ -177,16 +178,16 @@ func (w *world) applyTransfer(t Transfer) error {
 			w.insert(space, idx, Range{StartHash: start, EndHash: cloneHash(split), Size: size}, dest, head)
 			w.mergeSpace(space)
 			return nil
-		}(t.Space, idx, t.EndHash, t.Size, t.To)
+		}(t.Space, idx, t.EndHash, t.Size, to)
 	}
 	if hashEq(t.EndHash, r.EndHash) {
 		if t.Size >= r.Size {
-			w.moveWholeSilent(t.Space, idx, t.To)
+			w.moveWholeSilent(t.Space, idx, to)
 			return nil
 		}
 		return /* world.splitMoveSuffix */ func(space, idx int, split []byte, size int64, dest int) error {
 			sp := &w.spaces[space]
-			from := sp.owner[idx]
+			from := sp.ranges[idx].disk
 			r := sp.ranges[idx]
 			if size >= r.Size {
 				w.moveWholeSilent(space, idx, dest)
@@ -206,7 +207,7 @@ func (w *world) applyTransfer(t Transfer) error {
 			w.insert(space, idx+1, Range{StartHash: cloneHash(split), EndHash: end, Size: size}, dest, tail)
 			w.mergeSpace(space)
 			return nil
-		}(t.Space, idx, t.StartHash, t.Size, t.To)
+		}(t.Space, idx, t.StartHash, t.Size, to)
 	}
 	left, okL := spanBytesTo(sp.spans[idx], start, t.StartHash)
 	end, okR := spanBytesTo(sp.spans[idx], start, t.EndHash)
@@ -221,7 +222,7 @@ func (w *world) applyTransfer(t Transfer) error {
 	}
 	return /* world.splitMoveMiddle */ func(space, idx int, midStart, midEnd []byte, left, mid int64, dest int) error {
 		sp := &w.spaces[space]
-		from := sp.owner[idx]
+		from := sp.ranges[idx].disk
 		r := sp.ranges[idx]
 		right := r.Size - left - mid
 		if left <= 0 || mid <= 0 || right <= 0 {
@@ -241,12 +242,11 @@ func (w *world) applyTransfer(t Transfer) error {
 		sp.spans[idx] = tail
 		w.used[from] -= mid
 		w.insert(space, idx, Range{StartHash: cloneHash(midStart), EndHash: cloneHash(midEnd), Size: mid}, dest, midSpans)
-		sp.ranges = slices.Insert(sp.ranges, idx, Range{StartHash: start, EndHash: cloneHash(midStart), Size: left})
-		sp.owner = slices.Insert(sp.owner, idx, from)
+		sp.ranges = slices.Insert(sp.ranges, idx, arc{Range: Range{StartHash: start, EndHash: cloneHash(midStart), Size: left}, disk: from})
 		sp.spans = slices.Insert(sp.spans, idx, head)
 		w.mergeSpace(space)
 		return nil
-	}(t.Space, idx, t.StartHash, t.EndHash, left, t.Size, t.To)
+	}(t.Space, idx, t.StartHash, t.EndHash, left, t.Size, to)
 }
 
 func pointInArc(start, end, p []byte) bool {
@@ -261,12 +261,12 @@ func pointInArc(start, end, p []byte) bool {
 
 func (w *world) moveWholeSilent(space, idx, dest int) {
 	sp := &w.spaces[space]
-	from := sp.owner[idx]
+	from := sp.ranges[idx].disk
 	if from == dest {
 		return
 	}
 	sz := sp.ranges[idx].Size
-	sp.owner[idx] = dest
+	sp.ranges[idx].disk = dest
 	w.used[from] -= sz
 	w.used[dest] += sz
 	w.mergeSpace(space)
@@ -346,14 +346,14 @@ func (w *world) checkLimits() error {
 	return nil
 }
 
-func (w *world) checkSolved(event Event) error {
+func (w *world) checkSolved(kind EventKind, disk int) error {
 	if err := w.checkLimits(); err != nil {
 		return err
 	}
-	switch event.Kind {
+	switch kind {
 	case EventVacate:
-		if w.used[event.Disk] != 0 || w.ownsRange(event.Disk) {
-			return xerrors.Errorf("disk %d was not emptied", event.Disk)
+		if w.used[disk] != 0 || w.ownsRange(disk) {
+			return xerrors.Errorf("mountpoint %s was not emptied", w.ids[disk])
 		}
 	}
 	return nil
@@ -837,8 +837,8 @@ func (w *world) vacate(id int) error {
 			for {
 				idx := -1
 				sp := &w.spaces[s]
-				for i, o := range sp.owner {
-					if o == id && sp.ranges[i].Size == 0 {
+				for i, r := range sp.ranges {
+					if r.disk == id && r.Size == 0 {
 						idx = i
 						break
 					}
@@ -857,11 +857,11 @@ func (w *world) vacate(id int) error {
 						}
 						return 0, false
 					}
-					next := sp.owner[(idx+1)%n]
+					next := sp.ranges[(idx+1)%n].disk
 					if next != src && !w.frozen[next] {
 						return next, true
 					}
-					prev := sp.owner[(idx-1+n)%n]
+					prev := sp.ranges[(idx-1+n)%n].disk
 					if prev != src && !w.frozen[prev] {
 						return prev, true
 					}
@@ -942,7 +942,7 @@ func (w *world) vacate(id int) error {
 
 func (w *world) placeRange(space, idx, src int) bool {
 	sp := &w.spaces[space]
-	if idx < 0 || idx >= len(sp.ranges) || sp.owner[idx] != src {
+	if idx < 0 || idx >= len(sp.ranges) || sp.ranges[idx].disk != src {
 		return true
 	}
 	sz := sp.ranges[idx].Size
@@ -952,9 +952,9 @@ func (w *world) placeRange(space, idx, src int) bool {
 		if n < 2 {
 			return 0, 0, false, false
 		}
-		src := sp.owner[idx]
-		l := sp.owner[(idx-1+n)%n]
-		r := sp.owner[(idx+1)%n]
+		src := sp.ranges[idx].disk
+		l := sp.ranges[(idx-1+n)%n].disk
+		r := sp.ranges[(idx+1)%n].disk
 		if l != src && !w.frozen[l] {
 			left, okL = l, true
 		}
@@ -1004,7 +1004,7 @@ func (w *world) placeRange(space, idx, src int) bool {
 			}
 			w.applyCut(space, idx, cutPrefix, left, pref, nil)
 			idx = w.find(space, end)
-			if idx >= 0 && sp.owner[idx] == src && w.canTake(space, idx, cutWhole, right, sp.ranges[idx].Size) {
+			if idx >= 0 && sp.ranges[idx].disk == src && w.canTake(space, idx, cutWhole, right, sp.ranges[idx].Size) {
 				w.moveWhole(space, idx, right)
 				return true
 			}
@@ -1016,11 +1016,11 @@ func (w *world) placeRange(space, idx, src int) bool {
 
 func (w *world) splitOntoOthers(space, idx, src int) bool {
 	sp := &w.spaces[space]
-	if idx < 0 || idx >= len(sp.ranges) || sp.owner[idx] != src {
+	if idx < 0 || idx >= len(sp.ranges) || sp.ranges[idx].disk != src {
 		return true
 	}
 	end := cloneHash(sp.ranges[idx].EndHash)
-	for w.find(space, end) >= 0 && sp.owner[w.find(space, end)] == src {
+	for w.find(space, end) >= 0 && sp.ranges[w.find(space, end)].disk == src {
 		idx = w.find(space, end)
 		remain := sp.ranges[idx].Size
 		var best *candidate
@@ -1051,7 +1051,7 @@ func (w *world) splitOntoOthers(space, idx, src int) bool {
 			return false
 		}
 	}
-	return w.find(space, end) < 0 || sp.owner[w.find(space, end)] != src
+	return w.find(space, end) < 0 || sp.ranges[w.find(space, end)].disk != src
 }
 
 func (w *world) makeRoom(avoid int) bool {
