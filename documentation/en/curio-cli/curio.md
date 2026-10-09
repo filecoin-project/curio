@@ -7,7 +7,7 @@ USAGE:
    curio [global options] command [command options]
 
 VERSION:
-   1.28.6
+   1.29.0-rc1
 
 COMMANDS:
    cli           Execute cli commands
@@ -1238,7 +1238,6 @@ COMMANDS:
    seal            start sealing a deal sector early
    add-url         Add URL to fetch data for offline deals
    move-to-escrow  Moves funds from the deal collateral wallet into escrow with the storage market actor
-   ddo             Create a new offline verified DDO deal for Curio
    help, h         Shows a list of commands or help for one command
 
 OPTIONS:
@@ -1287,22 +1286,6 @@ OPTIONS:
    --max-fee value  maximum fee in FIL user is willing to pay for this message (default: "0.5")
    --wallet value   Specify wallet address to send the funds from
    --help, -h       show help
-```
-
-### curio market ddo
-```
-NAME:
-   curio market ddo - Create a new offline verified DDO deal for Curio
-
-USAGE:
-   curio market ddo [command options] <client-address> <allocation-id>
-
-OPTIONS:
-   --actor value           Specify actor address for the deal
-   --remove-unsealed-copy  Remove unsealed copies of sector containing this deal (default: false)
-   --skip-ipni-announce    indicates that deal index should not be announced to the IPNI (default: false)
-   --start-epoch value     start epoch by when the deal should be proved by provider on-chain (default: 2 days from now) (default: 0)
-   --help, -h              show help
 ```
 
 ## curio fetch-params

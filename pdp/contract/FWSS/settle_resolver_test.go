@@ -154,13 +154,14 @@ func TestFWSSPDPSettleTarget(t *testing.T) {
 			wantResolvable: true,
 		},
 		{
-			name:           "terminated rail ending at activation is skipped for FWSS contract bug",
+			name:           "terminated rail ending at activation settles to activation boundary",
 			settledUpTo:    997,
 			endEpoch:       1000,
 			currentEpoch:   7000,
 			activation:     1000,
 			provingPeriod:  2880,
-			wantResolvable: false,
+			wantTarget:     1000,
+			wantResolvable: true,
 		},
 		{
 			name:           "no progress skips settlement",

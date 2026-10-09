@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"net/url"
 	"runtime"
@@ -25,7 +26,9 @@ import (
 	miner13 "github.com/filecoin-project/go-state-types/builtin/v13/miner"
 	verifreg13 "github.com/filecoin-project/go-state-types/builtin/v13/verifreg"
 	"github.com/filecoin-project/go-state-types/builtin/v9/verifreg"
+	"github.com/filecoin-project/go-state-types/network"
 
+	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/lib/commcidv2"
@@ -34,7 +37,6 @@ import (
 
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/proofs"
-	"github.com/filecoin-project/lotus/chain/types"
 	lethtypes "github.com/filecoin-project/lotus/chain/types/ethtypes"
 	lpiece "github.com/filecoin-project/lotus/storage/pipeline/piece"
 )
@@ -943,6 +945,38 @@ func (d *CurioStorageDealMarket) processMK20DealAggregation(ctx context.Context)
 
 }
 
+func mk20StartEpochTooSoon(start *abi.ChainEpoch, head, expectedSealDuration abi.ChainEpoch) bool {
+	return start != nil && *start < head+expectedSealDuration
+}
+
+func (d *CurioStorageDealMarket) failMK20DealBeforeSector(ctx context.Context, id, reason string) (bool, error) {
+	return d.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		n, err := tx.Exec(`DELETE FROM market_mk20_pipeline
+			WHERE id = $1 AND aggregated = TRUE AND sector IS NULL`, id)
+		if err != nil {
+			return false, xerrors.Errorf("deleting failed MK20 pipeline: %w", err)
+		}
+		if n == 0 {
+			return false, nil
+		}
+		if n != 1 {
+			return false, xerrors.Errorf("deleting failed MK20 pipeline: expected 1 row, deleted %d", n)
+		}
+
+		n, err = tx.Exec(`UPDATE market_mk20_deal
+			SET ddo_v1 = jsonb_set(ddo_v1, '{error}', to_jsonb($2::text), TRUE)
+			WHERE id = $1 AND jsonb_typeof(ddo_v1) = 'object'`, id, reason)
+		if err != nil {
+			return false, xerrors.Errorf("storing MK20 deal failure: %w", err)
+		}
+		if n != 1 {
+			return false, xerrors.Errorf("storing MK20 deal failure: expected 1 row, updated %d", n)
+		}
+
+		return true, nil
+	}, harmonydb.OptionRetry())
+}
+
 func (d *CurioStorageDealMarket) processMK20DealIngestion(ctx context.Context) {
 
 	head, err := d.api.ChainHead(ctx)
@@ -950,6 +984,16 @@ func (d *CurioStorageDealMarket) processMK20DealIngestion(ctx context.Context) {
 		log.Errorf("getting chain head: %w", err)
 		return
 	}
+	nv, err := d.api.StateNetworkVersion(ctx, head.Key())
+	if err != nil {
+		log.Errorw("getting network version", "error", err)
+		return
+	}
+	sealDuration := d.cfg.Market.StorageMarketConfig.MK20.ExpectedPoRepSealDuration
+	if d.cfg.Ingest.DoSnap {
+		sealDuration = d.cfg.Market.StorageMarketConfig.MK20.ExpectedSnapSealDuration
+	}
+	expectedSealDuration := abi.ChainEpoch(int64(math.Ceil(sealDuration.Seconds() / float64(build.BlockDelaySecs))))
 
 	var deals []struct {
 		ID        string `db:"id"`
@@ -993,24 +1037,7 @@ func (d *CurioStorageDealMarket) processMK20DealIngestion(ctx context.Context) {
 			continue
 		}
 
-		client, err := address.NewFromString(deal.Client)
-		if err != nil {
-			log.Errorw("failed to parse client address", "deal", deal.ID, "error", err)
-			continue
-		}
-
-		clientIdAddr, err := d.api.StateLookupID(ctx, client, types.EmptyTSK)
-		if err != nil {
-			log.Errorw("failed to lookup client id", "deal", deal.ID, "error", err)
-			continue
-		}
-
-		clientId, err := address.IDFromAddress(clientIdAddr)
-		if err != nil {
-			log.Errorw("failed to parse client id", "deal", deal.ID, "error", err)
-			continue
-		}
-
+		// TODO(NV29): Remove allocation client resolution once pre-NV29 support is dropped.
 		aurl, err := url.Parse(deal.Url)
 		if err != nil {
 			log.Errorf("failed to parse aggregate url: %w", err)
@@ -1037,11 +1064,42 @@ func (d *CurioStorageDealMarket) processMK20DealIngestion(ctx context.Context) {
 		if mk20Deal.Products.DDOV1.StartEpoch != nil {
 			start = *mk20Deal.Products.DDOV1.StartEpoch
 		}
+		if mk20StartEpochTooSoon(mk20Deal.Products.DDOV1.StartEpoch, head.Height(), expectedSealDuration) {
+			reason := fmt.Sprintf("deal start epoch %d is before current chain height %d plus expected seal duration %d", start, head.Height(), expectedSealDuration)
+			failed, err := d.failMK20DealBeforeSector(ctx, deal.ID, reason)
+			if err != nil {
+				log.Errorw("failing MK20 deal before sector assignment", "deal", deal.ID, "error", err)
+				continue
+			}
+			if failed {
+				log.Warnw("MK20 deal cannot be sealed before its start epoch", "deal", deal.ID, "start_epoch", start, "head", head.Height(), "expected_seal_duration", expectedSealDuration)
+			}
+			continue
+		}
 		end := start + abi.ChainEpoch(deal.Duration)
+		// TODO(NV29): Remove allocation validation and activation-key construction once pre-NV29 support is dropped.
 		var vak *miner.VerifiedAllocationKey
-		if mk20Deal.Products.DDOV1.AllocationId != nil {
+		if nv < network.Version29 && mk20Deal.Products.DDOV1.AllocationId != nil {
+			var client address.Address
+			var clientId uint64
+			client, err = address.NewFromString(deal.Client)
+			if err != nil {
+				log.Errorw("failed to parse client address", "deal", deal.ID, "error", err)
+				continue
+			}
+			clientIdAddr, err := d.api.StateLookupID(ctx, client, head.Key())
+			if err != nil {
+				log.Errorw("failed to lookup client id", "deal", deal.ID, "error", err)
+				continue
+			}
+			clientId, err = address.IDFromAddress(clientIdAddr)
+			if err != nil {
+				log.Errorw("failed to parse client id", "deal", deal.ID, "error", err)
+				continue
+			}
+
 			allocClientID := clientId
-			alloc, err := d.api.StateGetAllocation(ctx, client, verifreg.AllocationId(*mk20Deal.Products.DDOV1.AllocationId), types.EmptyTSK)
+			alloc, err := d.api.StateGetAllocation(ctx, client, verifreg.AllocationId(*mk20Deal.Products.DDOV1.AllocationId), head.Key())
 			if err != nil {
 				log.Errorw("failed to get allocation", "deal", deal.ID, "error", err)
 				continue
@@ -1057,7 +1115,7 @@ func (d *CurioStorageDealMarket) processMK20DealIngestion(ctx context.Context) {
 					log.Errorw("bad market address to filecoin address", "deal", deal.ID, "error", cerr)
 					continue
 				}
-				cAdr, lerr := d.api.StateLookupID(ctx, fc, types.EmptyTSK)
+				cAdr, lerr := d.api.StateLookupID(ctx, fc, head.Key())
 				if lerr != nil {
 					log.Errorw("failed to lookup contract id", "deal", deal.ID, "error", lerr)
 					continue
@@ -1067,7 +1125,7 @@ func (d *CurioStorageDealMarket) processMK20DealIngestion(ctx context.Context) {
 					log.Errorw("failed to parse contract id", "deal", deal.ID, "error", ierr)
 					continue
 				}
-				alloc, err = d.api.StateGetAllocation(ctx, fc, verifreg.AllocationId(*mk20Deal.Products.DDOV1.AllocationId), types.EmptyTSK)
+				alloc, err = d.api.StateGetAllocation(ctx, fc, verifreg.AllocationId(*mk20Deal.Products.DDOV1.AllocationId), head.Key())
 				if err != nil {
 					log.Errorw("failed to get allocation via market", "deal", deal.ID, "error", err)
 					continue

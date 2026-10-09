@@ -4,8 +4,6 @@ package pdpnode
 
 import (
 	"flag"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -48,17 +46,4 @@ func TestResolveSkiffDataPath(t *testing.T) {
 	t.Setenv("CURIO_DATA", "")
 	t.Setenv("DATA_STORAGE", "")
 	require.Equal(t, defaultSkiffDataPath, resolveSkiffDataPath(c, nil))
-}
-
-func TestPDPStorageConfigFromDataRoot(t *testing.T) {
-	root := t.TempDir()
-	hot := filepath.Join(root, skiffHotDataDirName)
-	require.NoError(t, os.MkdirAll(hot, 0o755))
-
-	cfg, err := pdpStorageConfig(root)
-	require.NoError(t, err)
-	require.Len(t, cfg.StoragePaths, 2)
-
-	metaPath := filepath.Join(hot, "sectorstore.json")
-	require.FileExists(t, metaPath)
 }

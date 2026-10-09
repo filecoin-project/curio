@@ -10,7 +10,6 @@ import (
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/big"
-	verifregtypes9 "github.com/filecoin-project/go-state-types/builtin/v9/verifreg"
 	"github.com/filecoin-project/go-state-types/network"
 
 	"github.com/filecoin-project/curio/deps/config"
@@ -21,7 +20,7 @@ import (
 	"github.com/filecoin-project/lotus/chain/types"
 )
 
-// mockCommitAPI implements the minimal SubmitCommitAPI interface for testing
+// mockCommitAPI supplies wallet balances and keys for address selection tests.
 type mockCommitAPI struct {
 	walletBalances map[address.Address]big.Int
 	walletHas      map[address.Address]bool
@@ -42,14 +41,6 @@ func (m *mockCommitAPI) StateMinerInitialPledgeForSector(ctx context.Context, se
 
 func (m *mockCommitAPI) StateSectorPreCommitInfo(context.Context, address.Address, abi.SectorNumber, types.TipSetKey) (*miner.SectorPreCommitOnChainInfo, error) {
 	return nil, nil
-}
-
-func (m *mockCommitAPI) StateGetAllocation(ctx context.Context, clientAddr address.Address, allocationId verifregtypes9.AllocationId, tsk types.TipSetKey) (*verifregtypes9.Allocation, error) {
-	return nil, nil
-}
-
-func (m *mockCommitAPI) StateGetAllocationIdForPendingDeal(ctx context.Context, dealId abi.DealID, tsk types.TipSetKey) (verifregtypes9.AllocationId, error) {
-	return 0, nil
 }
 
 func (m *mockCommitAPI) StateMinerAvailableBalance(context.Context, address.Address, types.TipSetKey) (big.Int, error) {

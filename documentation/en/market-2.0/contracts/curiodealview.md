@@ -16,14 +16,14 @@ From the Curio UI, each contract is either:
 
 1. Allowing a contract enables new intake for that contract.
 2. Blocking or removing a contract stops new intake immediately.
-3. This policy applies to new submissions and deal updates that introduce DDO market verification.
+3. This policy applies to new submissions, deal updates that introduce DDO market verification, and DDO upload finalization.
 
 ### Adding a New Contract Safely
 
 Before allowing a contract, providers should verify:
 
 1. The contract implements `CurioDealViewV1` correctly.
-2. `verifyDeal` checks the same deal semantics Curio will pass in (`provider`, `client`, `piece CID`, `start epoch`, `duration`, `allocation`, finalization fields).
+2. `verifyDeal` checks the same deal semantics Curio will pass in (`provider`, `client`, `piece CID`, `start epoch`, `duration`, finalization fields) and accepts the deprecated `allocationId` as `0` from NV29 onward.
 3. `getDealState` uses the expected `Open` / `Active` / `Finalized` meanings.
 4. The contract's state transitions and finalization behavior are clear for payout and replay safety.
 
@@ -69,19 +69,19 @@ interface ICurioDealViewV1 {
 
 ## Versioning
 
-`version()` must return `1` for this interface.
+`version()` must return `1` before and after NV29. The interface and `verifyDeal` ABI remain unchanged.
 
 ## `CurioDealView` Field Semantics
 
 1. `dealId`: the market deal identifier referenced by `market_deal_id`.
 2. `state`: Curio sends `Open` during intake verification.
 3. `startEpoch`: must be `0` when unused.
-4. `allocationId`: must be `0` when unused.
+4. `allocationId`: deprecated; always `0` from NV29 onward, even when the stored deal has an allocation. Before NV29, Curio passes the retained allocation ID for a previously accepted deal, or `0` when absent. New deals must omit `allocation_id` from their DDO product.
 5. `finalizedEpoch`: must be `0` for non-finalized intake verification.
 
 ## Curio Verification Checks
 
-When `market_address` is set for a DDO deal, Curio performs read-only verification:
+When `market_address` is set for a DDO deal, Curio performs read-only verification during intake and upload finalization:
 
 1. Contract is allowlisted by the provider.
 2. `version()` is supported and returns `1`.
@@ -95,5 +95,5 @@ The interface also includes `getDealState(...)` for deal-state queries.
 ## Read-Only Boundary
 
 1. Curio does not call write methods for this verification path.
-2. This verification path only decides whether the contract accepts the proposed deal during intake.
+2. This verification path only decides whether the contract accepts the proposed deal during intake or upload finalization.
 3. Payment, settlement, and notification-driven state transitions are outside this read-only boundary.

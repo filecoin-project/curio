@@ -22,7 +22,7 @@ interface ICurioDealViewV1 {
         bytes pieceCidV2;       // Piece CID v2 bytes
         uint256 startEpoch;     // Optional Start Epoch, must be 0 when not used
         uint256 duration;       // Duration of deal in Filecoin epochs
-        uint256 allocationId;   // Optional allocation ID, must be 0 when not used
+        uint256 allocationId;   // Deprecated; must be 0 from NV29 and when unused
         uint256 finalizedEpoch; // Must be 0 when deal state is Open, Active. Must be non zero deal termination epoch
     }
 

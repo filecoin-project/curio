@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	gobig "math/big"
@@ -19,7 +20,11 @@ import (
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/big"
 	"github.com/filecoin-project/go-state-types/builtin"
+	stminer "github.com/filecoin-project/go-state-types/builtin/v19/miner"
+	stpower "github.com/filecoin-project/go-state-types/builtin/v19/power"
+	"github.com/filecoin-project/go-state-types/network"
 
+	"github.com/filecoin-project/curio/lib/curiochain"
 	"github.com/filecoin-project/curio/lib/reqcontext"
 
 	"github.com/filecoin-project/lotus/api"
@@ -46,6 +51,7 @@ var sectorsCmd = &cli.Command{
 		spcli.SectorsCheckExpireCmd(SPTActorGetter),
 		sectorsExpiredCmd, // in-house b/c chain-only is so different
 		sectorsExtendCmd,
+		sectorsUpgradeQualityCmd,
 		spcli.TerminateSectorCmd(SPTActorGetter),
 		spcli.SectorsCompactPartitionsCmd(SPTActorGetter),
 	}}
@@ -150,14 +156,17 @@ var sectorStatusCmd = &cli.Command{
 		isCC := len(sectorInfo.DeprecatedDealIDs) == 0 && sectorInfo.DealWeight.IsZero() && sectorInfo.VerifiedDealWeight.IsZero()
 		if isCC {
 			fmt.Printf("Sector Type:         %s\n", color.BlueString("CC (Committed Capacity)"))
-		} else if !sectorInfo.VerifiedDealWeight.IsZero() {
+		} else if sectorInfo.Flags&stminer.FULL_QA_POWER == 0 && !sectorInfo.VerifiedDealWeight.IsZero() {
 			fmt.Printf("Sector Type:         %s\n", color.GreenString("Verified Deals (FIL+)"))
 		} else {
 			fmt.Printf("Sector Type:         %s\n", color.CyanString("Deals"))
 		}
 
-		fmt.Printf("DealWeight:          %s\n", sectorInfo.DealWeight)
-		fmt.Printf("VerifiedDealWeight:  %s\n", sectorInfo.VerifiedDealWeight)
+		qaPower, err := curiochain.SectorQAPower(sectorInfo)
+		if err != nil {
+			return xerrors.Errorf("getting sector %d QA power: %w", id, err)
+		}
+		fmt.Printf("QAPower:             %s\n", units.BytesSize(float64(qaPower.Uint64())))
 		fmt.Printf("InitialPledge:       %s\n", types.FIL(sectorInfo.InitialPledge))
 		if sectorInfo.ExpectedDayReward != nil {
 			fmt.Printf("ExpectedDayReward:   %s\n", types.FIL(*sectorInfo.ExpectedDayReward))
@@ -636,8 +645,7 @@ var sectorsListCmd = &cli.Command{
 			tablewriter.Col("SealTime"),
 			tablewriter.Col("Events"),
 			tablewriter.Col("Deals"),
-			tablewriter.Col("DealWeight"),
-			tablewriter.Col("VerifiedPower"),
+			tablewriter.Col("QAPower"),
 			tablewriter.Col("Pledge"),
 			tablewriter.NewLineCol("Error"),
 			tablewriter.NewLineCol("RecoveryTimeout"))
@@ -649,12 +657,9 @@ var sectorsListCmd = &cli.Command{
 			_, inSSet := commitedIDs[s]
 			_, inASet := activeIDs[s]
 
-			const verifiedPowerGainMul = 9
-			dw, vp := .0, .0
-			{
-				rdw := big.Add(st.DealWeight, st.VerifiedDealWeight)
-				dw = float64(big.Div(rdw, big.NewInt(int64(st.Expiration-st.PowerBaseEpoch))).Uint64())
-				vp = float64(big.Div(big.Mul(st.VerifiedDealWeight, big.NewInt(verifiedPowerGainMul)), big.NewInt(int64(st.Expiration-st.PowerBaseEpoch))).Uint64())
+			qaPower, err := curiochain.SectorQAPower(st)
+			if err != nil {
+				return xerrors.Errorf("getting sector %d QA power: %w", s, err)
 			}
 
 			var deals int
@@ -705,11 +710,8 @@ var sectorsListCmd = &cli.Command{
 				}
 			}
 
-			if !fast && (deals > 0 || !isCC) {
-				m["DealWeight"] = units.BytesSize(dw)
-				if vp > 0 {
-					m["VerifiedPower"] = color.GreenString(units.BytesSize(vp))
-				}
+			if !fast {
+				m["QAPower"] = units.BytesSize(float64(qaPower.Uint64()))
 			}
 
 			tw.Write(m)
@@ -848,12 +850,12 @@ Extensions will be clamped at either the maximum sector extension of 3.5 years/1
 			return base + (numMult * abi.ChainEpoch(d)), nil
 		}
 
-		nv, err := fullApi.StateNetworkVersion(ctx, types.EmptyTSK)
+		nv, err := fullApi.StateNetworkVersion(ctx, head.Key())
 		if err != nil {
 			return err
 		}
 
-		activeSet, err := fullApi.StateMinerActiveSectors(ctx, maddr, types.EmptyTSK)
+		activeSet, err := fullApi.StateMinerActiveSectors(ctx, maddr, head.Key())
 		if err != nil {
 			return err
 		}
@@ -863,7 +865,7 @@ Extensions will be clamped at either the maximum sector extension of 3.5 years/1
 			activeSectorsInfo[info.SectorNumber] = info
 		}
 
-		mact, err := fullApi.StateGetActor(ctx, maddr, types.EmptyTSK)
+		mact, err := fullApi.StateGetActor(ctx, maddr, head.Key())
 		if err != nil {
 			return err
 		}
@@ -1042,24 +1044,30 @@ Extensions will be clamped at either the maximum sector extension of 3.5 years/1
 			}
 		}
 
-		verifregAct, err := fullApi.StateGetActor(ctx, builtin.VerifiedRegistryActorAddr, types.EmptyTSK)
-		if err != nil {
-			return xerrors.Errorf("failed to lookup verifreg actor: %w", err)
-		}
+		// TODO(NV29): Remove claim lookups, claim-aware batching and --drop-claims
+		// once pre-NV29 support is dropped.
+		var claimsMap map[verifreg.ClaimId]verifreg.Claim
+		var claimIdsBySector map[abi.SectorNumber][]verifreg.ClaimId
+		if nv < network.Version29 {
+			verifregAct, err := fullApi.StateGetActor(ctx, builtin.VerifiedRegistryActorAddr, head.Key())
+			if err != nil {
+				return xerrors.Errorf("failed to lookup verifreg actor: %w", err)
+			}
 
-		verifregSt, err := verifreg.Load(adtStore, verifregAct)
-		if err != nil {
-			return xerrors.Errorf("failed to load verifreg state: %w", err)
-		}
+			verifregSt, err := verifreg.Load(adtStore, verifregAct)
+			if err != nil {
+				return xerrors.Errorf("failed to load verifreg state: %w", err)
+			}
 
-		claimsMap, err := verifregSt.GetClaims(maddr)
-		if err != nil {
-			return xerrors.Errorf("failed to lookup claims for miner: %w", err)
-		}
+			claimsMap, err = verifregSt.GetClaims(maddr)
+			if err != nil {
+				return xerrors.Errorf("failed to lookup claims for miner: %w", err)
+			}
 
-		claimIdsBySector, err := verifregSt.GetClaimIdsBySector(maddr)
-		if err != nil {
-			return xerrors.Errorf("failed to lookup claim IDs by sector: %w", err)
+			claimIdsBySector, err = verifregSt.GetClaimIdsBySector(maddr)
+			if err != nil {
+				return xerrors.Errorf("failed to lookup claim IDs by sector: %w", err)
+			}
 		}
 
 		sectorsMax, err := policy.GetAddressedSectorsMax(nv)
@@ -1299,4 +1307,234 @@ func siStr(bi types.BigInt) string {
 
 	f, _ := r.Float64()
 	return fmt.Sprintf("%.3g %s", f, siUnits[i])
+}
+
+var sectorsUpgradeQualityCmd = &cli.Command{
+	Name:  "upgrade-quality",
+	Usage: "upgrade legacy sectors to full QA power",
+	Flags: []cli.Flag{
+		&cli.IntFlag{
+			Name:  "max-sectors",
+			Usage: "maximum number of sectors to upgrade",
+			Value: 0,
+		},
+		&cli.StringFlag{
+			Name:  "max-fee",
+			Usage: "maximum FIL to spend on gas per message",
+			Value: "0",
+		},
+		&cli.BoolFlag{
+			Name:  "really-do-it",
+			Usage: "must be specified for the action to take effect",
+		},
+	},
+	Action: func(cctx *cli.Context) error {
+		fullNodeAPI, closer, err := lcli.GetFullNodeAPI(cctx)
+		if err != nil {
+			return err
+		}
+		defer closer()
+		ctx := lcli.ReqContext(cctx)
+
+		maddr, err := SPTActorGetter(cctx)
+		if err != nil {
+			return err
+		}
+
+		head, err := fullNodeAPI.ChainHead(ctx)
+		if err != nil {
+			return err
+		}
+
+		tsk := head.Key()
+
+		nv, err := fullNodeAPI.StateNetworkVersion(ctx, tsk)
+		if err != nil {
+			return xerrors.Errorf("getting network version: %w", err)
+		}
+
+		if nv < network.Version29 {
+			return xerrors.Errorf("upgrade-quality requires network version 29+ (Solstice); current: %d", nv)
+		}
+
+		mf, err := types.ParseFIL(cctx.String("max-fee"))
+		if err != nil {
+			return err
+		}
+
+		spec := &api.MessageSendSpec{MaxFee: abi.TokenAmount(mf)}
+
+		mi, err := fullNodeAPI.StateMinerInfo(ctx, maddr, tsk)
+		if err != nil {
+			return xerrors.Errorf("getting miner info: %w", err)
+		}
+
+		// Load miner state once to get all (deadline, partition) locations in a single read,
+		// avoiding one StateSectorPartition RPC call per sector.
+		mact, err := fullNodeAPI.StateGetActor(ctx, maddr, tsk)
+		if err != nil {
+			return xerrors.Errorf("getting miner actor: %w", err)
+		}
+		tbs := blockstore.NewTieredBstore(blockstore.NewAPIBlockstore(fullNodeAPI), blockstore.NewMemory())
+		mas, err := miner.Load(adt.WrapStore(ctx, cbor.NewCborStore(tbs)), mact)
+		if err != nil {
+			return xerrors.Errorf("loading miner state: %w", err)
+		}
+
+		var limit bool
+		maxSectors := cctx.Int("max-sectors")
+		if maxSectors < 0 {
+			return xerrors.Errorf("max-sectors must be >= 0")
+		}
+		if maxSectors > 0 {
+			limit = true
+		}
+
+		batchSize := 12500
+
+		var faultyCount int64
+		var messages []stminer.UpgradeSectorQualityParams
+		cur := stminer.UpgradeSectorQualityParams{}
+		curCount, total := 0, 0
+		var done bool
+		if err := mas.ForEachDeadline(func(dlIdx uint64, dl miner.Deadline) error {
+			if done {
+				return nil
+			}
+			return dl.ForEachPartition(func(partIdx uint64, part miner.Partition) error {
+				if done {
+					return nil
+				}
+				active, err := part.ActiveSectors()
+				if err != nil {
+					return err
+				}
+				faulty, err := part.FaultySectors()
+				if err != nil {
+					return err
+				}
+
+				fc, err := faulty.Count()
+				if err != nil {
+					return err
+				}
+
+				faultyCount = faultyCount + int64(fc)
+
+				var upgrade *stminer.UpgradeSectorQuality
+				return active.ForEach(func(sn uint64) error {
+					if done {
+						return nil
+					}
+					info, err := mas.GetSector(abi.SectorNumber(sn))
+					if err != nil {
+						return err
+					}
+					if info == nil {
+						return xerrors.Errorf("active sector %d not found", sn)
+					}
+					if info.Expiration <= head.Height() || miner.SectorIsFullQaPower(info) {
+						return nil
+					}
+
+					if upgrade == nil {
+						cur.Upgrades = append(cur.Upgrades, stminer.UpgradeSectorQuality{
+							Deadline:  dlIdx,
+							Partition: partIdx,
+							Sectors:   bitfield.New(),
+						})
+						upgrade = &cur.Upgrades[len(cur.Upgrades)-1]
+					}
+					upgrade.Sectors.Set(sn)
+					curCount++
+					total++
+					if curCount == batchSize {
+						messages = append(messages, cur)
+						cur, curCount = stminer.UpgradeSectorQualityParams{}, 0
+						upgrade = nil
+					}
+					done = limit && total >= maxSectors
+					return nil
+				})
+			})
+		}); err != nil {
+			return xerrors.Errorf("traversing miner state: %w", err)
+		}
+		if len(cur.Upgrades) > 0 {
+			messages = append(messages, cur)
+		}
+
+		minerPower, err := fullNodeAPI.StateMinerPower(ctx, maddr, tsk)
+		if err != nil {
+			return xerrors.Errorf("getting miner power: %w", err)
+		}
+		totalPledge, qaDelta := big.Zero(), big.Zero()
+
+		// Simulate at the selected tipset to get the actor's pledge and power changes.
+		for idx := range messages {
+			sp, aerr := actors.SerializeParams(&messages[idx])
+			if aerr != nil {
+				return xerrors.Errorf("serializing params: %w", aerr)
+			}
+			msg := &types.Message{
+				From:   mi.Worker,
+				To:     maddr,
+				Method: builtin.MethodsMiner.UpgradeSectorQuality,
+				Value:  big.Zero(),
+				Params: sp,
+			}
+
+			result, err := fullNodeAPI.StateCall(ctx, msg, tsk)
+			if err != nil {
+				return xerrors.Errorf("simulating message [%d/%d]: %w", idx+1, len(messages), err)
+			}
+			if !result.MsgRct.ExitCode.IsSuccess() {
+				return xerrors.Errorf("simulating message [%d/%d] failed (exit code %s): %s", idx+1, len(messages), result.MsgRct.ExitCode, result.Error)
+			}
+			for _, call := range result.ExecutionTrace.Subcalls {
+				if call.Msg.To != builtin.StoragePowerActorAddr {
+					continue
+				}
+				switch call.Msg.Method {
+				case builtin.MethodsPower.UpdatePledgeTotal:
+					var delta abi.TokenAmount
+					if err := delta.UnmarshalCBOR(bytes.NewReader(call.Msg.Params)); err != nil {
+						return xerrors.Errorf("decoding pledge change: %w", err)
+					}
+					totalPledge = big.Add(totalPledge, delta)
+				case builtin.MethodsPower.UpdateClaimedPower:
+					var delta stpower.UpdateClaimedPowerParams
+					if err := delta.UnmarshalCBOR(bytes.NewReader(call.Msg.Params)); err != nil {
+						return xerrors.Errorf("decoding power change: %w", err)
+					}
+					qaDelta = big.Add(qaDelta, delta.QualityAdjustedDelta)
+				}
+			}
+
+			if !cctx.Bool("really-do-it") {
+				continue
+			}
+
+			smsg, err := fullNodeAPI.MpoolPushMessage(ctx, msg, spec)
+			if err != nil {
+				return xerrors.Errorf("[%d/%d] push failed: %w", idx+1, len(messages), err)
+			}
+			fmt.Printf("[%d/%d] %s\n", idx+1, len(messages), smsg.Cid())
+		}
+
+		if total == 0 {
+			fmt.Println("no active, unexpired sectors need a QA power upgrade")
+		} else if cctx.Bool("really-do-it") {
+			fmt.Printf("sent %d message(s) upgrading %d sectors\n", len(messages), total)
+		} else {
+			fmt.Printf("will send %d message(s) for %d sectors (pass --really-do-it to submit)\n", len(messages), total)
+		}
+		fmt.Printf("Sector upgrades: %d\n", total)
+		fmt.Printf("Additional pledge (estimated, excluding gas): %s\n", types.FIL(totalPledge))
+		fmt.Printf("Current miner QAP: %s\n", types.SizeStr(minerPower.MinerPower.QualityAdjPower))
+		fmt.Printf("Miner QAP after upgrades (estimated): %s\n", types.SizeStr(big.Add(minerPower.MinerPower.QualityAdjPower, qaDelta)))
+		fmt.Printf("QAP increase (estimated): %s\n", types.SizeStr(qaDelta))
+		fmt.Printf("skipped %d faulty sectors in scanned partitions\n", faultyCount)
+		return nil
+	},
 }

@@ -129,10 +129,10 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 To build Curio, you need a working installation of [Go](https://golang.org/dl/): It needs to be at-least the version specified in go.mod.
 
-Example (match `go.mod`; current repo min is **1.26.2**):
+Example (match `go.mod`; current repo min is **1.26.8**):
 
 ```shell
-wget -c https://go.dev/dl/go1.26.2.linux-amd64.tar.gz -O - | sudo tar -xz -C /usr/local
+wget -c https://go.dev/dl/go1.26.8.linux-amd64.tar.gz -O - | sudo tar -xz -C /usr/local
 ```
 
 {% hint style="info" %}
