@@ -22,7 +22,25 @@ const (
 )
 
 type CachedBackPressure struct {
-	cache *ttlcache.Cache
+	cache             *ttlcache.Cache
+	checkSector       pressureCheckFunc
+	checkMK20Pipeline pressureCheckFunc
+}
+
+type pressureCheckFunc func(context.Context, *config.CurioIngestConfig, *harmonydb.DB) (bool, error)
+
+func (c *CachedBackPressure) runSectorCheck(ctx context.Context, cfg *config.CurioIngestConfig, db *harmonydb.DB) (bool, error) {
+	if c.checkSector != nil {
+		return c.checkSector(ctx, cfg, db)
+	}
+	return c.checkSectorBackpressure(ctx, cfg, db)
+}
+
+func (c *CachedBackPressure) runMK20Check(ctx context.Context, cfg *config.CurioIngestConfig, db *harmonydb.DB) (bool, error) {
+	if c.checkMK20Pipeline != nil {
+		return c.checkMK20Pipeline(ctx, cfg, db)
+	}
+	return c.checkMK20Backpressure(ctx, cfg, db)
 }
 
 func (c *CachedBackPressure) checkSectorBackpressure(ctx context.Context, cfg *config.CurioIngestConfig, db *harmonydb.DB) (bool, error) {
@@ -109,24 +127,28 @@ func (c *CachedBackPressure) checkSectorBackpressure(ctx context.Context, cfg *c
 		return false, xerrors.Errorf("counting buffered sectors: %w", err)
 	}
 
+	return sdrQueueBackpressure(cfg, bufferedSDR, bufferedTrees, bufferedPoRep, waitDealSectors), nil
+}
+
+func sdrQueueBackpressure(cfg *config.CurioIngestConfig, bufferedSDR, bufferedTrees, bufferedPoRep, waitDealSectors int) bool {
 	if cfg.MaxQueueDealSector.Get() != 0 && waitDealSectors > cfg.MaxQueueDealSector.Get() {
 		log.Infow("backpressure", "reason", "too many wait deal sectors", "wait_deal_sectors", waitDealSectors, "max", cfg.MaxQueueDealSector.Get())
-		return true, nil
+		return true
 	}
 
-	if bufferedSDR > cfg.MaxQueueSDR.Get() {
+	if cfg.MaxQueueSDR.Get() != 0 && bufferedSDR > cfg.MaxQueueSDR.Get() {
 		log.Infow("backpressure", "reason", "too many SDR tasks", "buffered", bufferedSDR, "max", cfg.MaxQueueSDR.Get())
-		return true, nil
+		return true
 	}
 	if cfg.MaxQueueTrees.Get() != 0 && bufferedTrees > cfg.MaxQueueTrees.Get() {
 		log.Infow("backpressure", "reason", "too many tree tasks", "buffered", bufferedTrees, "max", cfg.MaxQueueTrees.Get())
-		return true, nil
+		return true
 	}
 	if cfg.MaxQueuePoRep.Get() != 0 && bufferedPoRep > cfg.MaxQueuePoRep.Get() {
 		log.Infow("backpressure", "reason", "too many PoRep tasks", "buffered", bufferedPoRep, "max", cfg.MaxQueuePoRep.Get())
-		return true, nil
+		return true
 	}
-	return false, nil
+	return false
 }
 
 func (c *CachedBackPressure) checkMK20Backpressure(ctx context.Context, cfg *config.CurioIngestConfig, db *harmonydb.DB) (bool, error) {
@@ -286,7 +308,7 @@ func (c *CachedBackPressure) SectorPressure(ctx context.Context, cfg *config.Cur
 	if err == nil {
 		return pressure.(bool), nil
 	}
-	p, err := c.checkSectorBackpressure(ctx, cfg, db)
+	p, err := c.runSectorCheck(ctx, cfg, db)
 	if err != nil {
 		return false, err
 	}
@@ -312,10 +334,23 @@ func (c *CachedBackPressure) MK20Pressure(ctx context.Context, cfg *config.Curio
 	if err == nil {
 		return pressure.(bool), nil
 	}
-	p, err := c.checkMK20Backpressure(ctx, cfg, db)
+	p, err := c.runMK20Check(ctx, cfg, db)
 	if err != nil {
 		return false, err
 	}
 	_ = c.cache.SetWithTTL(mk20BackpressureKey, p, time.Minute*2)
 	return p, nil
+}
+
+// MK20ReleasePressure evaluates the existing MK20 pipeline and sector pressure checks
+// without consulting or updating their long-lived caches. Waiting-release callers use this once
+// per controlled release pass so cleared pressure can be observed on the next pass. The cached
+// MK20Pressure and SectorPressure APIs retain their existing TTL behavior for intake callers.
+func (c *CachedBackPressure) MK20ReleasePressure(ctx context.Context, cfg *config.CurioIngestConfig, db *harmonydb.DB) (bool, error) {
+	pressure, err := c.runMK20Check(ctx, cfg, db)
+	if err != nil || pressure {
+		return pressure, err
+	}
+
+	return c.runSectorCheck(ctx, cfg, db)
 }

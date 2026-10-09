@@ -891,6 +891,30 @@ description: The default curio configuration
   # type: int
   #MaxQueueCommP = 8
 
+  # MK20PipelineInsertBatch limits the number of MK20 DDO deals successfully released from
+  # market_mk20_pipeline_waiting in one release pass. 0 means no operator-configured release
+  # limit; the release loop still inspects at most its internal 64-candidate work quantum per pass.
+  # A nil value is treated as 0 by the release loop. Negative values are invalid and stop new
+  # releases rather than enabling an unlimited mode. The value is snapshotted at the beginning
+  # of each pass, so dynamic updates apply to the next pass and an in-progress transaction may
+  # finish using the prior snapshot. (Default: 0)
+  # Updates will affect running instances.
+  #
+  # type: int
+  #MK20PipelineInsertBatch = 0
+
+  # MK20PipelineInsertMaxActive limits the global number of incomplete rows
+  # (complete = false) in market_mk20_pipeline. 0 disables this active-row cap. A nil value is
+  # treated as 0 by the release loop. Negative values are invalid and stop new releases. Lowering
+  # the value below the current active count only stops new releases; it does not modify existing
+  # pipeline state. The value is snapshotted at the beginning of each pass, so dynamic updates
+  # apply to the next pass and an in-progress transaction may finish using the prior snapshot.
+  # (Default: 0)
+  # Updates will affect running instances.
+  #
+  # type: int
+  #MK20PipelineInsertMaxActive = 0
+
   # Maximum number of sectors that can be queued waiting for deals to start processing.
   # 0 = unlimited
   # Note: This mechanism will delay taking deal data from markets, providing backpressure to the market subsystem.

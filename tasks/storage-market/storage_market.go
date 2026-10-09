@@ -91,6 +91,11 @@ type CurioStorageDealMarket struct {
 	wakePollReq        chan struct{}   // unbuffered: run one wake-driven poll
 	wakePollLoopCtx    context.Context // set in StartMarket before runPoller starts
 
+	// mk20WaitingCursor is a best-effort keyset position that lets later rows be
+	// considered across passes; it does not guarantee starvation-free scheduling.
+	// Ownership and capacity decisions are always revalidated in the database.
+	mk20WaitingCursor string
+
 	bp *lazy.Lazy[*backpressure.CachedBackPressure]
 }
 
