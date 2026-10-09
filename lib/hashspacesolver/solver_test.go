@@ -622,6 +622,33 @@ func TestApplyMovesMiddleOfRange(t *testing.T) {
 	require.Equal(t, r.Size-left-mid, sp.Ranges[3].Size)
 }
 
+func TestApplyMiddleCutOrderIndependent(t *testing.T) {
+	// Disk 1's two arcs merge across the wrap. Moving its 10-byte tail onto
+	// disk 0 first glues dense and sparse data into one range; the later
+	// middle cut must still be sized from the 90-byte arc, not a uniform
+	// share of 100. (0x40, 0x50] holds 22 and (0x50, 0x60] holds 45-22=23.
+	st := mk([]int64{200, 200, 200}, []byte{0x40, 0x80, 0xff}, []int64{10, 90, 50}, []int{1, 0, 1})
+	t1 := Transfer{Space: 0, From: 1, To: 0, StartHash: h(0xff), EndHash: h(0x40), Size: 10}
+	t2 := Transfer{Space: 0, From: 0, To: 2, StartHash: h(0x50), EndHash: h(0x60), Size: 23}
+	want := mk([]int64{200, 200, 200}, []byte{0x50, 0x60, 0x80, 0xff}, []int64{32, 23, 45, 50}, []int{0, 2, 0, 1})
+
+	for _, diff := range [][]Transfer{{t1, t2}, {t2, t1}} {
+		out, err := Apply(st, diff)
+		require.NoError(t, err)
+		require.NoError(t, Validate(out))
+		requireEqualState(t, want, out)
+	}
+}
+
+func TestApplyRejectsMiddleSizeMismatch(t *testing.T) {
+	st := mk([]int64{200, 200, 200}, []byte{0x40, 0x80, 0xff}, []int64{10, 90, 50}, []int{1, 0, 1})
+	_, err := Apply(st, []Transfer{
+		{Space: 0, From: 1, To: 0, StartHash: h(0xff), EndHash: h(0x40), Size: 10},
+		{Space: 0, From: 0, To: 2, StartHash: h(0x50), EndHash: h(0x60), Size: 30},
+	})
+	require.Error(t, err)
+}
+
 func TestApplyRejectsUnknownRange(t *testing.T) {
 	st := mk([]int64{20, 20}, []byte{0x80}, []int64{5}, []int{0})
 	_, err := Apply(st, []Transfer{{Space: 0, From: 0, To: 1, StartHash: h(0x00), EndHash: h(0x01), Size: 5}})
@@ -645,6 +672,11 @@ func TestRandomClusterEvents(t *testing.T) {
 		require.NoError(t, err, "iter %d", i)
 		require.NoError(t, Validate(out), "iter %d", i)
 		requireEqualState(t, res.State, out)
+		shuffled := append([]Transfer(nil), res.Diff...)
+		rng.Shuffle(len(shuffled), func(a, b int) { shuffled[a], shuffled[b] = shuffled[b], shuffled[a] })
+		shufOut, err := Apply(st, shuffled)
+		require.NoError(t, err, "iter %d shuffled", i)
+		requireEqualState(t, res.State, shufOut)
 		if ev.Kind == EventVacate {
 			require.Zero(t, usedOf(out, ev.Disk), "iter %d", i)
 		}
