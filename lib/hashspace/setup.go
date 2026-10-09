@@ -318,6 +318,7 @@ func seedSpace(capacities []int64) (hashspacesolver.Space, error) {
 			break
 		}
 	}
+	hashspacesolver.LinkStarts(ranges)
 	return hashspacesolver.Space{Ranges: ranges, Owner: owners}, nil
 }
 
@@ -411,16 +412,11 @@ func stateFromOwned(caps []int64, perSpace [][]ownedRange) (hashspacesolver.Stat
 		ranges := make([]hashspacesolver.Range, len(rs))
 		owners := make([]int, len(rs))
 		for i, r := range rs {
-			var prev []byte
-			if i == 0 {
-				prev = rs[len(rs)-1].end
-			} else {
-				prev = rs[i-1].end
+			ranges[i] = hashspacesolver.Range{
+				StartHash: append([]byte(nil), r.start...),
+				EndHash:   append([]byte(nil), r.end...),
+				Size:      r.size,
 			}
-			if !bytes.Equal(prev, r.start) {
-				return hashspacesolver.State{}, xerrors.Errorf("space %d ranges do not tile", s)
-			}
-			ranges[i] = hashspacesolver.Range{EndHash: append([]byte(nil), r.end...), Size: r.size}
 			owners[i] = r.disk
 		}
 		spaces[s] = hashspacesolver.Space{Ranges: ranges, Owner: owners}
@@ -450,9 +446,8 @@ func writeState(drives []Drive, st hashspacesolver.State, used [][2]int64) error
 					if sp.Owner[i] != disk {
 						continue
 					}
-					start := hashspacesolver.StartHash(sp.Ranges, i)
 					out = append(out, HashRange{
-						Start: hexEncode(start),
+						Start: hexEncode(r.StartHash),
 						End:   hexEncode(r.EndHash),
 					})
 				}

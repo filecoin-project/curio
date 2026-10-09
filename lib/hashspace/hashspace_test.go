@@ -185,8 +185,8 @@ func TestFirstSetupSeedsEveryDrive(t *testing.T) {
 		require.Len(t, sp.Ranges, 2)
 		require.ElementsMatch(t, []int{0, 1}, append([]int(nil), sp.Owner...))
 		var sawQuarter, sawZero bool
-		for i, r := range sp.Ranges {
-			start := hashspacesolver.StartHash(sp.Ranges, i)
+		for _, r := range sp.Ranges {
+			start := r.StartHash
 			require.True(t, hashspacesolver.Contains(start, r.EndHash, r.EndHash))
 			if !bytes.Equal(start, r.EndHash) {
 				require.False(t, hashspacesolver.Contains(start, r.EndHash, start))
@@ -198,9 +198,8 @@ func TestFirstSetupSeedsEveryDrive(t *testing.T) {
 				sawQuarter = true
 			}
 			owners := 0
-			for j, other := range sp.Ranges {
-				otherStart := hashspacesolver.StartHash(sp.Ranges, j)
-				if hashspacesolver.Contains(otherStart, other.EndHash, r.EndHash) {
+			for _, other := range sp.Ranges {
+				if hashspacesolver.Contains(other.StartHash, other.EndHash, r.EndHash) {
 					owners++
 				}
 			}
