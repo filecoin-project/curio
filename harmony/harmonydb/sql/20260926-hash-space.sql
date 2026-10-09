@@ -67,7 +67,8 @@ CREATE TABLE IF NOT EXISTS hash_space_place (
 CREATE INDEX IF NOT EXISTS idx_hash_space_place_task ON hash_space_place (task_id);
 
 -- Pieces whose last PDP reference was dropped, written with their
--- HashSpaceDrop task. The piece file is removed from every disk the hash map names.
+-- HashSpaceDrop task. The piece file is removed from the disks that hold
+-- its hash: the range owner, or both ends of a move that covers it.
 -- started is set once the drop has checked no PDP ref came back; placement
 -- of the same piece waits for a started drop.
 CREATE TABLE IF NOT EXISTS hash_space_delete (

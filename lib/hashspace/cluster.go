@@ -1,14 +1,18 @@
 package hashspace
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/hex"
 	"errors"
 	"io"
+	"iter"
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -21,7 +25,9 @@ import (
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
+	"github.com/filecoin-project/curio/lib/fs2"
 	"github.com/filecoin-project/curio/lib/hashspacesolver"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 var log = logging.Logger("hashspace")
@@ -123,8 +129,11 @@ func NewCluster(ctx context.Context, db *harmonydb.DB, drives []LocalDrive, auth
 		c.roots[d.StorageID] = d.Root
 	}
 
+	var arrived []string
 	if len(drives) > 0 {
-		if _, err := c.join(ctx, drives); err != nil {
+		var err error
+		arrived, err = c.join(ctx, drives)
+		if err != nil {
 			return nil, xerrors.Errorf("joining hash space: %w", err)
 		}
 		if err := c.writeLocalLayouts(ctx); err != nil {
@@ -134,7 +143,6 @@ func NewCluster(ctx context.Context, db *harmonydb.DB, drives []LocalDrive, auth
 		for _, d := range drives {
 			roots = append(roots, d.Root)
 		}
-		var err error
 		c.open, err = Load(DIR_OPEN, roots)
 		if err != nil {
 			return nil, err
@@ -149,6 +157,13 @@ func NewCluster(ctx context.Context, db *harmonydb.DB, drives []LocalDrive, auth
 		}
 		c.publishUsed(ctx)
 	}
+
+	for _, id := range arrived {
+		if err := c.raise(ctx, id, EVENT_ARRIVE); err != nil {
+			log.Errorw("hash space arrive", "storage", id, "error", err)
+		}
+	}
+	c.noticeSpread(ctx)
 
 	loopCtx, cancel := context.WithCancel(context.Background())
 	c.cancel = cancel
@@ -179,17 +194,80 @@ func (c *Cluster) loop(ctx context.Context) {
 	defer c.wg.Done()
 	ticker := time.NewTicker(REFRESH_INTERVAL)
 	defer ticker.Stop()
+	var lastOverlapCheck time.Time
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
 		}
-		if c.open == nil {
-			continue
+		c.dropDeadMoves(ctx)
+		/* Cluster.requeueOrphans */ func(ctx context.Context) {
+			/* Cluster.requeuePlace */ func(ctx context.Context) {
+				add := harmonytask.AdderFor(tasknames.HashSpacePlace)
+				if add == nil {
+					return
+				}
+				_, err := harmonytask.TxWithTask(ctx, c.db, add, func(tx *harmonydb.Tx, id harmonytask.TaskID) (bool, error) {
+					var n int
+					if err := tx.QueryRow(`SELECT COUNT(*) FROM hash_space_place p WHERE p.task_id NOT IN (SELECT id FROM harmony_task)`).Scan(&n); err != nil {
+						return false, err
+					}
+					if n == 0 {
+						return false, nil
+					}
+					if id == 0 {
+						return false, harmonytask.ErrNeedTask
+					}
+					_, err := tx.Exec(`UPDATE hash_space_place SET task_id = $1 WHERE task_id NOT IN (SELECT id FROM harmony_task)`, id)
+					return err == nil, err
+				})
+				if err != nil {
+					log.Warnw("requeueing hash space work whose task is gone", "task", tasknames.HashSpacePlace, "error", err)
+				}
+			}(ctx)
+			/* Cluster.requeueDrop */ func(ctx context.Context) {
+				add := harmonytask.AdderFor(tasknames.HashSpaceDrop)
+				if add == nil {
+					return
+				}
+				_, err := harmonytask.TxWithTask(ctx, c.db, add, func(tx *harmonydb.Tx, id harmonytask.TaskID) (bool, error) {
+					var n int
+					if err := tx.QueryRow(`SELECT COUNT(*) FROM hash_space_delete d WHERE d.task_id NOT IN (SELECT id FROM harmony_task)`).Scan(&n); err != nil {
+						return false, err
+					}
+					if n == 0 {
+						return false, nil
+					}
+					if id == 0 {
+						return false, harmonytask.ErrNeedTask
+					}
+					_, err := tx.Exec(`UPDATE hash_space_delete SET task_id = $1 WHERE task_id NOT IN (SELECT id FROM harmony_task)`, id)
+					return err == nil, err
+				})
+				if err != nil {
+					log.Warnw("requeueing hash space work whose task is gone", "task", tasknames.HashSpaceDrop, "error", err)
+				}
+			}(ctx)
+		}(ctx)
+		if c.open != nil {
+			if err := c.refresh(ctx, false); err != nil {
+				log.Warnw("refreshing hash space map", "error", err)
+			}
+			for id := range c.roots {
+				if err := c.MaybeRebalance(ctx, id); err != nil {
+					log.Warnw("hash space rebalance", "storage", id, "error", err)
+				}
+			}
 		}
-		if err := c.refresh(ctx, false); err != nil {
-			log.Warnw("refreshing hash space map", "error", err)
+		if err := c.reevaluate(ctx); err != nil {
+			log.Warnw("processing pending hash space event", "error", err)
+		}
+		if c.open != nil && time.Since(lastOverlapCheck) >= OVERLAP_CHECK_INTERVAL {
+			lastOverlapCheck = time.Now()
+			if _, err := c.FixOverlaps(ctx); err != nil {
+				log.Warnw("checking for misplaced open pieces", "error", err)
+			}
 		}
 	}
 }
@@ -198,6 +276,16 @@ func (c *Cluster) loop(ctx context.Context) {
 func (c *Cluster) HasLocal(storageID string) bool {
 	_, ok := c.roots[storageID]
 	return ok
+}
+
+// LocalIDs returns the storage ids of hash-space roots on this node.
+func (c *Cluster) LocalIDs() []string {
+	ids := make([]string, 0, len(c.roots))
+	for id := range c.roots {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
 }
 
 func (c *Cluster) space(kind string) *Space {
@@ -231,6 +319,14 @@ func diskVacate(root string) bool {
 		return false
 	}
 	return deny
+}
+
+func (c *Cluster) ownsRanges(ctx context.Context, storageID string) (bool, error) {
+	var owns bool
+	if err := c.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM hash_space_range WHERE storage_id = $1)`, storageID).Scan(&owns); err != nil {
+		return false, xerrors.Errorf("reading ranges of %s: %w", storageID, err)
+	}
+	return owns, nil
 }
 
 func (c *Cluster) rootOf(storageID string) (string, error) {
@@ -398,53 +494,7 @@ func (c *Cluster) HasFile(ctx context.Context, pc cid.Cid) (bool, error) {
 	}
 	hexHash := hex.EncodeToString(digest)
 	for _, p := range places {
-		ok, err := /* Cluster.hasHash */ func(ctx context.Context, storageID, kind, hexHash string) (bool, error) {
-			if c.HasLocal(storageID) {
-				return /* Cluster.hasHashLocal */ func(storageID, kind, hexHash string) (bool, error) {
-					kind, err := parseSpaceKind(kind)
-					if err != nil {
-						return false, err
-					}
-					sp := c.space(kind)
-					if sp == nil {
-						return false, xerrors.Errorf("hash space %s is not loaded", kind)
-					}
-					root, err := c.rootOf(storageID)
-					if err != nil {
-						return false, err
-					}
-					path, err := sp.hashPathOn(root, hexHash)
-					if err != nil {
-						return false, err
-					}
-					info, err := os.Stat(path)
-					if err != nil {
-						if os.IsNotExist(err) {
-							return false, nil
-						}
-						return false, err
-					}
-					if !info.Mode().IsRegular() {
-						return false, xerrors.Errorf("%s is not a regular file", path)
-					}
-					return true, nil
-				}(storageID, kind, hexHash)
-			}
-			var found bool
-			err := c.remoteHash(ctx, http.MethodHead, storageID, kind, hexHash, nil, func(r *http.Response) (bool, error) {
-				_ = r.Body.Close()
-				switch r.StatusCode {
-				case http.StatusOK:
-					found = true
-					return false, nil
-				case http.StatusNotFound:
-					return false, nil
-				default:
-					return false, xerrors.Errorf("HEAD %s: %s", r.Request.URL, r.Status)
-				}
-			})
-			return found, err
-		}(ctx, p.StorageID, DIR_OPEN, hexHash)
+		ok, err := c.hasHash(ctx, p.StorageID, DIR_OPEN, hexHash)
 		if err != nil {
 			return false, err
 		}
@@ -486,7 +536,7 @@ func (c *Cluster) places(ctx context.Context, digest []byte) ([]Location, error)
 		}
 	}
 	if ids == nil {
-		return nil, xerrors.Errorf("no hash space range owns %x", digest)
+		return nil, xerrors.Errorf("hash %x: %w", digest, errNoRange)
 	}
 	return /* localFirst */ func(c *Cluster, ids []string) []Location {
 		out := make([]Location, 0, len(ids))
@@ -551,6 +601,27 @@ func (c *Cluster) remoteGet(ctx context.Context, storageID string, pc cid.Cid, b
 // map now, once per node. Nodes that miss it still pick the change up from
 // hash_space_meta.version on their next refresh.
 
+func (c *Cluster) notifyOne(ctx context.Context, target string) error {
+	ctx, cancel := context.WithTimeout(ctx, NOTIFY_TIMEOUT)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, nil)
+	if err != nil {
+		return err
+	}
+	for k, v := range c.auth {
+		req.Header[k] = v
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return err
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		return xerrors.Errorf("POST %s: %s", target, resp.Status)
+	}
+	return nil
+}
+
 func (c *Cluster) remote(ctx context.Context, method, storageID string, pc cid.Cid, prep func(*http.Request), handle func(*http.Response) (bool, error)) error {
 	hexHash, _, err := cidHashHex(pc)
 	if err != nil {
@@ -608,28 +679,30 @@ func (c *Cluster) remoteHash(ctx context.Context, method, storageID, kind, hexHa
 	return lastErr
 }
 
-// DeleteCID removes pieceCID from every hash-space disk, not only the range
-// owner. A move or a failed cleanup can leave a copy on another disk, and
-// overlap repair would copy that stray back onto the owner. A missing file
-// is fine. The scan runs twice so a copy that starts during the first pass
-// is still cleared. A copy that lands after both passes drops its destination
+// DeleteCID removes pieceCID from the disks that hold its hash: the range
+// owner, or both ends of a move that covers it. A missing file is fine.
+// The lookup runs twice so a move that starts during the first pass is
+// still cleared. A copy that lands after both passes drops its destination
 // when the source file is already gone.
 func (c *Cluster) DeleteCID(ctx context.Context, pieceCID string) error {
 	pc, err := cid.Parse(pieceCID)
 	if err != nil {
 		return xerrors.Errorf("parsing piece cid %s: %w", pieceCID, err)
 	}
-	if _, err := CIDHash(pc); err != nil {
+	digest, err := CIDHash(pc)
+	if err != nil {
 		return err
 	}
-	var disks []struct {
-		StorageID string `db:"storage_id"`
-	}
-	if err := c.db.Select(ctx, &disks, `SELECT storage_id FROM hash_space_disk`); err != nil {
-		return xerrors.Errorf("listing hash space disks: %w", err)
-	}
+	touched := map[string]struct{}{}
 	for pass := 0; pass < 2; pass++ {
-		for _, d := range disks {
+		locs, err := c.places(ctx, digest)
+		if errors.Is(err, errNoRange) {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		for _, loc := range locs {
 			if err := /* Cluster.deleteOn */ func(ctx context.Context, storageID string, pc cid.Cid) error {
 				if c.HasLocal(storageID) {
 					return c.DropLocal(storageID, pc)
@@ -643,21 +716,1068 @@ func (c *Cluster) DeleteCID(ctx context.Context, pieceCID string) error {
 						return false, xerrors.Errorf("DELETE %s: %s", r.Request.URL, r.Status)
 					}
 				})
-			}(ctx, d.StorageID, pc); err != nil {
-				return xerrors.Errorf("deleting %s from %s: %w", pieceCID, d.StorageID, err)
+			}(ctx, loc.StorageID, pc); err != nil {
+				return xerrors.Errorf("deleting %s from %s: %w", pieceCID, loc.StorageID, err)
 			}
+			touched[loc.StorageID] = struct{}{}
+		}
+	}
+	for id := range touched {
+		if err := c.MaybeRebalance(ctx, id); err != nil {
+			log.Warnw("hash space rebalance", "storage", id, "error", err)
 		}
 	}
 	return nil
 }
 
-func overFill(used, capacity int64) bool {
+// MaybeRebalance starts a vacate or full rebalance for storageID when that
+// disk is leaving or is above FILL_LIMIT_PERCENT, then notices fill spread.
+func (c *Cluster) MaybeRebalance(ctx context.Context, storageID string) error {
+	defer c.noticeSpread(ctx)
+	if root, ok := c.roots[storageID]; ok && c.open != nil {
+		c.publishOne(ctx, storageID, root)
+		if diskVacate(root) {
+			used, err := /* Cluster.localUsed */ func(root string) (int64, error) {
+				var n int64
+				for _, kind := range spaceKinds {
+					sp := c.space(kind)
+					if sp == nil {
+						continue
+					}
+					u, err := sp.UsedOn(root)
+					if err != nil {
+						return 0, err
+					}
+					n += u
+				}
+				return n, nil
+			}(root)
+			if err != nil {
+				return err
+			}
+			owns, err := c.ownsRanges(ctx, storageID)
+			if err != nil {
+				return err
+			}
+			if used > 0 || owns {
+				return c.raise(ctx, storageID, EVENT_VACATE)
+			}
+			return nil
+		}
+	}
+	var used, capacity int64
+	err := c.db.QueryRow(ctx, `SELECT used_open + used_acl, capacity FROM hash_space_disk WHERE storage_id = $1`, storageID).Scan(&used, &capacity)
+	if err != nil {
+		return xerrors.Errorf("reading hash space disk %s: %w", storageID, err)
+	}
+	if !isOverFull(used, capacity) {
+		return nil
+	}
+	return c.raise(ctx, storageID, EVENT_FULL)
+}
+
+func isOverFull(used, capacity int64) bool {
 	if capacity <= 0 {
 		return used > 0
 	}
 	limit := capacity/100*hashspacesolver.FILL_LIMIT_PERCENT + capacity%100*hashspacesolver.FILL_LIMIT_PERCENT/100
 	return used > limit
 }
+
+// errNoRange means the hash is outside every published range.
+var errNoRange = errors.New("no hash space range owns this hash")
+
+// errMovesActive means a rebalance is already copying. The trigger is recorded
+// and solved when the last of those moves finishes.
+var errMovesActive = errors.New("hash space moves are active")
+
+// raise is the event phase. With no move in flight it runs the solver and
+// starts the copies. Otherwise it records the trigger, at most once per disk
+// and kind. Without a task engine yet the trigger is only recorded; the
+// refresh loop solves it once moves can be tasked.
+func (c *Cluster) raise(ctx context.Context, storageID, kind string) error {
+	c.dropDeadMoves(ctx)
+	addMove := harmonytask.AdderFor(tasknames.HashSpaceMove)
+	if addMove == nil {
+		return c.queueEvent(ctx, storageID, kind)
+	}
+	busy, err := c.movesActive(ctx)
+	if err != nil {
+		return err
+	}
+	if busy {
+		return c.queueEvent(ctx, storageID, kind)
+	}
+	err = c.casTaskTx(ctx, addMove, func(tx *harmonydb.Tx, id harmonytask.TaskID) (bool, error) {
+		var active bool
+		if err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM hash_space_move_source)`).Scan(&active); err != nil {
+			return false, err
+		}
+		if active {
+			return false, errMovesActive
+		}
+
+		st, err := /* loadClusterState */ func(tx *harmonydb.Tx) (hashspacesolver.State, error) {
+			var disks []struct {
+				StorageID string `db:"storage_id"`
+				Capacity  int64  `db:"capacity"`
+				Vacating  bool   `db:"vacating"`
+			}
+			if err := tx.Select(&disks, `SELECT storage_id, capacity, vacating FROM hash_space_disk ORDER BY storage_id`); err != nil {
+				return hashspacesolver.State{}, err
+			}
+			st := hashspacesolver.State{MountPoints: make([]hashspacesolver.MountPoint, len(disks))}
+			known := make(map[string]bool, len(disks))
+			for i, d := range disks {
+				st.MountPoints[i] = hashspacesolver.MountPoint{Capacity: d.Capacity, StorageID: d.StorageID, Vacating: d.Vacating}
+				known[d.StorageID] = true
+			}
+			for s, kind := range spaceKinds {
+				var rs []rangeRow
+				if err := tx.Select(&rs, `SELECT end_hash, storage_id, size FROM hash_space_range WHERE space = $1 ORDER BY end_hash`, kind); err != nil {
+					return hashspacesolver.State{}, err
+				}
+				if len(rs) == 0 {
+					return hashspacesolver.State{}, xerrors.Errorf("hash space %s has no ranges", kind)
+				}
+				ranges := make([]hashspacesolver.Range, len(rs))
+				for i, r := range rs {
+					if !known[r.StorageID] {
+						return hashspacesolver.State{}, xerrors.Errorf("range owner %s is not a hash space disk", r.StorageID)
+					}
+					ranges[i] = hashspacesolver.Range{EndHash: r.EndHash, Size: r.Size, StorageID: r.StorageID}
+				}
+				hashspacesolver.LinkStarts(ranges)
+				st.HashSpaces[s] = ranges
+			}
+			return st, nil
+		}(tx)
+		if err != nil {
+			return false, err
+		}
+		disk := slices.IndexFunc(st.MountPoints, func(mp hashspacesolver.MountPoint) bool { return mp.StorageID == storageID })
+		if disk < 0 {
+			return true, consumePending(tx, storageID, kind)
+		}
+		ev := hashspacesolver.Event{StorageID: storageID}
+		switch kind {
+		case EVENT_FULL:
+			if !isOverFull( /* ownedBytes */ func(st hashspacesolver.State, storageID string) int64 {
+				var n int64
+				for _, rs := range st.HashSpaces {
+					for _, r := range rs {
+						if r.StorageID == storageID {
+							n += r.Size
+						}
+					}
+				}
+				return n
+			}(st, storageID), st.MountPoints[disk].Capacity) {
+				return true, consumePending(tx, storageID, kind)
+			}
+			ev.Kind = hashspacesolver.EventFull
+		case EVENT_ARRIVE:
+			ev.Kind = hashspacesolver.EventArrive
+		case EVENT_ABSORB:
+			ev.Kind = hashspacesolver.EventAbsorb
+		case EVENT_VACATE:
+			ev.Kind = hashspacesolver.EventVacate
+		case EVENT_BALANCE:
+			ev.Kind = hashspacesolver.EventBalance
+		default:
+			return false, xerrors.Errorf("unknown hash space event %q", kind)
+		}
+
+		res, err := hashspacesolver.Solve(st, ev)
+		if err != nil {
+			log.Warnw("hash space solver", "storage", storageID, "event", kind, "error", err)
+			return false, nil
+		}
+		if res.BytesMoved == 0 {
+			if err := consumePending(tx, storageID, kind); err != nil {
+				return false, err
+			}
+			if ev.Kind == hashspacesolver.EventFull {
+				return true, nil
+			}
+			return true, storeState(tx, res.State)
+		}
+
+		var moves []hashspacesolver.Transfer
+		for _, t := range res.Diff {
+			if t.Size <= 0 || t.From == "" || t.From == t.To {
+				continue
+			}
+			if t.Space < 0 || t.Space >= len(spaceKinds) {
+				return false, xerrors.Errorf("move space %d", t.Space)
+			}
+			moves = append(moves, t)
+		}
+		if len(moves) == 0 {
+			return true, consumePending(tx, storageID, kind)
+		}
+		if id == 0 {
+			return false, harmonytask.ErrNeedTask
+		}
+
+		// One task copies onto one destination disk. The node that holds that
+		// disk can run every row, so the move task never has to hand work off.
+		byDest := map[string][]hashspacesolver.Transfer{}
+		var destOrder []string
+		for _, t := range moves {
+			if _, ok := byDest[t.To]; !ok {
+				destOrder = append(destOrder, t.To)
+			}
+			byDest[t.To] = append(byDest[t.To], t)
+		}
+		pick := destOrder[0]
+		var best int64
+		for _, t := range byDest[pick] {
+			best += t.Size
+		}
+		for _, to := range destOrder[1:] {
+			var n int64
+			for _, t := range byDest[to] {
+				n += t.Size
+			}
+			if n > best || (n == best && to < pick) {
+				best = n
+				pick = to
+			}
+		}
+
+		var planned int
+		for _, t := range byDest[pick] {
+			n, err := tx.Exec(`INSERT INTO hash_space_move_source (space, start_hash, end_hash, from_storage, to_storage, size, task_id)
+				VALUES ($1, $2, $3, $4, $5, $6, $7)
+				ON CONFLICT (space, start_hash, end_hash) DO NOTHING`,
+				spaceKinds[t.Space], t.StartHash, t.EndHash, t.From, t.To, t.Size, id)
+			if err != nil {
+				return false, xerrors.Errorf("inserting hash space move source: %w", err)
+			}
+			planned += n
+		}
+		// Every insert conflicted with a move already in flight. Leave the
+		// event queued; rolling back also drops the empty task.
+		if planned == 0 {
+			return false, nil
+		}
+		if len(byDest) > 1 {
+			if _, err := tx.Exec(`INSERT INTO hash_space_pending_event (storage_id, event_kind) VALUES ($1, $2)
+				ON CONFLICT (storage_id, event_kind) DO NOTHING`, storageID, kind); err != nil {
+				return false, err
+			}
+		} else if err := consumePending(tx, storageID, kind); err != nil {
+			return false, err
+		}
+		log.Infow("planned hash space rebalance", "storage", storageID, "event", kind, "to", pick, "moves", planned, "bytes", best)
+		return true, nil
+	})
+	if errors.Is(err, errMovesActive) {
+		return c.queueEvent(ctx, storageID, kind)
+	}
+	return err
+}
+
+func (c *Cluster) queueEvent(ctx context.Context, storageID, kind string) error {
+	_, err := c.db.Exec(ctx, `INSERT INTO hash_space_pending_event (storage_id, event_kind) VALUES ($1, $2)
+		ON CONFLICT (storage_id, event_kind) DO NOTHING`, storageID, kind)
+	return err
+}
+
+func (c *Cluster) movesActive(ctx context.Context) (bool, error) {
+	var busy bool
+	err := c.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM hash_space_move_source)`).Scan(&busy)
+	return busy, err
+}
+
+// consumePending removes a queued event inside the transaction that handled it.
+func consumePending(tx *harmonydb.Tx, storageID, kind string) error {
+	_, err := tx.Exec(`DELETE FROM hash_space_pending_event WHERE storage_id = $1 AND event_kind = $2`, storageID, kind)
+	return err
+}
+
+// dropDeadMoves removes move rows whose harmony task is gone. A failed task
+// otherwise leaves the row behind and every rebalance treats the cluster as busy.
+func (c *Cluster) dropDeadMoves(ctx context.Context) {
+	if _, err := c.db.Exec(ctx, `DELETE FROM hash_space_move_source
+		WHERE task_id NOT IN (SELECT id FROM harmony_task)`); err != nil {
+		log.Warnw("dropping hash space moves whose task is gone", "error", err)
+	}
+}
+
+// requeueOrphans points place and drop rows at a new task when theirs was
+// deleted. The row is what keeps the piece from being queued again.
+
+// reevaluate runs after the cluster is idle. Triggers recorded while moves
+// were copying are checked against the current fill; ones that no longer
+// apply are dropped, and the solver runs for the rest until a plan starts
+// new moves or nothing valid is left.
+func (c *Cluster) reevaluate(ctx context.Context) error {
+	c.dropDeadMoves(ctx)
+	tried := map[string]struct{}{}
+	for {
+		busy, err := c.movesActive(ctx)
+		if err != nil {
+			return err
+		}
+		if busy {
+			return nil
+		}
+		var evs []struct {
+			StorageID string    `db:"storage_id"`
+			Kind      string    `db:"event_kind"`
+			CreatedAt time.Time `db:"created_at"`
+		}
+		if err := c.db.Select(ctx, &evs, `SELECT storage_id, event_kind, created_at FROM hash_space_pending_event ORDER BY created_at, storage_id`); err != nil {
+			return err
+		}
+		if len(evs) == 0 {
+			return nil
+		}
+		fills, err := /* Cluster.diskFills */ func(ctx context.Context) ([]diskFill, error) {
+			var rows []diskFill
+			err := c.db.Select(ctx, &rows, `SELECT storage_id, used_open, used_acl, capacity, vacating FROM hash_space_disk`)
+			return rows, err
+		}(ctx)
+		if err != nil {
+			return err
+		}
+		sort.SliceStable(evs, func(i, j int) bool {
+			pi, pj := eventPriority(evs[i].Kind), eventPriority(evs[j].Kind)
+			if pi != pj {
+				return pi < pj
+			}
+			return evs[i].CreatedAt.Before(evs[j].CreatedAt)
+		})
+		var nextStorage, nextKind string
+		found := false
+		for _, e := range evs {
+			key := e.StorageID + "\x00" + e.Kind
+			if _, ok := tried[key]; ok {
+				continue
+			}
+			ok, err := /* Cluster.triggerStill */ func(ctx context.Context, fills []diskFill, storageID, kind string) (bool, error) {
+				var disk *diskFill
+				for i := range fills {
+					if fills[i].StorageID == storageID {
+						disk = &fills[i]
+						break
+					}
+				}
+				if disk == nil {
+					return false, nil
+				}
+				used := disk.UsedOpen + disk.UsedACL
+				switch kind {
+				case EVENT_VACATE:
+					if !disk.Vacating {
+						return false, nil
+					}
+					if used > 0 {
+						return true, nil
+					}
+					return c.ownsRanges(ctx, storageID)
+				case EVENT_FULL:
+					return !disk.Vacating && isOverFull(used, disk.Capacity), nil
+				case EVENT_ARRIVE:
+					return !disk.Vacating, nil
+				case EVENT_ABSORB:
+					if disk.Vacating || isOverFull(used, disk.Capacity) {
+						return false, nil
+					}
+					for _, o := range fills {
+						if isOverFull(o.UsedOpen+o.UsedACL, o.Capacity) {
+							return true, nil
+						}
+					}
+					return false, nil
+				case EVENT_BALANCE:
+					if disk.Vacating || disk.Capacity <= 0 {
+						return false, nil
+					}
+					for _, o := range fills {
+						if o.StorageID == storageID || o.Vacating || o.Capacity <= 0 {
+							continue
+						}
+						if hashspacesolver.BalanceBytes(o.UsedOpen+o.UsedACL, o.Capacity, used, disk.Capacity) > 0 {
+							return true, nil
+						}
+					}
+					return false, nil
+				default:
+					return false, nil
+				}
+			}(ctx, fills, e.StorageID, e.Kind)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				if _, err := c.db.Exec(ctx, `DELETE FROM hash_space_pending_event WHERE storage_id = $1 AND event_kind = $2`, e.StorageID, e.Kind); err != nil {
+					return err
+				}
+				continue
+			}
+			nextStorage, nextKind = e.StorageID, e.Kind
+			found = true
+			break
+		}
+		if !found {
+			return nil
+		}
+		tried[nextStorage+"\x00"+nextKind] = struct{}{}
+		if err := c.raise(ctx, nextStorage, nextKind); err != nil {
+			return err
+		}
+	}
+}
+
+func eventPriority(kind string) int {
+	switch kind {
+	case EVENT_VACATE:
+		return 0
+	case EVENT_FULL:
+		return 1
+	case EVENT_ARRIVE:
+		return 2
+	case EVENT_ABSORB:
+		return 3
+	case EVENT_BALANCE:
+		return 4
+	default:
+		return 9
+	}
+}
+
+type diskFill struct {
+	StorageID string `db:"storage_id"`
+	UsedOpen  int64  `db:"used_open"`
+	UsedACL   int64  `db:"used_acl"`
+	Capacity  int64  `db:"capacity"`
+	Vacating  bool   `db:"vacating"`
+}
+
+// triggerStill reports whether a queued event still describes the cluster.
+// Moves that finished while it waited may have removed the reason to run it.
+
+// MoveSource is an in-flight interval copy.
+type MoveSource struct {
+	ID          int64
+	Space       string
+	StartHash   []byte
+	EndHash     []byte
+	FromStorage string
+	ToStorage   string
+}
+
+// MoveSourcesByTask returns the move sources owned by a HashSpaceMove task.
+func (c *Cluster) MoveSourcesByTask(ctx context.Context, taskID int64) ([]*MoveSource, error) {
+	var ms []moveSourceRow
+	err := c.db.Select(ctx, &ms, `SELECT id, space, start_hash, end_hash, from_storage, to_storage, size
+		FROM hash_space_move_source WHERE task_id = $1 ORDER BY id`, taskID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*MoveSource, len(ms))
+	for i, m := range ms {
+		out[i] = &MoveSource{ID: m.ID, Space: m.Space, StartHash: m.StartHash, EndHash: m.EndHash, FromStorage: m.FromStorage, ToStorage: m.ToStorage}
+	}
+	return out, nil
+}
+
+// PendingCopy yields piece hashes still on the source in the move interval,
+// one directory page at a time. The caller copies each hash and removes it
+// from the source; ranging stops without holding the rest of the interval.
+func (c *Cluster) PendingCopy(ctx context.Context, m *MoveSource) iter.Seq2[string, error] {
+	return func(yield func(string, error) bool) {
+		if !c.HasLocal(m.ToStorage) {
+			yield("", xerrors.Errorf("move destination %s is not local", m.ToStorage))
+			return
+		}
+		low, high := hexEncode(m.StartHash), hexEncode(m.EndHash)
+		after := ""
+		for {
+			if err := ctx.Err(); err != nil {
+				yield("", err)
+				return
+			}
+			batch, err := c.listPieceHashes(ctx, m.FromStorage, m.Space, low, high, after, LIST_PAGE)
+			if err != nil {
+				yield("", err)
+				return
+			}
+			if len(batch) == 0 {
+				return
+			}
+			for _, h := range batch {
+				after = h
+				if !yield(h, nil) {
+					return
+				}
+			}
+			if len(batch) < LIST_PAGE {
+				return
+			}
+		}
+	}
+}
+
+// CopyOne copies one piece hash of the move source onto its local destination,
+// then removes the source file. The move row still exists, so a delete during
+// the copy still sees this disk. A source file that disappears during the copy
+// is a delete: the destination copy is removed and the move continues. A
+// destination file already the right size only needs the source removed.
+func (c *Cluster) CopyOne(ctx context.Context, m *MoveSource, hexHash string) error {
+	size, ok, err := c.hashSize(ctx, m.FromStorage, m.Space, hexHash)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return nil
+	}
+	have, err := c.hasHashLocal(m.ToStorage, m.Space, hexHash)
+	if err != nil {
+		return err
+	}
+	if have {
+		destSize, destOK, err := c.hashSize(ctx, m.ToStorage, m.Space, hexHash)
+		if err != nil {
+			return err
+		}
+		if destOK && destSize == size {
+			return c.deleteHash(ctx, m.FromStorage, m.Space, hexHash)
+		}
+		if err := c.deleteHash(ctx, m.ToStorage, m.Space, hexHash); err != nil {
+			return xerrors.Errorf("dropping short copy of %s: %w", hexHash, err)
+		}
+	}
+	src, err := /* Cluster.openHash */ func(ctx context.Context, storageID, kind, hexHash string) (io.ReadCloser, error) {
+		kind, err := parseSpaceKind(kind)
+		if err != nil {
+			return nil, err
+		}
+		sp := c.space(kind)
+		if sp == nil {
+			return nil, xerrors.Errorf("hash space %s is not loaded", kind)
+		}
+		if c.HasLocal(storageID) {
+			root, err := c.rootOf(storageID)
+			if err != nil {
+				return nil, err
+			}
+			return sp.openHashOn(root, hexHash)
+		}
+		var resp *http.Response
+		err = c.remoteHash(ctx, http.MethodGet, storageID, kind, hexHash, nil, func(r *http.Response) (bool, error) {
+			switch r.StatusCode {
+			case http.StatusOK:
+				resp = r
+				return true, nil
+			case http.StatusNotFound:
+				return false, os.ErrNotExist
+			default:
+				return false, xerrors.Errorf("GET %s: %s", r.Request.URL, r.Status)
+			}
+		})
+		if err != nil {
+			return nil, err
+		}
+		return resp.Body, nil
+	}(ctx, m.FromStorage, m.Space, hexHash)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return xerrors.Errorf("opening %s on %s: %w", hexHash, m.FromStorage, err)
+	}
+	n, err := /* Cluster.writeHashLocal */ func(storageID, kind, hexHash string, r io.Reader) (int64, error) {
+		kind, err := parseSpaceKind(kind)
+		if err != nil {
+			return 0, err
+		}
+		sp := c.space(kind)
+		if sp == nil {
+			return 0, xerrors.Errorf("hash space %s is not loaded", kind)
+		}
+		root, err := c.rootOf(storageID)
+		if err != nil {
+			return 0, err
+		}
+		w, err := sp.WriteHashOn(root, hexHash)
+		if err != nil {
+			if errors.Is(err, os.ErrExist) {
+				ok, serr := c.hasHashLocal(storageID, kind, hexHash)
+				if serr != nil {
+					return 0, serr
+				}
+				if !ok {
+					return 0, os.ErrNotExist
+				}
+				path, serr := sp.hashPathOn(root, hexHash)
+				if serr != nil {
+					return 0, serr
+				}
+				info, serr := os.Stat(path)
+				if serr != nil {
+					return 0, serr
+				}
+				return info.Size(), nil
+			}
+			return 0, err
+		}
+		n, err := io.CopyBuffer(w, r, make([]byte, 8<<20))
+		if err != nil {
+			if a, ok := w.(interface{ Abort() error }); ok {
+				_ = a.Abort()
+			}
+			return 0, xerrors.Errorf("copying %s into %s: %w", hexHash, kind, err)
+		}
+		if err := w.Close(); err != nil {
+			if errors.Is(err, os.ErrExist) {
+				return n, nil
+			}
+			return 0, err
+		}
+		return n, nil
+	}(m.ToStorage, m.Space, hexHash, src)
+	_ = src.Close()
+	if err != nil {
+		return err
+	}
+	if n != size {
+		if derr := c.deleteHash(ctx, m.ToStorage, m.Space, hexHash); derr != nil {
+			return xerrors.Errorf("dropping short copy of %s (%d bytes, source %d): %w", hexHash, n, size, derr)
+		}
+		return xerrors.Errorf("copied %d bytes of %s, source is %d", n, hexHash, size)
+	}
+	ok, err = c.hasHash(ctx, m.FromStorage, m.Space, hexHash)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		if err := c.deleteHash(ctx, m.ToStorage, m.Space, hexHash); err != nil {
+			return xerrors.Errorf("dropping %s deleted during copy: %w", hexHash, err)
+		}
+		return nil
+	}
+	return c.deleteHash(ctx, m.FromStorage, m.Space, hexHash)
+}
+
+// CompleteMoveSource hands the move interval to its destination once every
+// file still on the source is also on the destination. CopyOne removed each
+// source file after the destination had it. A file deleted from the source
+// is not required on the destination.
+func (c *Cluster) CompleteMoveSource(ctx context.Context, m *MoveSource) error {
+	if !c.HasLocal(m.ToStorage) {
+		return xerrors.Errorf("move destination %s is not local", m.ToStorage)
+	}
+	missing, err := /* Cluster.sourceMissing */ func(ctx context.Context, m *MoveSource) (bool, error) {
+		low, high := hexEncode(m.StartHash), hexEncode(m.EndHash)
+		after := ""
+		for {
+			batch, err := c.listPieceHashes(ctx, m.FromStorage, m.Space, low, high, after, LIST_PAGE)
+			if err != nil {
+				return false, err
+			}
+			if len(batch) == 0 {
+				return false, nil
+			}
+			for _, h := range batch {
+				after = h
+				ok, err := c.hasHashLocal(m.ToStorage, m.Space, h)
+				if err != nil {
+					return false, err
+				}
+				if !ok {
+					return true, nil
+				}
+			}
+			if len(batch) < LIST_PAGE {
+				return false, nil
+			}
+		}
+	}(ctx, m)
+	if err != nil {
+		return err
+	}
+	if missing {
+		return xerrors.Errorf("move source %d still has files missing on %s", m.ID, m.ToStorage)
+	}
+
+	var last bool
+	err = c.casTx(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		var rs []rangeRow
+		kind, err := parseSpaceKind(m.Space)
+		if err != nil {
+			return false, err
+		}
+		if err := tx.Select(&rs, `SELECT end_hash, storage_id, size FROM hash_space_range WHERE space = $1 ORDER BY end_hash`, kind); err != nil {
+			return false, err
+		}
+		// A misplacement fix moves pieces into an interval the destination
+		// already owns; only the source copies need to go.
+		if !intervalOwnedBy(rs, m.StartHash, m.EndHash, m.ToStorage) {
+			next, err := transferRanges(rs, m.StartHash, m.EndHash, m.FromStorage, m.ToStorage)
+			if err != nil {
+				return false, xerrors.Errorf("move source %d: %w", m.ID, err)
+			}
+			if err := writeSpaceRanges(tx, kind, next); err != nil {
+				return false, err
+			}
+		}
+		if _, err := tx.Exec(`DELETE FROM hash_space_move_source WHERE id = $1`, m.ID); err != nil {
+			return false, err
+		}
+		var left int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM hash_space_move_source`).Scan(&left); err != nil {
+			return false, err
+		}
+		last = left == 0
+		return true, nil
+	})
+	if err != nil {
+		return err
+	}
+
+	// Publish the new sizes before re-evaluating, and hold new triggers until
+	// the queued ones have had their turn. Completions of this plan serialize
+	// on the map version, so only the transaction that leaves zero moves runs
+	// the solver.
+	var absorb []string
+	for _, id := range []string{m.FromStorage, m.ToStorage} {
+		if !c.HasLocal(id) {
+			if err := /* Cluster.accountStorage */ func(ctx context.Context, storageID string) error {
+				if c.HasLocal(storageID) {
+					root, err := c.rootOf(storageID)
+					if err != nil {
+						return err
+					}
+					c.publishOne(ctx, storageID, root)
+					return nil
+				}
+				var urls string
+				if err := c.db.QueryRow(ctx, `SELECT COALESCE(urls, '') FROM storage_path WHERE storage_id = $1`, storageID).Scan(&urls); err != nil {
+					return xerrors.Errorf("looking up storage %s urls: %w", storageID, err)
+				}
+				lastErr := xerrors.Errorf("storage %s has no urls", storageID)
+				for _, u := range strings.Split(urls, storageURLSeparator) {
+					if u == "" {
+						continue
+					}
+					base := strings.TrimSuffix(strings.TrimSuffix(u, "/"), remoteSuffix)
+					if err := c.notifyOne(ctx, base+accountPath); err != nil {
+						lastErr = err
+						continue
+					}
+					return nil
+				}
+				return lastErr
+			}(ctx, id); err != nil {
+				log.Warnw("publishing hash space sizes", "storage", id, "error", err)
+			}
+			continue
+		}
+		root, err := c.rootOf(id)
+		if err != nil {
+			log.Warnw("publishing hash space sizes", "storage", id, "error", err)
+			continue
+		}
+		want, err := c.publishDisk(ctx, id, root)
+		if err != nil {
+			log.Warnw("publishing hash space sizes", "storage", id, "error", err)
+			continue
+		}
+		if want {
+			absorb = append(absorb, id)
+		}
+	}
+	if last {
+		if err := c.reevaluate(ctx); err != nil {
+			return err
+		}
+	}
+	for _, id := range absorb {
+		if err := c.raise(ctx, id, EVENT_ABSORB); err != nil {
+			log.Warnw("hash space absorb", "storage", id, "error", err)
+		}
+	}
+	c.noticeSpread(ctx)
+	return nil
+}
+
+// noticeSpread raises a balance when two disks' fill percentages differ by
+// SPREAD_POINTS or more. The emptier disk receives half that gap from the
+// fuller one. Vacating disks are left out of the pair.
+func (c *Cluster) noticeSpread(ctx context.Context) {
+	var rows []struct {
+		StorageID string `db:"storage_id"`
+		UsedOpen  int64  `db:"used_open"`
+		UsedACL   int64  `db:"used_acl"`
+		Capacity  int64  `db:"capacity"`
+		Vacating  bool   `db:"vacating"`
+	}
+	if err := c.db.Select(ctx, &rows, `SELECT storage_id, used_open, used_acl, capacity, vacating FROM hash_space_disk`); err != nil {
+		log.Warnw("reading hash space fill spread", "error", err)
+		return
+	}
+	var dest string
+	var best int64
+	for i, a := range rows {
+		if a.Vacating || a.Capacity <= 0 {
+			continue
+		}
+		usedA := a.UsedOpen + a.UsedACL
+		for _, b := range rows[i+1:] {
+			if b.Vacating || b.Capacity <= 0 {
+				continue
+			}
+			usedB := b.UsedOpen + b.UsedACL
+			if n := hashspacesolver.BalanceBytes(usedA, a.Capacity, usedB, b.Capacity); n > best {
+				best = n
+				dest = b.StorageID
+			}
+			if n := hashspacesolver.BalanceBytes(usedB, b.Capacity, usedA, a.Capacity); n > best {
+				best = n
+				dest = a.StorageID
+			}
+		}
+	}
+	if best <= 0 {
+		return
+	}
+	if err := c.raise(ctx, dest, EVENT_BALANCE); err != nil {
+		log.Warnw("hash space balance", "storage", dest, "error", err)
+	}
+}
+
+// sourceMissing reports whether the source still has a piece hash the
+// destination does not.
+
+func (c *Cluster) listPieceHashes(ctx context.Context, storageID, kind, low, high, after string, limit int) ([]string, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+	var out []string
+	for len(out) < limit {
+		batch, err := /* Cluster.listHashes */ func(ctx context.Context, storageID, kind, low, high, after string, limit int) ([]string, error) {
+			kind, err := parseSpaceKind(kind)
+			if err != nil {
+				return nil, err
+			}
+			if c.HasLocal(storageID) {
+				root, err := c.rootOf(storageID)
+				if err != nil {
+					return nil, err
+				}
+				hashes, err := fs2.ListHashesInterval(filepath.Join(root, kind), low, high, after, limit)
+				if err != nil {
+					if os.IsNotExist(err) {
+						return nil, nil
+					}
+					return nil, xerrors.Errorf("listing %s: %w", storageID, err)
+				}
+				return hashes, nil
+			}
+			return /* Cluster.remoteList */ func(ctx context.Context, storageID, kind, low, high, after string, limit int) ([]string, error) {
+				q := "?limit=" + strconv.Itoa(limit)
+				if low != "" {
+					q += "&low=" + low
+				}
+				if high != "" {
+					q += "&high=" + high
+				}
+				if after != "" {
+					q += "&after=" + after
+				}
+				var body []byte
+				err := c.remoteHash(ctx, http.MethodGet, storageID, kind, "list"+q, nil, func(r *http.Response) (bool, error) {
+					defer func() { _ = r.Body.Close() }()
+					if r.StatusCode != http.StatusOK {
+						return false, xerrors.Errorf("GET list %s: %s", storageID, r.Status)
+					}
+					var err error
+					body, err = io.ReadAll(io.LimitReader(r.Body, 1<<20))
+					return false, err
+				})
+				if err != nil {
+					return nil, err
+				}
+				var out []string
+				sc := bufio.NewScanner(bytes.NewReader(body))
+				for sc.Scan() {
+					line := strings.TrimSpace(sc.Text())
+					if line != "" {
+						out = append(out, line)
+					}
+				}
+				if err := sc.Err(); err != nil {
+					return nil, err
+				}
+				return out, nil
+			}(ctx, storageID, kind, low, high, after, limit)
+		}(ctx, storageID, kind, low, high, after, limit)
+		if err != nil {
+			return nil, err
+		}
+		if len(batch) == 0 {
+			break
+		}
+		for _, h := range batch {
+			after = h
+			if ! /* isPieceHash */ func(h string) bool {
+				if len(h) != HASH_BYTES*2 {
+					return false
+				}
+				_, err := hex.DecodeString(h)
+				return err == nil
+			}(h) {
+				continue
+			}
+			out = append(out, h)
+			if len(out) == limit {
+				return out, nil
+			}
+		}
+		if len(batch) < limit {
+			break
+		}
+	}
+	return out, nil
+}
+
+func (c *Cluster) hasHash(ctx context.Context, storageID, kind, hexHash string) (bool, error) {
+	if c.HasLocal(storageID) {
+		return c.hasHashLocal(storageID, kind, hexHash)
+	}
+	var found bool
+	err := c.remoteHash(ctx, http.MethodHead, storageID, kind, hexHash, nil, func(r *http.Response) (bool, error) {
+		_ = r.Body.Close()
+		switch r.StatusCode {
+		case http.StatusOK:
+			found = true
+			return false, nil
+		case http.StatusNotFound:
+			return false, nil
+		default:
+			return false, xerrors.Errorf("HEAD %s: %s", r.Request.URL, r.Status)
+		}
+	})
+	return found, err
+}
+
+// hashSize is the byte length of the open-pieces file, and whether it exists.
+func (c *Cluster) hashSize(ctx context.Context, storageID, kind, hexHash string) (int64, bool, error) {
+	kind, err := parseSpaceKind(kind)
+	if err != nil {
+		return 0, false, err
+	}
+	sp := c.space(kind)
+	if sp == nil {
+		return 0, false, xerrors.Errorf("hash space %s is not loaded", kind)
+	}
+	if c.HasLocal(storageID) {
+		root, err := c.rootOf(storageID)
+		if err != nil {
+			return 0, false, err
+		}
+		path, err := sp.hashPathOn(root, hexHash)
+		if err != nil {
+			return 0, false, err
+		}
+		info, err := os.Stat(path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return 0, false, nil
+			}
+			return 0, false, err
+		}
+		if !info.Mode().IsRegular() {
+			return 0, false, xerrors.Errorf("%s is not a regular file", path)
+		}
+		return info.Size(), true, nil
+	}
+	var n int64
+	var found bool
+	err = c.remoteHash(ctx, http.MethodHead, storageID, kind, hexHash, nil, func(r *http.Response) (bool, error) {
+		switch r.StatusCode {
+		case http.StatusOK:
+			if r.ContentLength < 0 {
+				return false, xerrors.Errorf("HEAD %s: missing content length", r.Request.URL)
+			}
+			n = r.ContentLength
+			found = true
+			return false, nil
+		case http.StatusNotFound:
+			return false, nil
+		default:
+			return false, xerrors.Errorf("HEAD %s: %s", r.Request.URL, r.Status)
+		}
+	})
+	return n, found, err
+}
+
+func (c *Cluster) hasHashLocal(storageID, kind, hexHash string) (bool, error) {
+	kind, err := parseSpaceKind(kind)
+	if err != nil {
+		return false, err
+	}
+	sp := c.space(kind)
+	if sp == nil {
+		return false, xerrors.Errorf("hash space %s is not loaded", kind)
+	}
+	root, err := c.rootOf(storageID)
+	if err != nil {
+		return false, err
+	}
+	path, err := sp.hashPathOn(root, hexHash)
+	if err != nil {
+		return false, err
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	if !info.Mode().IsRegular() {
+		return false, xerrors.Errorf("%s is not a regular file", path)
+	}
+	return true, nil
+}
+
+func (c *Cluster) deleteHash(ctx context.Context, storageID, kind, hexHash string) error {
+	kind, err := parseSpaceKind(kind)
+	if err != nil {
+		return err
+	}
+	sp := c.space(kind)
+	if sp == nil {
+		return xerrors.Errorf("hash space %s is not loaded", kind)
+	}
+	if c.HasLocal(storageID) {
+		root, err := c.rootOf(storageID)
+		if err != nil {
+			return err
+		}
+		if err := sp.deleteHashOn(root, hexHash); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	}
+	return c.remoteHash(ctx, http.MethodDelete, storageID, kind, hexHash, nil, func(r *http.Response) (bool, error) {
+		_ = r.Body.Close()
+		switch r.StatusCode {
+		case http.StatusOK, http.StatusNoContent, http.StatusNotFound:
+			return false, nil
+		default:
+			return false, xerrors.Errorf("DELETE %s: %s", r.Request.URL, r.Status)
+		}
+	})
+}
+
+// accountStorage republishes one disk's open-pieces range sizes. A remote
+// disk is asked over /hashspace/account.
 
 // Refresh reloads local ranges and move sources from the cluster map now.
 func (c *Cluster) Refresh(ctx context.Context) error {
@@ -670,120 +1790,103 @@ func (c *Cluster) Refresh(ctx context.Context) error {
 // casTx runs fn with hash_space_meta.version compare-and-set so map edits
 // from different nodes serialize. fn returning false rolls back. A commit
 // reloads the local map and notifies the other hash-space nodes.
+func (c *Cluster) casTx(ctx context.Context, fn func(tx *harmonydb.Tx) (bool, error)) error {
+	return c.casTaskTx(ctx, nil, func(tx *harmonydb.Tx, _ harmonytask.TaskID) (bool, error) {
+		return fn(tx)
+	})
+}
 
 // casTaskTx is casTx for map edits that start a task: fn returns
 // harmonytask.ErrNeedTask when run with id 0 to be rerun inside addTask's
 // transaction with the new task's id.
+func (c *Cluster) casTaskTx(ctx context.Context, addTask harmonytask.AddTaskFunc, fn func(tx *harmonydb.Tx, id harmonytask.TaskID) (bool, error)) error {
+	for attempt := 0; attempt < CAS_RETRIES; attempt++ {
+		ver, err := c.mapVersion(ctx)
+		if err != nil {
+			return err
+		}
+		var stale bool
+		committed, err := harmonytask.TxWithTask(ctx, c.db, addTask, func(tx *harmonydb.Tx, id harmonytask.TaskID) (bool, error) {
+			stale = false
+			n, err := tx.Exec(`UPDATE hash_space_meta SET version = version + 1 WHERE id = 1 AND version = $1`, ver)
+			if err != nil {
+				return false, err
+			}
+			if n != 1 {
+				stale = true
+				return false, nil
+			}
+			return fn(tx, id)
+		})
+		if err != nil {
+			return err
+		}
+		if !stale {
+			if committed {
+				if c.open != nil {
+					if err := c.refresh(ctx, true); err != nil {
+						log.Warnw("refreshing hash space map", "error", err)
+					}
+				}
+				/* Cluster.notifyPeers */ func() {
+					go func() {
+						ctx, cancel := context.WithTimeout(context.Background(), REFRESH_INTERVAL)
+						defer cancel()
+						var peers []struct {
+							StorageID string `db:"storage_id"`
+							URLs      string `db:"urls"`
+						}
+						if err := c.db.Select(ctx, &peers, `SELECT d.storage_id, COALESCE(sp.urls, '') AS urls
+			FROM hash_space_disk d JOIN storage_path sp ON sp.storage_id = d.storage_id`); err != nil {
+							log.Warnw("listing hash space nodes to notify", "error", err)
+							return
+						}
+						notified := map[string]bool{}
+						for _, p := range peers {
+							if c.HasLocal(p.StorageID) {
+								continue
+							}
+							var bases []string
+							for _, u := range strings.Split(p.URLs, storageURLSeparator) {
+								if u != "" {
+									bases = append(bases, strings.TrimSuffix(strings.TrimSuffix(u, "/"), remoteSuffix))
+								}
+							}
+							done := false
+							for _, b := range bases {
+								done = done || notified[b]
+							}
+							if done {
+								continue
+							}
+							var lastErr error
+							for _, b := range bases {
+								if lastErr = c.notifyOne(ctx, b+notifyPath); lastErr == nil {
+									notified[b] = true
+									break
+								}
+							}
+							if lastErr != nil {
+								log.Debugw("notifying hash space node", "storage", p.StorageID, "error", lastErr)
+							}
+						}
+					}()
+				}()
+			}
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Duration(attempt+1) * 50 * time.Millisecond):
+		}
+	}
+	return xerrors.Errorf("hash space map changed %d times during update", CAS_RETRIES)
+}
 
 func (c *Cluster) join(ctx context.Context, drives []LocalDrive) ([]string, error) {
 	var arrived []string
-	err := /* Cluster.casTx */ func(ctx context.Context, fn func(tx *harmonydb.Tx) (bool, error)) error {
-		return /* Cluster.casTaskTx */ func(ctx context.Context, addTask harmonytask.AddTaskFunc, fn func(tx *harmonydb.Tx, id harmonytask.TaskID) (bool, error)) error {
-			for attempt := 0; attempt < CAS_RETRIES; attempt++ {
-				ver, err := c.mapVersion(ctx)
-				if err != nil {
-					return err
-				}
-				var stale bool
-				committed, err := harmonytask.TxWithTask(ctx, c.db, addTask, func(tx *harmonydb.Tx, id harmonytask.TaskID) (bool, error) {
-					stale = false
-					n, err := tx.Exec(`UPDATE hash_space_meta SET version = version + 1 WHERE id = 1 AND version = $1`, ver)
-					if err != nil {
-						return false, err
-					}
-					if n != 1 {
-						stale = true
-						return false, nil
-					}
-					return fn(tx, id)
-				})
-				if err != nil {
-					return err
-				}
-				if !stale {
-					if committed {
-						if c.open != nil {
-							if err := c.refresh(ctx, true); err != nil {
-								log.Warnw("refreshing hash space map", "error", err)
-							}
-						}
-						/* Cluster.notifyPeers */ func() {
-							go func() {
-								ctx, cancel := context.WithTimeout(context.Background(), REFRESH_INTERVAL)
-								defer cancel()
-								var peers []struct {
-									StorageID string `db:"storage_id"`
-									URLs      string `db:"urls"`
-								}
-								if err := c.db.Select(ctx, &peers, `SELECT d.storage_id, COALESCE(sp.urls, '') AS urls
-			FROM hash_space_disk d JOIN storage_path sp ON sp.storage_id = d.storage_id`); err != nil {
-									log.Warnw("listing hash space nodes to notify", "error", err)
-									return
-								}
-								notified := map[string]bool{}
-								for _, p := range peers {
-									if c.HasLocal(p.StorageID) {
-										continue
-									}
-									var bases []string
-									for _, u := range strings.Split(p.URLs, storageURLSeparator) {
-										if u != "" {
-											bases = append(bases, strings.TrimSuffix(strings.TrimSuffix(u, "/"), remoteSuffix))
-										}
-									}
-									done := false
-									for _, b := range bases {
-										done = done || notified[b]
-									}
-									if done {
-										continue
-									}
-									var lastErr error
-									for _, b := range bases {
-										if lastErr = /* Cluster.notifyOne */ func(ctx context.Context, target string) error {
-											ctx, cancel := context.WithTimeout(ctx, NOTIFY_TIMEOUT)
-											defer cancel()
-											req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, nil)
-											if err != nil {
-												return err
-											}
-											for k, v := range c.auth {
-												req.Header[k] = v
-											}
-											resp, err := c.client.Do(req)
-											if err != nil {
-												return err
-											}
-											_ = resp.Body.Close()
-											if resp.StatusCode/100 != 2 {
-												return xerrors.Errorf("POST %s: %s", target, resp.Status)
-											}
-											return nil
-										}(ctx, b+notifyPath); lastErr == nil {
-											notified[b] = true
-											break
-										}
-									}
-									if lastErr != nil {
-										log.Debugw("notifying hash space node", "storage", p.StorageID, "error", lastErr)
-									}
-								}
-							}()
-						}()
-					}
-					return nil
-				}
-				select {
-				case <-ctx.Done():
-					return ctx.Err()
-				case <-time.After(time.Duration(attempt+1) * 50 * time.Millisecond):
-				}
-			}
-			return xerrors.Errorf("hash space map changed %d times during update", CAS_RETRIES)
-		}(ctx, nil, func(tx *harmonydb.Tx, _ harmonytask.TaskID) (bool, error) {
-			return fn(tx)
-		})
-	}(ctx, func(tx *harmonydb.Tx) (bool, error) {
+	err := c.casTx(ctx, func(tx *harmonydb.Tx) (bool, error) {
 		arrived = nil
 		var known []string
 		if err := tx.Select(&known, `SELECT storage_id FROM hash_space_disk`); err != nil {
@@ -833,18 +1936,7 @@ func (c *Cluster) join(ctx context.Context, drives []LocalDrive) ([]string, erro
 					return false, err
 				}
 			}
-			return true /* storeState */, func(tx *harmonydb.Tx, st hashspacesolver.State) error {
-				for s, kind := range spaceKinds {
-					rs := make([]rangeRow, len(st.HashSpaces[s]))
-					for i, r := range st.HashSpaces[s] {
-						rs[i] = rangeRow{EndHash: r.EndHash, StorageID: r.StorageID, Size: r.Size}
-					}
-					if err := writeSpaceRanges(tx, kind, rs); err != nil {
-						return err
-					}
-				}
-				return nil
-			}(tx, st)
+			return true, storeState(tx, st)
 		}
 
 		var fresh []string
@@ -1071,120 +2163,146 @@ func (c *Cluster) publishUsed(ctx context.Context) {
 // capacity. Anything else on the filesystem (piece-park, sealing) shows up
 // only as less free space.
 func (c *Cluster) publishOne(ctx context.Context, storageID, root string) {
-	if _, err := /* Cluster.publishDisk */ func(ctx context.Context, storageID, root string) (bool, error) {
-		usedOpen, usedACL, err := /* Cluster.folderUsed */ func(root string) (openUsed, aclUsed int64, err error) {
-			if c.open == nil {
-				return 0, 0, xerrors.Errorf("open-pieces is not loaded")
-			}
-			openUsed, err = c.open.UsedOn(root)
-			if err != nil {
-				return 0, 0, err
-			}
-			if c.acl == nil {
-				return openUsed, 0, nil
-			}
-			aclUsed, err = c.acl.UsedOn(root)
-			return openUsed, aclUsed, err
-		}(root)
-		if err != nil {
-			return false, err
-		}
-		used := usedOpen + usedACL
-		for _, kind := range spaceKinds {
-			n := usedOpen
-			if kind == DIR_ACL {
-				n = usedACL
-			}
-			if err := /* Cluster.publishRangeSizes */ func(ctx context.Context, storageID, root, kind string, used int64) error {
-				owned, _, err := c.localIntervals(ctx, kind, storageID)
-				if err != nil {
-					return err
-				}
-				sizes, err := sizesForRanges(filepath.Join(root, kind), owned, used)
-				if err != nil {
-					return err
-				}
-				for i, r := range owned {
-					end, err := decodeHash(r.End)
-					if err != nil {
-						return err
-					}
-					if _, err := c.db.Exec(ctx, `UPDATE hash_space_range SET size = $1
-			WHERE space = $2 AND end_hash = $3 AND storage_id = $4`, sizes[i], kind, end, storageID); err != nil {
-						return err
-					}
-				}
-				return nil
-			}(ctx, storageID, root, kind, n); err != nil {
-				log.Warnw("publishing hash space range sizes", "storage", storageID, "space", kind, "error", err)
-			}
-		}
-		var prev int64
-		if err := c.db.QueryRow(ctx, `SELECT capacity FROM hash_space_disk WHERE storage_id = $1`, storageID).Scan(&prev); err != nil {
-			prev = 0
-		}
-		capacity, err := /* effectiveCapacity */ func(root string, used int64) (int64, error) {
-			limit, err := capacityOf(Drive{Root: root})
-			if err != nil {
-				return 0, err
-			}
-			free, err := filesystemFree(root)
-			if err != nil {
-				return 0, err
-			}
-			if used+free < limit {
-				return used + free, nil
-			}
-			return limit, nil
-		}(root, used)
-		if err != nil {
-			log.Warnw("reading hash space capacity", "storage", storageID, "error", err)
-			if _, err := c.db.Exec(ctx, `UPDATE hash_space_disk SET used_open = $1, used_acl = $2, vacating = $3, updated_at = NOW() WHERE storage_id = $4`, usedOpen, usedACL, diskVacate(root), storageID); err != nil {
-				log.Warnw("publishing hash space used", "storage", storageID, "error", err)
-			}
-			return false, nil
-		}
-		vacating := diskVacate(root)
-		if _, err := c.db.Exec(ctx, `UPDATE hash_space_disk SET used_open = $1, used_acl = $2, capacity = $3, vacating = $4, updated_at = NOW() WHERE storage_id = $5`,
-			usedOpen, usedACL, capacity, vacating, storageID); err != nil {
-			return false, err
-		}
-		// Other filesystem use shrinks the capacity the solver sees. When a large
-		// chunk of that space comes back and some disk is over the limit, this
-		// disk can take that overflow. Disks under the limit are not evened out.
-		if vacating || capacity <= prev || overFill(used, capacity) || capacity-prev < ROOM_RETURN_MIN {
-			return false, nil
-		}
-		over, err := /* Cluster.anyOverFill */ func(ctx context.Context) (bool, error) {
-			var rows []struct {
-				UsedOpen int64 `db:"used_open"`
-				UsedACL  int64 `db:"used_acl"`
-				Capacity int64 `db:"capacity"`
-			}
-			if err := c.db.Select(ctx, &rows, `SELECT used_open, used_acl, capacity FROM hash_space_disk`); err != nil {
-				return false, err
-			}
-			for _, r := range rows {
-				if overFill(r.UsedOpen+r.UsedACL, r.Capacity) {
-					return true, nil
-				}
-			}
-			return false, nil
-		}(ctx)
-		if err != nil {
-			log.Warnw("reading hash space fill", "storage", storageID, "error", err)
-			return false, nil
-		}
-		return over, nil
-	}(ctx, storageID, root); err != nil {
+	absorb, err := c.publishDisk(ctx, storageID, root)
+	if err != nil {
 		log.Warnw("publishing hash space used", "storage", storageID, "error", err)
+		return
+	}
+	if !absorb {
+		return
+	}
+	if err := c.raise(ctx, storageID, EVENT_ABSORB); err != nil {
+		log.Warnw("hash space absorb", "storage", storageID, "error", err)
 	}
 }
 
 // publishDisk writes used and capacity. It reports whether the disk gained
 // enough free space to take overflow, without starting that event.
+func (c *Cluster) publishDisk(ctx context.Context, storageID, root string) (bool, error) {
+	usedOpen, usedACL, err := /* Cluster.folderUsed */ func(root string) (openUsed, aclUsed int64, err error) {
+		if c.open == nil {
+			return 0, 0, xerrors.Errorf("open-pieces is not loaded")
+		}
+		openUsed, err = c.open.UsedOn(root)
+		if err != nil {
+			return 0, 0, err
+		}
+		if c.acl == nil {
+			return openUsed, 0, nil
+		}
+		aclUsed, err = c.acl.UsedOn(root)
+		return openUsed, aclUsed, err
+	}(root)
+	if err != nil {
+		return false, err
+	}
+	used := usedOpen + usedACL
+	for _, kind := range spaceKinds {
+		n := usedOpen
+		if kind == DIR_ACL {
+			n = usedACL
+		}
+		if err := /* Cluster.publishRangeSizes */ func(ctx context.Context, storageID, root, kind string, used int64) error {
+			owned, _, err := c.localIntervals(ctx, kind, storageID)
+			if err != nil {
+				return err
+			}
+			sizes, err := sizesForRanges(filepath.Join(root, kind), owned, used)
+			if err != nil {
+				return err
+			}
+			for i, r := range owned {
+				end, err := decodeHash(r.End)
+				if err != nil {
+					return err
+				}
+				if _, err := c.db.Exec(ctx, `UPDATE hash_space_range SET size = $1
+			WHERE space = $2 AND end_hash = $3 AND storage_id = $4`, sizes[i], kind, end, storageID); err != nil {
+					return err
+				}
+			}
+			return nil
+		}(ctx, storageID, root, kind, n); err != nil {
+			log.Warnw("publishing hash space range sizes", "storage", storageID, "space", kind, "error", err)
+		}
+	}
+	var prev int64
+	if err := c.db.QueryRow(ctx, `SELECT capacity FROM hash_space_disk WHERE storage_id = $1`, storageID).Scan(&prev); err != nil {
+		prev = 0
+	}
+	capacity, err := /* effectiveCapacity */ func(root string, used int64) (int64, error) {
+		limit, err := capacityOf(Drive{Root: root})
+		if err != nil {
+			return 0, err
+		}
+		free, err := filesystemFree(root)
+		if err != nil {
+			return 0, err
+		}
+		if used+free < limit {
+			return used + free, nil
+		}
+		return limit, nil
+	}(root, used)
+	if err != nil {
+		log.Warnw("reading hash space capacity", "storage", storageID, "error", err)
+		if _, err := c.db.Exec(ctx, `UPDATE hash_space_disk SET used_open = $1, used_acl = $2, vacating = $3, updated_at = NOW() WHERE storage_id = $4`, usedOpen, usedACL, diskVacate(root), storageID); err != nil {
+			log.Warnw("publishing hash space used", "storage", storageID, "error", err)
+		}
+		return false, nil
+	}
+	vacating := diskVacate(root)
+	if _, err := c.db.Exec(ctx, `UPDATE hash_space_disk SET used_open = $1, used_acl = $2, capacity = $3, vacating = $4, updated_at = NOW() WHERE storage_id = $5`,
+		usedOpen, usedACL, capacity, vacating, storageID); err != nil {
+		return false, err
+	}
+	// Other filesystem use shrinks the capacity the solver sees. When a large
+	// chunk of that space comes back and some disk is over the limit, this
+	// disk can take that overflow. Disks under the limit are not evened out.
+	if vacating || capacity <= prev || isOverFull(used, capacity) || capacity-prev < ROOM_RETURN_MIN {
+		return false, nil
+	}
+	over, err := /* Cluster.anyOverFill */ func(ctx context.Context) (bool, error) {
+		var rows []struct {
+			UsedOpen int64 `db:"used_open"`
+			UsedACL  int64 `db:"used_acl"`
+			Capacity int64 `db:"capacity"`
+		}
+		if err := c.db.Select(ctx, &rows, `SELECT used_open, used_acl, capacity FROM hash_space_disk`); err != nil {
+			return false, err
+		}
+		for _, r := range rows {
+			if isOverFull(r.UsedOpen+r.UsedACL, r.Capacity) {
+				return true, nil
+			}
+		}
+		return false, nil
+	}(ctx)
+	if err != nil {
+		log.Warnw("reading hash space fill", "storage", storageID, "error", err)
+		return false, nil
+	}
+	return over, nil
+}
 
 // anyOverFill reports whether any disk is above its fill limit.
+
+// loadClusterState builds the solver state from the cluster map. Disks are
+// ordered by storage id. Each space's range sizes are the totals the owning
+// node published from that directory.
+
+func storeState(tx *harmonydb.Tx, st hashspacesolver.State) error {
+	for s, kind := range spaceKinds {
+		rs := make([]rangeRow, len(st.HashSpaces[s]))
+		for i, r := range st.HashSpaces[s] {
+			rs[i] = rangeRow{EndHash: r.EndHash, StorageID: r.StorageID, Size: r.Size}
+		}
+		if err := writeSpaceRanges(tx, kind, rs); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 func writeSpaceRanges(tx *harmonydb.Tx, kind string, rs []rangeRow) error {
 	if _, err := tx.Exec(`DELETE FROM hash_space_range WHERE space = $1`, kind); err != nil {
