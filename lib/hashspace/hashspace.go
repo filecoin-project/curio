@@ -66,12 +66,15 @@ type ReadSeekFile interface {
 	io.Closer
 }
 
-// Drive is one attached storage root. Capacity, when set, is the solver
-// disk size in bytes. When zero, capacity is the filesystem size from
-// statfs, capped by sectorstore.json MaxStorage when that field is non-zero.
+// Drive is one attached storage root. StorageID is the storage path ID from
+// sectorstore.json and the database; it names the drive's mountpoint in the
+// solver. Capacity, when set, is the solver disk size in bytes. When zero,
+// capacity is the filesystem size from statfs, capped by sectorstore.json
+// MaxStorage when that field is non-zero.
 type Drive struct {
-	Root     string
-	Capacity int64
+	StorageID string
+	Root      string
+	Capacity  int64
 }
 
 func cidHashHex(c cid.Cid) (string, []byte, error) {
