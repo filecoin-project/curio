@@ -165,6 +165,9 @@ func Open(ctx context.Context, cctx *cli.Context) (*Deps, error) {
 	sectorReader := pieceprovider.NewSectorReader(stor, si)
 	ppr := pieceprovider.NewPieceParkReader(stor, si)
 	cpr := cachedreader.NewCachedPieceReader(db, sectorReader, ppr, indexStore)
+	if hs != nil {
+		cpr.SetOpenPieceReader(pieceprovider.NewOpenPieceReader(hs))
+	}
 	serveChunker := chunker.NewServeChunker(db, sectorReader, indexStore, cpr)
 
 	ethLazy := lazy.MakeLazy(func() (ethchain.EthClient, error) {

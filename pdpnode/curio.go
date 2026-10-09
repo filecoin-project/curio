@@ -12,6 +12,7 @@ import (
 	curiodeps "github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/lib/chainsched"
+	"github.com/filecoin-project/curio/lib/pieceprovider"
 	"github.com/filecoin-project/curio/lib/piecestore"
 	pdpwallet "github.com/filecoin-project/curio/pdp/wallet"
 )
@@ -44,6 +45,9 @@ func Attach(
 			return xerrors.Errorf("hash space: %w", err)
 		}
 		cd.HashSpace = hs
+		if hs != nil && cd.CachedPieceReader != nil {
+			cd.CachedPieceReader.SetOpenPieceReader(pieceprovider.NewOpenPieceReader(hs))
+		}
 	}
 
 	d := FromCurio(cd)
