@@ -18,15 +18,27 @@ type Result struct {
 }
 
 func checkSumArgs(directory, low, high string, queueDepth uint32) error {
-	if strings.IndexByte(directory, 0) >= 0 ||
-		strings.IndexByte(low, 0) >= 0 ||
-		strings.IndexByte(high, 0) >= 0 {
-		return fmt.Errorf("sum file sizes: path and bounds cannot contain NUL bytes")
+	if strings.IndexByte(directory, 0) >= 0 {
+		return fmt.Errorf("sum file sizes: directory cannot contain a NUL byte")
+	}
+	if !cidCharsOnly(low) || !cidCharsOnly(high) {
+		return fmt.Errorf("sum file sizes: bounds must contain only base32 CID characters")
 	}
 	if queueDepth > 4096 {
 		return fmt.Errorf("sum file sizes: queue depth %d exceeds 4096", queueDepth)
 	}
 	return nil
+}
+
+// cidCharsOnly reports whether s is empty or uses the CIDv1 base32 alphabet (a-z, 2-7).
+func cidCharsOnly(s string) bool {
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if (c < 'a' || c > 'z') && (c < '2' || c > '7') {
+			return false
+		}
+	}
+	return true
 }
 
 func hashInRange(hash, low, high string) bool {

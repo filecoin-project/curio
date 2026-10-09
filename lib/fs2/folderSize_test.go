@@ -56,6 +56,15 @@ func TestSumFileSizesRange(t *testing.T) {
 	if _, err := SumFileSizesRange("dir\x00", "", "", 0); err == nil {
 		t.Fatal("expected error for NUL in path")
 	}
+	if _, err := SumFileSizesRange(dir, "A", "", 0); err == nil {
+		t.Fatal("expected error for uppercase bound")
+	}
+	if _, err := SumFileSizesRange(dir, "", "bafy/x", 0); err == nil {
+		t.Fatal("expected error for non-CID bound")
+	}
+	if _, err := SumFileSizesRange(dir, "bafk0", "", 0); err == nil {
+		t.Fatal("expected error for digit outside base32")
+	}
 	if _, err := SumFileSizesRange(".", "", "", 4097); err == nil {
 		t.Fatal("expected error for queue depth over 4096")
 	}

@@ -137,7 +137,7 @@ func init() {
 // whose concatenated hash paths compare in the bytewise interval (low, high].
 // An empty low or high bound leaves that side of the interval open.
 //
-// QueueDepth is the io_uring queue size and the maximum number of outstanding
+// kBufSize is the io_uring queue size and the maximum number of outstanding
 // statx requests for one directory. Zero selects 128. It is ignored when
 // io_uring is unavailable and the portable directory walk is used instead.
 //
@@ -154,18 +154,18 @@ func init() {
 //	 7.6s           2.4/3.0s  Unix impl.
 //
 // RSS stays ~10 MB vs ~180 MB. Cold, both wait on disk metadata reads.
-func SumFileSizesRange(directory, low, high string, queueDepth uint32) (Result, error) {
+func SumFileSizesRange(directory, low, high string, kBufSize uint32) (Result, error) {
 	if !ioUringAvailable {
-		return sumFileSizesRangeSimple(directory, low, high, queueDepth)
+		return sumFileSizesRangeSimple(directory, low, high, kBufSize)
 	}
-	if err := checkSumArgs(directory, low, high, queueDepth); err != nil {
+	if err := checkSumArgs(directory, low, high, kBufSize); err != nil {
 		return Result{}, err
 	}
-	if queueDepth == 0 {
-		queueDepth = 128
+	if kBufSize == 0 {
+		kBufSize = 128
 	}
 
-	ring, err := newUring(queueDepth)
+	ring, err := newUring(kBufSize)
 	if err != nil {
 		return Result{}, fmt.Errorf("sum file sizes: %w", err)
 	}
