@@ -21,34 +21,22 @@ type span struct {
 	origin int
 	// base is the input range this span was cut from. Sizes inside a span
 	// come from base, so every cut order yields the same bytes per hash.
-	base      Range
-	baseStart []byte
+	base Range
 }
 
 // sizeIn returns how many of s's bytes lie in (from, to]. Both bounds must be
 // on s's arc.
 func (s span) sizeIn(from, to []byte) int64 {
-	return s.basePos(to, true) - s.basePos(from, false)
-}
-
-func (s span) basePos(h []byte, isEnd bool) int64 {
-	if isEnd && hashEq(h, s.base.EndHash) {
-		return s.base.Size
-	}
-	if hashEq(h, s.baseStart) {
-		return 0
-	}
-	return SliceSize(s.base, s.baseStart, h)
+	return sliceSize(s.base, from, to)
 }
 
 // piece returns the part of s ending at end with size bytes.
 func (s span) piece(end []byte, size int64) span {
 	return span{
-		end:       cloneHash(end),
-		size:      size,
-		origin:    s.origin,
-		base:      Range{EndHash: cloneHash(s.base.EndHash), Size: s.base.Size},
-		baseStart: cloneHash(s.baseStart),
+		end:    cloneHash(end),
+		size:   size,
+		origin: s.origin,
+		base:   cloneRange(s.base),
 	}
 }
 
@@ -84,11 +72,10 @@ func newWorld(state State) (*world, error) {
 		w.spaces[s].spans = make([][]span, len(w.spaces[s].ranges))
 		for i, r := range w.spaces[s].ranges {
 			w.spaces[s].spans[i] = []span{{
-				end:       cloneHash(r.EndHash),
-				size:      r.Size,
-				origin:    w.spaces[s].owner[i],
-				base:      Range{EndHash: cloneHash(r.EndHash), Size: r.Size},
-				baseStart: w.startHash(s, i),
+				end:    cloneHash(r.EndHash),
+				size:   r.Size,
+				origin: w.spaces[s].owner[i],
+				base:   cloneRange(r),
 			}}
 		}
 		w.mergeSpace(s)
@@ -99,10 +86,14 @@ func newWorld(state State) (*world, error) {
 	return w, nil
 }
 
+func cloneRange(r Range) Range {
+	return Range{StartHash: cloneHash(r.StartHash), EndHash: cloneHash(r.EndHash), Size: r.Size}
+}
+
 func cloneRanges(in []Range) []Range {
 	out := make([]Range, len(in))
 	for i, r := range in {
-		out[i] = Range{EndHash: cloneHash(r.EndHash), Size: r.Size}
+		out[i] = cloneRange(r)
 	}
 	return out
 }
@@ -129,7 +120,7 @@ func (w *world) snapshot() State {
 }
 
 func (w *world) startHash(space, i int) []byte {
-	return StartHash(w.spaces[space].ranges, i)
+	return cloneHash(w.spaces[space].ranges[i].StartHash)
 }
 
 func (w *world) free(d int) int64 {
@@ -298,17 +289,18 @@ func (w *world) applyCut(space, idx, kind, dest int, size int64, split []byte) b
 		return false
 	}
 	if kind == cutPrefix {
+		sp.ranges[idx].StartHash = cloneHash(boundary)
 		sp.ranges[idx].Size -= moved
 		sp.spans[idx] = tail
 		w.used[from] -= moved
-		w.insert(space, idx, Range{EndHash: cloneHash(boundary), Size: moved}, dest, head)
+		w.insert(space, idx, Range{StartHash: start, EndHash: cloneHash(boundary), Size: moved}, dest, head)
 	} else {
 		end := cloneHash(r.EndHash)
 		sp.ranges[idx].EndHash = cloneHash(boundary)
 		sp.ranges[idx].Size -= moved
 		sp.spans[idx] = head
 		w.used[from] -= moved
-		w.insert(space, idx+1, Range{EndHash: end, Size: moved}, dest, tail)
+		w.insert(space, idx+1, Range{StartHash: cloneHash(boundary), EndHash: end, Size: moved}, dest, tail)
 	}
 	w.mergeSpace(space)
 	return true
@@ -443,6 +435,7 @@ func (w *world) mergeSpace(space int) {
 			if sp.owner[i] != sp.owner[j] || i == j {
 				continue
 			}
+			sp.ranges[j].StartHash = sp.ranges[i].StartHash
 			sp.ranges[j].Size += sp.ranges[i].Size
 			if len(sp.spans) == n {
 				sp.spans[j] = append(cloneSpans(sp.spans[i]), cloneSpans(sp.spans[j])...)
@@ -490,11 +483,8 @@ func checkStructure(state State) error {
 		var hlen int
 		seen := make(map[string]struct{}, len(sp.Ranges))
 		for i, r := range sp.Ranges {
-			if r.Size < 0 {
-				return xerrors.Errorf("space %d range %d has negative size", s, i)
-			}
-			if len(r.EndHash) == 0 {
-				return xerrors.Errorf("space %d range %d has empty EndHash", s, i)
+			if err := checkRange(r); err != nil {
+				return xerrors.Errorf("space %d range %d: %w", s, i, err)
 			}
 			if hlen == 0 {
 				hlen = len(r.EndHash)
@@ -509,6 +499,28 @@ func checkStructure(state State) error {
 			if sp.Owner[i] < 0 || sp.Owner[i] >= len(state.Disks) {
 				return xerrors.Errorf("space %d range %d owner %d out of range", s, i, sp.Owner[i])
 			}
+		}
+		if err := checkTiling(sp.Ranges); err != nil {
+			return xerrors.Errorf("space %d: %w", s, err)
+		}
+	}
+	return nil
+}
+
+// checkTiling requires the ranges to cover the circle exactly once: in
+// EndHash order, each range starts where the one before it ends.
+func checkTiling(ranges []Range) error {
+	order := make([]int, len(ranges))
+	for i := range order {
+		order[i] = i
+	}
+	slices.SortFunc(order, func(a, b int) int {
+		return bytes.Compare(ranges[a].EndHash, ranges[b].EndHash)
+	})
+	for k, i := range order {
+		prev := order[(k-1+len(order))%len(order)]
+		if !hashEq(ranges[i].StartHash, ranges[prev].EndHash) {
+			return xerrors.Errorf("range %d starts at %x, but the range before it ends at %x", i, ranges[i].StartHash, ranges[prev].EndHash)
 		}
 	}
 	return nil
@@ -551,11 +563,11 @@ func cutOneSpan(s span, start []byte, want int64) (left, right span, ok bool) {
 	if want <= 0 || want >= s.size {
 		return span{}, span{}, false
 	}
-	r := Range{EndHash: s.end, Size: s.size}
-	split := splitHash(r, start, want)
+	r := Range{StartHash: start, EndHash: s.end, Size: s.size}
+	split := splitHash(r, want)
 	moved := s.sizeIn(start, split)
 	if moved <= 0 || moved >= s.size {
-		split = splitHashMin(r, start, 1)
+		split = splitHashMin(r, 1)
 		moved = s.sizeIn(start, split)
 	}
 	if moved <= 0 || moved >= s.size || hashEq(split, start) || hashEq(split, s.end) {
