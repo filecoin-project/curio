@@ -992,12 +992,12 @@ func (c *Cluster) raise(ctx context.Context, storageID, kind string) error {
 			}
 			ids := make([]string, len(disks))
 			st := hashspacesolver.State{
-				Disks:    make([]int64, len(disks)),
-				Vacating: make([]bool, len(disks)),
+				MountpointCapacity: make([]int64, len(disks)),
+				Vacating:           make([]bool, len(disks)),
 			}
 			for i, d := range disks {
 				ids[i] = d.StorageID
-				st.Disks[i] = d.Capacity
+				st.MountpointCapacity[i] = d.Capacity
 				st.Vacating[i] = d.Vacating
 			}
 			for _, kind := range spaceKinds {
@@ -1042,7 +1042,7 @@ func (c *Cluster) raise(ctx context.Context, storageID, kind string) error {
 					}
 				}
 				return n
-			}(st, disk), st.Disks[disk]) {
+			}(st, disk), st.MountpointCapacity[disk]) {
 				return true, consumePending(tx, storageID, kind)
 			}
 			ev.Kind = hashspacesolver.EventFull
@@ -2125,7 +2125,7 @@ func (c *Cluster) join(ctx context.Context, drives []LocalDrive) (arrived, claim
 				if _, err := tx.Exec(`INSERT INTO hash_space_disk (storage_id, capacity, vacating, has_misplaced) VALUES ($1, $2, $3, $4)
 					ON CONFLICT (storage_id) DO UPDATE SET capacity = EXCLUDED.capacity, vacating = EXCLUDED.vacating,
 						has_misplaced = EXCLUDED.has_misplaced, updated_at = NOW()`,
-					d.StorageID, st.Disks[i], deny, claims[d.StorageID]); err != nil {
+					d.StorageID, st.MountpointCapacity[i], deny, claims[d.StorageID]); err != nil {
 					return false, err
 				}
 			}
