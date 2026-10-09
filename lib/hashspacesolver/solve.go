@@ -13,8 +13,9 @@ import (
 // vacating. The resulting assignment keeps every active disk at or under
 // capacity and at or under MAX_RANGES_PER_DISK contiguous ranges per space.
 //
-// Cost is lexicographic: fewer bytes moved, then fewer moves. Cuts may come
-// from any space. Hash space within each Space is a circle.
+// A space may loop:  FF00 - AABB includes AAAA, not BBBB.
+// Cost: Prefer moving the least data. If they're equal, prefer fewer moves.
+// Cuts may come from any space, such as open-pieces or acl-pieces.
 //
 // Result.State is the finished layout. Result.Diff moves each byte at most
 // once, from the disk that owned it at the start to the disk that holds it
