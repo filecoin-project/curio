@@ -93,20 +93,20 @@ func (e *TaskEngine) startAcceptWorkers() {
 
 // Don't queue another check for this task type until the scheduler has handled the previous result.
 func (h *taskTypeHandler) requestAcceptance(ids []TaskID) {
-	if h.acceptPending || len(ids) == 0 {
+	if h.awaitingCanAcceptResult || len(ids) == 0 {
 		return
 	}
 	request := acceptRequest{handler: h, ids: append([]TaskID(nil), ids...)}
 	if h.TaskInterface.TypeDetails().TimeSensitive {
 		select {
 		case h.TaskEngine.acceptSensitiveWork <- request:
-			h.acceptPending = true
+			h.awaitingCanAcceptResult = true
 		default:
 		}
 	} else {
 		select {
 		case h.TaskEngine.acceptWork <- request:
-			h.acceptPending = true
+			h.awaitingCanAcceptResult = true
 		default:
 		}
 	}

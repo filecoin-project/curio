@@ -259,7 +259,7 @@ func (e *TaskEngine) runScheduler() {
 				}
 			case schedulerSourceAcceptResult:
 				h := e.taskMap[event.TaskType]
-				h.acceptPending = false
+				h.awaitingCanAcceptResult = false
 				h.storeAcceptance(*event.Acceptance)
 				tryStartNow(event.TaskType)
 			case schedulerSourcePreemptDone:

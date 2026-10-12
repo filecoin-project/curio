@@ -53,7 +53,7 @@ func TestResolveAcceptedIDsCacheMissQueuesCanAccept(t *testing.T) {
 	require.Empty(t, got)
 	require.Zero(t, stub.canAcceptCalls.Load(), "scheduler must not execute CanAccept")
 	require.Equal(t, []TaskID{9, 10}, (<-e.acceptWork).ids)
-	require.True(t, h.acceptPending)
+	require.True(t, h.awaitingCanAcceptResult)
 	// Unmatched cache entries preserved for later.
 	left, had := h.accept.TakeMatching([]int64{1, 2, 3})
 	require.True(t, had)

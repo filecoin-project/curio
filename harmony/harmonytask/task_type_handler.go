@@ -49,9 +49,9 @@ type taskTypeHandler struct {
 	// storageFailures is only read/written from considerWork, which runs on
 	// the scheduler thread. The single-writer invariant is what makes this
 	// safe without a mutex.
-	storageFailures map[TaskID]time.Time
-	acceptPending   bool
-	preempting      map[TaskID]struct{}
+	storageFailures         map[TaskID]time.Time
+	awaitingCanAcceptResult bool
+	preempting              map[TaskID]struct{}
 
 	// --- concurrent state, encapsulated behind typed APIs ---
 	//
@@ -610,7 +610,7 @@ func reorderTaskIDsByPostedOrder(tasks []task, ids []TaskID) []TaskID {
 // Cached approvals remain available until claimed, including across preemption.
 // Unknown candidates are checked by the pool without blocking the scheduler.
 func (h *taskTypeHandler) resolveAcceptedIDs(ids []TaskID) ([]TaskID, bool) {
-	if h.acceptPending {
+	if h.awaitingCanAcceptResult {
 		return nil, false
 	}
 	matched, checked := h.accept.GetMatching(toInt64s(ids))

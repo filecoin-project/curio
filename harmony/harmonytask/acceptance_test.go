@@ -74,7 +74,7 @@ func applyAcceptanceTestEvent(t *testing.T, e *TaskEngine, event schedulerEvent)
 	require.NotNil(t, event.Acceptance)
 	h := e.taskMap[event.TaskType]
 	require.NotNil(t, h)
-	h.acceptPending = false
+	h.awaitingCanAcceptResult = false
 	h.storeAcceptance(*event.Acceptance)
 }
 
