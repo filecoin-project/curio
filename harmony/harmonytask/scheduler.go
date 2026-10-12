@@ -59,7 +59,7 @@ const (
 func taskFromSchedulerEvent(event schedulerEvent) task {
 	pt := event.PostedTime
 	if pt.IsZero() {
-		pt = time.Now().UTC()
+		pt = time.Now()
 	}
 	ut := event.UpdateTime
 	if ut.IsZero() {
@@ -108,6 +108,7 @@ func (e *TaskEngine) startScheduler() {
 			case <-e.cfg.ctx.Done():
 				return
 			case <-timer.C:
+				posted := time.Now()
 				dbTasks := e.pollAllTaskTypes()
 
 				if schedulable, err := e.checkNodeFlags(); err != nil {
@@ -118,8 +119,9 @@ func (e *TaskEngine) startScheduler() {
 
 				select {
 				case e.schedulerChannel <- schedulerEvent{
-					Source:  schedulerSourceDBPoll,
-					DBTasks: dbTasks,
+					Source:     schedulerSourceDBPoll,
+					DBTasks:    dbTasks,
+					PostedTime: posted,
 				}:
 				case <-e.cfg.ctx.Done():
 					return
@@ -182,10 +184,7 @@ func (e *TaskEngine) runScheduler() {
 					newHas := lo.Associate(tasks, func(t task) (TaskID, task) {
 						return t.ID, t
 					})
-					availableTasks[taskName] = &taskSchedule{
-						hasID:  newHas,
-						choked: len(tasks) >= chokePoint,
-					}
+					availableTasks[taskName] = mergeDBpoll(sched, newHas, event.PostedTime, len(tasks) >= chokePoint)
 					e.taskMap[taskName].accept.Refresh()
 				}
 
@@ -209,7 +208,7 @@ func (e *TaskEngine) runScheduler() {
 				}
 				pt := event.PostedTime
 				if pt.IsZero() {
-					pt = time.Now().UTC()
+					pt = time.Now()
 				}
 				e.peering.TellNewTask(event.TaskType, event.TaskID, event.Retries, pt)
 			case schedulerSourcePeerNewTask:
@@ -552,4 +551,23 @@ func taskLessByPostedTime(a, b task) bool {
 	default:
 		return a.PostedTime.Before(b.PostedTime)
 	}
+}
+
+func mergeDBpoll(old *taskSchedule, poll map[TaskID]task, posted time.Time, choked bool) *taskSchedule {
+	out := &taskSchedule{
+		hasID:  make(map[TaskID]task),
+		choked: choked,
+	}
+	for k, v := range poll {
+		out.hasID[k] = v
+	}
+	if old != nil {
+		for k, v := range old.hasID {
+			if v.UpdateTime.Before(posted) {
+				continue
+			}
+			out.hasID[k] = v
+		}
+	}
+	return out
 }

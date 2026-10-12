@@ -488,66 +488,111 @@ func TestSchedulerOldestFirstAcrossTypes(t *testing.T) {
 	require.Equal(t, []string{"Old1stA", "Old1stB"}, execOrder, "expected older posted type first")
 }
 
-// TestSchedulerPipelineDownstreamOrder verifies that when a pipeline has
-// MayFollow downstream stages, those stages are scheduled in pipeline-end
-// order (minimize latency) before the pipeline head, while the overall
-// waterfall still prioritizes the globally oldest queued work.
+// TestSchedulerPipelineDownstreamOrder verifies that the furthest downstream
+// ready stage claims the only available CPU before its upstream stages.
 func TestSchedulerPipelineDownstreamOrder(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		queued []string
+		first  string
+	}{
+		{"all_stages", []string{tasknames.SDR, tasknames.TreeD, tasknames.TreeRC}, tasknames.TreeRC},
+		{"upstream_stages", []string{tasknames.SDR, tasknames.TreeD}, tasknames.TreeD},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			db, err := harmonydb.NewFromConfigWithITestID(t)
+			require.NoError(t, err)
+
+			head := newTestTask(tasknames.SDR, 1)
+			mid := newTestTask(tasknames.TreeD, 1)
+			tail := newTestTask(tasknames.TreeRC, 1)
+			mid.mayFollow = []string{head.name}
+			tail.mayFollow = []string{mid.name}
+			t.Cleanup(cleanupTasks(head, mid, tail))
+
+			ready := make(chan struct{})
+			allowScheduling := sync.OnceFunc(func() { close(ready) })
+			defer allowScheduling()
+			started := make(chan harmonytask.TaskID, len(test.queued))
+			release := make(chan struct{})
+			releaseTasks := sync.OnceFunc(func() { close(release) })
+			defer releaseTasks()
+			for _, task := range []*testTask{head, mid, tail} {
+				task.storage = gatedTestStorage{ready: ready}
+				task.doFunc = func(ctx context.Context, id harmonytask.TaskID, so func() bool) (bool, error) {
+					started <- id
+					<-release
+					return true, nil
+				}
+			}
+
+			ids := make(map[string]int64)
+			for i, name := range test.queued {
+				var id int64
+				err := db.QueryRow(context.Background(), `INSERT INTO harmony_task (posted_time, added_by, name) VALUES ($1, 0, $2) RETURNING id`,
+					time.Now().Add(time.Duration(i)*time.Millisecond), name).Scan(&id)
+				require.NoError(t, err)
+				ids[name] = id
+			}
+
+			e := makeEngineWithResources(t, db, []harmonytask.TaskInterface{head, mid, tail}, "pipe2:1000", resources.Resources{Cpu: 1, Ram: 1 << 20})
+			// Open the capacity gate only after all candidates have cached acceptance.
+			for name, id := range ids {
+				e.TestONLY_SeedAcceptCache(name, []int64{id})
+			}
+			allowScheduling()
+
+			firstID := waitForTask(t, started, taskTimeout)
+			require.Equal(t, harmonytask.TaskID(ids[test.first]), firstID, "%s should get the only CPU first", test.first)
+			releaseTasks()
+			waitForSuccessCount(t, db, len(test.queued), taskTimeout)
+		})
+	}
+}
+
+func TestSchedulerPipelineProgressWhileDownstreamAcceptanceBlocked(t *testing.T) {
 	db, err := harmonydb.NewFromConfigWithITestID(t)
 	require.NoError(t, err)
 
-	var orderMu sync.Mutex
-	var execOrder []string
-	record := func(name string) {
-		orderMu.Lock()
-		execOrder = append(execOrder, name)
-		orderMu.Unlock()
+	head := newTestTask(tasknames.SDR, 1)
+	mid := newTestTask(tasknames.TreeD, 1)
+	tail := newTestTask(tasknames.TreeRC, 1)
+	mid.mayFollow = []string{head.name}
+	tail.mayFollow = []string{mid.name}
+	t.Cleanup(cleanupTasks(head, mid, tail))
+
+	acceptStarted := make(chan struct{})
+	noteStarted := sync.OnceFunc(func() { close(acceptStarted) })
+	acceptRelease := make(chan struct{})
+	releaseAcceptance := sync.OnceFunc(func() { close(acceptRelease) })
+	defer releaseAcceptance()
+	tail.canAcceptFunc = func(ids []harmonytask.TaskID, _ *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
+		noteStarted()
+		<-acceptRelease
+		return ids, nil
 	}
 
-	tChild := newTestTask("Pipe2Ch", 1)
-	tMid := newTestTask("Pipe2Mid", 1)
-	tRoot := newTestTask("Pipe2Rt", 1)
-	tChild.mayFollow = nil
-	tMid.mayFollow = []string{"Pipe2Ch"}
-	tRoot.mayFollow = []string{"Pipe2Mid"}
-
-	tChild.doFunc = func(ctx context.Context, id harmonytask.TaskID, so func() bool) (bool, error) {
-		record("Pipe2Ch")
-		tChild.doneCh <- id
-		return true, nil
-	}
-	tMid.doFunc = func(ctx context.Context, id harmonytask.TaskID, so func() bool) (bool, error) {
-		record("Pipe2Mid")
-		tMid.doneCh <- id
-		return true, nil
-	}
-	tRoot.doFunc = func(ctx context.Context, id harmonytask.TaskID, so func() bool) (bool, error) {
-		record("Pipe2Rt")
-		tRoot.doneCh <- id
-		return true, nil
-	}
-	t.Cleanup(cleanupTasks(tChild, tMid, tRoot))
-
-	// Seed all three rows before the engine exists so its first scheduling
-	// pass sees them simultaneously, rather than racing AddTaskByName's
-	// near-instant event-driven claim against sequential posts.
-	ctx := context.Background()
-	for i, name := range []string{"Pipe2Ch", "Pipe2Mid", "Pipe2Rt"} {
-		_, err := db.Exec(ctx, `INSERT INTO harmony_task (posted_time, added_by, name) VALUES ($1, 0, $2)`,
+	for i, name := range []string{head.name, mid.name, tail.name} {
+		_, err := db.Exec(context.Background(), `INSERT INTO harmony_task (posted_time, added_by, name) VALUES ($1, 0, $2)`,
 			time.Now().Add(time.Duration(i)*time.Millisecond), name)
 		require.NoError(t, err)
 	}
+	makeEngineWithResources(t, db, []harmonytask.TaskInterface{head, mid, tail}, "pipeblocked:1000", resources.Resources{Cpu: 1, Ram: 1 << 20})
 
-	e := makeEngineWithResources(t, db, []harmonytask.TaskInterface{tChild, tMid, tRoot}, "pipe2:1000", resources.Resources{Cpu: 1, Ram: 1 << 20})
-	e.TestONLY_SetPollDuration(50 * time.Millisecond)
+	select {
+	case <-acceptStarted:
+	case <-time.After(taskTimeout):
+		t.Fatal("downstream acceptance did not start")
+	}
+	headID := waitForTask(t, head.doneCh, taskTimeout)
+	midID := waitForTask(t, mid.doneCh, taskTimeout)
+	waitForHistory(t, db, headID, taskTimeout)
+	waitForHistory(t, db, midID, taskTimeout)
+	require.Empty(t, tail.doneCh, "downstream task must wait for acceptance")
 
-	waitForTasks(t, tChild.doneCh, 1, taskTimeout)
-	waitForTasks(t, tMid.doneCh, 1, taskTimeout)
-	waitForTasks(t, tRoot.doneCh, 1, taskTimeout)
-
-	orderMu.Lock()
-	defer orderMu.Unlock()
-	require.Equal(t, []string{"Pipe2Rt", "Pipe2Mid", "Pipe2Ch"}, execOrder, "expected pipeline end first, then upstream, then head")
+	releaseAcceptance()
+	tailID := waitForTask(t, tail.doneCh, taskTimeout)
+	waitForHistory(t, db, tailID, taskTimeout)
 }
 
 func TestSchedulerMaxConcurrency(t *testing.T) {
@@ -934,6 +979,16 @@ func TestTimeSensitivePathWhenResourcesOccupied(t *testing.T) {
 
 // noopTestStorage exercises the storage Claim path in task_type_handler without I/O.
 type noopTestStorage struct{}
+
+type gatedTestStorage struct {
+	noopTestStorage
+	ready <-chan struct{}
+}
+
+func (s gatedTestStorage) HasCapacity() bool {
+	<-s.ready
+	return true
+}
 
 func (noopTestStorage) HasCapacity() bool { return true }
 

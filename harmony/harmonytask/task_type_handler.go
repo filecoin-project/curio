@@ -370,6 +370,7 @@ func (h *taskTypeHandler) emitRetryTask(eventEmitter eventEmitter, base task, pr
 	}
 
 	if preempted {
+		base.UpdateTime = time.Now()
 		eventEmitter.EmitTaskNew(h.Name, base)
 		return
 	}
@@ -380,7 +381,7 @@ func (h *taskTypeHandler) emitRetryTask(eventEmitter eventEmitter, base task, pr
 
 	retry := base
 	retry.Retries++
-	retry.UpdateTime = time.Now().UTC()
+	retry.UpdateTime = time.Now()
 
 	var wait time.Duration
 	if h.RetryWait != nil && retry.Retries > 0 {
