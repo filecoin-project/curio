@@ -33,6 +33,8 @@ import (
 var SlowPoStCheckThreshold = 45 * time.Second
 var LocalSinfoTTL = 30 * time.Second
 
+const STORAGE_REPORT_INTERVAL = 5 * time.Minute
+
 var ParallelDeclare = 5
 
 func init() {
@@ -84,6 +86,9 @@ type Local struct {
 	paths map[storiface.ID]*path
 
 	localLk sync.RWMutex
+
+	healthReportTrigger chan struct{}
+	healthReportPending atomic.Bool
 }
 
 type sectorFile struct {
@@ -300,6 +305,8 @@ func NewLocal(ctx context.Context, ls LocalStorage, index SectorIndex, url strin
 		url:          url,
 
 		paths: map[storiface.ID]*path{},
+
+		healthReportTrigger: make(chan struct{}, 1),
 	}
 
 	localPathPublisher.Store(new(func() any {
@@ -500,7 +507,7 @@ func (st *Local) open(ctx context.Context) error {
 	declareCtr := declareCounter.Load() - startCtr
 	log.Infof("declared %d sectors in %s, %d/s", declareCtr, time.Since(startTime), int(float64(declareCtr)/time.Since(startTime).Seconds()))
 
-	go st.reportHealth(ctx)
+	go st.refreshHealth(ctx)
 
 	go st.startPeriodicRedeclare(ctx)
 
@@ -700,7 +707,9 @@ func declareableSectorEntry(name string, t storiface.SectorFileType, info os.Fil
 	return sid, true
 }
 
-func (st *Local) reportHealth(ctx context.Context) {
+func (st *Local) refreshHealth(ctx context.Context) {
+	go st.reportHealth(ctx)
+
 	// randomize interval by ~10%
 	interval := (HeartbeatInterval*100_000 + time.Duration(rand.Int63n(10_000))) / 100_000
 
@@ -710,13 +719,36 @@ func (st *Local) reportHealth(ctx context.Context) {
 	for {
 		select {
 		case <-timer.C:
-			st.reportStorage(ctx)
+			st.triggerReportStorage()
 			// Update interval for next iteration (randomize again)
 			interval = (HeartbeatInterval*100_000 + time.Duration(rand.Int63n(10_000))) / 100_000
 			timer.Reset(interval)
 		case <-ctx.Done():
 			return
 		}
+	}
+}
+
+func (st *Local) reportHealth(ctx context.Context) {
+	for {
+		select {
+		case <-st.healthReportTrigger:
+			select {
+			case <-time.After(STORAGE_REPORT_INTERVAL):
+			case <-ctx.Done():
+				return
+			}
+			st.reportStorage(ctx)
+			st.healthReportPending.Store(false)
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+func (st *Local) triggerReportStorage() {
+	if st.healthReportPending.CompareAndSwap(false, true) {
+		st.healthReportTrigger <- struct{}{}
 	}
 }
 
@@ -1129,7 +1161,7 @@ func (st *Local) removeSector(ctx context.Context, sid abi.SectorID, typ storifa
 		log.Errorf("removing sector (%v) from %s: %+v", sid, spath, err)
 	}
 
-	st.reportStorage(ctx) // report freed space
+	st.triggerReportStorage()
 
 	return nil
 }
@@ -1200,7 +1232,7 @@ func (st *Local) MoveStorage(ctx context.Context, s storiface.SectorRef, types s
 		}
 	}
 
-	st.reportStorage(ctx) // report space use changes
+	st.triggerReportStorage()
 
 	return nil
 }

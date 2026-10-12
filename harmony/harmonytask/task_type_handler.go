@@ -49,7 +49,9 @@ type taskTypeHandler struct {
 	// storageFailures is only read/written from considerWork, which runs on
 	// the scheduler thread. The single-writer invariant is what makes this
 	// safe without a mutex.
-	storageFailures map[TaskID]time.Time
+	storageFailures         map[TaskID]time.Time
+	awaitingCanAcceptResult bool
+	preempting              map[TaskID]struct{}
 
 	// --- concurrent state, encapsulated behind typed APIs ---
 	//
@@ -61,8 +63,7 @@ type taskTypeHandler struct {
 }
 
 // canAcceptCacheTTL controls how long pre-computed CanAccept results remain
-// valid. After this duration, the cache is discarded and CanAccept is called
-// fresh. This balances DB load reduction against decision freshness.
+// valid. Expired results are refreshed by the shared acceptance workers.
 const canAcceptCacheTTL = 60 * time.Second
 
 // storageFailureTimeout prevents repeatedly trying to claim storage for a
@@ -84,7 +85,7 @@ const (
 //
 //  1. Check concurrency limit (Max) — are we at capacity for this type?
 //  2. Check machine resources (CPU/RAM/GPU) — can we fit another task?
-//  3. CanAccept filter — either from cache (background poller) or fresh call.
+//  3. CanAccept filter — use the cache or request a check from the worker pool.
 //     This is the task-specific decision (e.g., "do I handle this miner?").
 //  4. SQL claim — UPDATE SET owner_id with SKIP LOCKED to atomically claim
 //     tasks. SKIP LOCKED ensures exactly one winner when multiple nodes race.
@@ -130,10 +131,12 @@ func (h *taskTypeHandler) considerWork(from string, tasks []task, eventEmitter e
 	ids := lo.Map(tasks, func(t task, _ int) TaskID {
 		return t.ID
 	})
-	tIDs, err := h.resolveAcceptedIDs(ids)
-	if err != nil {
-		log.Error(err)
-		return false
+	tIDs, ready := h.resolveAcceptedIDs(ids)
+	if !ready {
+		return true
+	}
+	if from != workSourceRecover {
+		defer h.requestUncachedAcceptance(ids)
 	}
 	if len(tIDs) == 0 {
 		log.Infow("did not accept task", "task_ids", ids, "reason", "CanAccept() refused", "name", h.Name)
@@ -189,14 +192,9 @@ func (h *taskTypeHandler) considerWork(from string, tasks []task, eventEmitter e
 
 			return false
 		}
-		if len(tasksAccepted) != len(tIDs) {
-			remainder := lo.Filter(tIDs, func(tID TaskID, _ int) bool {
-				return !lo.Contains(tasksAccepted, tID)
-			})
-			h.accept.Add(toInt64s(remainder))
-			tIDs = tasksAccepted
-		}
+		tIDs = tasksAccepted
 	}
+	h.accept.Forget(toInt64s(tIDs))
 
 	releaseStorage := make([]func(), len(tIDs))
 
@@ -372,6 +370,7 @@ func (h *taskTypeHandler) emitRetryTask(eventEmitter eventEmitter, base task, pr
 	}
 
 	if preempted {
+		base.UpdateTime = time.Now()
 		eventEmitter.EmitTaskNew(h.Name, base)
 		return
 	}
@@ -382,7 +381,7 @@ func (h *taskTypeHandler) emitRetryTask(eventEmitter eventEmitter, base task, pr
 
 	retry := base
 	retry.Retries++
-	retry.UpdateTime = time.Now().UTC()
+	retry.UpdateTime = time.Now()
 
 	var wait time.Duration
 	if h.RetryWait != nil && retry.Retries > 0 {
@@ -608,29 +607,18 @@ func reorderTaskIDsByPostedOrder(tasks []task, ids []TaskID) []TaskID {
 	return out
 }
 
-// resolveAcceptedIDs applies the acceptcache (when fresh) and falls back to a
-// live CanAccept call on miss, expiry, or empty intersection. An empty
-// intersection with a non-empty cache is a miss for this candidate set — not
-// a CanAccept refusal.
-func (h *taskTypeHandler) resolveAcceptedIDs(ids []TaskID) ([]TaskID, error) {
-	matched, hadFresh := h.accept.TakeMatching(toInt64s(ids))
-	if hadFresh && len(matched) > 0 {
-		tIDs := toTaskIDs(matched)
-		missing := lo.Filter(ids, func(id TaskID, _ int) bool {
-			return !lo.Contains(tIDs, id)
-		})
-		if len(missing) == 0 {
-			return tIDs, nil
-		}
-		extra, err := h.CanAccept(missing, h.TaskEngine)
-		if err != nil {
-			return nil, err
-		}
-		return append(tIDs, extra...), nil
+// Cached approvals remain available until claimed, including across preemption.
+// Unknown candidates are checked by the pool without blocking the scheduler.
+func (h *taskTypeHandler) resolveAcceptedIDs(ids []TaskID) ([]TaskID, bool) {
+	if h.awaitingCanAcceptResult {
+		return nil, false
 	}
-	// hadFresh && len(matched)==0 → unrelated cached ids; live CanAccept.
-	// !hadFresh → empty/expired cache; live CanAccept.
-	return h.CanAccept(ids, h.TaskEngine)
+	matched, checked := h.accept.GetMatching(toInt64s(ids))
+	if len(matched) > 0 || checked {
+		return toTaskIDs(matched), true
+	}
+	h.requestAcceptance(ids)
+	return nil, false
 }
 
 // toInt64s / toTaskIDs bridge the TaskID (int) and int64 domains used by

@@ -13,9 +13,9 @@ tell each other about new work, preempt-cost handshakes, and task starts over
 HTTP so the cluster reacts in milliseconds without waiting for a database
 round-trip for every change. The database still drives authoritative claims (UPDATE ...
 SKIP LOCKED) and holds the queue. A background DB poller remains as a safety
-net and for periodic housekeeping (e.g. POLL_RARELY), and the poller
-goroutine also runs heavier queries such as precomputing CanAccept caches and
-node cordon/restart flags, so not all work is “push-driven.”
+net and for periodic housekeeping (e.g. POLL_RARELY), including node
+cordon/restart flags. CanAccept runs in a bounded worker pool shared by all
+task types, with results cached by each handler.
 
 The task system tries to run any work the node can do up to resource limits.
 As queues build, it can reserve resources for soft-claimed (reserved) tasks so
@@ -27,8 +27,8 @@ claim still happens in the database.
 
 	ex: prio: prio.P0 | prio.LessThan('x', 'y', 'z') | prio.PipelineOrder('a1', 'b2', 'c3')
 
-The scheduler is single-threaded on the decision path, so CanAccept() and
-resource accounting do not need mutexes between it and tryWork.
+The scheduler serializes capacity checks and claims. Acceptance workers return
+results through the scheduler channel, without blocking admission of other types.
 
 # Architecture Overview
 
@@ -39,7 +39,7 @@ The system is built around three cooperating layers:
     attempt work. Events arrive from local task additions, peer
     notifications, task completions, and a background DB poller. The
     single-threaded design avoids mutex contention on the hot path and
-    keeps CanAccept() versus resource accounting consistent.
+    keeps capacity checks and resource accounting consistent.
 
  2. **Peering** (peering.go) — On startup each node connects to every
     known peer (from harmony_machines) over HTTP. Peers exchange JSON
@@ -67,8 +67,9 @@ backs discovery and other periodic work.
 **Offloading work from the scheduler thread.** The scheduler thread must stay
 responsive. Heavy work runs elsewhere:
   - DB queries run on a background poller goroutine.
-  - CanAccept() is pre-computed on the poller and cached on handlers (e.g.
-    SetAcceptCache with mutex).
+  - CanAccept() runs in a fixed worker pool and is cached on handlers. Repeated
+    events share a pending check; empty results are cached too. Cache misses
+    request work immediately, and results wake scheduling without waiting for a poll.
   - Node flag checks (cordon/restart) run on the poller goroutine.
   - Task execution runs in per-task goroutines.
   - Peer HTTP calls are fire-and-forget from goroutines.

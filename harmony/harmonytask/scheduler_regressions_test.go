@@ -18,6 +18,7 @@ import (
 type stubAcceptTask struct {
 	canAcceptCalls atomic.Int32
 	accept         func([]TaskID) ([]TaskID, error)
+	timeSensitive  bool
 }
 
 func (s *stubAcceptTask) Do(context.Context, TaskID, func() bool) (bool, error) {
@@ -31,24 +32,28 @@ func (s *stubAcceptTask) CanAccept(ids []TaskID, _ *TaskEngine) ([]TaskID, error
 	return ids, nil
 }
 func (s *stubAcceptTask) TypeDetails() TaskTypeDetails {
-	return TaskTypeDetails{Name: "StubAccept", Max: taskhelp.Max(10)}
+	return TaskTypeDetails{Name: "StubAccept", Max: taskhelp.Max(10), TimeSensitive: s.timeSensitive}
 }
 func (s *stubAcceptTask) Adder(AddTaskFunc) {}
 
-func TestResolveAcceptedIDsCacheMissCallsLiveCanAccept(t *testing.T) {
+func TestResolveAcceptedIDsCacheMissQueuesCanAccept(t *testing.T) {
 	stub := &stubAcceptTask{}
+	e := &TaskEngine{acceptWork: make(chan acceptRequest, 1)}
 	h := &taskTypeHandler{
 		TaskInterface:   stub,
 		TaskTypeDetails: stub.TypeDetails(),
+		TaskEngine:      e,
 		accept:          acceptcache.New(time.Hour),
 	}
-	// Cache has unrelated IDs — previous bug treated empty intersection as refuse.
+	// Unrelated cached IDs do not cover these candidates.
 	h.accept.Add([]int64{1, 2, 3})
 
-	got, err := h.resolveAcceptedIDs([]TaskID{9, 10})
-	require.NoError(t, err)
-	require.Equal(t, []TaskID{9, 10}, got)
-	require.Equal(t, int32(1), stub.canAcceptCalls.Load(), "live CanAccept required on cache miss")
+	got, ready := h.resolveAcceptedIDs([]TaskID{9, 10})
+	require.False(t, ready)
+	require.Empty(t, got)
+	require.Zero(t, stub.canAcceptCalls.Load(), "scheduler must not execute CanAccept")
+	require.Equal(t, []TaskID{9, 10}, (<-e.acceptWork).ids)
+	require.True(t, h.awaitingCanAcceptResult)
 	// Unmatched cache entries preserved for later.
 	left, had := h.accept.TakeMatching([]int64{1, 2, 3})
 	require.True(t, had)
@@ -64,13 +69,13 @@ func TestResolveAcceptedIDsCacheHitSkipsCanAccept(t *testing.T) {
 	}
 	h.accept.Add([]int64{5, 6, 7})
 
-	got, err := h.resolveAcceptedIDs([]TaskID{5, 6})
-	require.NoError(t, err)
+	got, ready := h.resolveAcceptedIDs([]TaskID{5, 6})
+	require.True(t, ready)
 	require.Equal(t, []TaskID{5, 6}, got)
 	require.Equal(t, int32(0), stub.canAcceptCalls.Load())
 }
 
-func TestResolveAcceptedIDsPartialHitLiveAcceptsMissing(t *testing.T) {
+func TestResolveAcceptedIDsPartialHitUsesExistingApproval(t *testing.T) {
 	stub := &stubAcceptTask{}
 	h := &taskTypeHandler{
 		TaskInterface:   stub,
@@ -79,13 +84,13 @@ func TestResolveAcceptedIDsPartialHitLiveAcceptsMissing(t *testing.T) {
 	}
 	h.accept.Add([]int64{1, 2})
 
-	got, err := h.resolveAcceptedIDs([]TaskID{1, 99})
-	require.NoError(t, err)
-	require.ElementsMatch(t, []TaskID{1, 99}, got)
-	require.Equal(t, int32(1), stub.canAcceptCalls.Load())
+	got, ready := h.resolveAcceptedIDs([]TaskID{1, 99})
+	require.True(t, ready)
+	require.Equal(t, []TaskID{1}, got)
+	require.Zero(t, stub.canAcceptCalls.Load())
 }
 
-func TestResolveAcceptedIDsEmptyCacheLiveCanAccept(t *testing.T) {
+func TestResolveAcceptedIDsCheckedEmptyIsReady(t *testing.T) {
 	stub := &stubAcceptTask{
 		accept: func(ids []TaskID) ([]TaskID, error) { return nil, nil },
 	}
@@ -95,10 +100,70 @@ func TestResolveAcceptedIDsEmptyCacheLiveCanAccept(t *testing.T) {
 		accept:          acceptcache.New(time.Hour),
 	}
 
-	got, err := h.resolveAcceptedIDs([]TaskID{1})
-	require.NoError(t, err)
+	h.accept.Store([]int64{1}, nil)
+	got, ready := h.resolveAcceptedIDs([]TaskID{1})
+	require.True(t, ready)
 	require.Empty(t, got)
-	require.Equal(t, int32(1), stub.canAcceptCalls.Load())
+	require.Zero(t, stub.canAcceptCalls.Load())
+}
+
+func TestAcceptanceCandidateGrowthChecksWholeBatch(t *testing.T) {
+	stub := &stubAcceptTask{accept: func(ids []TaskID) ([]TaskID, error) {
+		if len(ids) < 2 {
+			return nil, nil
+		}
+		return ids, nil
+	}}
+	e := newAcceptanceTestEngine(t, stub)
+	h := e.handlers[0]
+	h.resolveAcceptedIDs([]TaskID{1})
+	applyAcceptanceTestEvent(t, e, waitAcceptanceTestValue(t, e.schedulerChannel))
+	accepted, ready := h.resolveAcceptedIDs([]TaskID{1})
+	require.True(t, ready)
+	require.Empty(t, accepted)
+
+	accepted, ready = h.resolveAcceptedIDs([]TaskID{1, 2})
+	require.False(t, ready)
+	require.Empty(t, accepted)
+	applyAcceptanceTestEvent(t, e, waitAcceptanceTestValue(t, e.schedulerChannel))
+	accepted, ready = h.resolveAcceptedIDs([]TaskID{1, 2})
+	require.True(t, ready)
+	require.Equal(t, []TaskID{1, 2}, accepted)
+	require.Equal(t, int32(2), stub.canAcceptCalls.Load())
+}
+
+func TestAcceptanceFollowupExcludesRunningTasks(t *testing.T) {
+	stub := &stubAcceptTask{}
+	e := newAcceptanceTestEngine(t, stub)
+	h := e.handlers[0]
+	h.accept.Add([]int64{1})
+	accepted, ready := h.resolveAcceptedIDs([]TaskID{1, 2})
+	require.True(t, ready)
+	require.Equal(t, []TaskID{1}, accepted)
+
+	h.accept.Forget([]int64{1})
+	h.running.Start(1, func() {})
+	h.requestUncachedAcceptance([]TaskID{1, 2})
+	event := waitAcceptanceTestValue(t, e.schedulerChannel)
+	require.Equal(t, []TaskID{2}, event.Acceptance.ids)
+	applyAcceptanceTestEvent(t, e, event)
+	accepted, ready = h.resolveAcceptedIDs([]TaskID{2})
+	require.True(t, ready)
+	require.Equal(t, []TaskID{2}, accepted)
+}
+
+func TestAcceptanceFollowupAfterFailedAdmissionChecksWholeBatch(t *testing.T) {
+	stub := &stubAcceptTask{}
+	e := newAcceptanceTestEngine(t, stub)
+	h := e.handlers[0]
+	h.accept.Add([]int64{1})
+	h.requestUncachedAcceptance([]TaskID{1, 2})
+	event := waitAcceptanceTestValue(t, e.schedulerChannel)
+	require.Equal(t, []TaskID{1, 2}, event.Acceptance.ids)
+	applyAcceptanceTestEvent(t, e, event)
+	accepted, ready := h.resolveAcceptedIDs([]TaskID{1, 2})
+	require.True(t, ready)
+	require.Equal(t, []TaskID{1, 2}, accepted)
 }
 
 func TestConsiderWorkSkipsAlreadyRunning(t *testing.T) {

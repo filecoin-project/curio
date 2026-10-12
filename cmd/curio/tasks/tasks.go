@@ -265,7 +265,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 			if err != nil {
 				return nil, err
 			}
-			cleanupPiecePoll = piece2.NewCleanupPieceTask(db, must.One(slrLazy.Val()), 0)
+			cleanupPiecePoll = piece2.NewCleanupPieceTask(db, must.One(slrLazy.Val()), cfg.Subsystems.ParkPieceMaxTasks)
 			aggregateChunksTask := piece2.NewAggregateChunksTask(db, stor, must.One(slrLazy.Val()))
 			pfix := piece2.NewFixParkPieceTask(db, must.One(slrLazy.Val()))
 			activeTasks = append(activeTasks, parkPiecePoll, cleanupPiecePoll, aggregateChunksTask, pfix)
@@ -652,7 +652,7 @@ func addSealingTasks(
 		activeTasks = append(activeTasks, storePieceTask)
 		if !cfg.Subsystems.EnableParkPiece {
 			// add cleanup if it's not added above with park piece
-			cleanupPieceTask := piece2.NewCleanupPieceTask(db, must.One(slrLazy.Val()), 0)
+			cleanupPieceTask := piece2.NewCleanupPieceTask(db, must.One(slrLazy.Val()), cfg.Subsystems.MoveStorageMaxTasks)
 			activeTasks = append(activeTasks, cleanupPieceTask)
 		}
 

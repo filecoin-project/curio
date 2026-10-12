@@ -7,18 +7,20 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 )
 
 func TestSingletonTaskDisabled(t *testing.T) {
-	db := getDB(t)
+	db, err := harmonydb.NewFromConfigWithITestID(t)
+	require.NoError(t, err)
 	ctx := context.Background()
 
 	tk := newTestTask("SingDisableTest", 5)
 	tk.iAmBored = harmonytask.SingletonTaskAdder(300*time.Millisecond, tk)
 	t.Cleanup(cleanupTasks(tk))
 
-	_, err := db.Exec(ctx, `INSERT INTO harmony_task_singleton_disabled (task_name, reason) VALUES ($1, $2)`,
+	_, err = db.Exec(ctx, `INSERT INTO harmony_task_singleton_disabled (task_name, reason) VALUES ($1, $2)`,
 		tk.name, "test: repair complete")
 	require.NoError(t, err)
 

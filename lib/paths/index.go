@@ -14,8 +14,8 @@ import (
 	"github.com/filecoin-project/lotus/storage/sealer/fsutil"
 )
 
-var HeartbeatInterval = 10 * time.Second
-var SkippedHeartbeatThresh = HeartbeatInterval * 5
+var HeartbeatInterval = time.Minute
+var SkippedHeartbeatThresh = HeartbeatInterval * 10
 
 //go:generate go run github.com/golang/mock/mockgen -source=index.go -destination=mocks/index.go -package=mocks SectorIndex
 

@@ -5,7 +5,11 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
+	"sync"
 	"testing"
+	"testing/synctest"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -177,4 +181,204 @@ func TestDeclareableSectorEntrySkipsLeftovers(t *testing.T) {
 
 	_, ok = declareableSectorEntry(FetchTempSubdir, storiface.FTSealed, mustStat(dir))
 	require.False(t, ok)
+}
+
+type healthReportIndex struct {
+	SectorIndex
+	lk       sync.Mutex
+	recorded []recordedHealthReport
+	onReport func()
+}
+
+type recordedHealthReport struct {
+	storiface.HealthReport
+	reportedAt time.Time
+	ctxErr     error
+}
+
+func (i *healthReportIndex) reports() []recordedHealthReport {
+	i.lk.Lock()
+	defer i.lk.Unlock()
+	return slices.Clone(i.recorded)
+}
+
+func (i *healthReportIndex) StorageDropSector(context.Context, storiface.ID, abi.SectorID, storiface.SectorFileType) error {
+	return nil
+}
+
+func (i *healthReportIndex) StorageReportHealth(ctx context.Context, _ storiface.ID, report storiface.HealthReport) error {
+	i.lk.Lock()
+	i.recorded = append(i.recorded, recordedHealthReport{
+		HealthReport: report,
+		reportedAt:   time.Now(),
+		ctxErr:       ctx.Err(),
+	})
+	onReport := i.onReport
+	i.lk.Unlock()
+	if onReport != nil {
+		onReport()
+	}
+	return ctx.Err()
+}
+
+func newHealthReportLocal(t *testing.T, ctx context.Context) (*Local, *healthReportIndex) {
+	t.Helper()
+	index := &healthReportIndex{}
+	st, err := NewLocal(ctx, &TestingLocalStorage{}, index, "")
+	require.NoError(t, err)
+	st.localLk.Lock()
+	st.paths["test"] = &path{Local: t.TempDir()}
+	st.localLk.Unlock()
+	return st, index
+}
+
+func TestLocalHealthReportsCoalesce(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		trigger func(context.Context, *Local) error
+	}{
+		{
+			name: "delete",
+			trigger: func(ctx context.Context, st *Local) error {
+				return st.removeSector(ctx, abi.SectorID{}, storiface.FTSealed, "test")
+			},
+		},
+		{
+			name: "move",
+			trigger: func(ctx context.Context, st *Local) error {
+				return st.MoveStorage(ctx, storiface.SectorRef{}, storiface.FTNone)
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				st, index := newHealthReportLocal(t, ctx)
+				requestCtx, cancelRequest := context.WithCancel(ctx)
+
+				for range 10 {
+					require.NoError(t, tc.trigger(requestCtx, st))
+				}
+				cancelRequest()
+				synctest.Wait()
+				require.Empty(t, index.reports(), "file operations must only trigger a delayed report")
+
+				time.Sleep(STORAGE_REPORT_INTERVAL - HeartbeatInterval)
+				require.NoError(t, st.removeSector(ctx, abi.SectorID{}, storiface.FTSealed, "test"))
+				require.NoError(t, st.MoveStorage(ctx, storiface.SectorRef{}, storiface.FTNone))
+				synctest.Wait()
+				require.Empty(t, index.reports(), "deletes, moves and heartbeats must share the pending report")
+
+				time.Sleep(HeartbeatInterval - time.Nanosecond)
+				synctest.Wait()
+				require.Empty(t, index.reports())
+				time.Sleep(time.Nanosecond)
+				synctest.Wait()
+				require.Len(t, index.reports(), 1, "repeated triggers must not postpone the first report")
+				require.NoError(t, index.reports()[0].ctxErr, "report must use the worker context, not the finished request")
+				require.EqualValues(t, pathSize, index.reports()[0].Stat.Available)
+
+				require.NoError(t, tc.trigger(ctx, st))
+				synctest.Wait()
+				time.Sleep(STORAGE_REPORT_INTERVAL - time.Nanosecond)
+				synctest.Wait()
+				require.Len(t, index.reports(), 1)
+				time.Sleep(time.Nanosecond)
+				synctest.Wait()
+				require.Len(t, index.reports(), 2)
+			})
+		})
+	}
+}
+
+func TestLocalHealthReportsPeriodic(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		_, index := newHealthReportLocal(t, ctx)
+		startedAt := time.Now()
+		synctest.Wait()
+
+		time.Sleep(HeartbeatInterval)
+		synctest.Wait()
+		require.Empty(t, index.reports(), "the periodic tick must only trigger a delayed report")
+		time.Sleep(STORAGE_REPORT_INTERVAL - time.Nanosecond)
+		synctest.Wait()
+		require.Empty(t, index.reports())
+		time.Sleep(time.Nanosecond)
+		synctest.Wait()
+		require.Len(t, index.reports(), 1)
+		require.Less(t, index.reports()[0].reportedAt.Sub(startedAt), SkippedHeartbeatThresh, "storage must stay healthy until the first periodic report")
+
+		time.Sleep(STORAGE_REPORT_INTERVAL + HeartbeatInterval)
+		synctest.Wait()
+		reports := index.reports()
+		require.Len(t, reports, 2, "idle storage must keep reporting")
+		gap := reports[1].reportedAt.Sub(reports[0].reportedAt)
+		require.GreaterOrEqual(t, gap, STORAGE_REPORT_INTERVAL)
+		require.Less(t, gap, SkippedHeartbeatThresh, "storage must stay healthy between periodic reports")
+	})
+}
+
+func TestLocalHealthReportsCancelPending(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		st, index := newHealthReportLocal(t, ctx)
+		require.NoError(t, st.removeSector(ctx, abi.SectorID{}, storiface.FTSealed, "test"))
+		synctest.Wait()
+		time.Sleep(STORAGE_REPORT_INTERVAL / 2)
+		synctest.Wait()
+		require.Empty(t, index.reports())
+
+		cancel()
+		synctest.Wait()
+		time.Sleep(STORAGE_REPORT_INTERVAL)
+		synctest.Wait()
+		require.Empty(t, index.reports())
+	})
+}
+
+func TestLocalHealthReportsConcurrent(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		st, index := newHealthReportLocal(t, ctx)
+		release := make(chan struct{})
+		index.lk.Lock()
+		index.onReport = func() {
+			select {
+			case <-release:
+			case <-ctx.Done():
+			}
+		}
+		index.lk.Unlock()
+
+		for range 100 {
+			go st.triggerReportStorage()
+		}
+		synctest.Wait()
+		require.Empty(t, index.reports())
+		time.Sleep(STORAGE_REPORT_INTERVAL)
+		synctest.Wait()
+		require.Len(t, index.reports(), 1)
+
+		for range 100 {
+			go st.triggerReportStorage()
+		}
+		synctest.Wait()
+		time.Sleep(STORAGE_REPORT_INTERVAL)
+		synctest.Wait()
+		require.Len(t, index.reports(), 1, "a slow report must not overlap another report")
+
+		close(release)
+		synctest.Wait()
+		time.Sleep(STORAGE_REPORT_INTERVAL - time.Nanosecond)
+		synctest.Wait()
+		require.Len(t, index.reports(), 1)
+		time.Sleep(HeartbeatInterval + time.Nanosecond)
+		synctest.Wait()
+		require.Len(t, index.reports(), 2)
+	})
 }
