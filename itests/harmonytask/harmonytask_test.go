@@ -2,7 +2,9 @@ package harmonytask
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -15,6 +17,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask/pipetest"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 // ===== Test Infrastructure =====
@@ -31,6 +34,42 @@ type deadConn struct{}
 func (d *deadConn) SendMessage([]byte) error        { return fmt.Errorf("dead") }
 func (d *deadConn) ReceiveMessage() ([]byte, error) { return nil, fmt.Errorf("dead") }
 func (d *deadConn) Close() error                    { return nil }
+
+type recordingPeerConnector struct {
+	harmonytask.PeerConnectorInterface
+	newTasks chan harmonytask.TaskID
+}
+
+func (c *recordingPeerConnector) ConnectToPeer(peerID string) (harmonytask.PeerConnection, error) {
+	conn, err := c.PeerConnectorInterface.ConnectToPeer(peerID)
+	if err != nil {
+		return nil, err
+	}
+	return &recordingPeerConnection{PeerConnection: conn, newTasks: c.newTasks}, nil
+}
+
+func (c *recordingPeerConnector) SetOnConnect(onConnect func(string, harmonytask.PeerConnection)) {
+	c.PeerConnectorInterface.SetOnConnect(func(peerAddr string, conn harmonytask.PeerConnection) {
+		onConnect(peerAddr, &recordingPeerConnection{PeerConnection: conn, newTasks: c.newTasks})
+	})
+}
+
+type recordingPeerConnection struct {
+	harmonytask.PeerConnection
+	newTasks chan<- harmonytask.TaskID
+}
+
+func (c *recordingPeerConnection) ReceiveMessage() ([]byte, error) {
+	data, err := c.PeerConnection.ReceiveMessage()
+	if err != nil {
+		return data, err
+	}
+	var msg harmonytask.PeerMessage
+	if json.Unmarshal(data, &msg) == nil && msg.Verb == "newTask" {
+		c.newTasks <- msg.TaskID
+	}
+	return data, nil
+}
 
 // testInspector supplies fixed capacity without probing GPUs/FFI.
 type testInspector struct{}
@@ -183,7 +222,18 @@ func makeEngineWithResources(t *testing.T, db *harmonydb.DB, impls []harmonytask
 
 func makeEngineWithPeering(t *testing.T, db *harmonydb.DB, impls []harmonytask.TaskInterface, host string, connector harmonytask.PeerConnectorInterface) *harmonytask.TaskEngine {
 	t.Helper()
-	e, err := harmonytask.New(db, impls, host, connector, testInspector{})
+	reg, err := resources.Register(db, host, testInspector{})
+	require.NoError(t, err)
+	names := make([]string, len(impls))
+	for i, impl := range impls {
+		names[i] = impl.TypeDetails().Name
+	}
+	// Peers read the advertised task types during their startup handshake.
+	_, err = db.Exec(context.Background(),
+		`INSERT INTO harmony_machine_details (machine_id, tasks) VALUES ($1, $2)`,
+		reg.MachineID, strings.Join(names, ","))
+	require.NoError(t, err)
+	e, err := harmonytask.NewWithReg(db, impls, host, connector, reg)
 	require.NoError(t, err)
 	t.Cleanup(func() { e.GracefullyTerminate() })
 	return e
@@ -259,32 +309,11 @@ func waitForNamedSuccessCount(t *testing.T, db *harmonydb.DB, name string, want 
 
 const taskTimeout = 30 * time.Second
 
-// getDB returns the shared test database and truncates harmony tables for a clean test.
-// Deletion order respects foreign key constraints.
-func getDB(t *testing.T) *harmonydb.DB {
-	t.Helper()
-	db := sharedTestDB
-	if db == nil {
-		t.Skip("shared test DB not available")
-	}
-	// Let any async recordCompletion goroutines from prior tests drain.
-	time.Sleep(500 * time.Millisecond)
-	ctx := context.Background()
-	_, _ = db.Exec(ctx, `DELETE FROM harmony_task_history`)
-	_, _ = db.Exec(ctx, `DELETE FROM harmony_task_follow`)
-	_, _ = db.Exec(ctx, `DELETE FROM harmony_task_impl`)
-	_, _ = db.Exec(ctx, `DELETE FROM harmony_task_singletons`)
-	_, _ = db.Exec(ctx, `DELETE FROM harmony_task_singleton_disabled`)
-	_, _ = db.Exec(ctx, `DELETE FROM harmony_task`)
-	_, _ = db.Exec(ctx, `DELETE FROM harmony_machine_details`)
-	_, _ = db.Exec(ctx, `DELETE FROM harmony_machines`)
-	return db
-}
-
 // ===== Scheduler Tests =====
 
 func TestSchedulerThreeNodeRouting(t *testing.T) {
-	db := getDB(t)
+	db, err := harmonydb.NewFromConfigWithITestID(t)
+	require.NoError(t, err)
 
 	tA := newTestTask("RoutA", 5)
 	tB := newTestTask("RoutB", 5)
@@ -322,8 +351,8 @@ func TestSchedulerThreeNodeRouting(t *testing.T) {
 
 func TestSchedulerRemoteTaskStart(t *testing.T) {
 	ctx := context.Background()
-	db := getDB(t)
-	var err error
+	db, err := harmonydb.NewFromConfigWithITestID(t)
+	require.NoError(t, err)
 
 	s1 := newTestTask("Pipe1", 5)
 	s2 := newTestTask("Pipe2", 5)
@@ -379,8 +408,8 @@ func TestSchedulerRemoteTaskStart(t *testing.T) {
 
 func TestSchedulerConcurrentMultiNode(t *testing.T) {
 	ctx := context.Background()
-	db := getDB(t)
-	var err error
+	db, err := harmonydb.NewFromConfigWithITestID(t)
+	require.NoError(t, err)
 
 	tX := newTestTask("BulkX", 10)
 	tY := newTestTask("BulkY", 10)
@@ -417,7 +446,8 @@ func TestSchedulerConcurrentMultiNode(t *testing.T) {
 // whose oldest queued work is older before another unrelated type (no MayFollow
 // pipeline between them).
 func TestSchedulerOldestFirstAcrossTypes(t *testing.T) {
-	db := getDB(t)
+	db, err := harmonydb.NewFromConfigWithITestID(t)
+	require.NoError(t, err)
 
 	var orderMu sync.Mutex
 	var execOrder []string
@@ -463,7 +493,8 @@ func TestSchedulerOldestFirstAcrossTypes(t *testing.T) {
 // order (minimize latency) before the pipeline head, while the overall
 // waterfall still prioritizes the globally oldest queued work.
 func TestSchedulerPipelineDownstreamOrder(t *testing.T) {
-	db := getDB(t)
+	db, err := harmonydb.NewFromConfigWithITestID(t)
+	require.NoError(t, err)
 
 	var orderMu sync.Mutex
 	var execOrder []string
@@ -520,7 +551,8 @@ func TestSchedulerPipelineDownstreamOrder(t *testing.T) {
 }
 
 func TestSchedulerMaxConcurrency(t *testing.T) {
-	db := getDB(t)
+	db, err := harmonydb.NewFromConfigWithITestID(t)
+	require.NoError(t, err)
 
 	var running, peak int32
 	done := make(chan harmonytask.TaskID, 20)
@@ -554,8 +586,8 @@ func TestSchedulerMaxConcurrency(t *testing.T) {
 
 func TestSchedulerRetry(t *testing.T) {
 	ctx := context.Background()
-	db := getDB(t)
-	var err error
+	db, err := harmonydb.NewFromConfigWithITestID(t)
+	require.NoError(t, err)
 
 	var attempts int32
 	tR := newTestTask("RetryT", 5)
@@ -604,7 +636,8 @@ func TestSchedulerRetry(t *testing.T) {
 }
 
 func TestSchedulerRetryWaitBackoff(t *testing.T) {
-	db := getDB(t)
+	db, err := harmonydb.NewFromConfigWithITestID(t)
+	require.NoError(t, err)
 
 	const retryWait = 150 * time.Millisecond
 	var attempts []time.Time
@@ -642,7 +675,8 @@ func TestSchedulerRetryWaitBackoff(t *testing.T) {
 }
 
 func TestSchedulerMultiTaskNode(t *testing.T) {
-	db := getDB(t)
+	db, err := harmonydb.NewFromConfigWithITestID(t)
+	require.NoError(t, err)
 
 	t1 := newTestTask("Mul1", 5)
 	t2 := newTestTask("Mul2", 5)
@@ -667,7 +701,8 @@ func TestSchedulerMultiTaskNode(t *testing.T) {
 }
 
 func TestSchedulerSharedTask(t *testing.T) {
-	db := getDB(t)
+	db, err := harmonydb.NewFromConfigWithITestID(t)
+	require.NoError(t, err)
 
 	allDone := make(chan harmonytask.TaskID, 30)
 	makeShared := func() *testTask {
@@ -711,25 +746,18 @@ func TestSchedulerSharedTask(t *testing.T) {
 
 // ===== Peering Integration Tests =====
 
-// TestPeeringEndToEnd verifies that task notifications travel between peered
-// engines over the in-memory PipeNetwork, causing a remote engine to pick up
-// work without relying on DB polling.
-//
-// Setup: eA handles PeerE2E but always rejects in CanAccept.
-//
-//	eB handles PeerE2E normally.
-//	Both use very slow polling (1 hour).
-//	eA adds a PeerE2E task → its scheduler tells peers via TellOthers →
-//	eB receives the notification and picks up the task.
+// TestPeeringEndToEnd verifies that a task rejected locally is announced to
+// a peer over the in-memory PipeNetwork and completed by that peer.
 func TestPeeringEndToEnd(t *testing.T) {
-	db := getDB(t)
+	db, err := harmonydb.NewFromConfigWithITestID(t)
+	require.NoError(t, err)
 	net := pipetest.NewPipeNetwork()
 
 	// tRejecter handles the task type on eA so AddTaskByName triggers the
 	// scheduler (and therefore TellOthers), but CanAccept always rejects so
 	// eA never claims the work.
 	tRejecter := &testTask{
-		name:   "PeerE2E",
+		name:   tasknames.StorePiece,
 		cost:   resources.Resources{Cpu: 1, Ram: 1 << 20},
 		maxN:   5,
 		doneCh: make(chan harmonytask.TaskID, 100),
@@ -740,27 +768,29 @@ func TestPeeringEndToEnd(t *testing.T) {
 	}
 	// tRunner accepts and runs tasks on eB.
 	tRunner := &testTask{
-		name:   "PeerE2E",
+		name:   tasknames.StorePiece,
 		cost:   resources.Resources{Cpu: 1, Ram: 1 << 20},
 		maxN:   5,
 		doneCh: make(chan harmonytask.TaskID, 100),
 		stopCh: make(chan struct{}),
 	}
-	harmonytask.Registry["PeerE2E"] = tRejecter
+	harmonytask.Registry[tasknames.StorePiece] = tRejecter
 	t.Cleanup(func() {
 		tRejecter.stop()
 		tRunner.stop()
-		delete(harmonytask.Registry, "PeerE2E")
+		delete(harmonytask.Registry, tasknames.StorePiece)
 	})
 
 	connA := net.NewNode("peA:1000")
-	connB := net.NewNode("peB:1000")
+	connB := &recordingPeerConnector{
+		PeerConnectorInterface: net.NewNode("peB:1000"),
+		newTasks:               make(chan harmonytask.TaskID, 1),
+	}
 
 	eA := makeEngineWithPeering(t, db, []harmonytask.TaskInterface{tRejecter}, "peA:1000", connA)
 	eB := makeEngineWithPeering(t, db, []harmonytask.TaskInterface{tRunner}, "peB:1000", connB)
 
-	// Let peering handshakes complete, then disable polling so only
-	// peer notifications (or direct scheduler-channel events) can trigger work.
+	// Let peering handshakes complete, then keep fallback polling slow.
 	time.Sleep(3 * time.Second)
 	eA.TestONLY_SetPollDuration(time.Hour)
 	eB.TestONLY_SetPollDuration(time.Hour)
@@ -770,11 +800,18 @@ func TestPeeringEndToEnd(t *testing.T) {
 
 	// eA adds the task: its scheduler processes the event, CanAccept rejects
 	// locally, but TellOthers notifies eB which claims and runs it.
-	eA.AddTaskByName("PeerE2E", func(id harmonytask.TaskID, tx *harmonydb.Tx) (bool, error) {
+	eA.AddTaskByName(tasknames.StorePiece, func(id harmonytask.TaskID, tx *harmonydb.Tx) (bool, error) {
 		return true, nil
 	})
 
+	var notifiedID harmonytask.TaskID
+	select {
+	case notifiedID = <-connB.newTasks:
+	case <-time.After(5 * time.Second):
+		t.Fatal("peer did not receive the task notification")
+	}
 	id := waitForTask(t, tRunner.doneCh, taskTimeout)
+	require.Equal(t, notifiedID, id, "peer should execute the announced task")
 	host := waitForHistory(t, db, id, taskTimeout)
 	require.Equal(t, "peB:1000", host, "task should have been executed by the peered engine")
 }
@@ -783,12 +820,13 @@ func TestPeeringEndToEnd(t *testing.T) {
 // peered engines. Each engine handles a unique task type; tasks added on
 // any engine are routed to the correct handler via peering.
 func TestPeeringThreeNodeRouting(t *testing.T) {
-	db := getDB(t)
+	db, err := harmonydb.NewFromConfigWithITestID(t)
+	require.NoError(t, err)
 	net := pipetest.NewPipeNetwork()
 
-	tA := newTestTask("PRingA", 5)
-	tB := newTestTask("PRingB", 5)
-	tC := newTestTask("PRingC", 5)
+	tA := newTestTask(tasknames.SDR, 5)
+	tB := newTestTask(tasknames.TreeD, 5)
+	tC := newTestTask(tasknames.TreeRC, 5)
 	t.Cleanup(cleanupTasks(tA, tB, tC))
 
 	connA := net.NewNode("pr1:1000")
@@ -804,15 +842,15 @@ func TestPeeringThreeNodeRouting(t *testing.T) {
 	require.NotEqual(t, eB.OwnerID(), eC.OwnerID())
 
 	// Each engine adds its own task type — should complete locally.
-	eA.AddTaskByName("PRingA", func(id harmonytask.TaskID, tx *harmonydb.Tx) (bool, error) { return true, nil })
+	eA.AddTaskByName(tasknames.SDR, func(id harmonytask.TaskID, tx *harmonydb.Tx) (bool, error) { return true, nil })
 	aID := waitForTask(t, tA.doneCh, taskTimeout)
 	require.Equal(t, "pr1:1000", waitForHistory(t, db, aID, taskTimeout))
 
-	eB.AddTaskByName("PRingB", func(id harmonytask.TaskID, tx *harmonydb.Tx) (bool, error) { return true, nil })
+	eB.AddTaskByName(tasknames.TreeD, func(id harmonytask.TaskID, tx *harmonydb.Tx) (bool, error) { return true, nil })
 	bID := waitForTask(t, tB.doneCh, taskTimeout)
 	require.Equal(t, "pr2:1000", waitForHistory(t, db, bID, taskTimeout))
 
-	eC.AddTaskByName("PRingC", func(id harmonytask.TaskID, tx *harmonydb.Tx) (bool, error) { return true, nil })
+	eC.AddTaskByName(tasknames.TreeRC, func(id harmonytask.TaskID, tx *harmonydb.Tx) (bool, error) { return true, nil })
 	cID := waitForTask(t, tC.doneCh, taskTimeout)
 	require.Equal(t, "pr3:1000", waitForHistory(t, db, cID, taskTimeout))
 
@@ -825,7 +863,8 @@ func TestPeeringThreeNodeRouting(t *testing.T) {
 // no free CPU, AddTaskByName for a TimeSensitive task triggers preemptForTimeSensitive
 // and schedulerSourceStartTimeSensitive (not the DB poller waterfall).
 func TestTimeSensitivePathWhenResourcesOccupied(t *testing.T) {
-	db := getDB(t)
+	db, err := harmonydb.NewFromConfigWithITestID(t)
+	require.NoError(t, err)
 
 	const machineCPU = 2
 
@@ -907,7 +946,8 @@ func (noopTestStorage) Claim(taskID int) (func() error, error) {
 // two ordinary tasks fill the machine; a TimeSensitive task must preempt and run quickly,
 // then everyone completes after being re-scheduled.
 func TestTimeSensitiveRunsAheadOfMixedClaimingWork(t *testing.T) {
-	db := getDB(t)
+	db, err := harmonydb.NewFromConfigWithITestID(t)
+	require.NoError(t, err)
 
 	runUntilPreemptOrDone := func(doneCh chan harmonytask.TaskID, onPreempt chan<- harmonytask.TaskID) func(context.Context, harmonytask.TaskID, func() bool) (bool, error) {
 		return func(ctx context.Context, id harmonytask.TaskID, so func() bool) (bool, error) {
@@ -986,7 +1026,8 @@ drained:
 // task arrives but resources are exhausted, a non-TimeSensitive running task is
 // preempted (context cancelled) so the TimeSensitive task can run.
 func TestPreemptionFreesResourcesForTimeSensitive(t *testing.T) {
-	db := getDB(t)
+	db, err := harmonydb.NewFromConfigWithITestID(t)
+	require.NoError(t, err)
 
 	// Victim: blocks until ctx.Done (preemption) or stillOwned false; completes quickly if not preempted.
 	preempted := make(chan harmonytask.TaskID, 2)
@@ -1033,7 +1074,8 @@ func TestPreemptionFreesResourcesForTimeSensitive(t *testing.T) {
 // TestPreemptionSkippedWhenCanAcceptRefuses verifies that a TimeSensitive task
 // does not trigger preemption when CanAccept refuses it on this node.
 func TestPreemptionSkippedWhenCanAcceptRefuses(t *testing.T) {
-	db := getDB(t)
+	db, err := harmonydb.NewFromConfigWithITestID(t)
+	require.NoError(t, err)
 
 	const machineCPU = 2
 
@@ -1105,7 +1147,8 @@ func TestPreemptionSkippedWhenCanAcceptRefuses(t *testing.T) {
 // TestPreemptedTaskReclaimable verifies that after preemption, the victim task
 // row has owner_id=NULL and can be re-claimed and completed.
 func TestPreemptedTaskReclaimable(t *testing.T) {
-	db := getDB(t)
+	db, err := harmonydb.NewFromConfigWithITestID(t)
+	require.NoError(t, err)
 
 	preempted := make(chan harmonytask.TaskID, 2)
 	victim := newTestTaskWithOpts("ReclaimVictim", 2, resources.Resources{Cpu: 1, Ram: 1 << 20}, false)
@@ -1148,7 +1191,7 @@ func TestPreemptedTaskReclaimable(t *testing.T) {
 
 	// Verify the preempted task eventually completed (in history)
 	var count int
-	err := db.QueryRow(context.Background(), `SELECT COUNT(*) FROM harmony_task_history WHERE task_id=$1 AND result=true`, vID).Scan(&count)
+	err = db.QueryRow(context.Background(), `SELECT COUNT(*) FROM harmony_task_history WHERE task_id=$1 AND result=true`, vID).Scan(&count)
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, count, 1, "preempted task should have completed successfully after re-claim")
 }
@@ -1156,7 +1199,8 @@ func TestPreemptedTaskReclaimable(t *testing.T) {
 // TestContextCancellationOnGracefulShutdown asserts that graceful shutdown
 // does NOT cancel a running, non-time-sensitive task's context.
 func TestContextCancellationOnGracefulShutdown(t *testing.T) {
-	db := getDB(t)
+	db, err := harmonydb.NewFromConfigWithITestID(t)
+	require.NoError(t, err)
 
 	ctxCancelled := make(chan struct{}, 1)
 	release := make(chan struct{})
@@ -1212,7 +1256,8 @@ func TestContextCancellationOnGracefulShutdown(t *testing.T) {
 // claimed and Do() is running, TaskCompleted-driven waterfalls must not
 // re-enter Do() for that same task ID.
 func TestNoLocalDoubleClaimWhileTaskRunning(t *testing.T) {
-	db := getDB(t)
+	db, err := harmonydb.NewFromConfigWithITestID(t)
+	require.NoError(t, err)
 
 	var mu sync.Mutex
 	doCounts := map[harmonytask.TaskID]int{}
@@ -1276,7 +1321,8 @@ func TestNoLocalDoubleClaimWhileTaskRunning(t *testing.T) {
 // bug: a fresh acceptcache filled with unrelated IDs must not be treated as
 // CanAccept() refusal for a newly added task.
 func TestAcceptCacheMissStillSchedulesNewTask(t *testing.T) {
-	db := getDB(t)
+	db, err := harmonydb.NewFromConfigWithITestID(t)
+	require.NoError(t, err)
 
 	var liveCalls int32
 	task := newTestTask("CacheMissT", 5)
@@ -1288,12 +1334,12 @@ func TestAcceptCacheMissStillSchedulesNewTask(t *testing.T) {
 
 	e := makeEngine(t, db, []harmonytask.TaskInterface{task}, "cachemiss:1000")
 	e.TestONLY_SetPollDuration(time.Hour)
-	// Simulate poller cache for older backlog IDs that are not this add.
-	e.TestONLY_SeedAcceptCache("CacheMissT", []int64{1, 2, 3})
+	// Seed unrelated IDs that cannot collide with generated task IDs.
+	e.TestONLY_SeedAcceptCache("CacheMissT", []int64{-1, -2, -3})
 
 	e.AddTaskByName("CacheMissT", func(id harmonytask.TaskID, tx *harmonydb.Tx) (bool, error) { return true, nil })
 	id := waitForTask(t, task.doneCh, taskTimeout)
-	require.NotContains(t, []harmonytask.TaskID{1, 2, 3}, id)
+	require.NotContains(t, []harmonytask.TaskID{-1, -2, -3}, id)
 	require.GreaterOrEqual(t, atomic.LoadInt32(&liveCalls), int32(1),
 		"live CanAccept must run when cache has no overlap with the new task")
 	waitForHistory(t, db, id, taskTimeout)
