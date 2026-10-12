@@ -93,7 +93,9 @@ func processPendingCleanup(ctx context.Context, db *harmonydb.DB, ethClient ethc
 
 	err := db.Select(ctx, &pieces, `SELECT data_set, piece_id, rm_message_hash
 		FROM pdp_data_set_pieces
-		WHERE removed = TRUE AND rm_message_hash IS NOT NULL`)
+		WHERE removed = TRUE 
+		  AND rm_message_hash IS NOT NULL 
+		LIMIT 10000`)
 	if err != nil {
 		return xerrors.Errorf("failed to select pending piece deletes: %w", err)
 	}
