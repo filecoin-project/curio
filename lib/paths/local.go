@@ -32,6 +32,7 @@ import (
 // time abow which a warn log will be emitted for slow PoSt reads
 var SlowPoStCheckThreshold = 45 * time.Second
 var LocalSinfoTTL = 30 * time.Second
+
 const STORAGE_REPORT_INTERVAL = 5 * time.Minute
 
 var ParallelDeclare = 5

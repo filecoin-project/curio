@@ -203,7 +203,9 @@ type TaskEngine struct {
 	// scheduler drains it as fast as possible with no blocking I/O. The
 	// channel value itself is replaced in one place (New) before startPeering
 	// and startScheduler are called, so concurrent access to the channel is safe.
-	schedulerChannel chan schedulerEvent
+	schedulerChannel    chan schedulerEvent
+	acceptWork          chan acceptRequest
+	acceptSensitiveWork chan acceptRequest
 
 	completionMu        sync.RWMutex
 	completionCallbacks map[string][]TaskCompleteFunc
@@ -386,10 +388,11 @@ func NewWithReg(
 		// e.schedulerChannel; starting peering before the resize above would
 		// race the reassignment (and could strand events on the old channel).
 		e.peering = startPeering(e, peerConnector)
+		e.startAcceptWorkers()
 
 		for _, w := range taskRet {
 			h := e.taskMap[w.Name]
-			if h == nil || !h.considerWork(workSourceRecover, []task{{ID: TaskID(w.ID), UpdateTime: w.UpdateTime, PostedTime: w.PostedTime, Retries: w.Retries}}, eventEmitter{schedulerChannel: e.schedulerChannel}) {
+			if h == nil || e.checkRecoveredTask(h, TaskID(w.ID)) != nil || !h.considerWork(workSourceRecover, []task{{ID: TaskID(w.ID), UpdateTime: w.UpdateTime, PostedTime: w.PostedTime, Retries: w.Retries}}, eventEmitter{schedulerChannel: e.schedulerChannel}) {
 				// Task type no longer registered on this node (config change);
 				// release the claim so another node can pick it up.
 				_, err := db.Exec(e.cfg.ctx, `UPDATE harmony_task SET owner_id=NULL WHERE id=$1 AND owner_id=$2`, w.ID, e.cfg.ownerID)

@@ -31,7 +31,8 @@ type schedulerEvent struct {
 	// the complete snapshot of unowned tasks from the DB, keyed by task type.
 	// This replaces the scheduler's in-memory available task map, ensuring
 	// stale entries (claimed by others, deleted) are garbage-collected.
-	DBTasks map[string][]task
+	DBTasks    map[string][]task
+	Acceptance *acceptResult
 }
 
 // schedulerSource identifies the origin of a scheduler event. Each source
@@ -51,6 +52,8 @@ const (
 	schedulerSourceDBPoll                               // background poller delivered fresh DB state
 	schedulerSourceInitialPoll
 	schedulerSourceStartTimeSensitive
+	schedulerSourceAcceptResult
+	schedulerSourcePreemptDone
 )
 
 func taskFromSchedulerEvent(event schedulerEvent) task {
@@ -80,22 +83,8 @@ type taskSchedule struct {
 	choked bool // true for when this list is uncomfortably long for RAM.
 }
 
-// startScheduler launches three long-running goroutines that form the heart
-// of the event-driven scheduling system:
-//
-//  1. **Cleanup goroutine**: periodically removes stale machine entries from
-//     the DB (dead nodes whose heartbeats have expired).
-//
-//  2. **Background DB poller**: queries unowned tasks and node flags at the
-//     configured poll interval. This runs off the scheduler thread to avoid
-//     blocking the event loop with DB round-trips. It also pre-computes
-//     CanAccept() for each task type so the scheduler can skip that
-//     potentially expensive call. Results are sent as a single
-//     schedulerSourceDBPoll event.
-//
-//  3. **Scheduler event loop**: the single-threaded core that reads events
-//     from schedulerChannel, maintains the in-memory available-tasks map,
-//     and decides when to attempt work via pollerTryAllWork.
+// startScheduler starts machine cleanup, DB discovery, and the scheduler.
+// Acceptance workers run independently of discovery and serial admission.
 func (e *TaskEngine) startScheduler() {
 	// Goroutine 1: periodic dead-machine cleanup
 	go func() {
@@ -110,7 +99,6 @@ func (e *TaskEngine) startScheduler() {
 		}
 	}()
 	// Goroutine 2: background DB poller.
-	// Runs CanAccept off the scheduler thread so the event loop stays fast.
 	// Checks node flags (cordon/restart) and delivers a complete task snapshot.
 	go func() {
 		timer := time.NewTimer(0) // fire immediately for initial poll
@@ -128,39 +116,13 @@ func (e *TaskEngine) startScheduler() {
 					e.atomics.yieldBackground.Store(!schedulable)
 				}
 
-				// Pre-compute CanAccept for all task types and write results
-				// into each handler's acceptcache. This avoids calling
-				// CanAccept on the scheduler event loop. The cache's internal
-				// mutex protects against concurrent reads from the scheduler.
-				if dbTasks != nil && !e.atomics.yieldBackground.Load() {
-					for _, h := range e.handlers {
-						tasks := dbTasks[h.Name]
-						if len(tasks) == 0 {
-							continue
-						}
-
-						sort.Slice(tasks, func(i, j int) bool {
-							return taskLessByPostedTime(tasks[i], tasks[j])
-						})
-						dbTasks[h.Name] = tasks
-						ids := make([]TaskID, len(tasks))
-						for i, t := range tasks {
-							ids[i] = t.ID
-						}
-						accepted, err := h.CanAccept(ids, e)
-						if err != nil {
-							log.Errorw("CanAccept pre-check failed", "taskType", h.Name, "error", err)
-							continue
-						}
-						if len(accepted) > 0 {
-							h.accept.Add(toInt64s(accepted))
-						}
-					}
-				}
-
-				e.schedulerChannel <- schedulerEvent{
+				select {
+				case e.schedulerChannel <- schedulerEvent{
 					Source:  schedulerSourceDBPoll,
 					DBTasks: dbTasks,
+				}:
+				case <-e.cfg.ctx.Done():
+					return
 				}
 
 				// Self-heal the poll rate: if we degraded to pollFrequently
@@ -175,91 +137,68 @@ func (e *TaskEngine) startScheduler() {
 			}
 		}
 	}()
-	// Goroutine 3: the scheduler event loop (single-threaded, no blocking I/O).
-	go func() {
-		bundleCollector, bundleSleep := bundler()
+	go e.runScheduler()
+}
 
-		// availableTasks is the scheduler's authoritative view of unowned work.
-		// Populated by DB polls and incrementally updated by events.
-		// Only accessed from this goroutine — no locks needed.
-		availableTasks := map[string]*taskSchedule{}
-		for _, h := range e.handlers {
-			availableTasks[h.Name] = &taskSchedule{hasID: make(map[TaskID]task)}
+func (e *TaskEngine) runScheduler() {
+	bundleCollector, bundleSleep := bundler()
+
+	// availableTasks is the scheduler's authoritative view of unowned work.
+	// Populated by DB polls and incrementally updated by events.
+	// Only accessed from this goroutine — no locks needed.
+	availableTasks := map[string]*taskSchedule{}
+	for _, h := range e.handlers {
+		availableTasks[h.Name] = &taskSchedule{hasID: make(map[TaskID]task)}
+	}
+	ee := eventEmitter{schedulerChannel: e.schedulerChannel, availableTasks: availableTasks}
+	tryStartNow := func(taskName string) {
+		if err := e.tryStartTask(taskName, taskSourceLocal{availableTasks}, ee); err != nil {
+			log.Errorw("failed to try start task", "taskType", taskName, "error", err)
 		}
-		ee := eventEmitter{schedulerChannel: e.schedulerChannel, availableTasks: availableTasks}
-		tryStartNow := func(taskName string) {
-			if err := e.tryStartTask(taskName, taskSourceLocal{availableTasks}, ee); err != nil {
-				log.Errorw("failed to try start task", "taskType", taskName, "error", err)
-			}
-		}
-		ts := taskSourceLocal{availableTasks}
+	}
+	ts := taskSourceLocal{availableTasks}
 
-		for {
-			select {
-			case <-e.cfg.ctx.Done():
-				log.Infof("scheduler stopped")
-				return
+	for {
+		select {
+		case <-e.cfg.ctx.Done():
+			log.Infof("scheduler stopped")
+			return
 
-			case event := <-e.schedulerChannel:
-				switch event.Source {
+		case event := <-e.schedulerChannel:
+			switch event.Source {
 
-				case schedulerSourceDBPoll:
-					// Replace the entire available-tasks map with the DB snapshot.
-					// This garbage-collects stale entries (tasks claimed/deleted by
-					// others). Always re-enter the waterfall afterward: RetryWait
-					// may have elapsed for existing IDs, CanAccept cache was
-					// refreshed, and IAmBored must run when capacity remains with
-					// no claimable work (not only when new IDs appear).
-					for taskName, tasks := range event.DBTasks {
-						sched := availableTasks[taskName]
-						if sched == nil {
-							continue
-						}
-						newHas := lo.Associate(tasks, func(t task) (TaskID, task) {
-							return t.ID, t
-						})
-						availableTasks[taskName] = &taskSchedule{
-							hasID:  newHas,
-							choked: len(tasks) >= chokePoint,
-						}
-					}
-
-					if err := e.pollerTryAllWork(ts, ee); err != nil {
-						log.Errorw("failed tryAllWork", "error", err)
-					}
-
-				case schedulerSourceAdded:
-					// Local task addition: insert into available set, broadcast to peers.
-					// TimeSensitive tasks (e.g., WindowPost) skip bundling for
-					// immediate scheduling.
-					if _, ok := availableTasks[event.TaskType]; ok {
-						availableTasks[event.TaskType].hasID[event.TaskID] = taskFromSchedulerEvent(event)
-						if h := e.taskMap[event.TaskType]; h != nil && h.TimeSensitive {
-							if err := e.tryStartTask(event.TaskType, ts, ee); err != nil {
-								log.Errorw("failed tryAllWork", "error", err)
-							}
-						} else {
-							bundleCollector(event.TaskType)
-						}
-					}
-					pt := event.PostedTime
-					if pt.IsZero() {
-						pt = time.Now().UTC()
-					}
-					e.peering.TellNewTask(event.TaskType, event.TaskID, event.Retries, pt)
-				case schedulerSourcePeerNewTask:
-					// A peer added a task. Insert into our available set (if we
-					// handle this type) and schedule. Respects chokePoint to
-					// bound memory.
-					t, ok := availableTasks[event.TaskType]
-					if !ok {
+			case schedulerSourceDBPoll:
+				// Replace the entire available-tasks map with the DB snapshot.
+				// This garbage-collects stale entries (tasks claimed/deleted by
+				// others). Always re-enter the waterfall afterward: RetryWait
+				// may have elapsed for existing IDs, CanAccept cache was
+				// refreshed, and IAmBored must run when capacity remains with
+				// no claimable work (not only when new IDs appear).
+				for taskName, tasks := range event.DBTasks {
+					sched := availableTasks[taskName]
+					if sched == nil {
 						continue
 					}
-					if len(t.hasID) >= chokePoint {
-						t.choked = true
-						continue
+					newHas := lo.Associate(tasks, func(t task) (TaskID, task) {
+						return t.ID, t
+					})
+					availableTasks[taskName] = &taskSchedule{
+						hasID:  newHas,
+						choked: len(tasks) >= chokePoint,
 					}
-					t.hasID[event.TaskID] = taskFromSchedulerEvent(event)
+					e.taskMap[taskName].accept.Refresh()
+				}
+
+				if err := e.pollerTryAllWork(ts, ee); err != nil {
+					log.Errorw("failed tryAllWork", "error", err)
+				}
+
+			case schedulerSourceAdded:
+				// Local task addition: insert into available set, broadcast to peers.
+				// TimeSensitive tasks (e.g., WindowPost) skip bundling for
+				// immediate scheduling.
+				if _, ok := availableTasks[event.TaskType]; ok {
+					availableTasks[event.TaskType].hasID[event.TaskID] = taskFromSchedulerEvent(event)
 					if h := e.taskMap[event.TaskType]; h != nil && h.TimeSensitive {
 						if err := e.tryStartTask(event.TaskType, ts, ee); err != nil {
 							log.Errorw("failed tryAllWork", "error", err)
@@ -267,62 +206,109 @@ func (e *TaskEngine) startScheduler() {
 					} else {
 						bundleCollector(event.TaskType)
 					}
-
-				case schedulerSourceTaskStarted:
-					// Peer notify (+ idempotent local delete; NoteClaimed usually
-					// already cleared the ID on the claim path).
-					if avail := availableTasks[event.TaskType]; avail != nil {
-						delete(avail.hasID, event.TaskID)
-					}
-					e.peering.TellOthers(messageTypeStarted, event.TaskType, event.TaskID)
-
-				case schedulerSourcePeerStarted:
-					// A peer started a task. Remove from our available set so we
-					// don't try to claim it.
-					avail, ok := availableTasks[event.TaskType]
-					if !ok {
-						continue
-					}
-					delete(avail.hasID, event.TaskID)
-				case schedulerSourceTaskCompleted:
-					// A local task finished (success or failure). Freed resources
-					// may allow previously blocked work to start.
-					if err := e.pollerTryAllWork(ts, ee); err != nil {
-						log.Errorw("failed tryAllWork", "error", err)
-					}
-				case schedulerSourceStartTimeSensitive:
-					h := e.taskMap[event.TaskType]
-					if h == nil {
-						continue
-					}
-					plan := e.computePreemptionPlan(h.Cost)
-					if plan == nil {
-						log.Debugw("preemption plan no longer viable", "task", event.TaskType, "taskID", event.TaskID)
-						continue
-					}
-					e.executePreemption(plan)
-					tasks := taskSourceLocal{availableTasks}.GetTasks(event.TaskType)
-					if len(tasks) > 0 {
-						h.considerWork(workSourcePreempt, tasks, ee)
-						e.atomics.Count_TimeSensitivePreempt.Add(1)
-					}
-				case schedulerSourceInitialPoll:
-					if err := e.pollerTryAllWork(ts, ee); err != nil {
-						log.Errorw("failed tryAllWork", "error", err)
-					}
-				default:
-					log.Errorw("unknown scheduler source", "source", event.Source)
 				}
-			case taskName := <-bundleSleep:
-				tryStartNow(taskName)
-			case <-time.After(idleTryInterval):
-				// Quiet-period tick: IAmBored only. Does not claim known work
-				// or query the DB — discovery/claims stay on events + the rare
-				// background poller. Per-task passcall.Every throttles work.
-				e.invokeIAmBored()
+				pt := event.PostedTime
+				if pt.IsZero() {
+					pt = time.Now().UTC()
+				}
+				e.peering.TellNewTask(event.TaskType, event.TaskID, event.Retries, pt)
+			case schedulerSourcePeerNewTask:
+				// A peer added a task. Insert into our available set (if we
+				// handle this type) and schedule. Respects chokePoint to
+				// bound memory.
+				t, ok := availableTasks[event.TaskType]
+				if !ok {
+					continue
+				}
+				if len(t.hasID) >= chokePoint {
+					t.choked = true
+					continue
+				}
+				t.hasID[event.TaskID] = taskFromSchedulerEvent(event)
+				if h := e.taskMap[event.TaskType]; h != nil && h.TimeSensitive {
+					if err := e.tryStartTask(event.TaskType, ts, ee); err != nil {
+						log.Errorw("failed tryAllWork", "error", err)
+					}
+				} else {
+					bundleCollector(event.TaskType)
+				}
+
+			case schedulerSourceTaskStarted:
+				// Peer notify (+ idempotent local delete; NoteClaimed usually
+				// already cleared the ID on the claim path).
+				if avail := availableTasks[event.TaskType]; avail != nil {
+					delete(avail.hasID, event.TaskID)
+				}
+				e.peering.TellOthers(messageTypeStarted, event.TaskType, event.TaskID)
+
+			case schedulerSourcePeerStarted:
+				// A peer started a task. Remove from our available set so we
+				// don't try to claim it.
+				avail, ok := availableTasks[event.TaskType]
+				if !ok {
+					continue
+				}
+				delete(avail.hasID, event.TaskID)
+			case schedulerSourceTaskCompleted:
+				// A local task finished (success or failure). Freed resources
+				// may allow previously blocked work to start.
+				if h := e.taskMap[event.TaskType]; h != nil {
+					h.accept.Refresh()
+				}
+				if err := e.pollerTryAllWork(ts, ee); err != nil {
+					log.Errorw("failed tryAllWork", "error", err)
+				}
+			case schedulerSourceAcceptResult:
+				h := e.taskMap[event.TaskType]
+				h.acceptPending = false
+				h.storeAcceptance(*event.Acceptance)
+				tryStartNow(event.TaskType)
+			case schedulerSourcePreemptDone:
+				h := e.taskMap[event.TaskType]
+				delete(h.preempting, event.TaskID)
+				tasks := ts.GetTasks(event.TaskType)
+				h.requestUncachedAcceptance(lo.Map(tasks, func(t task, _ int) TaskID { return t.ID }))
+			case schedulerSourceStartTimeSensitive:
+				h := e.taskMap[event.TaskType]
+				if h == nil {
+					continue
+				}
+				t, available := availableTasks[event.TaskType].hasID[event.TaskID]
+				if !available {
+					continue
+				}
+				accepted, ready := h.resolveAcceptedIDs([]TaskID{event.TaskID})
+				if !ready || len(accepted) == 0 {
+					continue
+				}
+				if capacity, err := h.AssertMachineHasCapacity(); err == nil && capacity > 0 {
+					h.considerWork(workSourcePreempt, []task{t}, ee)
+					continue
+				}
+				plan := e.computePreemptionPlan(h.Cost)
+				if plan == nil {
+					log.Debugw("preemption plan no longer viable", "task", event.TaskType, "taskID", event.TaskID)
+					continue
+				}
+				e.executePreemption(plan)
+				h.considerWork(workSourcePreempt, []task{t}, ee)
+				e.atomics.Count_TimeSensitivePreempt.Add(1)
+			case schedulerSourceInitialPoll:
+				if err := e.pollerTryAllWork(ts, ee); err != nil {
+					log.Errorw("failed tryAllWork", "error", err)
+				}
+			default:
+				log.Errorw("unknown scheduler source", "source", event.Source)
 			}
+		case taskName := <-bundleSleep:
+			tryStartNow(taskName)
+		case <-time.After(idleTryInterval):
+			// Quiet-period tick: IAmBored only. Does not claim known work
+			// or query the DB — discovery/claims stay on events + the rare
+			// background poller. Per-task passcall.Every throttles work.
+			e.invokeIAmBored()
 		}
-	}()
+	}
 }
 
 // taskSource abstracts where the scheduler gets its list of available tasks.
@@ -343,8 +329,25 @@ func (e *TaskEngine) tryStartTask(taskName string, taskSource taskSource, eventE
 		cap, capErr := h.AssertMachineHasCapacity()
 		if cap == 0 || capErr != nil {
 			if tasks := taskSource.GetTasks(taskName); len(tasks) > 0 {
+				ids := make([]TaskID, 0, len(tasks))
 				for _, t := range tasks {
-					go e.preemptForTimeSensitive(h, t.ID)
+					if h.RetryWait == nil || t.Retries == 0 || time.Since(t.UpdateTime) > h.RetryWait(t.Retries) {
+						ids = append(ids, t.ID)
+					}
+				}
+				accepted, ready := h.resolveAcceptedIDs(ids)
+				if ready {
+					if h.preempting == nil {
+						h.preempting = make(map[TaskID]struct{})
+					}
+					for _, id := range accepted {
+						if _, pending := h.preempting[id]; pending {
+							continue
+						}
+						h.preempting[id] = struct{}{}
+						go e.preemptForTimeSensitive(h, id)
+					}
+					h.requestUncachedAcceptance(ids)
 				}
 			}
 			return nil

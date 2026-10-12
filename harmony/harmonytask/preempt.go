@@ -4,8 +4,6 @@ import (
 	"sort"
 	"time"
 
-	"github.com/samber/lo"
-
 	"github.com/filecoin-project/curio/harmony/harmonytask/internal/runregistry"
 	"github.com/filecoin-project/curio/harmony/resources"
 )
@@ -142,20 +140,15 @@ func (e *TaskEngine) executePreemption(plan *preemptionPlan) {
 	}
 }
 
-// preemptForTimeSensitive runs in its own goroutine, off the scheduler thread.
-// All state it touches is either atomic, mutex-protected (inside internal
-// sub-packages), or channel-based. After preemption, it signals the
-// scheduler to re-run waterfall.
+// preemptForTimeSensitive negotiates preemption for a task approved by CanAccept.
+// It runs off the scheduler thread and reports completion on every return.
 func (e *TaskEngine) preemptForTimeSensitive(h *taskTypeHandler, tID TaskID) {
-	accepted, err := h.CanAccept([]TaskID{tID}, e)
-	if err != nil {
-		log.Errorw("CanAccept failed before preemption", "task", h.Name, "taskID", tID, "error", err)
-		return
-	}
-	if !lo.Contains(accepted, tID) {
-		log.Debugw("CanAccept refused, skipping preemption", "task", h.Name, "taskID", tID)
-		return
-	}
+	defer func() {
+		select {
+		case e.schedulerChannel <- schedulerEvent{Source: schedulerSourcePreemptDone, TaskType: h.Name, TaskID: tID}:
+		case <-e.cfg.ctx.Done():
+		}
+	}()
 
 	plan := e.computePreemptionPlan(h.Cost)
 	if plan == nil {
