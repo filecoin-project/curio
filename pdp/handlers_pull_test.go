@@ -335,10 +335,12 @@ func TestHandlePull_AssemblesMultipleSources(t *testing.T) {
 		ExtraData: testExtraData(t),
 		DataSetId: &testDataSetId,
 		Pieces: []PullPieceRequest{
-			{PieceCid: testCid1, SourceURLs: []string{"https://legacy.example/piece/" + testCid1}},
+			{PieceCid: testCid1, SourceURLs: []string{
+				"https://legacy.example/piece/" + testCid1,
+				"https://backup.example/piece/" + testCid1,
+			}},
+			{PieceCid: testCid2, SourceURLs: []string{"https://sp.example.com/piece/" + testCid2}},
 		},
-		URLs:     [][]string{{"https://backup.example/piece/" + testCid1}},
-		Provider: &PullProvider{Hosts: []string{"sp.example.com"}, CIDs: []string{testCid2}},
 	}
 	bodyBytes := must.One(json.Marshal(body))
 	req := httptest.NewRequest(http.MethodPost, "/pdp/piece/pull", bytes.NewReader(bodyBytes))
@@ -364,29 +366,6 @@ func TestHandlePull_AssemblesMultipleSources(t *testing.T) {
 		store.createdPieces[1].SourceOrder,
 		store.createdPieces[2].SourceOrder,
 	})
-}
-
-func TestHandlePull_ProviderOnly(t *testing.T) {
-	store := &mockPullStore{}
-	validator := &mockValidator{shouldPass: true}
-	handler := NewPullHandler(&NullAuth{}, store, validator, nil)
-
-	body := PullRequest{
-		ExtraData: testExtraData(t),
-		DataSetId: &testDataSetId,
-		Provider:  &PullProvider{Hosts: []string{"sp.example.com"}, CIDs: []string{testCid1, testCid2}},
-	}
-	bodyBytes := must.One(json.Marshal(body))
-	req := httptest.NewRequest(http.MethodPost, "/pdp/piece/pull", bytes.NewReader(bodyBytes))
-	rec := httptest.NewRecorder()
-
-	handler.HandlePull(rec, req)
-
-	require.Equal(t, http.StatusOK, rec.Code)
-	require.True(t, store.createPullCalled)
-	require.Len(t, store.createdPieces, 2)
-	require.Equal(t, "https://sp.example.com/piece/"+testCid1, store.createdPieces[0].SourceURL)
-	require.Equal(t, "https://sp.example.com/piece/"+testCid2, store.createdPieces[1].SourceURL)
 }
 
 func TestHandlePull_ExistingDataSetUsesFWSSPayer(t *testing.T) {

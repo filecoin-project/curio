@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math/big"
 	"net/http"
 
@@ -18,6 +19,8 @@ import (
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/pdp/contract/FWSS"
 )
+
+const MaxPullRequestBodySize = 4 * 1024 * 1024 // 4MB
 
 // getPDPSenderAddress retrieves the PDP key address from the database
 func getPDPSenderAddress(ctx context.Context, db *harmonydb.DB) (common.Address, error) {
@@ -187,18 +190,9 @@ func NewPullHandler(auth Auth, store PullStore, validator AddPiecesValidator, db
 //     will receive callbacks from PDPVerifier (typically FilecoinWarmStorageService).
 //     Must be in the allowed list for public services.
 //
-//   - pieces (optional): Array of {pieceCid, sourceUrls} entries. sourceUrls are
+//   - pieces (required): Array of {pieceCid, sourceUrls} entries. sourceUrls are
 //     tried in order for that piece. sourceUrl is still accepted; when both are
-//     set, sourceUrl is tried first.
-//
-//   - urls (optional): Array of arrays of HTTPS URLs. Each inner array is the
-//     ordered URL list for one piece, and every URL's path must end in /piece/{cid}.
-//
-//   - provider (optional): {hosts, cids} assembled here into https://{host}/piece/{cid}.
-//     hosts are tried in order. If cids is omitted, piece CIDs already collected
-//     from pieces and urls are used. provider.cids without provider.hosts is rejected.
-//
-//     At least one source URL must result after combining these fields.
+//     set, both are used with sourceUrl tried first.
 //
 // # ExtraData and Authorization
 //
@@ -291,7 +285,8 @@ func (h *PullHandler) HandlePull(w http.ResponseWriter, r *http.Request) {
 
 	// Parse request body
 	var req PullRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	limitedReader := &io.LimitedReader{R: r.Body, N: MaxPullRequestBodySize}
+	if err := json.NewDecoder(limitedReader).Decode(&req); err != nil {
 		httpServerError(w, http.StatusBadRequest, "Invalid request body: "+err.Error(), err)
 		return
 	}

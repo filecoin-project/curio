@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/url"
 	"os"
-	"strings"
 	"sync"
 	"time"
 
@@ -63,14 +62,6 @@ func ValidatePullSourceURL(sourceURL string) error {
 	return nil
 }
 
-// PullProvider describes remote SPs from which piece URLs are assembled.
-// Each host is a hostname (optionally with port or https:// scheme). Each CID
-// is turned into https://{host}/piece/{cid}, and hosts are tried in order.
-type PullProvider struct {
-	Hosts []string `json:"hosts"`
-	CIDs  []string `json:"cids,omitempty"`
-}
-
 // PullPieceRequest is one piece and the source URLs to try, in order.
 // sourceUrl is the legacy single URL. When both fields are set, sourceUrl is
 // tried before sourceUrls.
@@ -96,79 +87,19 @@ type pullSource struct {
 	SourceOrder int
 }
 
-func assembleProviderPieceURL(host, pieceCID string) (string, error) {
-	raw := host
-	if !strings.Contains(host, "://") {
-		raw = "https://" + host
-	}
-
-	parsed, err := url.Parse(raw)
-	if err != nil {
-		return "", fmt.Errorf("invalid provider host %q: %w", host, err)
-	}
-	if parsed.Host == "" {
-		return "", fmt.Errorf("invalid provider host %q: missing hostname", host)
-	}
-
-	return parsed.JoinPath("piece", pieceCID).String(), nil
-}
-
-func pieceCIDFromSourceURL(sourceURL string) (string, error) {
-	parsed, err := url.Parse(sourceURL)
-	if err != nil {
-		return "", fmt.Errorf("invalid URL: %w", err)
-	}
-
-	path := strings.TrimSuffix(parsed.Path, "/")
-	const marker = "/piece/"
-	idx := strings.LastIndex(path, marker)
-	if idx < 0 {
-		return "", fmt.Errorf("URL path must contain /piece/{cid}")
-	}
-	cidPart := path[idx+len(marker):]
-	if cidPart == "" || strings.Contains(cidPart, "/") {
-		return "", fmt.Errorf("URL path must end with /piece/{cid}")
-	}
-	return cidPart, nil
-}
-
 // PullRequest represents the incoming pull request body.
-// pieces, urls, and provider are optional and are assembled into an ordered
-// per-URL pull item list. URLs for one piece are tried in that order.
+// Each piece lists source URLs that ingest tries in order.
 type PullRequest struct {
 	ExtraData    string             `json:"extraData"`
 	DataSetId    *uint64            `json:"dataSetId,omitempty"`    // nil or 0 = create new dataset
 	RecordKeeper *string            `json:"recordKeeper,omitempty"` // required when dataSetId is nil/0
 	Pieces       []PullPieceRequest `json:"pieces,omitempty"`
-	URLs         [][]string         `json:"urls,omitempty"`
-	Provider     *PullProvider      `json:"provider,omitempty"`
 }
 
-// AssembledSources combines pieces.sourceUrls, top-level urls, and
-// provider {hosts, cids} into de-duplicated (pieceCid, sourceUrl) pairs.
-// urls is an array of arrays: each inner array is the ordered URL list for
-// one piece. Later duplicates of the same (pieceCid, URL) are dropped so the
-// first position is the one ingest tries first.
+// AssembledSources turns pieces into ordered (pieceCid, sourceUrl) pairs.
 func (r *PullRequest) AssembledSources() ([]pullSource, error) {
-	sources := make([]pullSource, 0, len(r.Pieces)+len(r.URLs))
-	seen := make(map[string]struct{}, len(r.Pieces)+len(r.URLs))
-	order := make(map[string]int, len(r.Pieces)+len(r.URLs))
-	var knownCids []string
-	seenCid := make(map[string]struct{}, len(r.Pieces)+len(r.URLs))
-
-	add := func(pieceCid, sourceURL string) {
-		key := pieceCid + "\x00" + sourceURL
-		if _, ok := seen[key]; ok {
-			return
-		}
-		seen[key] = struct{}{}
-		sources = append(sources, pullSource{PieceCid: pieceCid, SourceURL: sourceURL, SourceOrder: order[pieceCid]})
-		order[pieceCid]++
-		if _, ok := seenCid[pieceCid]; !ok {
-			seenCid[pieceCid] = struct{}{}
-			knownCids = append(knownCids, pieceCid)
-		}
-	}
+	sources := make([]pullSource, 0, len(r.Pieces))
+	order := make(map[string]int, len(r.Pieces))
 
 	seenPiece := make(map[string]struct{}, len(r.Pieces))
 	for i, piece := range r.Pieces {
@@ -196,72 +127,12 @@ func (r *PullRequest) AssembledSources() ([]pullSource, error) {
 				return nil, fmt.Errorf("piece[%d]: duplicate sourceUrls", i)
 			}
 			seenURL[sourceURL] = struct{}{}
-			add(piece.PieceCid, sourceURL)
-		}
-	}
-
-	for i, group := range r.URLs {
-		if len(group) == 0 {
-			return nil, fmt.Errorf("urls[%d] is empty", i)
-		}
-		var pieceCid string
-		seenURL := make(map[string]struct{}, len(group))
-		for j, sourceURL := range group {
-			if sourceURL == "" {
-				return nil, fmt.Errorf("urls[%d][%d] is empty", i, j)
-			}
-			cid, err := pieceCIDFromSourceURL(sourceURL)
-			if err != nil {
-				return nil, fmt.Errorf("urls[%d][%d]: %w", i, j, err)
-			}
-			if j == 0 {
-				pieceCid = cid
-			} else if cid != pieceCid {
-				return nil, fmt.Errorf("urls[%d]: URLs must refer to the same piece", i)
-			}
-			if _, ok := seenURL[sourceURL]; ok {
-				return nil, fmt.Errorf("urls[%d]: duplicate URL", i)
-			}
-			seenURL[sourceURL] = struct{}{}
-			add(pieceCid, sourceURL)
-		}
-	}
-
-	if r.Provider != nil {
-		hosts := make([]string, 0, len(r.Provider.Hosts))
-		seenHost := make(map[string]struct{}, len(r.Provider.Hosts))
-		for i, host := range r.Provider.Hosts {
-			host = strings.TrimSpace(host)
-			if host == "" {
-				return nil, fmt.Errorf("provider.hosts[%d] is empty", i)
-			}
-			if _, ok := seenHost[host]; ok {
-				return nil, fmt.Errorf("provider.hosts[%d]: duplicate host", i)
-			}
-			seenHost[host] = struct{}{}
-			hosts = append(hosts, host)
-		}
-		if len(r.Provider.CIDs) > 0 && len(hosts) == 0 {
-			return nil, fmt.Errorf("provider.cids requires provider.hosts")
-		}
-		if len(hosts) > 0 {
-			cids := r.Provider.CIDs
-			if len(cids) == 0 {
-				cids = knownCids
-			}
-			for i, pieceCid := range cids {
-				if pieceCid == "" {
-					return nil, fmt.Errorf("provider.cids[%d] is empty", i)
-				}
-				// Hosts are appended in array order so ingest tries them in that order.
-				for _, host := range hosts {
-					assembled, err := assembleProviderPieceURL(host, pieceCid)
-					if err != nil {
-						return nil, err
-					}
-					add(pieceCid, assembled)
-				}
-			}
+			sources = append(sources, pullSource{
+				PieceCid:    piece.PieceCid,
+				SourceURL:   sourceURL,
+				SourceOrder: order[piece.PieceCid],
+			})
+			order[piece.PieceCid]++
 		}
 	}
 
@@ -295,10 +166,10 @@ func (r *PullRequest) Validate() error {
 	}
 
 	// CID format is checked later by ParsePieceCidV2. The same piece may have
-	// several source URLs so the server can try all of them. An exact duplicate
-	// is dropped during assembly except for repeated pieces[] entries, which
-	// are rejected. Piece count is not capped here; the Filecoin message size
-	// is enforced later when packing addPieces.
+	// several source URLs so the server can try all of them. Repeated piece
+	// entries and repeated URLs for one piece are rejected. Piece count is not
+	// capped here; the Filecoin message size is enforced later when packing
+	// addPieces.
 	for _, source := range sources {
 		if err := ValidatePullSourceURL(source.SourceURL); err != nil {
 			return fmt.Errorf("piece %s: %w", source.PieceCid, err)
