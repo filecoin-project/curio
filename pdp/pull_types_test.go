@@ -205,7 +205,7 @@ func TestPullRequest_Validate(t *testing.T) {
 				Pieces:    []PullPieceRequest{},
 			},
 			wantErr:     true,
-			errContains: "at least one source URL is required",
+			errContains: "at least one piece is required",
 		},
 		{
 			name: "piece missing pieceCid",
@@ -273,7 +273,7 @@ func TestPullRequest_Validate(t *testing.T) {
 	}
 }
 
-func TestPullRequest_AssembledSources(t *testing.T) {
+func TestPullRequest_PullSources(t *testing.T) {
 	const validCid = "bafkzcibf6x7poaqtr2pqm6qki6sgetps74xutpclzrwbux5ow6rw4nsfu6tbf2zfnmnq"
 
 	got := func(sources []pullSource) [][2]string {
@@ -288,7 +288,7 @@ func TestPullRequest_AssembledSources(t *testing.T) {
 		r := PullRequest{Pieces: []PullPieceRequest{
 			{PieceCid: validCid, SourceURL: "https://sp.example.com/piece/" + validCid},
 		}}
-		sources, err := r.AssembledSources()
+		sources, err := r.pullSources()
 		require.NoError(t, err)
 		require.Equal(t, [][2]string{{validCid, "https://sp.example.com/piece/" + validCid}}, got(sources))
 		require.Equal(t, 0, sources[0].SourceOrder)
@@ -300,7 +300,7 @@ func TestPullRequest_AssembledSources(t *testing.T) {
 		r := PullRequest{Pieces: []PullPieceRequest{
 			{PieceCid: validCid, SourceURL: first, SourceURLs: []string{second}},
 		}}
-		sources, err := r.AssembledSources()
+		sources, err := r.pullSources()
 		require.NoError(t, err)
 		require.Equal(t, [][2]string{{validCid, first}, {validCid, second}}, got(sources))
 		require.Equal(t, []int{0, 1}, []int{sources[0].SourceOrder, sources[1].SourceOrder})
@@ -310,7 +310,7 @@ func TestPullRequest_AssembledSources(t *testing.T) {
 		r := PullRequest{Pieces: []PullPieceRequest{
 			{PieceCid: validCid, SourceURLs: []string{"https://sp.example.com/piece/" + validCid}},
 		}}
-		sources, err := r.AssembledSources()
+		sources, err := r.pullSources()
 		require.NoError(t, err)
 		require.Equal(t, [][2]string{{validCid, "https://sp.example.com/piece/" + validCid}}, got(sources))
 	})

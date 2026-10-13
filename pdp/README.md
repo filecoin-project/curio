@@ -757,11 +757,10 @@ Uploads complete synchronously. A `204 No Content` response from the known-CID P
     - `extraData`: *(Required)* Hex-encoded bytes that will be validated against the PDPVerifier contract via `eth_call`. Used for authorization and idempotency.
     - `dataSetId`: *(Optional)* The target dataset ID. If omitted or `0`, validation simulates creating a new dataset.
     - `recordKeeper`: *(Required if dataSetId is 0 or omitted)* The contract address that will receive callbacks.
-    - `pieces`: *(Required)* `{pieceCid, sourceUrls}` entries. The eventual `addPieces` Filecoin message must stay under 64 KiB; oversized batches are rejected with `400 Bad Request`.
-        - `pieceCid`: The piece CID in CommP v2 format.
-        - `sourceUrls`: HTTPS URLs for that piece, tried in order.
+    - `pieces`: *(Required)* At least one entry. Each entry needs `pieceCid` and at least one of `sourceUrl` or `sourceUrls`. Repeated `pieceCid` entries and repeated URLs for one piece are rejected. Each URL is stored as its own pull item and tried in that order. Status is reported once per piece. The eventual `addPieces` Filecoin message must stay under 64 KiB; oversized batches are rejected with `400 Bad Request`.
+        - `pieceCid`: *(Required)* The piece CID in CommP v2 format.
+        - `sourceUrls`: *(Optional)* HTTPS URLs for that piece, tried in order.
         - `sourceUrl`: *(Optional)* Legacy single HTTPS URL. When `sourceUrls` is also set, `sourceUrl` is tried first.
-    - At least one piece with a source URL is required. Repeated `pieceCid` entries and repeated URLs for one piece are rejected. Each URL is stored as its own pull item, and ingest tries a piece's URLs in that order. Status is reported once per piece.
 
 #### Response
 

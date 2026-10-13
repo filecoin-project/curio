@@ -852,11 +852,10 @@ func (t *PDPPullPieceTask) Do(ctx context.Context, taskID harmonytask.TaskID, st
 	attemptedSources := map[string]struct{}{}
 	var sourceErrors error
 	var sourceFailures []pullSourceError
-	// sources is ordered by source_ord, so the client's first URL is tried
+	// sources is ordered by source_ord, so a piece's first URL is tried
 	// before later fallbacks. The first successful URL completes the piece.
+	// Other pulls of this piece can repeat a URL, so each distinct URL is tried once.
 	for _, source := range sources {
-		// Multiple pull items can carry the same URL. Try each distinct URL
-		// once; if every URL fails, failures are recorded by source_url.
 		if _, ok := attemptedSources[source.SourceURL]; ok {
 			continue
 		}

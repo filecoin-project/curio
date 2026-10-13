@@ -96,11 +96,14 @@ type PullRequest struct {
 	Pieces       []PullPieceRequest `json:"pieces,omitempty"`
 }
 
-// AssembledSources turns pieces into ordered (pieceCid, sourceUrl) pairs.
-func (r *PullRequest) AssembledSources() ([]pullSource, error) {
-	sources := make([]pullSource, 0, len(r.Pieces))
-	order := make(map[string]int, len(r.Pieces))
+// pullSources returns one row per source URL. SourceOrder is that URL's index
+// in the piece's list.
+func (r *PullRequest) pullSources() ([]pullSource, error) {
+	if len(r.Pieces) == 0 {
+		return nil, fmt.Errorf("at least one piece is required")
+	}
 
+	sources := make([]pullSource, 0, len(r.Pieces))
 	seenPiece := make(map[string]struct{}, len(r.Pieces))
 	for i, piece := range r.Pieces {
 		if piece.PieceCid == "" {
@@ -130,9 +133,8 @@ func (r *PullRequest) AssembledSources() ([]pullSource, error) {
 			sources = append(sources, pullSource{
 				PieceCid:    piece.PieceCid,
 				SourceURL:   sourceURL,
-				SourceOrder: order[piece.PieceCid],
+				SourceOrder: j,
 			})
-			order[piece.PieceCid]++
 		}
 	}
 
@@ -157,19 +159,13 @@ func (r *PullRequest) Validate() error {
 		}
 	}
 
-	sources, err := r.AssembledSources()
+	sources, err := r.pullSources()
 	if err != nil {
 		return err
 	}
-	if len(sources) == 0 {
-		return fmt.Errorf("at least one source URL is required")
-	}
 
-	// CID format is checked later by ParsePieceCidV2. The same piece may have
-	// several source URLs so the server can try all of them. Repeated piece
-	// entries and repeated URLs for one piece are rejected. Piece count is not
-	// capped here; the Filecoin message size is enforced later when packing
-	// addPieces.
+	// CID format is checked later by ParsePieceCidV2. Piece count is not capped
+	// here; the Filecoin message size is enforced later when packing addPieces.
 	for _, source := range sources {
 		if err := ValidatePullSourceURL(source.SourceURL); err != nil {
 			return fmt.Errorf("piece %s: %w", source.PieceCid, err)

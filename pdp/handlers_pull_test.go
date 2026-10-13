@@ -233,7 +233,7 @@ func TestHandlePull_NoPieces(t *testing.T) {
 	handler.HandlePull(rec, req)
 
 	require.Equal(t, http.StatusBadRequest, rec.Code)
-	require.Contains(t, rec.Body.String(), "at least one source URL is required")
+	require.Contains(t, rec.Body.String(), "at least one piece is required")
 }
 
 func TestHandlePull_InvalidSourceURL(t *testing.T) {
@@ -326,7 +326,7 @@ func TestHandlePull_NewRequest_Success(t *testing.T) {
 	require.True(t, cidSet[testCid2])
 }
 
-func TestHandlePull_AssemblesMultipleSources(t *testing.T) {
+func TestHandlePull_MultipleSourceURLs(t *testing.T) {
 	store := &mockPullStore{}
 	validator := &mockValidator{shouldPass: true}
 	handler := NewPullHandler(&NullAuth{}, store, validator, nil)

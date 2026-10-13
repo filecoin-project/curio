@@ -373,37 +373,35 @@ func (h *PullHandler) HandlePull(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sources, err := req.AssembledSources()
-	if err != nil {
-		httpServerError(w, http.StatusBadRequest, "Validation error: "+err.Error(), err)
-		return
-	}
-
-	// Parse unique piece CIDs for eth_call (validates PieceCIDv2, extracts v1, size).
-	infoByCid := make(map[string]*PieceCidInfo, len(sources))
-	var pieceData []contract.CidsCid
-	for _, source := range sources {
-		if _, ok := infoByCid[source.PieceCid]; ok {
-			continue
-		}
-		info, err := ParsePieceCidV2(source.PieceCid)
+	// One addPieces entry per piece. Each of that piece's URLs is its own pull item.
+	pieceData := make([]contract.CidsCid, 0, len(req.Pieces))
+	pullPieces := make([]PullPiece, 0, len(req.Pieces))
+	for _, piece := range req.Pieces {
+		info, err := ParsePieceCidV2(piece.PieceCid)
 		if err != nil {
-			msg := fmt.Sprintf("Invalid pieceCid %s: %s", source.PieceCid, err.Error())
+			msg := fmt.Sprintf("Invalid pieceCid %s: %s", piece.PieceCid, err.Error())
 			httpServerError(w, http.StatusBadRequest, msg, err)
 			return
 		}
 		if info.RawSize < uint64(PieceSizeMinLimit) {
-			msg := fmt.Sprintf("pieceCid %s: size %d is below minimum %d", source.PieceCid, info.RawSize, PieceSizeMinLimit)
+			msg := fmt.Sprintf("pieceCid %s: size %d is below minimum %d", piece.PieceCid, info.RawSize, PieceSizeMinLimit)
 			httpServerError(w, http.StatusBadRequest, msg, nil)
 			return
 		}
 		if info.RawSize > uint64(PieceSizeMaxLimit) {
-			msg := fmt.Sprintf("pieceCid %s: size %d exceeds maximum %d", source.PieceCid, info.RawSize, PieceSizeMaxLimit)
+			msg := fmt.Sprintf("pieceCid %s: size %d exceeds maximum %d", piece.PieceCid, info.RawSize, PieceSizeMaxLimit)
 			httpServerError(w, http.StatusBadRequest, msg, nil)
 			return
 		}
-		infoByCid[source.PieceCid] = info
 		pieceData = append(pieceData, contract.CidsCid{Data: info.CidV2.Bytes()})
+		for j, sourceURL := range piece.orderedSourceURLs() {
+			pullPieces = append(pullPieces, PullPiece{
+				CidV1:       info.CidV1,
+				RawSize:     info.RawSize,
+				SourceURL:   sourceURL,
+				SourceOrder: j,
+			})
+		}
 	}
 
 	abiData, err := contract.PDPVerifierMetaData.GetAbi()
@@ -430,19 +428,6 @@ func (h *PullHandler) HandlePull(w http.ResponseWriter, r *http.Request) {
 	if err := h.validator.ValidateAddPieces(ctx, validatorParams); err != nil {
 		httpServerError(w, http.StatusBadRequest, "extraData validation failed: "+err.Error(), err)
 		return
-	}
-
-	// Build normalized pull pieces for persistence. Each assembled source is
-	// one (piece, URL) pull item, as before.
-	pullPieces := make([]PullPiece, 0, len(sources))
-	for _, source := range sources {
-		info := infoByCid[source.PieceCid]
-		pullPieces = append(pullPieces, PullPiece{
-			CidV1:       info.CidV1,
-			RawSize:     info.RawSize,
-			SourceURL:   source.SourceURL,
-			SourceOrder: source.SourceOrder,
-		})
 	}
 
 	// Create pull record
