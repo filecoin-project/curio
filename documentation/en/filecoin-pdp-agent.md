@@ -20,14 +20,14 @@ The agent follows your resource allocation, spending limits and upgrade policy. 
 
 ## Install the skill
 
-Choose one installation method. The agent needs local or remote access to the machine that will run the provider. GitHub installation requires the skill to be available on the referenced branch; the examples below use the repository's default branch or `main`.
+Choose one installation method from [filecoin-project/filecoin-skills](https://github.com/filecoin-project/filecoin-skills). The agent needs local or remote access to the machine that will run the provider. GitHub installation requires the skill to be published on that repository's default branch.
 
 ### Skills CLI
 
 With Node.js/npm available:
 
 ```sh
-npx skills add filecoin-project/curio --skill filecoin-pdp-agent --global
+npx skills add filecoin-project/filecoin-skills --skill filecoin-pdp-agent --global
 ```
 
 Choose your agent when prompted. The [Skills CLI](https://github.com/vercel-labs/skills#install-a-skill) supports Claude Code, Codex, Cursor, OpenClaw and other agents. Global installation makes the skill available across working directories; you do not need to clone Curio yourself first.
@@ -37,7 +37,7 @@ Choose your agent when prompted. The [Skills CLI](https://github.com/vercel-labs
 Ask Codex:
 
 ```text
-Use $skill-installer to install https://github.com/filecoin-project/curio/tree/main/skills/filecoin-pdp-agent
+Use $skill-installer to install https://github.com/filecoin-project/filecoin-skills/tree/main/skills/filecoin-pdp-agent
 ```
 
 The [Codex skill installer](https://learn.chatgpt.com/docs/build-skills#install-curated-skills-for-local-use) accepts skills from other repositories. If the skill does not appear after installation, restart Codex.
@@ -56,7 +56,7 @@ The agent inspects the host and existing services, obtains any missing resource 
 2. Deploy the required services or adopt the existing provider, preserving its identity and data.
 3. Configure storage, the provider wallet, chain access and public endpoint; fund the next operations from an authorized source or ask you to supply funds.
 4. Register or reconcile the provider offering and verify readiness. Report upload, retrieval and proving verification separately from setup readiness.
-5. Establish recurring checks through the agent host's scheduler and verify that service supervision persists. Report whether scheduling and notifications are actually working.
+5. Schedule periodic health and earnings checks through the agent host's scheduler and verify that service supervision persists. Report whether scheduling and notifications are actually working.
 
 Provide the storage, operating funds and host access the agent needs. It handles routine work within your delegation and asks for human action when a necessary decision, credential or capability is missing. Installing the skill adds the instructions; invoking it starts provider setup and operation.
 
@@ -64,8 +64,8 @@ As part of setup, the skill sets the public registry capability `curioOperator: 
 
 ## Ongoing operation
 
-The agent monitors provider health, proof deadlines, storage, transaction progress and operating funds through Curio's existing interfaces. It investigates failures, applies supported remedies within its authority, and verifies the affected operation before reporting recovery. It checks releases, performs authorized upgrades or alerts you when an upgrade decision is needed, and maintains an operating record for future sessions.
+The agent checks in periodically through Curio's existing health and financial APIs to see that the provider is working and report earnings and operating funds. Healthy checks are brief. When an issue or pending verification needs attention, it investigates, applies supported remedies within its authority, and follows up until the outcome is known. It also checks releases, performs authorized upgrades or alerts you when an upgrade decision is needed, and maintains an operating record for future sessions.
 
-Curio continues to execute ingestion, proving, transaction tracking, settlement and cleanup independently of agent sessions. Recurring agent checks require an available scheduler; a single conversation does not establish future monitoring. GitHub reporting is optional and requires a connected account and publication authority. The agent searches for existing fixes and reports before deciding whether new evidence warrants a comment or issue.
+Curio executes ingestion, proving, transaction tracking, settlement and cleanup continuously on its own; the agent does not need to monitor it around the clock. Periodic agent checks require an available scheduler; a single conversation does not establish future checks. GitHub reporting is optional and requires a connected account and publication authority. The agent searches for existing fixes and reports before deciding whether new evidence warrants a comment or issue.
 
-For the underlying deployment procedure, see [Curio-PDP](curio-pdp.md). For skill instructions and references, see the [skill source](https://github.com/filecoin-project/curio/tree/main/skills/filecoin-pdp-agent).
+For the underlying deployment procedure, see [Curio-PDP](curio-pdp.md). For skill instructions and references, see [Filecoin PDP Agent](https://github.com/filecoin-project/filecoin-skills/tree/main/skills/filecoin-pdp-agent).
