@@ -1,27 +1,19 @@
-// Package hashspacesolver plans range moves across disks so each disk holds
-// at most eight contiguous hash-space ranges per space while moving as
-// little data as possible.
-//
-// MountPoints are disks, named by StorageID, whose capacities are shared by
-// all spaces. Each hash space is an independent circular partition: ranges are half-open
-// intervals (StartHash, EndHash] with Size bytes of data, and together they
-// tile the circle once. SliceSize reports how much of a range's data lies in
-// a sub-interval.
-//
-// Solve returns a target State plus an order-independent Diff of absolute
-// interval transfers. Each byte moves at most once, from its original disk
-// to the disk that holds it at the end.
 package hashspacesolver
 
 // MAX_RANGES_PER_DISK is the maximum number of contiguous ranges a disk may
 // hold in one space. Caps are per disk per space.
 const MAX_RANGES_PER_DISK = 8
 
-// FILL_LIMIT_PERCENT is the rebalance target as a percent of physical
-// capacity. Planning moves data to get disks to or under this fraction.
-// A tight cluster may still sit above it after a best-effort plan; 100%
-// remains the hard physical limit.
-const FILL_LIMIT_PERCENT = 80
+// FILL_LIMIT_PERCENT is the rebalance line as a percent of a mount's
+// capacity, FreeSpace plus the hash-space bytes on it. Only a disk above
+// this line gives up data. A tight cluster may still sit above it after a
+// best-effort plan; zero FreeSpace is the hard limit.
+const FILL_LIMIT_PERCENT = 90
+
+// REBALANCE_TARGET_PERCENT is where a rebalance takes a disk above the line,
+// and how full a receiving disk may get. The gap below FILL_LIMIT_PERCENT
+// keeps a just-rebalanced disk from crossing the line on its next write.
+const REBALANCE_TARGET_PERCENT = 80
 
 // Range is the half-open hash interval (StartHash, EndHash] holding Size
 // bytes on the mountpoint StorageID. StartHash == EndHash is the full circle.
@@ -34,16 +26,18 @@ type Range struct {
 	StorageID string
 }
 
-// MountPoint is one disk's capacity, named by its storage path ID.
+// MountPoint is one disk, named by its storage path ID. FreeSpace is the
+// bytes free on the drive now, not counting the hash-space ranges already
+// stored there.
 type MountPoint struct {
-	Capacity  int64
+	FreeSpace int64
 	StorageID string
 }
 
 // State is an assignment of ranges to mountpoints across the hash spaces.
 //
 // Each HashSpaces entry is an independent circle; a nil entry is an unused
-// space. All spaces share MountPoints capacity.
+// space. All spaces draw on the same mount free space.
 type State struct {
 	MountPoints []MountPoint
 	HashSpaces  [2][]Range
@@ -57,8 +51,8 @@ const (
 	// Steals grow an existing dest range when possible; a new fragment is
 	// opened only while dest is under MAX_RANGES_PER_DISK.
 	EventArrive EventKind = iota + 1
-	// EventFull sheds from a disk that is above FILL_LIMIT_PERCENT of
-	// physical capacity.
+	// EventFull sheds from a disk that is above FILL_LIMIT_PERCENT of its
+	// capacity, down to REBALANCE_TARGET_PERCENT.
 	EventFull
 	// EventVacate empties a disk so it can leave the cluster.
 	EventVacate

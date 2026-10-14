@@ -40,6 +40,11 @@ func SumFileSizesRange(directory, low, high string, kBufSize uint32) (Result, er
 	return result, nil
 }
 
+// sumDirDarwin adds regular files under path to result using
+// getattrlistbulk. prefix is the CID path of path itself, empty at the
+// scan root, and low and high are the (low, high] bounds. path must be a
+// directory. queueDepth sizes the attribute buffer and must already have
+// passed checkSumArgs. Bounds are not re-checked.
 func sumDirDarwin(path, prefix, low, high string, queueDepth uint32, result *Result) (err error) {
 	bufLen := int(queueDepth) * 512
 	if bufLen < 8192 {

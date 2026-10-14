@@ -42,6 +42,9 @@ func LinkStarts(ranges []Range) {
 	}
 }
 
+// checkRange rejects a negative size, an empty EndHash, or a StartHash
+// whose length differs from EndHash. It does not check that the hashes
+// tile a circle.
 func checkRange(r Range) error {
 	if r.Size < 0 {
 		return xerrors.Errorf("range (%x, %x] has negative size", r.StartHash, r.EndHash)
@@ -55,6 +58,8 @@ func checkRange(r Range) error {
 	return nil
 }
 
+// onRange reports whether h is r.StartHash or lies on (r.StartHash, r.EndHash].
+// A hash of a different length is not on the range. r should already pass checkRange.
 func onRange(r Range, h []byte) bool {
 	if len(h) != len(r.EndHash) {
 		return false
@@ -62,8 +67,9 @@ func onRange(r Range, h []byte) bool {
 	return hashEq(h, r.StartHash) || pointInArc(r.StartHash, r.EndHash, h)
 }
 
-// rangeOffset is the hash distance from r.StartHash to h. isEnd places
-// r.EndHash at the far end of a full-circle range rather than at zero.
+// rangeOffset is the hash distance from r.StartHash to h. h must lie on r.
+// isEnd places r.EndHash at the far end of a full-circle range rather than
+// at zero; pass true when h is the end of the window.
 func rangeOffset(r Range, h []byte, isEnd bool) *big.Int {
 	if isEnd && hashEq(h, r.EndHash) {
 		return interval(r.StartHash, r.EndHash)
@@ -80,6 +86,8 @@ func sliceSize(r Range, start, end []byte) int64 {
 }
 
 // rangePos returns how many of r's bytes lie in (r.StartHash, h].
+// h must lie on r. isEnd places r.EndHash at r.Size on a full-circle range;
+// pass true when h is the end of the window. A non-positive r.Size yields 0.
 func rangePos(r Range, h []byte, isEnd bool) int64 {
 	if r.Size <= 0 {
 		return 0
@@ -95,14 +103,19 @@ func rangePos(r Range, h []byte, isEnd bool) int64 {
 	return n.Div(n, total).Int64()
 }
 
+// splitHash is the hash prefixSize bytes after r.StartHash, rounding the
+// hash step down. prefixSize <= 0 returns StartHash; prefixSize >= Size
+// returns EndHash. r must have equal-length hashes. A zero-length interval
+// returns EndHash.
 func splitHash(r Range, prefixSize int64) []byte {
 	return splitHashBound(r, prefixSize, false)
 }
 
-func splitHashMin(r Range, prefixSize int64) []byte {
-	return splitHashBound(r, prefixSize, true)
-}
-
+// splitHashBound is the hash prefixSize bytes after r.StartHash. ceil rounds
+// the hash step up so the prefix holds at least prefixSize bytes when the
+// division is inexact; otherwise the step rounds down. prefixSize <= 0
+// returns StartHash. prefixSize >= Size, or a zero-length interval, returns
+// EndHash. r must have equal-length hashes. An empty StartHash returns nil.
 func splitHashBound(r Range, prefixSize int64, ceil bool) []byte {
 	startHash := r.StartHash
 	if prefixSize <= 0 {
@@ -126,15 +139,36 @@ func splitHashBound(r Range, prefixSize int64, ceil bool) []byte {
 	if delta.Sign() == 0 && ceil {
 		delta.SetInt64(1)
 	}
-	return addHash(startHash, delta)
+	n := len(startHash)
+	if n == 0 {
+		return nil
+	}
+	space := hashModulus(n)
+	v := hashInt(startHash, n)
+	v.Add(v, delta)
+	v.Mod(v, space)
+	raw := v.Bytes()
+	out := make([]byte, n)
+	if len(raw) > n {
+		copy(out, raw[len(raw)-n:])
+		return out
+	}
+	copy(out[n-len(raw):], raw)
+	return out
 }
 
+// interval is the forward hash distance from `from` to `to` on a circle of
+// 2^(8*n) values, where n is the longer hash. Equal hashes are a full
+// circle, not zero.
 func interval(from, to []byte) *big.Int {
-	n := hashLen(from, to)
+	n := len(from)
+	if len(to) > n {
+		n = len(to)
+	}
 	if n == 0 {
 		return new(big.Int)
 	}
-	space := hashSpace(n)
+	space := hashModulus(n)
 	a := hashInt(from, n)
 	b := hashInt(to, n)
 	if a.Cmp(b) == 0 {
@@ -147,17 +181,14 @@ func interval(from, to []byte) *big.Int {
 	return d
 }
 
-func hashLen(a, b []byte) int {
-	if len(a) > len(b) {
-		return len(a)
-	}
-	return len(b)
-}
-
-func hashSpace(n int) *big.Int {
+// hashModulus is 2^(8*n), the number of distinct n-byte hashes.
+// n is a hash width in bytes.
+func hashModulus(n int) *big.Int {
 	return new(big.Int).Lsh(big.NewInt(1), uint(8*n))
 }
 
+// hashInt reads the last n bytes of h as a big-endian integer, and
+// left-pads when h is shorter. n is the hash width in bytes.
 func hashInt(h []byte, n int) *big.Int {
 	if len(h) >= n {
 		return new(big.Int).SetBytes(h[len(h)-n:])
@@ -167,29 +198,7 @@ func hashInt(h []byte, n int) *big.Int {
 	return new(big.Int).SetBytes(padded)
 }
 
-func addHash(start []byte, delta *big.Int) []byte {
-	n := len(start)
-	if n == 0 {
-		return nil
-	}
-	space := hashSpace(n)
-	v := hashInt(start, n)
-	v.Add(v, delta)
-	v.Mod(v, space)
-	return intHash(v, n)
-}
-
-func intHash(v *big.Int, n int) []byte {
-	raw := v.Bytes()
-	out := make([]byte, n)
-	if len(raw) > n {
-		copy(out, raw[len(raw)-n:])
-		return out
-	}
-	copy(out[n-len(raw):], raw)
-	return out
-}
-
+// cloneHash copies h. A nil hash stays nil.
 func cloneHash(h []byte) []byte {
 	if h == nil {
 		return nil
@@ -199,6 +208,7 @@ func cloneHash(h []byte) []byte {
 	return out
 }
 
+// hashEq reports whether a and b are equal. A nil hash equals an empty one.
 func hashEq(a, b []byte) bool {
 	return bytes.Equal(a, b)
 }

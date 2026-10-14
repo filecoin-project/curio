@@ -93,6 +93,9 @@ type statSlot struct {
 	stx  unix.Statx_t
 }
 
+// uring is one io_uring used to stat files. slots[i] holds the pathname
+// and statx buffer for a prepared request. pending is how many slots are
+// prepared and not yet submitted. tail is the local submission-queue tail.
 type uring struct {
 	fd      int
 	sqRing  []byte
@@ -124,6 +127,8 @@ const (
 // Sysctl and seccomp policies that disable io_uring leave this false.
 var ioUringAvailable bool
 
+// init records whether this process can create an io_uring. A failure
+// leaves ioUringAvailable false and the scan uses the portable walk.
 func init() {
 	ring, err := newUring(1)
 	if err != nil {
@@ -179,6 +184,9 @@ func SumFileSizesRange(directory, low, high string, kBufSize uint32) (Result, er
 	return result, nil
 }
 
+// newUring creates a ring with entries submission slots and maps its
+// queues. entries must be non-zero; the kernel rejects an unsupported
+// size. The caller closes the ring. Slots are empty until queue fills them.
 func newUring(entries uint32) (*uring, error) {
 	var params ioUringParams
 	r1, _, errno := unix.Syscall(unix.SYS_IO_URING_SETUP, uintptr(entries), uintptr(unsafe.Pointer(&params)), 0)
@@ -241,6 +249,8 @@ func newUring(entries uint32) (*uring, error) {
 	return ring, nil
 }
 
+// close unmaps the queues and closes the ring fd. Call it once, after
+// newUring has returned a ring.
 func (ring *uring) close() {
 	if ring.sqes != nil {
 		unix.Munmap(ring.sqes)
@@ -256,6 +266,9 @@ func (ring *uring) close() {
 	}
 }
 
+// prepStatx writes one STATX submission for slots[slot] against dirfd.
+// The slot's name must already be NUL-terminated, and slot must index
+// slots. Returns EBUSY when the submission queue is full. Does not submit.
 func (ring *uring) prepStatx(slot int, dirfd int) error {
 	head := atomic.LoadUint32(ring.sqHead)
 	next := ring.tail + 1
@@ -278,6 +291,11 @@ func (ring *uring) prepStatx(slot int, dirfd int) error {
 	return nil
 }
 
+// submitAndDrain submits the want prepared entries in slots[:want] and
+// waits until that many completions have been applied to result.
+// want == 0 does nothing. want must be at most len(slots), and those
+// slots must already have been prepared. A submit failure drains whatever
+// was accepted before returning.
 func (ring *uring) submitAndDrain(want int, result *Result) error {
 	if want == 0 {
 		return nil
@@ -312,6 +330,9 @@ func (ring *uring) submitAndDrain(want int, result *Result) error {
 	return err
 }
 
+// enter calls io_uring_enter, retrying on EINTR. toSubmit is how many
+// queued entries to submit, minComplete is how many completions to wait
+// for, and flags is the enter flag set. The ring fd must still be open.
 func (ring *uring) enter(toSubmit, minComplete uint32, flags uint32) (int, error) {
 	for {
 		n, _, errno := unix.Syscall6(
@@ -395,6 +416,11 @@ func (ring *uring) drain(want int, result *Result) (int, error) {
 	return got, failed
 }
 
+// sumDirLinux adds regular files under path to result. prefix is the CID
+// path of path itself, empty at the scan root, and low and high are the
+// (low, high] bounds. path must be a directory. The ring must have been
+// flushed before this call; this flushes again before descending and
+// before returning. Bounds are not re-checked.
 func sumDirLinux(ring *uring, path, prefix, low, high string, result *Result) (err error) {
 	dirfd, err := unix.Open(path, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
 	if err != nil {
@@ -471,6 +497,9 @@ func sumDirLinux(ring *uring, path, prefix, low, high string, result *Result) (e
 	return ring.flush(result)
 }
 
+// queue prepares a stat of name in the directory dirfd. name is one
+// component and must fit in NAME_MAX. A full ring is flushed into result
+// first. dirfd must stay open until that flush completes.
 func (ring *uring) queue(dirfd int, name string, result *Result) error {
 	if ring.pending >= len(ring.slots) {
 		if err := ring.flush(result); err != nil {
@@ -492,12 +521,18 @@ func (ring *uring) queue(dirfd int, name string, result *Result) error {
 	return nil
 }
 
+// flush submits every prepared stat and applies the completions to result.
+// A ring with nothing pending does nothing.
 func (ring *uring) flush(result *Result) error {
 	pending := ring.pending
 	ring.pending = 0
 	return ring.submitAndDrain(pending, result)
 }
 
+// walkChild scans the subdirectory name of path when that subtree can
+// still meet (low, high]. prefix is path's CID path. name is one
+// component. The ring must already be flushed; sumDirLinux flushes again
+// before it descends further.
 func walkChild(ring *uring, path, prefix, name, low, high string, result *Result) error {
 	hash, err := joinHash(prefix, name)
 	if err != nil {
@@ -513,6 +548,11 @@ func walkChild(ring *uring, path, prefix, name, low, high string, result *Result
 	return sumDirLinux(ring, child, hash, low, high, result)
 }
 
+// statUnknown classifies a directory entry whose type getdents did not
+// report. dirfd is path's descriptor and must still be open. A directory
+// is scanned when its subtree can match; a regular file in (low, high]
+// is counted immediately. Other types are ignored. ENOENT increments
+// Vanished. prefix is path's CID path and name is one component.
 func statUnknown(ring *uring, dirfd int, path, prefix, name, low, high string, result *Result) error {
 	var stx unix.Statx_t
 	err := unix.Statx(dirfd, name, statxAtFlags, statxMask, &stx)
@@ -553,6 +593,8 @@ func statUnknown(ring *uring, dirfd int, path, prefix, name, low, high string, r
 	return nil
 }
 
+// cString returns the bytes of b before the first NUL. A slice with no
+// NUL is returned whole.
 func cString(b []byte) string {
 	n := 0
 	for n < len(b) && b[n] != 0 {

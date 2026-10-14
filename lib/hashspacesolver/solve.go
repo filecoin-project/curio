@@ -8,8 +8,9 @@ import (
 )
 
 // Solve computes a minimum-movement target for a disk arriving, filling, or
-// vacating. The resulting assignment keeps every active disk at or under
-// capacity and at or under MAX_RANGES_PER_DISK contiguous ranges per space.
+// vacating. The resulting assignment keeps every active disk's FreeSpace at
+// or above zero and at or under MAX_RANGES_PER_DISK contiguous ranges per
+// space.
 //
 // A space may loop:  FF00 - AABB includes AAAA, not BBBB.
 // Cost: Prefer moving the least data. If they're equal, prefer fewer total files moved.
@@ -23,7 +24,7 @@ func Solve(state State, event Event) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	disk, ok := w.diskOf[event.StorageID]
+	disk, ok := w.mountOf[event.StorageID]
 	if !ok {
 		return Result{}, xerrors.Errorf("unknown event StorageID %q", event.StorageID)
 	}
@@ -33,17 +34,148 @@ func Solve(state State, event Event) (Result, error) {
 		if err := w.repair(); err != nil {
 			return Result{}, err
 		}
-		w.arrive(disk)
+		// Steal from disks above the fill limit until newDisk reaches its
+		// rebalance target or no legal cut remains.
+		if w.targetHeadroom(disk) > 0 {
+			var sources []int
+			for _, d := range w.activeDisks() {
+				if d != disk && w.overflow(d) > 0 {
+					sources = append(sources, d)
+				}
+			}
+			totalRanges := 0
+			for _, sp := range w.hashSpaces {
+				totalRanges += len(sp.ranges)
+			}
+			for guard := 0; guard < totalRanges*MAX_RANGES_PER_DISK+len(w.mountPoints)+8; guard++ {
+				cut, okCut := w.pickSteal(disk, sources, true)
+				if !okCut {
+					cut, okCut = w.pickSteal(disk, sources, false)
+				}
+				if !okCut {
+					break
+				}
+				w.applyCut(cut.space, cut.idx, cut.kind, disk, cut.size, cut.split)
+			}
+		}
 	case EventFull:
 		if err := w.repair(); err != nil {
 			return Result{}, err
 		}
-		if err := w.shed(disk); err != nil {
-			return Result{}, err
+		if w.mountPoints[disk].frozen {
+			return Result{}, xerrors.Errorf("cannot shed from vacated mountpoint %s", w.mountPoints[disk].StorageID)
+		}
+		// Stopping with no legal cut is not an error, so the disk may stay
+		// above its rebalance target. A disk already at or under the fill
+		// limit is left as it is.
+		if w.overflow(disk) > 0 {
+			totalRanges := 0
+			for _, sp := range w.hashSpaces {
+				totalRanges += len(sp.ranges)
+			}
+			for guard := 0; guard < totalRanges+4; guard++ {
+				need := w.excess(disk)
+				if need <= 0 {
+					break
+				}
+				cut, okCut := w.bestShed(disk, need)
+				if !okCut {
+					if w.makeRoom(disk) {
+						continue
+					}
+					break
+				}
+				w.applyCut(cut.space, cut.idx, cut.kind, cut.dest, cut.size, cut.split)
+			}
 		}
 	case EventVacate:
-		if err := w.vacate(disk); err != nil {
-			return Result{}, err
+		w.mountPoints[disk].frozen = true
+		for s := range w.hashSpaces {
+			for {
+				idx := -1
+				sp := &w.hashSpaces[s]
+				for ri, r := range sp.ranges {
+					if w.diskOf(r) == disk && r.Size == 0 {
+						idx = ri
+						break
+					}
+				}
+				if idx < 0 {
+					break
+				}
+				// A circle of one range goes to any other active disk.
+				// Otherwise the next owner, unless that is the source, then
+				// the previous owner. No bytes move.
+				n := len(sp.ranges)
+				dest, found := 0, false
+				if n == 1 {
+					for _, d := range w.activeDisks() {
+						if d != disk {
+							dest, found = d, true
+							break
+						}
+					}
+				} else {
+					next := w.diskOf(sp.ranges[(idx+1)%n])
+					if next != disk {
+						dest, found = next, true
+					} else if prev := w.diskOf(sp.ranges[(idx-1+n)%n]); prev != disk {
+						dest, found = prev, true
+					}
+				}
+				if !found {
+					return Result{}, xerrors.Errorf("cannot reassign empty range on mountpoint %s", w.mountPoints[disk].StorageID)
+				}
+				w.moveWhole(s, idx, dest)
+			}
+		}
+		if w.mountPoints[disk].used != 0 {
+			var used int64
+			for _, sp := range w.hashSpaces {
+				for _, r := range sp.ranges {
+					used += r.Size
+				}
+			}
+			var capacity int64
+			for _, mp := range w.mountPoints {
+				if !mp.frozen {
+					capacity += mp.capacity
+				}
+			}
+			if capacity < used {
+				return Result{}, xerrors.Errorf("not enough remaining capacity to vacate mountpoint %s", w.mountPoints[disk].StorageID)
+			}
+			totalRanges := 0
+			for _, sp := range w.hashSpaces {
+				totalRanges += len(sp.ranges)
+			}
+			emptied := false
+			for guard := 0; guard < totalRanges+8; guard++ {
+				bestSpace, bestIdx := -1, -1
+				var bestSize int64 = -1
+				for s := range w.hashSpaces {
+					for _, idx := range w.rangeIndexes(s, disk) {
+						sz := w.hashSpaces[s].ranges[idx].Size
+						if sz > bestSize || (sz == bestSize && (s < bestSpace || (s == bestSpace && idx < bestIdx))) {
+							bestSpace, bestIdx, bestSize = s, idx, sz
+						}
+					}
+				}
+				if bestSpace < 0 {
+					emptied = true
+					break
+				}
+				if w.placeRange(bestSpace, bestIdx, disk) {
+					continue
+				}
+				if w.makeRoom(disk) && w.placeRange(bestSpace, bestIdx, disk) {
+					continue
+				}
+				return Result{}, xerrors.Errorf("cannot place range on mountpoint %s elsewhere", w.mountPoints[disk].StorageID)
+			}
+			if !emptied && (w.mountPoints[disk].used != 0 || w.ownsRange(disk)) {
+				return Result{}, xerrors.Errorf("failed to vacate mountpoint %s", w.mountPoints[disk].StorageID)
+			}
 		}
 	default:
 		return Result{}, xerrors.Errorf("unknown event kind %d", event.Kind)
@@ -52,11 +184,42 @@ func Solve(state State, event Event) (Result, error) {
 	if err := w.repair(); err != nil {
 		return Result{}, err
 	}
-	if err := w.checkSolved(event.Kind, disk); err != nil {
+	if err := w.checkLimits(); err != nil {
 		return Result{}, err
 	}
+	if event.Kind == EventVacate && (w.mountPoints[disk].used != 0 || w.ownsRange(disk)) {
+		return Result{}, xerrors.Errorf("mountpoint %s was not emptied", w.mountPoints[disk].StorageID)
+	}
 
-	diff := mergeTransfers(w.placedTransfers())
+	var moved []Transfer
+	for s, sp := range w.hashSpaces {
+		for i := range sp.ranges {
+			if len(sp.layouts[i]) == 0 {
+				continue
+			}
+			prev := w.startHash(s, i)
+			for _, lay := range sp.layouts[i] {
+				if !hashEq(lay.startHash, prev) {
+					return Result{}, xerrors.Errorf("space %d range %d layout starts at %x, previous piece ends at %x", s, i, lay.startHash, prev)
+				}
+				if lay.size >= 0 && lay.mountPointIdx != w.diskOf(sp.ranges[i]) {
+					moved = append(moved, Transfer{
+						Space:     s,
+						StartHash: cloneHash(lay.startHash),
+						EndHash:   cloneHash(lay.endHash),
+						From:      w.mountPoints[lay.mountPointIdx].StorageID,
+						To:        sp.ranges[i].StorageID,
+						Size:      lay.size,
+					})
+				}
+				prev = lay.endHash
+			}
+			if !hashEq(prev, sp.ranges[i].EndHash) {
+				return Result{}, xerrors.Errorf("space %d range %d layout ends at %x, range ends at %x", s, i, prev, sp.ranges[i].EndHash)
+			}
+		}
+	}
+	diff := mergeTransfers(moved)
 	var bytes int64
 	for _, t := range diff {
 		bytes += t.Size
@@ -64,8 +227,8 @@ func Solve(state State, event Event) (Result, error) {
 	return Result{State: w.snapshot(), Diff: diff, BytesMoved: bytes}, nil
 }
 
-// Validate reports whether state is structurally sound and satisfies capacity
-// and per-space range-count limits.
+// Validate reports whether state is structurally sound and each disk is
+// within the per-space range cap.
 func Validate(state State) error {
 	w, err := newWorld(state)
 	if err != nil {
@@ -75,96 +238,145 @@ func Validate(state State) error {
 }
 
 // Apply returns a copy of state with all transfers applied. Transfers may be
-// applied in any order when they are disjoint within a space.
+// applied in any order when they are disjoint within a space. A negative
+// size is skipped. An empty transfer, or one that covers a whole range,
+// moves that range. Anything else must be a prefix, a suffix, or a strict
+// middle of one range, and Size must match the layout bytes in the interval.
+// Free space and the range cap are not checked.
 func Apply(state State, diff []Transfer) (State, error) {
 	w, err := newWorld(state)
 	if err != nil {
 		return State{}, err
 	}
 	for i, t := range diff {
-		if err := w.applyTransfer(t); err != nil {
-			return State{}, xerrors.Errorf("transfer %d: %w", i, err)
+		if t.Space < 0 || t.Space >= len(w.hashSpaces) {
+			return State{}, xerrors.Errorf("transfer %d: unknown space %d", i, t.Space)
 		}
+		to, ok := w.mountOf[t.To]
+		if !ok {
+			return State{}, xerrors.Errorf("transfer %d: unknown dest StorageID %q", i, t.To)
+		}
+		if t.Size < 0 {
+			continue
+		}
+		sp := &w.hashSpaces[t.Space]
+		idx := -1
+		for ri, r := range sp.ranges {
+			inside := false
+			if hashEq(t.StartHash, t.EndHash) {
+				inside = hashEq(r.StartHash, r.EndHash) && hashEq(r.StartHash, t.StartHash)
+			} else {
+				okStart := hashEq(t.StartHash, r.StartHash) || pointInArc(r.StartHash, r.EndHash, t.StartHash)
+				okEnd := hashEq(t.EndHash, r.EndHash) || pointInArc(r.StartHash, r.EndHash, t.EndHash)
+				inside = okStart && okEnd
+			}
+			if inside {
+				idx = ri
+				break
+			}
+		}
+		if idx < 0 {
+			return State{}, xerrors.Errorf("transfer %d: no range covering (%x, %x]", i, t.StartHash, t.EndHash)
+		}
+		r := sp.ranges[idx]
+		if t.From != "" && r.StorageID != t.From {
+			return State{}, xerrors.Errorf("transfer %d: interval owned by %s, want %s", i, r.StorageID, t.From)
+		}
+		start := r.StartHash
+		if t.Size == 0 {
+			if !hashEq(t.StartHash, start) || !hashEq(t.EndHash, r.EndHash) {
+				return State{}, xerrors.Errorf("transfer %d: empty transfer must cover a whole range", i)
+			}
+			w.moveWholeSilent(t.Space, idx, to)
+			continue
+		}
+		if hashEq(t.StartHash, start) && hashEq(t.EndHash, r.EndHash) {
+			w.moveWholeSilent(t.Space, idx, to)
+			continue
+		}
+		if hashEq(t.StartHash, start) {
+			from := w.diskOf(sp.ranges[idx])
+			if t.Size >= sp.ranges[idx].Size {
+				w.moveWholeSilent(t.Space, idx, to)
+				continue
+			}
+			bound := w.startHash(t.Space, idx)
+			head, tail, okSplit := splitLayoutsAt(sp.layouts[idx], bound, t.EndHash, t.Size)
+			if !okSplit {
+				return State{}, xerrors.Errorf("transfer %d: prefix split (%x, %x] size %d", i, bound, t.EndHash, t.Size)
+			}
+			sp.ranges[idx].StartHash = cloneHash(t.EndHash)
+			sp.ranges[idx].Size -= t.Size
+			sp.layouts[idx] = tail
+			w.mountPoints[from].used -= t.Size
+			w.insert(t.Space, idx, Range{StartHash: bound, EndHash: cloneHash(t.EndHash), Size: t.Size}, to, head)
+			w.mergeSpace(t.Space)
+			continue
+		}
+		if hashEq(t.EndHash, r.EndHash) {
+			from := w.diskOf(sp.ranges[idx])
+			rr := sp.ranges[idx]
+			if t.Size >= rr.Size {
+				w.moveWholeSilent(t.Space, idx, to)
+				continue
+			}
+			bound := w.startHash(t.Space, idx)
+			kept := rr.Size - t.Size
+			head, tail, okSplit := splitLayoutsAt(sp.layouts[idx], bound, t.StartHash, kept)
+			if !okSplit {
+				return State{}, xerrors.Errorf("transfer %d: suffix split (%x, %x] size %d", i, t.StartHash, rr.EndHash, t.Size)
+			}
+			end := cloneHash(rr.EndHash)
+			sp.ranges[idx].EndHash = cloneHash(t.StartHash)
+			sp.ranges[idx].Size = kept
+			sp.layouts[idx] = head
+			w.mountPoints[from].used -= t.Size
+			w.insert(t.Space, idx+1, Range{StartHash: cloneHash(t.StartHash), EndHash: end, Size: t.Size}, to, tail)
+			w.mergeSpace(t.Space)
+			continue
+		}
+		left, okL := layoutBytesTo(sp.layouts[idx], start, t.StartHash)
+		endOff, okR := layoutBytesTo(sp.layouts[idx], start, t.EndHash)
+		if !okL || !okR {
+			return State{}, xerrors.Errorf("transfer %d: transfer (%x, %x] is not inside one range", i, t.StartHash, t.EndHash)
+		}
+		if endOff-left != t.Size {
+			return State{}, xerrors.Errorf("transfer %d: transfer (%x, %x] size %d, range holds %d there", i, t.StartHash, t.EndHash, t.Size, endOff-left)
+		}
+		if left <= 0 || left+t.Size >= r.Size {
+			return State{}, xerrors.Errorf("transfer %d: transfer must be a prefix, suffix, or whole of one range", i)
+		}
+		from := w.diskOf(sp.ranges[idx])
+		rr := sp.ranges[idx]
+		right := rr.Size - left - t.Size
+		if left <= 0 || t.Size <= 0 || right <= 0 {
+			return State{}, xerrors.Errorf("transfer %d: middle split left %d mid %d right %d", i, left, t.Size, right)
+		}
+		bound := w.startHash(t.Space, idx)
+		head, rest, okSplit := splitLayoutsAt(sp.layouts[idx], bound, t.StartHash, left)
+		if !okSplit {
+			return State{}, xerrors.Errorf("transfer %d: middle split at %x", i, t.StartHash)
+		}
+		midLayouts, tail, okSplit := splitLayoutsAt(rest, t.StartHash, t.EndHash, t.Size)
+		if !okSplit {
+			return State{}, xerrors.Errorf("transfer %d: middle split at %x", i, t.EndHash)
+		}
+		sp.ranges[idx].StartHash = cloneHash(t.EndHash)
+		sp.ranges[idx].Size = right
+		sp.layouts[idx] = tail
+		w.mountPoints[from].used -= t.Size
+		w.insert(t.Space, idx, Range{StartHash: cloneHash(t.StartHash), EndHash: cloneHash(t.EndHash), Size: t.Size}, to, midLayouts)
+		sp.ranges = slices.Insert(sp.ranges, idx, Range{StartHash: bound, EndHash: cloneHash(t.StartHash), Size: left, StorageID: w.mountPoints[from].StorageID})
+		sp.layouts = slices.Insert(sp.layouts, idx, head)
+		w.mergeSpace(t.Space)
 	}
 	return w.snapshot(), nil
 }
 
-func (w *world) applyTransfer(t Transfer) error {
-	if t.Space < 0 || t.Space >= len(w.spaces) {
-		return xerrors.Errorf("unknown space %d", t.Space)
-	}
-	to, ok := w.diskOf[t.To]
-	if !ok {
-		return xerrors.Errorf("unknown dest StorageID %q", t.To)
-	}
-	if t.Size < 0 {
-		return nil
-	}
-	sp := &w.spaces[t.Space]
-	idx := -1
-	for i, r := range sp.ranges {
-		if coversInterval(r.StartHash, r.EndHash, t.StartHash, t.EndHash) {
-			idx = i
-			break
-		}
-	}
-	if idx < 0 {
-		return xerrors.Errorf("no range covering (%x, %x]", t.StartHash, t.EndHash)
-	}
-	r := sp.ranges[idx]
-	if t.From != "" && w.ids[r.disk] != t.From {
-		return xerrors.Errorf("interval owned by %s, want %s", w.ids[r.disk], t.From)
-	}
-	start := r.StartHash
-	if t.Size == 0 {
-		if !hashEq(t.StartHash, start) || !hashEq(t.EndHash, r.EndHash) {
-			return xerrors.Errorf("empty transfer must cover a whole range")
-		}
-		w.moveWholeSilent(t.Space, idx, to)
-		return nil
-	}
-	if hashEq(t.StartHash, start) && hashEq(t.EndHash, r.EndHash) {
-		w.moveWholeSilent(t.Space, idx, to)
-		return nil
-	}
-	if hashEq(t.StartHash, start) {
-		if t.Size >= r.Size {
-			w.moveWholeSilent(t.Space, idx, to)
-			return nil
-		}
-		return w.splitMovePrefix(t.Space, idx, t.EndHash, t.Size, to)
-	}
-	if hashEq(t.EndHash, r.EndHash) {
-		if t.Size >= r.Size {
-			w.moveWholeSilent(t.Space, idx, to)
-			return nil
-		}
-		return w.splitMoveSuffix(t.Space, idx, t.StartHash, t.Size, to)
-	}
-	left, okL := spanBytesTo(sp.spans[idx], start, t.StartHash)
-	end, okR := spanBytesTo(sp.spans[idx], start, t.EndHash)
-	if !okL || !okR {
-		return xerrors.Errorf("transfer (%x, %x] is not inside one range", t.StartHash, t.EndHash)
-	}
-	if end-left != t.Size {
-		return xerrors.Errorf("transfer (%x, %x] size %d, range holds %d there", t.StartHash, t.EndHash, t.Size, end-left)
-	}
-	if left <= 0 || left+t.Size >= r.Size {
-		return xerrors.Errorf("transfer must be a prefix, suffix, or whole of one range")
-	}
-	return w.splitMoveMiddle(t.Space, idx, t.StartHash, t.EndHash, left, t.Size, to)
-}
-
-func coversInterval(rStart, rEnd, tStart, tEnd []byte) bool {
-	// Full-circle transfer: start == end means the whole circle.
-	if hashEq(tStart, tEnd) {
-		return hashEq(rStart, rEnd) && hashEq(rStart, tStart)
-	}
-	okStart := hashEq(tStart, rStart) || pointInArc(rStart, rEnd, tStart)
-	okEnd := hashEq(tEnd, rEnd) || pointInArc(rStart, rEnd, tEnd)
-	return okStart && okEnd
-}
-
+// pointInArc reports whether p lies strictly after start and at or before
+// end, wrapping when the arc crosses the top of the circle. On a full
+// circle (start == end) every point except start is inside. The hashes
+// are compared as raw bytes, so they should share a length.
 func pointInArc(start, end, p []byte) bool {
 	if hashEq(start, end) {
 		return !hashEq(p, start)
@@ -175,93 +387,27 @@ func pointInArc(start, end, p []byte) bool {
 	return bytes.Compare(start, p) < 0 || bytes.Compare(p, end) <= 0
 }
 
+// moveWholeSilent assigns ranges[idx] to dest the same way moveWhole does.
+// Apply uses it for a transfer that already covers a whole range, so the
+// diff is not rebuilt here. Free space, the range cap, and frozen are not
+// checked. space, idx, and dest must be in range.
 func (w *world) moveWholeSilent(space, idx, dest int) {
-	sp := &w.spaces[space]
-	from := sp.ranges[idx].disk
+	sp := &w.hashSpaces[space]
+	from := w.diskOf(sp.ranges[idx])
 	if from == dest {
 		return
 	}
 	sz := sp.ranges[idx].Size
-	sp.ranges[idx].disk = dest
-	w.used[from] -= sz
-	w.used[dest] += sz
+	sp.ranges[idx].StorageID = w.mountPoints[dest].StorageID
+	w.mountPoints[from].used -= sz
+	w.mountPoints[dest].used += sz
 	w.mergeSpace(space)
 }
 
-func (w *world) splitMovePrefix(space, idx int, split []byte, size int64, dest int) error {
-	sp := &w.spaces[space]
-	from := sp.ranges[idx].disk
-	r := sp.ranges[idx]
-	if size >= r.Size {
-		w.moveWholeSilent(space, idx, dest)
-		return nil
-	}
-	start := w.startHash(space, idx)
-	head, tail, ok := splitSpansAt(sp.spans[idx], start, split, size)
-	if !ok {
-		return xerrors.Errorf("prefix split (%x, %x] size %d", start, split, size)
-	}
-	sp.ranges[idx].StartHash = cloneHash(split)
-	sp.ranges[idx].Size -= size
-	sp.spans[idx] = tail
-	w.used[from] -= size
-	w.insert(space, idx, Range{StartHash: start, EndHash: cloneHash(split), Size: size}, dest, head)
-	w.mergeSpace(space)
-	return nil
-}
-
-func (w *world) splitMoveSuffix(space, idx int, split []byte, size int64, dest int) error {
-	sp := &w.spaces[space]
-	from := sp.ranges[idx].disk
-	r := sp.ranges[idx]
-	if size >= r.Size {
-		w.moveWholeSilent(space, idx, dest)
-		return nil
-	}
-	start := w.startHash(space, idx)
-	kept := r.Size - size
-	head, tail, ok := splitSpansAt(sp.spans[idx], start, split, kept)
-	if !ok {
-		return xerrors.Errorf("suffix split (%x, %x] size %d", split, r.EndHash, size)
-	}
-	end := cloneHash(r.EndHash)
-	sp.ranges[idx].EndHash = cloneHash(split)
-	sp.ranges[idx].Size = kept
-	sp.spans[idx] = head
-	w.used[from] -= size
-	w.insert(space, idx+1, Range{StartHash: cloneHash(split), EndHash: end, Size: size}, dest, tail)
-	w.mergeSpace(space)
-	return nil
-}
-
-func (w *world) splitMoveMiddle(space, idx int, midStart, midEnd []byte, left, mid int64, dest int) error {
-	sp := &w.spaces[space]
-	from := sp.ranges[idx].disk
-	r := sp.ranges[idx]
-	right := r.Size - left - mid
-	if left <= 0 || mid <= 0 || right <= 0 {
-		return xerrors.Errorf("middle split left %d mid %d right %d", left, mid, right)
-	}
-	start := w.startHash(space, idx)
-	head, rest, ok := splitSpansAt(sp.spans[idx], start, midStart, left)
-	if !ok {
-		return xerrors.Errorf("middle split at %x", midStart)
-	}
-	midSpans, tail, ok := splitSpansAt(rest, midStart, midEnd, mid)
-	if !ok {
-		return xerrors.Errorf("middle split at %x", midEnd)
-	}
-	sp.ranges[idx].StartHash = cloneHash(midEnd)
-	sp.ranges[idx].Size = right
-	sp.spans[idx] = tail
-	w.used[from] -= mid
-	w.insert(space, idx, Range{StartHash: cloneHash(midStart), EndHash: cloneHash(midEnd), Size: mid}, dest, midSpans)
-	sp.ranges = slices.Insert(sp.ranges, idx, arc{Range: Range{StartHash: start, EndHash: cloneHash(midStart), Size: left}, disk: from})
-	sp.spans = slices.Insert(sp.spans, idx, head)
-	w.mergeSpace(space)
-	return nil
-}
-
+// mergeTransfers drops a transfer with a negative size or with From equal
+// to To, then joins any remaining pair that shares space, From, and To and
+// meets at a hash. Call it on the transfers collected from the resulting
+// layout. Input order does not matter.
 func mergeTransfers(in []Transfer) []Transfer {
 	if len(in) == 0 {
 		return nil
@@ -284,11 +430,21 @@ func mergeTransfers(in []Transfer) []Transfer {
 		progress := false
 		for i := 0; i < len(out); i++ {
 			for j := i + 1; j < len(out); j++ {
-				joined, ok := joinAdjacent(out[i], out[j])
-				if !ok {
+				a, b := out[i], out[j]
+				if a.Size == 0 || b.Size == 0 || a.Space != b.Space || a.From != b.From || a.To != b.To {
 					continue
 				}
-				out[i] = joined
+				switch {
+				case hashEq(a.EndHash, b.StartHash):
+					a.EndHash = cloneHash(b.EndHash)
+					a.Size += b.Size
+				case hashEq(b.EndHash, a.StartHash):
+					a.StartHash = cloneHash(b.StartHash)
+					a.Size += b.Size
+				default:
+					continue
+				}
+				out[i] = a
 				out = append(out[:j], out[j+1:]...)
 				progress = true
 				break
@@ -304,71 +460,50 @@ func mergeTransfers(in []Transfer) []Transfer {
 	return out
 }
 
-func joinAdjacent(a, b Transfer) (Transfer, bool) {
-	if a.Size == 0 || b.Size == 0 {
-		return Transfer{}, false
-	}
-	if a.Space != b.Space || a.From != b.From || a.To != b.To {
-		return Transfer{}, false
-	}
-	if hashEq(a.EndHash, b.StartHash) {
-		a.EndHash = cloneHash(b.EndHash)
-		a.Size += b.Size
-		return a, true
-	}
-	if hashEq(b.EndHash, a.StartHash) {
-		a.StartHash = cloneHash(b.StartHash)
-		a.Size += b.Size
-		return a, true
-	}
-	return Transfer{}, false
-}
-
+// checkLimits reports whether every active disk holds at most
+// MAX_RANGES_PER_DISK ranges in each space. Frozen disks are skipped.
+// Free space cannot go negative: capacity is the drive's FreeSpace plus
+// the hash-space bytes already on it, and a cut never places more than
+// free. The world must already be a valid tiling.
 func (w *world) checkLimits() error {
 	for _, d := range w.activeDisks() {
-		if w.used[d] > w.disks[d] {
-			return xerrors.Errorf("mountpoint %s used %d exceeds size %d", w.ids[d], w.used[d], w.disks[d])
-		}
-		for s := range w.spaces {
+		for s := range w.hashSpaces {
 			if rc := w.rangeCount(s, d); rc > MAX_RANGES_PER_DISK {
-				return xerrors.Errorf("mountpoint %s space %d holds %d ranges, max %d", w.ids[d], s, rc, MAX_RANGES_PER_DISK)
+				return xerrors.Errorf("mountpoint %s space %d holds %d ranges, max %d", w.mountPoints[d].StorageID, s, rc, MAX_RANGES_PER_DISK)
 			}
 		}
 	}
 	return nil
 }
 
-func (w *world) checkSolved(kind EventKind, disk int) error {
-	if err := w.checkLimits(); err != nil {
-		return err
-	}
-	switch kind {
-	case EventVacate:
-		if w.used[disk] != 0 || w.ownsRange(disk) {
-			return xerrors.Errorf("mountpoint %s was not emptied", w.ids[disk])
-		}
-	}
-	return nil
-}
-
+// candidate is one proposed cut. idx is the range in space, kind is
+// cutWhole, cutPrefix, or cutSuffix, and dest is the mount that would
+// receive size bytes. dlt is dest's range-count change from destDelta.
+// over is the source excess used when ranking a steal. split is the hash
+// boundary for a partial cut and is empty for a whole move.
 type candidate struct {
-	space, idx, kind, dest int
-	size                   int64
-	dlt                    int
-	over                   int64
-	split                  []byte
+	space, idx, dest int
+	kind             cutKind
+	size             int64
+	dlt              int
+	over             int64
+	split            []byte
 }
 
+// repair moves ranges off active disks that exceed MAX_RANGES_PER_DISK
+// until each is within the cap. It returns an error when a pass cannot
+// lower a count. Call it before handling an arrive or a full disk, and
+// again before the end check. Frozen disks are left alone.
 func (w *world) repair() error {
 	totalRanges := 0
-	for _, sp := range w.spaces {
+	for _, sp := range w.hashSpaces {
 		totalRanges += len(sp.ranges)
 	}
-	for guard := 0; guard < totalRanges+len(w.disks)+8; guard++ {
+	for guard := 0; guard < totalRanges+len(w.mountPoints)+8; guard++ {
 		type overKey struct{ space, disk int }
 		var over []overKey
 		for _, d := range w.activeDisks() {
-			for s := range w.spaces {
+			for s := range w.hashSpaces {
 				if w.rangeCount(s, d) > MAX_RANGES_PER_DISK {
 					over = append(over, overKey{s, d})
 				}
@@ -391,6 +526,11 @@ func (w *world) repair() error {
 	return xerrors.New("range repair did not converge")
 }
 
+// donateRange moves one range in space off src so src's range count drops.
+// It prefers the smallest range an active disk can take whole, and
+// otherwise splits the smallest range. Returns false when src is already
+// within MAX_RANGES_PER_DISK or no legal cut exists. space must index a
+// hash space and src a mount index.
 func (w *world) donateRange(space, src int) bool {
 	idxs := w.rangeIndexes(space, src)
 	if len(idxs) <= MAX_RANGES_PER_DISK {
@@ -398,7 +538,7 @@ func (w *world) donateRange(space, src int) bool {
 	}
 	var best *candidate
 	for _, idx := range idxs {
-		sz := w.spaces[space].ranges[idx].Size
+		sz := w.hashSpaces[space].ranges[idx].Size
 		for _, dest := range w.activeDisks() {
 			if !w.canTake(space, idx, cutWhole, dest, sz) {
 				continue
@@ -415,64 +555,30 @@ func (w *world) donateRange(space, src int) bool {
 	}
 	smallest := idxs[0]
 	for _, idx := range idxs[1:] {
-		if w.spaces[space].ranges[idx].Size < w.spaces[space].ranges[smallest].Size {
+		if w.hashSpaces[space].ranges[idx].Size < w.hashSpaces[space].ranges[smallest].Size {
 			smallest = idx
 		}
 	}
 	return w.splitOntoOthers(space, smallest, src)
 }
 
-func (w *world) arrive(newDisk int) {
-	if w.fillHeadroom(newDisk) <= 0 {
-		return
-	}
-	totalRanges := 0
-	for _, sp := range w.spaces {
-		totalRanges += len(sp.ranges)
-	}
-	for guard := 0; guard < totalRanges*MAX_RANGES_PER_DISK+len(w.disks)+8; guard++ {
-		if w.overflow(newDisk) == 0 && !w.anyOverflow(newDisk) {
-			return
-		}
-		cut, ok := w.bestSteal(newDisk)
-		if !ok {
-			return
-		}
-		w.applyCut(cut.space, cut.idx, cut.kind, newDisk, cut.size, cut.split)
-	}
-}
-
-func (w *world) anyOverflow(except int) bool {
-	for _, d := range w.activeDisks() {
-		if d != except && w.overflow(d) > 0 {
-			return true
-		}
-	}
-	return false
-}
-
-func (w *world) bestSteal(newDisk int) (candidate, bool) {
-	if c, ok := w.pickSteal(newDisk, true); ok {
-		return c, true
-	}
-	return w.pickSteal(newDisk, false)
-}
-
-func (w *world) pickSteal(newDisk int, absorbOnly bool) (candidate, bool) {
-	need := w.fillHeadroom(newDisk)
+// pickSteal searches sources for a cut onto newDisk of at most the
+// source's excess and newDisk's remaining room under the rebalance target.
+// When absorbOnly is set, a cut that would add a range is skipped.
+// Returns false when newDisk has no such room or no cut qualifies.
+// newDisk and each source must be mount indexes.
+func (w *world) pickSteal(newDisk int, sources []int, absorbOnly bool) (candidate, bool) {
+	need := w.targetHeadroom(newDisk)
 	if need <= 0 {
 		return candidate{}, false
 	}
 	var best *candidate
-	for _, src := range w.activeDisks() {
-		if src == newDisk {
-			continue
-		}
-		over := w.overflow(src)
+	for _, src := range sources {
+		over := w.excess(src)
 		if over <= 0 {
 			continue
 		}
-		for s := range w.spaces {
+		for s := range w.hashSpaces {
 			for _, idx := range w.rangeIndexes(s, src) {
 				for _, c := range w.sizedCuts(s, idx, need, over, newDisk) {
 					if absorbOnly && c.dlt > 0 {
@@ -480,7 +586,40 @@ func (w *world) pickSteal(newDisk int, absorbOnly bool) (candidate, bool) {
 					}
 					c.over = over
 					c.dest = newDisk
-					if best == nil || betterSteal(c, *best, need) {
+					// Prefer a cut that fits need, then one that leaves the source
+					// at or above its rebalance target, then one that adds no range.
+					// Among fits, the larger cut wins; otherwise the smaller. Ties
+					// prefer more source excess, a smaller range-count change, then
+					// a lower space, idx, and kind.
+					keep := best == nil
+					if !keep {
+						a, b := c, *best
+						aFit, bFit := a.size <= need, b.size <= need
+						if aFit != bFit {
+							keep = aFit
+						} else if aKeep, bKeep := a.size <= a.over, b.size <= b.over; aKeep != bKeep {
+							keep = aKeep
+						} else if aAbs, bAbs := a.dlt <= 0, b.dlt <= 0; aAbs != bAbs {
+							keep = aAbs
+						} else if a.size != b.size {
+							if aFit {
+								keep = a.size > b.size
+							} else {
+								keep = a.size < b.size
+							}
+						} else if a.over != b.over {
+							keep = a.over > b.over
+						} else if a.dlt != b.dlt {
+							keep = a.dlt < b.dlt
+						} else if a.space != b.space {
+							keep = a.space < b.space
+						} else if a.idx != b.idx {
+							keep = a.idx < b.idx
+						} else {
+							keep = a.kind < b.kind
+						}
+					}
+					if keep {
 						cp := c
 						best = &cp
 					}
@@ -494,19 +633,24 @@ func (w *world) pickSteal(newDisk int, absorbOnly bool) (candidate, bool) {
 	return *best, true
 }
 
+// sizedCuts lists whole, prefix, and suffix cuts of ranges[idx] onto dest
+// that fit in need, in limit, and in dest's room under the rebalance
+// target. A whole cut is included when limit is non-positive or the range
+// is no larger than limit. An empty range yields nothing. space and idx
+// must index a range and dest a mount index. The world is not modified.
 func (w *world) sizedCuts(space, idx int, need, limit int64, dest int) []candidate {
-	sz := w.spaces[space].ranges[idx].Size
+	sz := w.hashSpaces[space].ranges[idx].Size
 	if sz <= 0 {
 		return nil
 	}
 	var out []candidate
-	add := func(kind int, size int64) {
+	add := func(kind cutKind, size int64) {
 		if size <= 0 || size > sz {
 			return
 		}
 		var split []byte
 		if kind != cutWhole {
-			split, size = w.cutActual(space, idx, kind, size)
+			split, size, _, _ = w.previewCut(space, idx, kind, size)
 			if size <= 0 || size >= sz {
 				return
 			}
@@ -514,7 +658,7 @@ func (w *world) sizedCuts(space, idx int, need, limit int64, dest int) []candida
 		if !w.canTake(space, idx, kind, dest, size) {
 			return
 		}
-		if size > w.fillHeadroom(dest) {
+		if size > w.targetHeadroom(dest) {
 			return
 		}
 		out = append(out, candidate{
@@ -534,7 +678,7 @@ func (w *world) sizedCuts(space, idx int, need, limit int64, dest int) []candida
 	if limit > 0 && limit < want {
 		want = limit
 	}
-	if destHead := w.fillHeadroom(dest); destHead < want {
+	if destHead := w.targetHeadroom(dest); destHead < want {
 		want = destHead
 	}
 	if want > 0 && want < sz {
@@ -544,81 +688,45 @@ func (w *world) sizedCuts(space, idx int, need, limit int64, dest int) []candida
 	return out
 }
 
-func betterSteal(a, b candidate, need int64) bool {
-	aFit, bFit := a.size <= need, b.size <= need
-	if aFit != bFit {
-		return aFit
-	}
-	aKeep, bKeep := a.size <= a.over, b.size <= b.over
-	if aKeep != bKeep {
-		return aKeep
-	}
-	aAbs, bAbs := a.dlt <= 0, b.dlt <= 0
-	if aAbs != bAbs {
-		return aAbs
-	}
-	if a.size != b.size {
-		if aFit {
-			return a.size > b.size
-		}
-		return a.size < b.size
-	}
-	if a.over != b.over {
-		return a.over > b.over
-	}
-	if a.dlt != b.dlt {
-		return a.dlt < b.dlt
-	}
-	if a.space != b.space {
-		return a.space < b.space
-	}
-	if a.idx != b.idx {
-		return a.idx < b.idx
-	}
-	return a.kind < b.kind
-}
-
-func (w *world) shed(full int) error {
-	if w.frozen[full] {
-		return xerrors.Errorf("cannot shed from vacated mountpoint %s", w.ids[full])
-	}
-	totalRanges := 0
-	for _, sp := range w.spaces {
-		totalRanges += len(sp.ranges)
-	}
-	for guard := 0; guard < totalRanges+4; guard++ {
-		need := w.overflow(full)
-		if need <= 0 {
-			return nil
-		}
-		cut, ok := w.bestShed(full, need)
-		if !ok {
-			if w.makeRoom(full) {
-				continue
-			}
-			if w.used[full] > w.disks[full] {
-				return xerrors.Errorf("cannot shed %d bytes from mountpoint %s", need, w.ids[full])
-			}
-			return nil
-		}
-		w.applyCut(cut.space, cut.idx, cut.kind, cut.dest, cut.size, cut.split)
-	}
-	if w.used[full] > w.disks[full] {
-		return xerrors.Errorf("cannot shed enough from mountpoint %s", w.ids[full])
-	}
-	return nil
-}
-
+// bestShed is the preferred cut of about need bytes off full onto any
+// other active disk. Returns false when no cut is legal. full must be a
+// mount index. need is how far full sits above its rebalance target;
+// makeRoom passes 1 to free any legal byte.
 func (w *world) bestShed(full int, need int64) (candidate, bool) {
 	var best *candidate
-	for s := range w.spaces {
+	for s := range w.hashSpaces {
 		for _, idx := range w.rangeIndexes(s, full) {
 			for _, dest := range w.activeDisks() {
 				if dest == full {
 					continue
 				}
-				for _, c := range w.sizedCuts(s, idx, need, w.spaces[s].ranges[idx].Size, dest) {
-					if best == nil || betterShed(c, *best, need) {
+				for _, c := range w.sizedCuts(s, idx, need, w.hashSpaces[s].ranges[idx].Size, dest) {
+					// Prefer a cut that covers need. Among covers, the smaller
+					// cut wins; otherwise the larger. Ties prefer a smaller
+					// range-count change, then a lower dest, space, and idx.
+					keep := best == nil
+					if !keep {
+						a, b := c, *best
+						aCov, bCov := a.size >= need, b.size >= need
+						if aCov != bCov {
+							keep = aCov
+						} else if a.size != b.size {
+							if aCov {
+								keep = a.size < b.size
+							} else {
+								keep = a.size > b.size
+							}
+						} else if a.dlt != b.dlt {
+							keep = a.dlt < b.dlt
+						} else if a.dest != b.dest {
+							keep = a.dest < b.dest
+						} else if a.space != b.space {
+							keep = a.space < b.space
+						} else {
+							keep = a.idx < b.idx
+						}
+					}
+					if keep {
 						cp := c
 						best = &cp
 					}
@@ -632,128 +740,31 @@ func (w *world) bestShed(full int, need int64) (candidate, bool) {
 	return *best, true
 }
 
-func betterShed(a, b candidate, need int64) bool {
-	aCov, bCov := a.size >= need, b.size >= need
-	if aCov != bCov {
-		return aCov
-	}
-	if a.size != b.size {
-		if aCov {
-			return a.size < b.size
-		}
-		return a.size > b.size
-	}
-	if a.dlt != b.dlt {
-		return a.dlt < b.dlt
-	}
-	if a.dest != b.dest {
-		return a.dest < b.dest
-	}
-	if a.space != b.space {
-		return a.space < b.space
-	}
-	return a.idx < b.idx
-}
-
-func (w *world) vacate(id int) error {
-	w.frozen[id] = true
-	if err := w.reassignEmptyRanges(id); err != nil {
-		return err
-	}
-	if w.used[id] == 0 {
-		return nil
-	}
-	if w.totalCapacity() < w.totalUsed() {
-		return xerrors.Errorf("not enough remaining capacity to vacate mountpoint %s", w.ids[id])
-	}
-
-	totalRanges := 0
-	for _, sp := range w.spaces {
-		totalRanges += len(sp.ranges)
-	}
-	for guard := 0; guard < totalRanges+8; guard++ {
-		bestSpace, bestIdx := -1, -1
-		var bestSize int64 = -1
-		for s := range w.spaces {
-			for _, idx := range w.rangeIndexes(s, id) {
-				sz := w.spaces[s].ranges[idx].Size
-				if sz > bestSize || (sz == bestSize && (s < bestSpace || (s == bestSpace && idx < bestIdx))) {
-					bestSpace, bestIdx, bestSize = s, idx, sz
-				}
-			}
-		}
-		if bestSpace < 0 {
-			return nil
-		}
-		if w.placeRange(bestSpace, bestIdx, id) {
-			continue
-		}
-		if w.makeRoom(id) && w.placeRange(bestSpace, bestIdx, id) {
-			continue
-		}
-		return xerrors.Errorf("cannot place range on mountpoint %s elsewhere", w.ids[id])
-	}
-	if w.used[id] != 0 || w.ownsRange(id) {
-		return xerrors.Errorf("failed to vacate mountpoint %s", w.ids[id])
-	}
-	return nil
-}
-
-// reassignEmptyRanges gives each size-0 arc on id to an adjacent owner.
-// No bytes move; merge drops the vacated disk's boundary.
-func (w *world) reassignEmptyRanges(id int) error {
-	for s := range w.spaces {
-		for {
-			idx := -1
-			sp := &w.spaces[s]
-			for i, r := range sp.ranges {
-				if r.disk == id && r.Size == 0 {
-					idx = i
-					break
-				}
-			}
-			if idx < 0 {
-				break
-			}
-			dest, ok := w.emptyNeighbor(s, idx, id)
-			if !ok {
-				return xerrors.Errorf("cannot reassign empty range on mountpoint %s", w.ids[id])
-			}
-			w.moveWhole(s, idx, dest)
-		}
-	}
-	return nil
-}
-
-func (w *world) emptyNeighbor(space, idx, src int) (int, bool) {
-	sp := &w.spaces[space]
-	n := len(sp.ranges)
-	if n == 1 {
-		for _, dest := range w.activeDisks() {
-			if dest != src {
-				return dest, true
-			}
-		}
-		return 0, false
-	}
-	next := sp.ranges[(idx+1)%n].disk
-	if next != src {
-		return next, true
-	}
-	prev := sp.ranges[(idx-1+n)%n].disk
-	if prev != src {
-		return prev, true
-	}
-	return 0, false
-}
-
+// placeRange moves ranges[idx] off src. It prefers a whole move onto a
+// neighbor, then any active disk that can take the range, then a split
+// between two different neighbors, then splitOntoOthers. A neighbor is the
+// adjacent disk when it is not src and not frozen. Returns true when the
+// range is already off src or the move landed, and false when no placement
+// works. An out-of-range idx counts as already placed. space must index a
+// hash space and src a mount index.
 func (w *world) placeRange(space, idx, src int) bool {
-	sp := &w.spaces[space]
-	if idx < 0 || idx >= len(sp.ranges) || sp.ranges[idx].disk != src {
+	sp := &w.hashSpaces[space]
+	if idx < 0 || idx >= len(sp.ranges) || w.diskOf(sp.ranges[idx]) != src {
 		return true
 	}
 	sz := sp.ranges[idx].Size
-	left, right, okL, okR := w.neighbors(space, idx)
+	var left, right int
+	var okL, okR bool
+	if n := len(sp.ranges); n >= 2 {
+		l := w.diskOf(sp.ranges[(idx-1+n)%n])
+		rdisk := w.diskOf(sp.ranges[(idx+1)%n])
+		if l != src && !w.mountPoints[l].frozen {
+			left, okL = l, true
+		}
+		if rdisk != src && !w.mountPoints[rdisk].frozen {
+			right, okR = rdisk, true
+		}
+	}
 
 	if okL && okR && left == right && w.canTake(space, idx, cutWhole, left, sz) {
 		w.moveWhole(space, idx, left)
@@ -795,7 +806,7 @@ func (w *world) placeRange(space, idx, src int) bool {
 			}
 			w.applyCut(space, idx, cutPrefix, left, pref, nil)
 			idx = w.find(space, end)
-			if idx >= 0 && sp.ranges[idx].disk == src && w.canTake(space, idx, cutWhole, right, sp.ranges[idx].Size) {
+			if idx >= 0 && w.diskOf(sp.ranges[idx]) == src && w.canTake(space, idx, cutWhole, right, sp.ranges[idx].Size) {
 				w.moveWhole(space, idx, right)
 				return true
 			}
@@ -805,13 +816,19 @@ func (w *world) placeRange(space, idx, src int) bool {
 	return w.splitOntoOthers(space, idx, src)
 }
 
+// splitOntoOthers cuts the range that still ends at its original EndHash
+// off src until src no longer owns that end. Each step takes as much as
+// some other active disk can hold, preferring a cut that does not add a
+// range and then a larger cut. Returns false when a step cannot be
+// applied, and true when idx is stale or the end is already off src.
+// space must index a hash space and src a mount index.
 func (w *world) splitOntoOthers(space, idx, src int) bool {
-	sp := &w.spaces[space]
-	if idx < 0 || idx >= len(sp.ranges) || sp.ranges[idx].disk != src {
+	sp := &w.hashSpaces[space]
+	if idx < 0 || idx >= len(sp.ranges) || w.diskOf(sp.ranges[idx]) != src {
 		return true
 	}
 	end := cloneHash(sp.ranges[idx].EndHash)
-	for w.find(space, end) >= 0 && sp.ranges[w.find(space, end)].disk == src {
+	for w.find(space, end) >= 0 && w.diskOf(sp.ranges[w.find(space, end)]) == src {
 		idx = w.find(space, end)
 		remain := sp.ranges[idx].Size
 		var best *candidate
@@ -820,7 +837,7 @@ func (w *world) splitOntoOthers(space, idx, src int) bool {
 				continue
 			}
 			take := min(remain, w.free(dest))
-			for _, kind := range []int{cutPrefix, cutWhole} {
+			for _, kind := range []cutKind{cutPrefix, cutWhole} {
 				sz := take
 				if kind == cutWhole {
 					sz = remain
@@ -842,15 +859,20 @@ func (w *world) splitOntoOthers(space, idx, src int) bool {
 			return false
 		}
 	}
-	return w.find(space, end) < 0 || sp.ranges[w.find(space, end)].disk != src
+	return w.find(space, end) < 0 || w.diskOf(sp.ranges[w.find(space, end)]) != src
 }
 
+// makeRoom frees a fragment slot or a little space on some active disk
+// other than avoid, so a later placement can proceed. It first donates a
+// range from a disk already at MAX_RANGES_PER_DISK. Otherwise it sheds
+// one byte from the fullest other disk that holds data. Returns whether
+// the world changed. avoid must be a mount index.
 func (w *world) makeRoom(avoid int) bool {
 	for _, src := range w.activeDisks() {
 		if src == avoid {
 			continue
 		}
-		for s := range w.spaces {
+		for s := range w.hashSpaces {
 			if w.rangeCount(s, src) >= MAX_RANGES_PER_DISK && w.donateRange(s, src) {
 				return true
 			}
@@ -858,10 +880,10 @@ func (w *world) makeRoom(avoid int) bool {
 	}
 	fullest := -1
 	for _, src := range w.activeDisks() {
-		if src == avoid || w.used[src] == 0 {
+		if src == avoid || w.mountPoints[src].used == 0 {
 			continue
 		}
-		if fullest < 0 || w.used[src] > w.used[fullest] || (w.used[src] == w.used[fullest] && src < fullest) {
+		if fullest < 0 || w.mountPoints[src].used > w.mountPoints[fullest].used || (w.mountPoints[src].used == w.mountPoints[fullest].used && src < fullest) {
 			fullest = src
 		}
 	}

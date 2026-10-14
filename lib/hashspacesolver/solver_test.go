@@ -22,31 +22,43 @@ func diskIdx(t *testing.T, id string) int {
 	return d
 }
 
+// mounts builds disks with FreeSpace set to each capacity. Fixtures with
+// ranges pass the result through withCapacity.
 func mounts(disks []int64) []MountPoint {
 	out := make([]MountPoint, len(disks))
 	for i, c := range disks {
-		out[i] = MountPoint{Capacity: c, StorageID: sid(i)}
+		out[i] = MountPoint{FreeSpace: c, StorageID: sid(i)}
 	}
 	return out
+}
+
+// withCapacity treats each FreeSpace as the disk's capacity and subtracts
+// the ranges already on it. A disk holding more than that capacity gets
+// FreeSpace 0, so its capacity becomes the bytes it holds.
+func withCapacity(st State) State {
+	for d := range st.MountPoints {
+		st.MountPoints[d].FreeSpace = max(st.MountPoints[d].FreeSpace-usedOf(st, d), 0)
+	}
+	return st
 }
 
 func ev(kind EventKind, d int) Event {
 	return Event{Kind: kind, StorageID: sid(d)}
 }
 
-// mk builds a single-space state for simple tests.
+// mk builds a single-space state for simple tests. disks are capacities.
 func mk(disks []int64, end []byte, size []int64, owner []int) State {
-	return State{
+	return withCapacity(State{
 		MountPoints: mounts(disks),
 		HashSpaces:  [2][]Range{spaceOf(end, size, owner)},
-	}
+	})
 }
 
 func mk2(disks []int64, a, b []Range) State {
-	return State{
+	return withCapacity(State{
 		MountPoints: mounts(disks),
 		HashSpaces:  [2][]Range{a, b},
-	}
+	})
 }
 
 func spaceOf(end []byte, size []int64, owner []int) []Range {
@@ -67,9 +79,9 @@ func ownersOf(rs []Range) []string {
 }
 
 func worldDisks(w *world, space int) []int {
-	out := make([]int, len(w.spaces[space].ranges))
-	for i, r := range w.spaces[space].ranges {
-		out[i] = r.disk
+	out := make([]int, len(w.hashSpaces[space].ranges))
+	for i, r := range w.hashSpaces[space].ranges {
+		out[i] = w.diskOf(r)
 	}
 	return out
 }
@@ -91,10 +103,16 @@ func solveOK(t *testing.T, st State, ev Event) (State, Result) {
 			require.Zero(t, rangeCountOf(out, s, d))
 		}
 	}
-	if ev.Kind == EventFull {
-		require.LessOrEqual(t, usedOf(out, d), out.MountPoints[d].Capacity)
+	for i, mp := range out.MountPoints {
+		require.GreaterOrEqual(t, mp.FreeSpace, int64(0), "disk %d", i)
+		require.Equal(t, capacityOf(st, i), mp.FreeSpace+usedOf(out, i), "disk %d capacity", i)
 	}
 	return out, res
+}
+
+// capacityOf is FreeSpace plus the hash-space bytes on disk d.
+func capacityOf(st State, d int) int64 {
+	return st.MountPoints[d].FreeSpace + usedOf(st, d)
 }
 
 func requireEqualState(t *testing.T, a, b State) {
@@ -106,10 +124,10 @@ func requireEqualState(t *testing.T, a, b State) {
 		wb, err := newWorld(State{MountPoints: b.MountPoints, HashSpaces: [2][]Range{b.HashSpaces[s]}})
 		require.NoError(t, err)
 		require.Equal(t, worldDisks(wa, 0), worldDisks(wb, 0), "space %d owners", s)
-		require.Equal(t, len(wa.spaces[0].ranges), len(wb.spaces[0].ranges), "space %d ranges", s)
-		for i := range wa.spaces[0].ranges {
-			require.True(t, hashEq(wa.spaces[0].ranges[i].EndHash, wb.spaces[0].ranges[i].EndHash), "space %d end %d", s, i)
-			require.Equal(t, wa.spaces[0].ranges[i].Size, wb.spaces[0].ranges[i].Size, "space %d size %d", s, i)
+		require.Equal(t, len(wa.hashSpaces[0].ranges), len(wb.hashSpaces[0].ranges), "space %d ranges", s)
+		for i := range wa.hashSpaces[0].ranges {
+			require.True(t, hashEq(wa.hashSpaces[0].ranges[i].EndHash, wb.hashSpaces[0].ranges[i].EndHash), "space %d end %d", s, i)
+			require.Equal(t, wa.hashSpaces[0].ranges[i].Size, wb.hashSpaces[0].ranges[i].Size, "space %d size %d", s, i)
 		}
 	}
 }
@@ -231,12 +249,15 @@ func TestVacateOnlyDisk(t *testing.T) {
 }
 
 func TestArriveRelievesOverflow(t *testing.T) {
+	// Disk 0 has no free space, so its capacity is the 80 bytes it holds,
+	// its line is 64, and its target is 60. The new disk takes the 20 bytes
+	// over that target.
 	st := mk([]int64{50, 100}, []byte{0x80}, []int64{80}, []int{0})
 	out, res := solveOK(t, st, ev(EventArrive, 1))
 	require.NotEmpty(t, res.Diff)
 	require.Equal(t, int64(80), usedOf(out, 0)+usedOf(out, 1))
-	require.Equal(t, int64(40), usedOf(out, 0))
-	require.Equal(t, int64(40), usedOf(out, 1))
+	require.Equal(t, rebalanceTargetOf(80), usedOf(out, 0))
+	require.Equal(t, int64(20), usedOf(out, 1))
 	require.Equal(t, 1, rangeCountOf(out, 0, 0))
 	require.Equal(t, 1, rangeCountOf(out, 0, 1))
 }
@@ -247,8 +268,8 @@ func TestArriveRelievesOverflowLargeDisks(t *testing.T) {
 	out, res := solveOK(t, st, ev(EventArrive, 1))
 	require.NotEmpty(t, res.Diff)
 	require.Equal(t, 80*tib, usedOf(out, 0)+usedOf(out, 1))
-	require.LessOrEqual(t, usedOf(out, 0), fillLimitOf(40*tib))
-	require.LessOrEqual(t, usedOf(out, 1), fillLimitOf(100*tib))
+	require.LessOrEqual(t, usedOf(out, 0), fillLimitOf(capacityOf(st, 0)))
+	require.LessOrEqual(t, usedOf(out, 1), fillLimitOf(capacityOf(st, 1)))
 }
 
 func TestArriveNoData(t *testing.T) {
@@ -321,15 +342,18 @@ func TestFullAlreadyUnderFillLimit(t *testing.T) {
 	require.Empty(t, res.Diff)
 }
 
-func TestFullCannotShed(t *testing.T) {
+func TestFullStaysOverLineWhenNoRoom(t *testing.T) {
+	// Both disks have no free space and sit above their line, so nothing can
+	// take disk 0's overflow. The plan is empty rather than an error.
 	st := mk(
 		[]int64{5, 10},
 		[]byte{0x80, 0xFF},
 		[]int64{20, 10},
 		[]int{0, 1},
 	)
-	_, err := Solve(st, ev(EventFull, 0))
-	require.Error(t, err)
+	out, res := solveOK(t, st, ev(EventFull, 0))
+	require.Empty(t, res.Diff)
+	require.Greater(t, usedOf(out, 0), fillLimitOf(capacityOf(st, 0)))
 }
 
 func TestRepairTooManyRanges(t *testing.T) {
@@ -389,16 +413,16 @@ func TestStructuralErrors(t *testing.T) {
 		require.Error(t, err)
 	})
 	t.Run("empty StorageID", func(t *testing.T) {
-		st := State{MountPoints: []MountPoint{{Capacity: 10}}}
+		st := State{MountPoints: []MountPoint{{FreeSpace: 10}}}
 		_, err := Solve(st, Event{Kind: EventFull})
 		require.Error(t, err)
 	})
 	t.Run("duplicate StorageID", func(t *testing.T) {
-		st := State{MountPoints: []MountPoint{{Capacity: 10, StorageID: "a"}, {Capacity: 10, StorageID: "a"}}}
+		st := State{MountPoints: []MountPoint{{FreeSpace: 10, StorageID: "a"}, {FreeSpace: 10, StorageID: "a"}}}
 		_, err := Solve(st, Event{Kind: EventFull, StorageID: "a"})
 		require.Error(t, err)
 	})
-	t.Run("negative disk", func(t *testing.T) {
+	t.Run("negative free space", func(t *testing.T) {
 		st := State{MountPoints: mounts([]int64{-1})}
 		_, err := Solve(st, ev(EventFull, 0))
 		require.Error(t, err)
@@ -453,29 +477,29 @@ func TestArriveAtMostThreeRanges(t *testing.T) {
 	require.NotEmpty(t, res.Diff)
 	require.LessOrEqual(t, rangeCountOf(out, 0, 4), MAX_RANGES_PER_DISK)
 	for d := 0; d < 4; d++ {
-		require.LessOrEqual(t, usedOf(out, d), fillLimitOf(out.MountPoints[d].Capacity), "disk %d", d)
+		require.LessOrEqual(t, usedOf(out, d), fillLimitOf(capacityOf(st, d)), "disk %d", d)
 	}
-	require.GreaterOrEqual(t, usedOf(out, 4), int64(56))
+	require.GreaterOrEqual(t, usedOf(out, 4), int64(16))
 }
 
 func TestTwoSpacesUnequalSharedCapacity(t *testing.T) {
-	// A is large, B is small; shared disks must not exceed capacity.
+	// A is large, B is small, and both spaces draw on disk 0's capacity of
+	// 100. The new disk takes the 25 bytes over disk 0's target.
 	st := mk2(
 		[]int64{70, 100},
 		spaceOf([]byte{0x80}, []int64{80}, []int{0}),
 		spaceOf([]byte{0x40}, []int64{20}, []int{0}),
 	)
-	require.Error(t, Validate(st))
 	out, res := solveOK(t, st, ev(EventArrive, 1))
 	require.NotEmpty(t, res.Diff)
 	require.Equal(t, int64(100), usedOf(out, 0)+usedOf(out, 1))
-	require.Equal(t, fillLimitOf(70), usedOf(out, 0))
-	require.Equal(t, int64(44), usedOf(out, 1))
+	require.Equal(t, rebalanceTargetOf(100), usedOf(out, 0))
+	require.Equal(t, int64(25), usedOf(out, 1))
 }
 
 func TestArriveStealsFromEitherSpace(t *testing.T) {
 	// Disk 0 is above the fill limit in A; disk 1 is under. The new disk
-	// only takes the overflow, from whichever space that overflow lives in.
+	// takes disk 0 down to its target, from whichever space the data lives in.
 	st := mk2(
 		[]int64{50, 100, 100},
 		spaceOf([]byte{0x80}, []int64{60}, []int{0}),
@@ -483,8 +507,8 @@ func TestArriveStealsFromEitherSpace(t *testing.T) {
 	)
 	out, res := solveOK(t, st, ev(EventArrive, 2))
 	require.NotEmpty(t, res.Diff)
-	require.Equal(t, int64(20), usedOf(out, 2))
-	require.Equal(t, fillLimitOf(50), usedOf(out, 0))
+	require.Equal(t, int64(15), usedOf(out, 2))
+	require.Equal(t, rebalanceTargetOf(60), usedOf(out, 0))
 	for _, tr := range res.Diff {
 		require.Equal(t, "2", tr.To)
 		require.Equal(t, 0, tr.Space)
@@ -492,17 +516,42 @@ func TestArriveStealsFromEitherSpace(t *testing.T) {
 }
 
 func TestFullShedsCheapestSpace(t *testing.T) {
-	// Disk 0 is over capacity; B has an exact small peel, A has a large block.
+	// Disk 0 is over its line; B has an exact small peel, A has a large block.
 	st := mk2(
 		[]int64{50, 100},
 		spaceOf([]byte{0x80}, []int64{30}, []int{0}),
 		spaceOf([]byte{0x00, 0x40}, []int64{5, 15}, []int{1, 0}),
 	)
-	// used[0] = 30+15 = 45; fill limit 40; need to shed 5.
+	// used[0] = 30+15 = 45; fill limit 40; target 37; need to shed 8.
 	require.NoError(t, Validate(st))
 	out, res := solveOK(t, st, ev(EventFull, 0))
-	require.LessOrEqual(t, usedOf(out, 0), fillLimitOf(50))
-	require.GreaterOrEqual(t, res.BytesMoved, int64(5))
+	require.LessOrEqual(t, usedOf(out, 0), rebalanceTargetOf(50))
+	require.GreaterOrEqual(t, res.BytesMoved, int64(8))
+}
+
+func TestFullIdleBetweenTargetAndLine(t *testing.T) {
+	// Disk 0 is at 78%: above the target but not over the line.
+	st := mk(
+		[]int64{100, 100},
+		[]byte{0x80, 0xFF},
+		[]int64{78, 10},
+		[]int{0, 1},
+	)
+	_, res := solveOK(t, st, ev(EventFull, 0))
+	require.Empty(t, res.Diff)
+}
+
+func TestFullShedsToTarget(t *testing.T) {
+	st := mk(
+		[]int64{100, 100},
+		[]byte{0x80, 0xFF},
+		[]int64{90, 10},
+		[]int{0, 1},
+	)
+	out, _ := solveOK(t, st, ev(EventFull, 0))
+	require.LessOrEqual(t, usedOf(out, 0), rebalanceTargetOf(100))
+	require.Greater(t, usedOf(out, 0), rebalanceTargetOf(100)-5)
+	require.LessOrEqual(t, usedOf(out, 1), rebalanceTargetOf(100))
 }
 
 func TestVacateBothSpaces(t *testing.T) {
@@ -644,9 +693,9 @@ func TestSuffixRecutCanExceedCheckedSize(t *testing.T) {
 	require.Equal(t, int64(2), moved)
 	_, again, _, _ := w.previewCut(0, idx, cutSuffix, moved)
 	require.Equal(t, int64(3), again)
-	before := w.used[1]
+	before := w.mountPoints[1].used
 	require.True(t, w.applyCut(0, idx, cutSuffix, 1, moved, split))
-	require.Equal(t, before+moved, w.used[1])
+	require.Equal(t, before+moved, w.mountPoints[1].used)
 }
 
 func TestApplyMovesMiddleOfRange(t *testing.T) {
@@ -773,14 +822,14 @@ func randomValidState(rng *rand.Rand) State {
 		LinkStarts(ranges)
 		st.HashSpaces[s] = ranges
 	}
-	return st
+	return withCapacity(st)
 }
 
 func randomEvent(rng *rand.Rand, st State) (State, Event) {
 	n := len(st.MountPoints)
 	switch rng.Intn(3) {
 	case 0:
-		st.MountPoints = append(append([]MountPoint(nil), st.MountPoints...), MountPoint{Capacity: 60 + int64(rng.Intn(40)), StorageID: sid(n)})
+		st.MountPoints = append(append([]MountPoint(nil), st.MountPoints...), MountPoint{FreeSpace: 60 + int64(rng.Intn(40)), StorageID: sid(n)})
 		return st, ev(EventArrive, n)
 	case 1:
 		return st, ev(EventFull, rng.Intn(n))
