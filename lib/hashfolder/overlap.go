@@ -97,54 +97,7 @@ func (c *Cluster) FixOverlaps(ctx context.Context) (int, error) {
 				if left <= 0 {
 					continue
 				}
-				end, n, err := /* leadingBytes */ func(low, high string, limit int64) ([]byte, int64, error) {
-					// The interval is walked in circle order from low. A
-					// wrapping interval is listed as (low, top] then up to high.
-					top := strings.Repeat("ff", HASH_BYTES)
-					segs := [][2]string{{low, high}}
-					switch {
-					case low == top:
-						segs = [][2]string{{top, high}}
-					case low >= high:
-						segs = [][2]string{{low, top}, {top, high}}
-					}
-					var total int64
-					cut := ""
-					for _, seg := range segs {
-						after := ""
-						for {
-							page, err := c.listPieceHashes(ctx, id, kind, seg[0], seg[1], after, LIST_PAGE)
-							if err != nil {
-								return nil, 0, err
-							}
-							for _, h := range page {
-								after = h
-								path, err := piecePath(root, kind, h)
-								if err != nil {
-									return nil, 0, err
-								}
-								info, err := os.Stat(path)
-								if os.IsNotExist(err) {
-									continue
-								}
-								if err != nil {
-									return nil, 0, err
-								}
-								if cut != "" && total+info.Size() > limit {
-									b, err := decodeHash(cut)
-									return b, total, err
-								}
-								total += info.Size()
-								cut = h
-							}
-							if len(page) < LIST_PAGE {
-								break
-							}
-						}
-					}
-					b, err := decodeHash(high)
-					return b, total, err
-				}(low, high, left)
+				end, n, err := c.leadingBytes(ctx, id, root, kind, low, high, left)
 				if err != nil {
 					return 0, err
 				}
@@ -204,4 +157,56 @@ func (c *Cluster) FixOverlaps(ctx context.Context) (int, error) {
 		return planned > 0, nil
 	})
 	return planned, err
+}
+
+// leadingBytes walks the kind files of local storageID at root in (low, high]
+// in circle order from low. It returns the hash ending the leading files that
+// fit in limit bytes, and their total. The first file is always taken. When
+// all fit the end is high. A wrapping interval is listed as (low, top] then
+// up to high.
+func (c *Cluster) leadingBytes(ctx context.Context, storageID, root, kind, low, high string, limit int64) ([]byte, int64, error) {
+	top := strings.Repeat("ff", HASH_BYTES)
+	segs := [][2]string{{low, high}}
+	switch {
+	case low == top:
+		segs = [][2]string{{top, high}}
+	case low >= high:
+		segs = [][2]string{{low, top}, {top, high}}
+	}
+	var total int64
+	cut := ""
+	for _, seg := range segs {
+		after := ""
+		for {
+			page, err := c.listPieceHashes(ctx, storageID, kind, seg[0], seg[1], after, LIST_PAGE)
+			if err != nil {
+				return nil, 0, err
+			}
+			for _, h := range page {
+				after = h
+				path, err := piecePath(root, kind, h)
+				if err != nil {
+					return nil, 0, err
+				}
+				info, err := os.Stat(path)
+				if os.IsNotExist(err) {
+					continue
+				}
+				if err != nil {
+					return nil, 0, err
+				}
+				if cut != "" && total+info.Size() > limit {
+					b, err := decodeHash(cut)
+					return b, total, err
+				}
+				total += info.Size()
+				cut = h
+			}
+			if len(page) < LIST_PAGE {
+				break
+			}
+		}
+	}
+	b, err := decodeHash(high)
+	return b, total, err
 }

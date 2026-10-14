@@ -55,6 +55,18 @@ func layoutExists(root, kind string) (bool, error) {
 	return fileExists(legacyLayoutPath(root, kind))
 }
 
+// removeLayouts removes both spaces' layouts from root, at either path.
+func removeLayouts(root string) error {
+	for _, kind := range spaceKinds {
+		for _, path := range []string{layoutPath(root, kind), legacyLayoutPath(root, kind)} {
+			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+				return xerrors.Errorf("removing %s: %w", path, err)
+			}
+		}
+	}
+	return nil
+}
+
 // openLayout reads kind's layout on root and the file's mtime. A missing
 // root layout falls back to the legacy layout.json; that path also removes
 // temp files older builds left in the space folder. The next writeLayout
@@ -125,6 +137,10 @@ func removeLegacyTemps(dir string) error {
 	return nil
 }
 
+// errBadLayout marks a layout file whose contents cannot be used, such as
+// one truncated by a crash during writeLayout.
+var errBadLayout = xerrors.New("bad layout")
+
 func readLayout(path string) (Layout, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -132,13 +148,13 @@ func readLayout(path string) (Layout, error) {
 	}
 	var layout Layout
 	if err := json.Unmarshal(b, &layout); err != nil {
-		return Layout{}, xerrors.Errorf("decoding %s: %w", path, err)
+		return Layout{}, xerrors.Errorf("decoding %s: %w: %v", path, errBadLayout, err)
 	}
 	if layout.Split != SPLIT {
-		return Layout{}, xerrors.Errorf("%s split %q, want %s", path, layout.Split, SPLIT)
+		return Layout{}, xerrors.Errorf("%s: %w: split %q, want %s", path, errBadLayout, layout.Split, SPLIT)
 	}
 	if layout.Used < 0 {
-		return Layout{}, xerrors.Errorf("%s used is negative", path)
+		return Layout{}, xerrors.Errorf("%s: %w: used is negative", path, errBadLayout)
 	}
 	if layout.Ranges == nil {
 		layout.Ranges = []HashRange{}
