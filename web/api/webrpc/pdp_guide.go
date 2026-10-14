@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math/big"
 	"net/http"
 	"os"
 	"os/exec"
@@ -12,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/urlhelper"
@@ -39,11 +42,13 @@ type PDPGuideWalletStatus struct {
 	Configured   bool   `json:"configured"`
 	Address      string `json:"address,omitempty"`
 	FilAddress   string `json:"filAddress,omitempty"`
-	Balance      string `json:"balance,omitempty"`
-	BalanceKnown bool   `json:"balanceKnown"`
-	Funded       bool   `json:"funded"`
-	ActorExists  bool   `json:"actorExists"`
-	Detail       string `json:"detail,omitempty"`
+	Balance        string `json:"balance,omitempty"`
+	BalanceKnown   bool   `json:"balanceKnown"`
+	Funded         bool   `json:"funded"`
+	MinimumBalance string `json:"minimumBalance,omitempty"`
+	MeetsMinimum   bool   `json:"meetsMinimum"`
+	ActorExists    bool   `json:"actorExists"`
+	Detail         string `json:"detail,omitempty"`
 }
 
 type PDPGuideStorageStatus struct {
@@ -95,30 +100,55 @@ func (a *WebRPC) pdpGuideWallet(ctx context.Context) PDPGuideWalletStatus {
 	if err != nil {
 		return PDPGuideWalletStatus{Detail: err.Error()}
 	}
+	minimum := types.MustParseFIL("5 FIL")
+	if a.Deps != nil && a.Deps.Cfg != nil {
+		minimum = a.Deps.Cfg.Alerting.MinimumWalletBalance
+	}
+	minimumLabel := minimum.Short()
+	meetsMinimum := status.BalanceKnown && filBalanceAboveMinimum(status.BalanceAtto, minimum)
 	out := PDPGuideWalletStatus{
-		Configured:   status.Configured,
-		Address:      status.Address,
-		FilAddress:   status.FilAddress,
-		Balance:      status.Balance,
-		BalanceKnown: status.BalanceKnown,
-		Funded:       status.Funded,
-		ActorExists:  status.ActorExists,
+		Configured:     status.Configured,
+		Address:        status.Address,
+		FilAddress:     status.FilAddress,
+		Balance:        status.Balance,
+		BalanceKnown:   status.BalanceKnown,
+		Funded:         status.Funded,
+		MinimumBalance: minimumLabel,
+		MeetsMinimum:   meetsMinimum,
+		ActorExists:    status.ActorExists,
 	}
 	if status.Configured && !status.BalanceKnown {
 		out.Balance = "Err"
 	}
 	switch {
 	case !status.Configured:
-		out.Detail = "No PDP wallet configured. Create a key or import a hex key / lotus wallet export."
+		out.Detail = fmt.Sprintf("No PDP wallet configured. Create a key or import a hex key / lotus wallet export. /pdp/ping requires a balance above %s.", minimumLabel)
 	case !status.BalanceKnown:
 		out.Detail = "Wallet configured but balance could not be fetched from the chain."
-	case !status.Funded:
-		out.Detail = "Wallet configured but unfunded. Send FIL/tFIL to the address before registering."
+	case !meetsMinimum:
+		out.Detail = fmt.Sprintf("Balance is %s. /pdp/ping requires more than %s.", status.Balance, minimumLabel)
 	default:
 		out.OK = true
-		out.Detail = "Wallet configured and funded."
+		out.Detail = fmt.Sprintf("Wallet balance is above %s.", minimumLabel)
 	}
 	return out
+}
+
+// filBalanceAboveMinimum matches the ping health check: MinimumWalletBalance
+// greater than or equal to the balance is a failure, so the balance must be
+// strictly above the configured minimum.
+func filBalanceAboveMinimum(atto string, minimum types.FIL) bool {
+	n, ok := new(big.Int).SetString(strings.TrimSpace(atto), 10)
+	if !ok {
+		return false
+	}
+	var bal types.BigInt
+	if n.Sign() == 0 {
+		bal = types.NewInt(0)
+	} else {
+		bal = types.BigInt(types.BigFromBytes(n.Bytes()))
+	}
+	return !abi.TokenAmount(minimum).GreaterThanEqual(abi.TokenAmount(bal))
 }
 
 func (a *WebRPC) pdpGuideStorage(ctx context.Context) PDPGuideStorageStatus {

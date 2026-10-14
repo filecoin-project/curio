@@ -377,16 +377,16 @@ customElements.define('pdp-guide', class PDPGuideElement extends LitElement {
         const configured = !!wallet?.configured;
         const balanceKnown = !!wallet?.balanceKnown;
         const funded = !!wallet?.funded;
+        const meetsMinimum = !!wallet?.meetsMinimum;
+        const minimum = wallet?.minimumBalance || '5 FIL';
         const actor = !!wallet?.actorExists;
         const ok = !!wallet?.ok;
         const balanceLabel = !configured
             ? '—'
             : !balanceKnown
                 ? (wallet.balance || 'Err')
-                : funded
-                    ? (wallet.balance || 'funded')
-                    : 'Unfunded';
-        return this.wrapItem('wallet', ok, 'Have a wallet with balance', html`
+                : (wallet.balance || (funded ? 'funded' : 'Unfunded'));
+        return this.wrapItem('wallet', ok, `Have a wallet with more than ${minimum}`, html`
             <p class="item-detail" style="margin-left: 30px;">${wallet?.detail || ''}</p>
             <ul class="subs">
                 <li class="sub">
@@ -411,9 +411,9 @@ customElements.define('pdp-guide', class PDPGuideElement extends LitElement {
                     </div>
                 </li>
                 <li class="sub">
-                    <span class="check" data-state=${this.stateOf(funded, configured && !balanceKnown)} aria-hidden="true"></span>
+                    <span class="check" data-state=${this.stateOf(meetsMinimum, configured && !balanceKnown)} aria-hidden="true"></span>
                     <div>
-                        <div class="sub-label">Balance</div>
+                        <div class="sub-label">More than ${minimum}</div>
                         <div class="sub-meta">${balanceLabel}</div>
                     </div>
                 </li>

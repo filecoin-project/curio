@@ -29,6 +29,10 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
         // deregister confirmation input
         deregisterConfirmation: { type: String },
 
+        registerError: { type: String },
+        registerMessage: { type: String },
+        registering: { type: Boolean },
+
         keyStatus: { type: Object },
         keyStatusLoading: { type: Boolean },
 
@@ -104,6 +108,9 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
         this.capabilities = {};
 
         this.deregisterConfirmation = '';
+        this.registerError = '';
+        this.registerMessage = '';
+        this.registering = false;
 
         this.keyStatus = { configured: false };
         this.keyStatusLoading = true;
@@ -147,6 +154,8 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
         this.description = '';
         this.location = '';
         this.capacityGiB = '';
+        this.registerError = '';
+        this.registering = false;
         this.showRegisterModal = true;
     }
     closeRegister() { this.showRegisterModal = false; }
@@ -158,35 +167,50 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
         return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
     }
 
+    normalizeLocation(location) {
+        let value = String(location ?? '').trim();
+        if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+            value = value.slice(1, -1).trim();
+        }
+        return value;
+    }
+
     async submitRegister(e) {
         e.preventDefault();
+        if (this.registering) return;
+
         const name = this.name.trim();
         const description = this.description.trim();
-        const location = this.location.trim();
+        const location = this.normalizeLocation(this.location);
         const capacityGiB = this.parsePositiveInteger(this.capacityGiB);
 
         if (!name || !description || !location) {
-            alert('Please fill all fields (name, description, location, storage capacity).');
+            this.registerError = 'Please fill all fields (name, description, location, storage capacity).';
             return;
         }
         if (capacityGiB === null || capacityGiB < 100) {
-            alert('Storage capacity must be a whole number of GiB, at least 100.');
+            this.registerError = 'Storage capacity must be a whole number of GiB, at least 100.';
             return;
         }
-
         if (!this.isValidLocation(location)) {
-            alert('Location must be in the format: "C=US;ST=California;L=San Francisco".');
+            this.registerError = 'Location must look like C=US;ST=California;L=San Francisco. Only C= is required.';
             return;
         }
 
+        this.location = location;
+        this.registerError = '';
+        this.registering = true;
         try {
             await RPCCall('FSRegister', [name, description, location, capacityGiB]);
             this.showRegisterModal = false;
+            this.registerMessage = 'Registration submitted. Wait a few epochs for the updated status.';
             await this.loadStatus();
-            alert('Provider registered successfully. Please wait for the 5 epochs to see the updated status.');
+            this.registerError = '';
         } catch (err) {
             console.error('FSRegister failed:', err);
-            alert('Register failed: ' + (err?.message || err));
+            this.registerError = 'Register failed: ' + (err?.message || err);
+        } finally {
+            this.registering = false;
         }
     }
 
@@ -296,7 +320,7 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
         const capacityGiB = this.parsePositiveInteger(this.pdpCapacityGiB);
         const pdpOffering = {
             service_url: this.pdpServiceURL.trim(),
-            location: this.pdpLocation.trim(),
+            location: this.normalizeLocation(this.pdpLocation),
             capacity_gib: capacityGiB,
         };
 
@@ -384,6 +408,8 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
                     </div>
                 ` : ''}
 
+                ${this.registerMessage ? html`<div class="alert alert-success">${this.registerMessage}</div>` : ''}
+
                 ${this.loading ? html`
                     <div class="d-flex align-items-center">
                         <div class="spinner-border me-2" role="status" aria-hidden="true"></div>
@@ -429,10 +455,11 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
                         <div class="modal-card">
                             <div class="modal-header d-flex justify-content-between align-items-center">
                                 <h5 class="m-0">Register Provider</h5>
-                                <button class="close-btn" @click=${this.closeRegister} aria-label="Close">&times;</button>
+                                <button type="button" class="close-btn" @click=${this.closeRegister} aria-label="Close">&times;</button>
                             </div>
                             <form @submit=${this.submitRegister}>
                                 <div class="modal-body">
+                                    ${this.registerError ? html`<div class="alert alert-danger">${this.registerError}</div>` : ''}
                                     <div class="mb-3">
                                         <label class="form-label">Name</label>
                                         <input class="form-control" .value=${this.name}
@@ -447,7 +474,7 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
                                         <label class="form-label">Location</label>
                                         <input class="form-control" .value=${this.location}
                                                @input=${e=>this.location=e.target.value} required />
-                                        <div class="form-text text-warning">Location must be in format "C=US;ST=California;L=San Francisco"</div>
+                                        <div class="form-text text-warning">Example: C=US;ST=California;L=San Francisco (only C= is required)</div>
                                     </div>
                                     <div class="mb-3">
                                         <label class="form-label">Storage Capacity (GiB)</label>
@@ -456,8 +483,10 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
                                     </div>
                                 </div>
                                 <div class="modal-footer">
-                                    <button type="button" class="btn btn-secondary" @click=${this.closeRegister}>Cancel</button>
-                                    <button type="submit" class="btn btn-success">Register</button>
+                                    <button type="button" class="btn btn-secondary" @click=${this.closeRegister} ?disabled=${this.registering}>Cancel</button>
+                                    <button type="submit" class="btn btn-success" ?disabled=${this.registering}>
+                                        ${this.registering ? 'Registering…' : 'Register'}
+                                    </button>
                                 </div>
                             </form>
                         </div>

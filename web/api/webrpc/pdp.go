@@ -256,6 +256,7 @@ func (a *WebRPC) enrichPDPKeyStatus(ctx context.Context, status pdpwallet.Status
 		log.Warnf("PDPKeyStatus: FIL balance lookup failed for %s: %v", status.Address, balanceErr)
 	} else if balance != nil {
 		status.BalanceKnown = true
+		status.BalanceAtto = balance.String()
 		status.Balance = types.FIL(types.BigFromBytes(balance.Bytes())).Short()
 		status.Funded = balance.Sign() > 0
 		if status.Funded {

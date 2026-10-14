@@ -29,6 +29,9 @@ type Status struct {
 	FilAddress   string `json:"filAddress,omitempty"`
 	Balance      string `json:"balance,omitempty"`
 	UsdfcBalance string `json:"usdfcBalance,omitempty"`
+	// BalanceAtto is the FIL balance in attoFIL when BalanceKnown is true.
+	// It is not part of the JSON API.
+	BalanceAtto string `json:"-"`
 	// BalanceKnown is true only when FIL balance was successfully fetched.
 	// When false, Funded must not be treated as "unfunded".
 	BalanceKnown bool `json:"balanceKnown"`
