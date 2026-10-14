@@ -675,6 +675,27 @@ func (c *Cluster) Refresh(ctx context.Context) error {
 // harmonytask.ErrNeedTask when run with id 0 to be rerun inside addTask's
 // transaction with the new task's id.
 
+// diskHashUsed is the hash-space bytes recorded on root. The solver adds
+// these to the filesystem's free space.
+func diskHashUsed(root string) (int64, error) {
+	var n int64
+	for _, kind := range spaceKinds {
+		ok, err := fileExists(filepath.Join(root, kind, layoutFile))
+		if err != nil {
+			return 0, err
+		}
+		if !ok {
+			continue
+		}
+		_, used, err := accountedLayout(root, kind)
+		if err != nil {
+			return 0, err
+		}
+		n += used
+	}
+	return n, nil
+}
+
 func (c *Cluster) join(ctx context.Context, drives []LocalDrive) ([]string, error) {
 	var arrived []string
 	err := /* Cluster.casTx */ func(ctx context.Context, fn func(tx *harmonydb.Tx) (bool, error)) error {
@@ -807,7 +828,7 @@ func (c *Cluster) join(ctx context.Context, drives []LocalDrive) ([]string, erro
 			st, err := FirstSetup(hd)
 			if errors.Is(err, errNoPieceDrive) {
 				for _, d := range drives {
-					capacity, err := capacityOf(Drive{Root: d.Root})
+					capacity, err := effectiveCapacity(Drive{Root: d.Root}, 0)
 					if err != nil {
 						return false, err
 					}
@@ -822,14 +843,22 @@ func (c *Cluster) join(ctx context.Context, drives []LocalDrive) ([]string, erro
 			if err != nil {
 				return false, err
 			}
-			for i, d := range drives {
+			for _, d := range drives {
 				deny, err := deniesPiecePark(d.Root)
+				if err != nil {
+					return false, err
+				}
+				used, err := diskHashUsed(d.Root)
+				if err != nil {
+					return false, err
+				}
+				capacity, err := effectiveCapacity(Drive{StorageID: d.StorageID, Root: d.Root}, used)
 				if err != nil {
 					return false, err
 				}
 				if _, err := tx.Exec(`INSERT INTO hash_space_disk (storage_id, capacity, vacating) VALUES ($1, $2, $3)
 					ON CONFLICT (storage_id) DO UPDATE SET capacity = EXCLUDED.capacity, vacating = EXCLUDED.vacating, updated_at = NOW()`,
-					d.StorageID, st.MountPoints[i].Capacity, deny); err != nil {
+					d.StorageID, capacity, deny); err != nil {
 					return false, err
 				}
 			}
@@ -849,7 +878,11 @@ func (c *Cluster) join(ctx context.Context, drives []LocalDrive) ([]string, erro
 
 		var fresh []string
 		for _, d := range drives {
-			capacity, err := capacityOf(Drive{Root: d.Root})
+			used, err := diskHashUsed(d.Root)
+			if err != nil {
+				return false, err
+			}
+			capacity, err := effectiveCapacity(Drive{StorageID: d.StorageID, Root: d.Root}, used)
 			if err != nil {
 				return false, err
 			}
@@ -1123,20 +1156,7 @@ func (c *Cluster) publishOne(ctx context.Context, storageID, root string) {
 		if err := c.db.QueryRow(ctx, `SELECT capacity FROM hash_space_disk WHERE storage_id = $1`, storageID).Scan(&prev); err != nil {
 			prev = 0
 		}
-		capacity, err := /* effectiveCapacity */ func(root string, used int64) (int64, error) {
-			limit, err := capacityOf(Drive{Root: root})
-			if err != nil {
-				return 0, err
-			}
-			free, err := filesystemFree(root)
-			if err != nil {
-				return 0, err
-			}
-			if used+free < limit {
-				return used + free, nil
-			}
-			return limit, nil
-		}(root, used)
+		capacity, err := effectiveCapacity(Drive{Root: root}, used)
 		if err != nil {
 			log.Warnw("reading hash space capacity", "storage", storageID, "error", err)
 			if _, err := c.db.Exec(ctx, `UPDATE hash_space_disk SET used_open = $1, used_acl = $2, vacating = $3, updated_at = NOW() WHERE storage_id = $4`, usedOpen, usedACL, diskVacate(root), storageID); err != nil {
