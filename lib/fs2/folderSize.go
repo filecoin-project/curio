@@ -45,8 +45,8 @@ func hexCharsOnly(s string) bool {
 }
 
 // hashInRange reports whether hash lies in (low, high]. An empty low or
-// high leaves that side open. hash, low, and high are concatenated CID
-// paths, not filesystem paths.
+// high returns true. hash, low, and high are concatenated CID paths, not
+// filesystem paths.
 func hashInRange(hash, low, high string) bool {
 	if low != "" && hash <= low {
 		return false
