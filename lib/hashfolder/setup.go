@@ -7,6 +7,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 
 	"golang.org/x/xerrors"
@@ -30,8 +31,8 @@ func FirstSetup(drives []Drive) (hashspacesolver.State, error) {
 		return hashspacesolver.State{}, xerrors.Errorf("no drives")
 	}
 	caps := make([]int64, len(drives))
-	both := make([]bool, len(drives))
-	var nBoth, nNeither int
+	hasLayout := make([]bool, len(drives))
+	var nLayout int
 	for i, d := range drives {
 		if d.Root == "" {
 			return hashspacesolver.State{}, xerrors.Errorf("drive %d has an empty root", i)
@@ -44,139 +45,129 @@ func FirstSetup(drives []Drive) (hashspacesolver.State, error) {
 			return hashspacesolver.State{}, err
 		}
 		caps[i] = cap
-		hasBoth, hasNeither, err := /* layoutPresence */ func(root string) (hasBoth, hasNeither bool, err error) {
-			openOK, err := layoutExists(root, DIR_OPEN)
-			if err != nil {
-				return false, false, err
-			}
-			aclOK, err := layoutExists(root, DIR_ACL)
-			if err != nil {
-				return false, false, err
-			}
-			if openOK && aclOK {
-				return true, false, nil
-			}
-			if !openOK && !aclOK {
-				return false, true, nil
-			}
-			return false, false, xerrors.Errorf("%s has a layout for only one hash space", root)
-		}(d.Root)
-		if err != nil {
+		if hasLayout[i], err = hasBothLayouts(d.Root); err != nil {
 			return hashspacesolver.State{}, err
 		}
-		both[i] = hasBoth
-		if hasBoth {
-			nBoth++
-		}
-		if hasNeither {
-			nNeither++
+		if hasLayout[i] {
+			nLayout++
 		}
 	}
-	switch {
-	case nNeither == len(drives):
-		seedCaps, err := /* pieceCaps */ func(drives []Drive, caps []int64) ([]int64, error) {
-			out := append([]int64(nil), caps...)
-			for i, d := range drives {
-				deny, err := deniesPiecePark(d.Root)
-				if err != nil {
-					return nil, err
-				}
-				if deny {
-					out[i] = 0
-				}
-			}
-			return out, nil
-		}(drives, caps)
+	switch nLayout {
+	case 0:
+		return seedState(drives, caps)
+	case len(drives):
+		perSpace, _, err := readOwned(drives, nil)
 		if err != nil {
 			return hashspacesolver.State{}, err
 		}
-		if ! /* anyPositive */ func(caps []int64) bool {
-			for _, c := range caps {
-				if c > 0 {
-					return true
-				}
-			}
-			return false
-		}(seedCaps) {
-			return hashspacesolver.State{}, errNoPieceDrive
-		}
-		st, err := /* seedState */ func(seedCaps []int64) (hashspacesolver.State, error) {
-			open, err := seedSpace(drives, seedCaps)
-			if err != nil {
-				return hashspacesolver.State{}, err
-			}
-			acl, err := seedSpace(drives, seedCaps)
-			if err != nil {
-				return hashspacesolver.State{}, err
-			}
-			mounts, err := mountPoints(drives)
-			if err != nil {
-				return hashspacesolver.State{}, err
-			}
-			st := hashspacesolver.State{
-				MountPoints: mounts,
-				HashSpaces:  [2][]hashspacesolver.Range{open, acl},
-			}
-			st, err = hashspacesolver.Apply(st, nil)
-			if err != nil {
-				return hashspacesolver.State{}, err
-			}
-			if err := hashspacesolver.Validate(st); err != nil {
-				return hashspacesolver.State{}, err
-			}
-			return st, nil
-		}(seedCaps)
-		if err != nil {
-			return hashspacesolver.State{}, err
-		}
-		if err := writeState(drives, st, make([][2]int64, len(drives))); err != nil {
-			return hashspacesolver.State{}, err
-		}
-		return st, nil
-	case nBoth == len(drives):
-		return /* loadState */ func(drives []Drive) (hashspacesolver.State, error) {
-			perSpace, _, err := readOwned(drives, nil)
-			if err != nil {
-				return hashspacesolver.State{}, err
-			}
-			return stateFromOwned(drives, perSpace)
-		}(drives)
+		return stateFromOwned(drives, perSpace)
 	default:
-		return /* arriveNew */ func(drives []Drive, hasLayout []bool) (hashspacesolver.State, error) {
-			perSpace, used, err := readOwned(drives, hasLayout)
-			if err != nil {
-				return hashspacesolver.State{}, err
-			}
-			st, err := stateFromOwned(drives, perSpace)
-			if err != nil {
-				return hashspacesolver.State{}, err
-			}
-			for i, ok := range hasLayout {
-				if ok {
-					continue
-				}
-				deny, err := deniesPiecePark(drives[i].Root)
-				if err != nil {
-					return hashspacesolver.State{}, err
-				}
-				if deny {
-					continue
-				}
-				res, err := hashspacesolver.Solve(st, hashspacesolver.Event{
-					Kind:      hashspacesolver.EventEmptyMountConnected,
-					StorageID: drives[i].StorageID,
-				})
-				if err != nil {
-					return hashspacesolver.State{}, xerrors.Errorf("empty mount %s: %w", drives[i].StorageID, err)
-				}
-				st = res.State
-			}
-			if err := writeState(drives, st, used); err != nil {
-				return hashspacesolver.State{}, err
-			}
-			return st, nil
-		}(drives, both)
+		return arriveNew(drives, hasLayout)
 	}
+}
+
+// hasBothLayouts reports whether root has a layout for both spaces. A layout
+// for only one space is an error.
+func hasBothLayouts(root string) (bool, error) {
+	openOK, err := layoutExists(root, DIR_OPEN)
+	if err != nil {
+		return false, err
+	}
+	aclOK, err := layoutExists(root, DIR_ACL)
+	if err != nil {
+		return false, err
+	}
+	if openOK != aclOK {
+		return false, xerrors.Errorf("%s has a layout for only one hash space", root)
+	}
+	return openOK, nil
+}
+
+// seedState cuts one capacity-weighted range per space for each drive that
+// accepts piece park, validates the result, and writes every drive's
+// layouts. caps is indexed like drives.
+func seedState(drives []Drive, caps []int64) (hashspacesolver.State, error) {
+	seedCaps := append([]int64(nil), caps...)
+	anyPositive := false
+	for i, d := range drives {
+		deny, err := deniesPiecePark(d.Root)
+		if err != nil {
+			return hashspacesolver.State{}, err
+		}
+		if deny {
+			seedCaps[i] = 0
+		}
+		if seedCaps[i] > 0 {
+			anyPositive = true
+		}
+	}
+	if !anyPositive {
+		return hashspacesolver.State{}, errNoPieceDrive
+	}
+	open, err := seedSpace(drives, seedCaps)
+	if err != nil {
+		return hashspacesolver.State{}, err
+	}
+	acl, err := seedSpace(drives, seedCaps)
+	if err != nil {
+		return hashspacesolver.State{}, err
+	}
+	mounts, err := mountPoints(drives)
+	if err != nil {
+		return hashspacesolver.State{}, err
+	}
+	st, err := hashspacesolver.Apply(hashspacesolver.State{
+		MountPoints: mounts,
+		HashSpaces:  [2][]hashspacesolver.Range{open, acl},
+	}, nil)
+	if err != nil {
+		return hashspacesolver.State{}, err
+	}
+	if err := hashspacesolver.Validate(st); err != nil {
+		return hashspacesolver.State{}, err
+	}
+	if err := writeState(drives, st, make([][2]int64, len(drives))); err != nil {
+		return hashspacesolver.State{}, err
+	}
+	return st, nil
+}
+
+// arriveNew loads the ranges of drives with layouts, presents every other
+// drive that accepts piece park with EventEmptyMountConnected, and writes
+// the result.
+func arriveNew(drives []Drive, hasLayout []bool) (hashspacesolver.State, error) {
+	perSpace, used, err := readOwned(drives, hasLayout)
+	if err != nil {
+		return hashspacesolver.State{}, err
+	}
+	st, err := stateFromOwned(drives, perSpace)
+	if err != nil {
+		return hashspacesolver.State{}, err
+	}
+	for i, ok := range hasLayout {
+		if ok {
+			continue
+		}
+		deny, err := deniesPiecePark(drives[i].Root)
+		if err != nil {
+			return hashspacesolver.State{}, err
+		}
+		if deny {
+			continue
+		}
+		res, err := hashspacesolver.Solve(st, hashspacesolver.Event{
+			Kind:      hashspacesolver.EventEmptyMountConnected,
+			StorageID: drives[i].StorageID,
+		})
+		if err != nil {
+			return hashspacesolver.State{}, xerrors.Errorf("empty mount %s: %w", drives[i].StorageID, err)
+		}
+		st = res.State
+	}
+	if err := writeState(drives, st, used); err != nil {
+		return hashspacesolver.State{}, err
+	}
+	return st, nil
 }
 
 func capacityOf(d Drive) (int64, error) {
@@ -190,22 +181,7 @@ func capacityOf(d Drive) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	maxStorage, err := /* readMaxStorage */ func(root string) (uint64, error) {
-		b, err := os.ReadFile(filepath.Join(root, sectorStoreFile))
-		if err != nil {
-			if os.IsNotExist(err) {
-				return 0, nil
-			}
-			return 0, xerrors.Errorf("reading sectorstore.json in %s: %w", root, err)
-		}
-		var meta struct {
-			MaxStorage uint64
-		}
-		if err := json.Unmarshal(b, &meta); err != nil {
-			return 0, xerrors.Errorf("decoding sectorstore.json in %s: %w", root, err)
-		}
-		return meta.MaxStorage, nil
-	}(d.Root)
+	maxStorage, err := readMaxStorage(d.Root)
 	if err != nil {
 		return 0, err
 	}
@@ -213,6 +189,25 @@ func capacityOf(d Drive) (int64, error) {
 		return int64(maxStorage), nil
 	}
 	return fsCap, nil
+}
+
+// readMaxStorage returns MaxStorage from root's sectorstore.json. A missing
+// file or field is zero.
+func readMaxStorage(root string) (uint64, error) {
+	b, err := os.ReadFile(filepath.Join(root, sectorStoreFile))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, xerrors.Errorf("reading sectorstore.json in %s: %w", root, err)
+	}
+	var meta struct {
+		MaxStorage uint64
+	}
+	if err := json.Unmarshal(b, &meta); err != nil {
+		return 0, xerrors.Errorf("decoding sectorstore.json in %s: %w", root, err)
+	}
+	return meta.MaxStorage, nil
 }
 
 // effectiveCapacity is the capacity the solver may use on d. It is the
@@ -271,9 +266,6 @@ func deniesPiecePark(root string) (bool, error) {
 	return !storiface.FTPiece.Allowed(meta.AllowTypes, meta.DenyTypes), nil
 }
 
-// pieceCaps is caps with drives that deny piece park zeroed, so seeding and
-// arrival skip them.
-
 func fileExists(path string) (bool, error) {
 	_, err := os.Stat(path)
 	if err == nil {
@@ -328,16 +320,7 @@ func seedSpace(drives []Drive, capacities []int64) ([]hashspacesolver.Range, err
 		} else {
 			num := new(big.Int).Mul(big.NewInt(prefix), span)
 			num.Quo(num, big.NewInt(total))
-			end = /* intToHash */ func(v *big.Int) []byte {
-				raw := v.Bytes()
-				out := make([]byte, HASH_BYTES)
-				if len(raw) > HASH_BYTES {
-					copy(out, raw[len(raw)-HASH_BYTES:])
-					return out
-				}
-				copy(out[HASH_BYTES-len(raw):], raw)
-				return out
-			}(num)
+			end = intToHash(num)
 			if isZeroHash(end) {
 				return nil, xerrors.Errorf("disk %d capacity does not advance the hash cut", i)
 			}
@@ -353,6 +336,19 @@ func seedSpace(drives []Drive, capacities []int64) ([]hashspacesolver.Range, err
 	}
 	hashspacesolver.LinkStarts(ranges)
 	return ranges, nil
+}
+
+// intToHash writes v as a big-endian HASH_BYTES hash, keeping the low bytes
+// when v is wider.
+func intToHash(v *big.Int) []byte {
+	raw := v.Bytes()
+	out := make([]byte, HASH_BYTES)
+	if len(raw) > HASH_BYTES {
+		copy(out, raw[len(raw)-HASH_BYTES:])
+		return out
+	}
+	copy(out[HASH_BYTES-len(raw):], raw)
+	return out
 }
 
 func isZeroHash(h []byte) bool {
@@ -431,15 +427,7 @@ func stateFromOwned(drives []Drive, perSpace [][]ownedRange) (hashspacesolver.St
 	}
 	st := hashspacesolver.State{MountPoints: mounts}
 	for s, rs := range perSpace {
-		/* sortOwned */ func(rs []ownedRange) {
-			for i := 1; i < len(rs); i++ {
-				j := i
-				for j > 0 && bytes.Compare(rs[j].end, rs[j-1].end) < 0 {
-					rs[j], rs[j-1] = rs[j-1], rs[j]
-					j--
-				}
-			}
-		}(rs)
+		sort.Slice(rs, func(a, b int) bool { return bytes.Compare(rs[a].end, rs[b].end) < 0 })
 		ranges := make([]hashspacesolver.Range, len(rs))
 		for i, r := range rs {
 			ranges[i] = hashspacesolver.Range{
