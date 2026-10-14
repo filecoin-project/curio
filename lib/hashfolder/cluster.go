@@ -896,9 +896,9 @@ func (c *Cluster) raise(ctx context.Context, storageID, kind string) error {
 			}
 			ev.Kind = hashspacesolver.EventFull
 		case EVENT_ARRIVE:
-			ev.Kind = hashspacesolver.EventArrive
+			ev.Kind = hashspacesolver.EventEmptyMountConnected
 		case EVENT_ABSORB:
-			ev.Kind = hashspacesolver.EventAbsorb
+			ev.Kind = hashspacesolver.EventMountCapacityIncreased
 		case EVENT_VACATE:
 			ev.Kind = hashspacesolver.EventVacate
 		case EVENT_BALANCE:
