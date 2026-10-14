@@ -10,8 +10,8 @@ import (
 )
 
 // Solve plans one event: empty mount connected, fill, vacate, mount
-// capacity increased, or balance. The finished assignment keeps every
-// active disk's FreeSpace at or above zero
+// capacity increased, balance, or claim. The finished assignment keeps
+// every active disk's FreeSpace at or above zero
 // and at or under MAX_RANGES_PER_DISK ranges per space. Planning is greedy.
 //
 // A space may loop: FF00 - AABB includes AAAA, not BBBB.
