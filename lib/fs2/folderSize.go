@@ -178,30 +178,24 @@ func ListHashesInterval(directory, low, high, after string, limit int) ([]string
 		}
 		hash := hashFromRel(rel)
 		if d.IsDir() {
-			if ! /* subtreeInInterval */ func(prefix, low, high string) bool {
-				if low != "" && high != "" && low > high {
-					return subtreeCanMatch(prefix, low, "") || subtreeCanMatch(prefix, "", high)
-				}
-				return subtreeCanMatch(prefix, low, high)
-			}(hash, low, high) || /* prefixAtOrBefore */ func(prefix, after string) bool {
-				if after == "" || prefix == "" {
-					return false
-				}
-				if strings.HasPrefix(after, prefix) {
-					return false
-				}
-				return prefix < after
-			}(hash, after) {
+			// A wrapped interval is the union of (low, ...] and (..., high].
+			// A directory whose hashes all sort at or before after cannot
+			// hold a later file.
+			matches := subtreeCanMatch(hash, low, high)
+			if low != "" && high != "" && low > high {
+				matches = subtreeCanMatch(hash, low, "") || subtreeCanMatch(hash, "", high)
+			}
+			exhausted := after != "" && hash != "" && !strings.HasPrefix(after, hash) && hash < after
+			if !matches || exhausted {
 				return filepath.SkipDir
 			}
 			return nil
 		}
-		if ! /* hashInInterval */ func(hash, low, high string) bool {
-			if low != "" && high != "" && low > high {
-				return hashInRange(hash, low, "") || hashInRange(hash, "", high)
-			}
-			return hashInRange(hash, low, high)
-		}(hash, low, high) || (after != "" && hash <= after) {
+		matches := hashInRange(hash, low, high)
+		if low != "" && high != "" && low > high {
+			matches = hashInRange(hash, low, "") || hashInRange(hash, "", high)
+		}
+		if !matches || (after != "" && hash <= after) {
 			return nil
 		}
 		mode := d.Type()
@@ -229,6 +223,3 @@ func ListHashesInterval(directory, low, high, after string, limit int) ([]string
 	}
 	return out, nil
 }
-
-// prefixAtOrBefore reports whether every hash under prefix sorts at or
-// before after, so the directory cannot contain a later hash.

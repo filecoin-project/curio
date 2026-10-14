@@ -337,13 +337,12 @@ func (ring *uring) drain(want int, result *Result) (int, error) {
 			}
 			continue
 		}
-		name := /* cString */ func(b []byte) string {
-			n := 0
-			for n < len(b) && b[n] != 0 {
-				n++
-			}
-			return string(b[:n])
-		}(ring.slots[slot].name[:ring.slots[slot].nlen])
+		raw := ring.slots[slot].name[:ring.slots[slot].nlen]
+		nlen := 0
+		for nlen < len(raw) && raw[nlen] != 0 {
+			nlen++
+		}
+		name := string(raw[:nlen])
 		if cqe.Res == -int32(unix.ENOENT) {
 			result.Vanished++
 			continue
@@ -431,66 +430,61 @@ func sumDirLinux(ring *uring, path, prefix, low, high string, result *Result) (e
 				if err := ring.flush(result); err != nil {
 					return err
 				}
-				if err := /* walkChild */ func(ring *uring, path, prefix, name, low, high string, result *Result) error {
-					hash, err := joinHash(prefix, name)
-					if err != nil {
-						return err
-					}
-					if !subtreeCanMatch(hash, low, high) {
-						return nil
-					}
-					child, err := joinPath(path, name)
-					if err != nil {
-						return err
-					}
-					return sumDirLinux(ring, child, hash, low, high, result)
-				}(ring, path, prefix, name, low, high, result); err != nil {
+				hash, err := joinHash(prefix, name)
+				if err != nil {
+					return err
+				}
+				if !subtreeCanMatch(hash, low, high) {
+					continue
+				}
+				child, err := joinPath(path, name)
+				if err != nil {
+					return err
+				}
+				if err := sumDirLinux(ring, child, hash, low, high, result); err != nil {
 					return err
 				}
 			case unix.DT_UNKNOWN:
 				if err := ring.flush(result); err != nil {
 					return err
 				}
-				if err := /* statUnknown */ func(ring *uring, dirfd int, path, prefix, name, low, high string, result *Result) error {
-					var stx unix.Statx_t
-					err := unix.Statx(dirfd, name, statxAtFlags, statxMask, &stx)
-					if err == unix.ENOENT {
-						result.Vanished++
-						return nil
+				var stx unix.Statx_t
+				err := unix.Statx(dirfd, name, statxAtFlags, statxMask, &stx)
+				if err == unix.ENOENT {
+					result.Vanished++
+					continue
+				}
+				if err != nil {
+					return fmt.Errorf("statx %s: %w", name, err)
+				}
+				hash, err := joinHash(prefix, name)
+				if err != nil {
+					return err
+				}
+				switch stx.Mode & unix.S_IFMT {
+				case unix.S_IFDIR:
+					if !subtreeCanMatch(hash, low, high) {
+						continue
 					}
-					if err != nil {
-						return fmt.Errorf("statx %s: %w", name, err)
-					}
-					hash, err := joinHash(prefix, name)
+					child, err := joinPath(path, name)
 					if err != nil {
 						return err
 					}
-					switch stx.Mode & unix.S_IFMT {
-					case unix.S_IFDIR:
-						if !subtreeCanMatch(hash, low, high) {
-							return nil
-						}
-						child, err := joinPath(path, name)
-						if err != nil {
-							return err
-						}
-						return sumDirLinux(ring, child, hash, low, high, result)
-					case unix.S_IFREG:
-						if !hashInRange(hash, low, high) {
-							return nil
-						}
-						if stx.Mask&unix.STATX_SIZE == 0 {
-							return fmt.Errorf("statx %s: filesystem did not return size", name)
-						}
-						if stx.Size > uint64(^uint64(0)>>1) {
-							return fmt.Errorf("statx %s: size overflows int64", name)
-						}
-						result.Bytes += int64(stx.Size)
-						result.Files++
+					if err := sumDirLinux(ring, child, hash, low, high, result); err != nil {
+						return err
 					}
-					return nil
-				}(ring, dirfd, path, prefix, name, low, high, result); err != nil {
-					return err
+				case unix.S_IFREG:
+					if !hashInRange(hash, low, high) {
+						continue
+					}
+					if stx.Mask&unix.STATX_SIZE == 0 {
+						return fmt.Errorf("statx %s: filesystem did not return size", name)
+					}
+					if stx.Size > uint64(^uint64(0)>>1) {
+						return fmt.Errorf("statx %s: size overflows int64", name)
+					}
+					result.Bytes += int64(stx.Size)
+					result.Files++
 				}
 			case unix.DT_REG:
 				hash, err := joinHash(prefix, name)
@@ -526,29 +520,24 @@ func (ring *uring) queue(dirfd int, name string, result *Result) error {
 	slot.name[slot.nlen] = 0
 	slot.nlen++
 	slot.stx = unix.Statx_t{}
-	if err := /* uring.prepStatx */ func(slot int, dirfd int) error {
-		head := atomic.LoadUint32(ring.sqHead)
-		next := ring.tail + 1
-		if next-head > uint32(len(ring.sqArray)) {
-			return fmt.Errorf("io_uring_get_sqe: %w", unix.EBUSY)
-		}
-		index := ring.tail & ring.sqMask
-		sqeIndex := ring.sqArray[index]
-		sqe := (*ioUringSQE)(unsafe.Add(unsafe.Pointer(&ring.sqes[0]), uintptr(sqeIndex)*unsafe.Sizeof(ioUringSQE{})))
-		*sqe = ioUringSQE{
-			Opcode:   ioringOpStatx,
-			Fd:       int32(dirfd),
-			Off:      uint64(uintptr(unsafe.Pointer(&ring.slots[slot].stx))),
-			Addr:     uint64(uintptr(unsafe.Pointer(&ring.slots[slot].name[0]))),
-			Len:      statxMask,
-			OpFlags:  statxAtFlags,
-			UserData: uint64(slot),
-		}
-		ring.tail = next
-		return nil
-	}(ring.pending, dirfd); err != nil {
-		return err
+	head := atomic.LoadUint32(ring.sqHead)
+	next := ring.tail + 1
+	if next-head > uint32(len(ring.sqArray)) {
+		return fmt.Errorf("io_uring_get_sqe: %w", unix.EBUSY)
 	}
+	index := ring.tail & ring.sqMask
+	sqeIndex := ring.sqArray[index]
+	sqe := (*ioUringSQE)(unsafe.Add(unsafe.Pointer(&ring.sqes[0]), uintptr(sqeIndex)*unsafe.Sizeof(ioUringSQE{})))
+	*sqe = ioUringSQE{
+		Opcode:   ioringOpStatx,
+		Fd:       int32(dirfd),
+		Off:      uint64(uintptr(unsafe.Pointer(&slot.stx))),
+		Addr:     uint64(uintptr(unsafe.Pointer(&slot.name[0]))),
+		Len:      statxMask,
+		OpFlags:  statxAtFlags,
+		UserData: uint64(ring.pending),
+	}
+	ring.tail = next
 	ring.pending++
 	return nil
 }
@@ -558,42 +547,40 @@ func (ring *uring) queue(dirfd int, name string, result *Result) error {
 func (ring *uring) flush(result *Result) error {
 	pending := ring.pending
 	ring.pending = 0
-	return /* uring.submitAndDrain */ func(want int, result *Result) error {
-		if want == 0 {
-			return nil
-		}
-		var pinner runtime.Pinner
-		for i := 0; i < want; i++ {
-			pinner.Pin(&ring.slots[i].stx)
-			pinner.Pin(&ring.slots[i].name[0])
-		}
-		defer pinner.Unpin()
+	if pending == 0 {
+		return nil
+	}
+	var pinner runtime.Pinner
+	for i := 0; i < pending; i++ {
+		pinner.Pin(&ring.slots[i].stx)
+		pinner.Pin(&ring.slots[i].name[0])
+	}
+	defer pinner.Unpin()
 
-		atomic.StoreUint32(ring.sqTail, ring.tail)
-		submitted := 0
-		for submitted < want {
-			n, err := ring.enter(uint32(want-submitted), 0, 0)
-			if err != nil {
-				if submitted > 0 {
-					if _, derr := ring.drain(submitted, result); derr != nil {
-						err = fmt.Errorf("%w; drain: %w", err, derr)
-					}
+	atomic.StoreUint32(ring.sqTail, ring.tail)
+	submitted := 0
+	for submitted < pending {
+		n, err := ring.enter(uint32(pending-submitted), 0, 0)
+		if err != nil {
+			if submitted > 0 {
+				if _, derr := ring.drain(submitted, result); derr != nil {
+					err = fmt.Errorf("%w; drain: %w", err, derr)
 				}
-				return fmt.Errorf("io_uring_enter: %w", err)
 			}
-			if n == 0 {
-				err = unix.EIO
-				if submitted > 0 {
-					if _, derr := ring.drain(submitted, result); derr != nil {
-						err = fmt.Errorf("%w; drain: %w", err, derr)
-					}
-				}
-				return fmt.Errorf("io_uring_enter: %w", err)
-			}
-			submitted += n
+			return fmt.Errorf("io_uring_enter: %w", err)
 		}
+		if n == 0 {
+			err = unix.EIO
+			if submitted > 0 {
+				if _, derr := ring.drain(submitted, result); derr != nil {
+					err = fmt.Errorf("%w; drain: %w", err, derr)
+				}
+			}
+			return fmt.Errorf("io_uring_enter: %w", err)
+		}
+		submitted += n
+	}
 
-		_, err := ring.drain(want, result)
-		return err
-	}(pending, result)
+	_, err := ring.drain(pending, result)
+	return err
 }
