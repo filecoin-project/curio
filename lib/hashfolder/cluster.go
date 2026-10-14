@@ -450,12 +450,27 @@ func (c *Cluster) WriteLocal(storageID string, pc cid.Cid, r io.Reader) (int64, 
 	return n, nil
 }
 
-// readerSize returns the bytes left in r when r reports them: a file's size
-// from Stat, or Len for in-memory readers.
+// WithSize labels r as holding n bytes, so WriteLocal and PutRemote can
+// replace a shorter partial copy of the piece.
+func WithSize(r io.Reader, n int64) io.Reader {
+	return sizedReader{Reader: r, n: n}
+}
+
+type sizedReader struct {
+	io.Reader
+	n int64
+}
+
+func (r sizedReader) Size() int64 { return r.n }
+
+// readerSize returns the bytes left in r when r reports them: Len for
+// in-memory readers, the WithSize label, or a file's size from Stat.
 func readerSize(r io.Reader) (int64, bool) {
 	switch v := r.(type) {
 	case interface{ Len() int }:
 		return int64(v.Len()), true
+	case sizedReader:
+		return v.n, true
 	case interface{ Stat() (os.FileInfo, error) }:
 		info, err := v.Stat()
 		if err != nil || !info.Mode().IsRegular() {
@@ -629,6 +644,8 @@ func (c *Cluster) deleteOn(ctx context.Context, storageID string, pc cid.Cid) er
 // PutRemote streams r to the node that holds storageID. That node writes the
 // file locally, publishes its usage, and maybe starts a rebalance. The body
 // is not buffered. A client with no storage auth does not send the request.
+// When r's length is known it is sent as Content-Length, and that node
+// replaces a shorter copy of the piece.
 func (c *Cluster) PutRemote(ctx context.Context, storageID string, pc cid.Cid, r io.Reader) (int64, bool, error) {
 	if len(c.auth) == 0 {
 		return 0, false, xerrors.Errorf("putting %s on %s: hash space client has no storage auth", pc, storageID)
@@ -643,7 +660,11 @@ func (c *Cluster) PutRemote(ctx context.Context, storageID string, pc cid.Cid, r
 		if err != nil {
 			return err
 		}
-		return c.remoteHash(ctx, method, storageID, DIR_OPEN, hexHash, body, nil, func(r *http.Response) (bool, error) {
+		var prep func(*http.Request)
+		if n, ok := readerSize(body); ok {
+			prep = func(req *http.Request) { req.ContentLength = n }
+		}
+		return c.remoteHash(ctx, method, storageID, DIR_OPEN, hexHash, body, prep, func(r *http.Response) (bool, error) {
 			err := handle(r)
 			return false, err
 		})

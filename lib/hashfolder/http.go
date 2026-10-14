@@ -147,11 +147,25 @@ func (c *Cluster) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/octet-stream")
 		http.ServeContent(w, r, "", info.ModTime(), f)
 	case http.MethodPut:
-		n, existed, err := /* putHash */ func(sp *Space, root, hexHash string, r io.Reader) (int64, bool, error) {
+		// putHash streams r into the piece file. With a known length, an
+		// existing shorter file is a partial copy and is replaced. Otherwise
+		// an existing file is left in place and its size returned with existed set.
+		n, existed, err := /* putHash */ func(sp *Space, root, hexHash string, r io.Reader, size int64) (int64, bool, error) {
 			if r == nil {
 				r = bytes.NewReader(nil)
 			}
-			w, err := sp.WriteHashOn(root, hexHash)
+			var w io.WriteCloser
+			var err error
+			if size >= 0 {
+				var existing int64
+				w, existing, err = sp.ReplaceShorterHashOn(root, hexHash, size)
+				if err == nil && w == nil {
+					_, _ = io.Copy(io.Discard, r)
+					return existing, true, nil
+				}
+			} else {
+				w, err = sp.WriteHashOn(root, hexHash)
+			}
 			if err != nil {
 				if errors.Is(err, os.ErrExist) {
 					// The client is already streaming. Drain it so the 204 can be
@@ -177,7 +191,7 @@ func (c *Cluster) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return 0, false, err
 			}
 			return n, false, nil
-		}(sp, root, hexHash, r.Body)
+		}(sp, root, hexHash, r.Body, r.ContentLength)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -202,9 +216,6 @@ func (c *Cluster) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
 }
-
-// putHash streams r into the piece file. An existing file is left in place
-// and its size returned with existed set.
 
 func hashSize(sp *Space, root, hexHash string) (int64, error) {
 	f, err := sp.openHashOn(root, hexHash)

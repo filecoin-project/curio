@@ -120,7 +120,7 @@ func Place(ctx context.Context, db *harmonydb.DB, hs *hashfolder.Cluster, local 
 						return 0, "", false, xerrors.Errorf("opening piece-park copy of %s: %w", pc, err)
 					}
 					defer func() { _ = r.Close() }()
-					size, existed, err := hs.PutRemote(ctx, target, pc, r)
+					size, existed, err := hs.PutRemote(ctx, target, pc, hashfolder.WithSize(r, pp.RawSize))
 					if err != nil {
 						return 0, "", false, err
 					}
@@ -129,8 +129,12 @@ func Place(ctx context.Context, db *harmonydb.DB, hs *hashfolder.Cluster, local 
 
 				if size, ok, err := hs.StatLocal(target, pc); err != nil {
 					return 0, "", false, err
-				} else if ok {
+				} else if ok && size >= pp.RawSize {
 					return size, "", true, nil
+				} else if ok {
+					if err := hs.DropLocal(target, pc); err != nil {
+						return 0, "", false, xerrors.Errorf("dropping partial copy of %s: %w", pc, err)
+					}
 				}
 
 				if pp.RefCount == 1 {
@@ -153,7 +157,7 @@ func Place(ctx context.Context, db *harmonydb.DB, hs *hashfolder.Cluster, local 
 					return 0, "", false, xerrors.Errorf("opening piece-park copy of %s: %w", pc, err)
 				}
 				defer func() { _ = r.Close() }()
-				size, err := hs.WriteLocal(target, pc, r)
+				size, err := hs.WriteLocal(target, pc, hashfolder.WithSize(r, pp.RawSize))
 				if err != nil {
 					return 0, "", false, err
 				}
