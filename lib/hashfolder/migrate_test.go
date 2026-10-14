@@ -223,3 +223,92 @@ func TestMigratePieceParkRenamesSoleRefs(t *testing.T) {
 	_, err = os.Stat(dst)
 	require.NoError(t, err)
 }
+
+func hasLayouts(t *testing.T, root string) bool {
+	t.Helper()
+	ok, err := hasBothLayouts(root)
+	require.NoError(t, err)
+	return ok
+}
+
+func TestDropUnusableLayouts(t *testing.T) {
+	setup := func(t *testing.T) (string, string, []LocalDrive) {
+		a, b := t.TempDir(), t.TempDir()
+		_, err := FirstSetup([]Drive{{StorageID: "a", Root: a, Capacity: 1000}, {StorageID: "b", Root: b, Capacity: 1000}})
+		require.NoError(t, err)
+		return a, b, []LocalDrive{{StorageID: "a", Root: a}, {StorageID: "b", Root: b}}
+	}
+	t.Run("complete setup is kept", func(t *testing.T) {
+		a, b, drives := setup(t)
+		require.NoError(t, dropUnusableLayouts(drives, true))
+		require.True(t, hasLayouts(t, a))
+		require.True(t, hasLayouts(t, b))
+	})
+
+	t.Run("interrupted setup", func(t *testing.T) {
+		a, b, drives := setup(t)
+		require.NoError(t, removeLayouts(b))
+		// With ranges in the map, a's layouts are the cluster's to fix.
+		require.NoError(t, dropUnusableLayouts(drives, false))
+		require.True(t, hasLayouts(t, a))
+		require.NoError(t, dropUnusableLayouts(drives, true))
+		require.False(t, hasLayouts(t, a))
+	})
+
+	t.Run("single layout", func(t *testing.T) {
+		a, b, drives := setup(t)
+		require.NoError(t, os.Remove(layoutPath(a, DIR_ACL)))
+		require.NoError(t, dropUnusableLayouts(drives, false))
+		require.False(t, hasLayouts(t, a))
+		require.True(t, hasLayouts(t, b))
+	})
+
+	t.Run("truncated layout", func(t *testing.T) {
+		a, b, drives := setup(t)
+		require.NoError(t, os.WriteFile(layoutPath(a, DIR_OPEN), []byte(`{"Version":`), 0o644))
+		require.NoError(t, dropUnusableLayouts(drives, false))
+		require.False(t, hasLayouts(t, a))
+		require.True(t, hasLayouts(t, b))
+	})
+
+	t.Run("half rewritten claim", func(t *testing.T) {
+		a, b, drives := setup(t)
+		layout, err := readLayout(layoutPath(a, DIR_OPEN))
+		require.NoError(t, err)
+		writeClaim(t, a, 500)
+		require.NoError(t, writeLayout(a, DIR_OPEN, layout))
+		require.NoError(t, dropUnusableLayouts(drives, false))
+		require.False(t, hasLayouts(t, a))
+		require.True(t, hasLayouts(t, b))
+	})
+
+	t.Run("claims are kept", func(t *testing.T) {
+		a, b := t.TempDir(), t.TempDir()
+		writeClaim(t, a, 100)
+		require.NoError(t, dropUnusableLayouts([]LocalDrive{{StorageID: "a", Root: a}, {StorageID: "b", Root: b}}, true))
+		ok, err := isClaim(a)
+		require.NoError(t, err)
+		require.True(t, ok)
+	})
+}
+
+func TestFirstSetupAfterLostLayouts(t *testing.T) {
+	a, b := t.TempDir(), t.TempDir()
+	_, err := FirstSetup([]Drive{{StorageID: "a", Root: a, Capacity: 100_000}, {StorageID: "b", Root: b, Capacity: 100_000}})
+	require.NoError(t, err)
+	require.NoError(t, removeLayouts(b))
+	require.NoError(t, dropUnusableLayouts([]LocalDrive{{StorageID: "a", Root: a}, {StorageID: "b", Root: b}}, true))
+	// migratePiecePark claims a drive that holds pieces; a holds 300 bytes.
+	writeClaim(t, a, 300)
+
+	st, err := FirstSetup([]Drive{{StorageID: "a", Root: a, Capacity: 100_000}, {StorageID: "b", Root: b, Capacity: 100_000}})
+	require.NoError(t, err)
+	for _, sp := range st.HashSpaces {
+		require.Len(t, sp, 2)
+	}
+	layout, err := readLayout(layoutPath(a, DIR_OPEN))
+	require.NoError(t, err)
+	require.False(t, layout.Claim)
+	require.Equal(t, int64(300), layout.Used)
+	require.True(t, hasLayouts(t, b))
+}
