@@ -9,8 +9,9 @@ import (
 	"golang.org/x/xerrors"
 )
 
-// Solve plans one event: arrive, fill, vacate, absorb, or balance. The
-// finished assignment keeps every active disk's FreeSpace at or above zero
+// Solve plans one event: empty mount connected, fill, vacate, mount
+// capacity increased, or balance. The finished assignment keeps every
+// active disk's FreeSpace at or above zero
 // and at or under MAX_RANGES_PER_DISK ranges per space. Planning is greedy.
 //
 // A space may loop: FF00 - AABB includes AAAA, not BBBB.
@@ -34,7 +35,7 @@ func Solve(state State, event Event) (Result, error) {
 	}
 
 	switch event.Kind {
-	case EventArrive, EventAbsorb:
+	case EventEmptyMountConnected, EventMountCapacityIncreased:
 		if err := w.repair(); err != nil {
 			return Result{}, err
 		}
@@ -632,8 +633,9 @@ type candidate struct {
 
 // repair moves ranges off active disks that exceed MAX_RANGES_PER_DISK
 // until each is within the cap. It returns an error when a pass cannot
-// lower a count. Call it before handling an arrive or a full disk, and
-// again before the end check. Frozen disks are left alone.
+// lower a count. Call it before handling an empty mount connecting, a
+// mount capacity increase, or a full disk, and again before the end
+// check. Frozen disks are left alone.
 func (w *world) repair() error {
 	totalRanges := 0
 	for _, sp := range w.hashSpaces {

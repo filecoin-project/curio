@@ -1,6 +1,7 @@
-// Package hashspacesolver plans how hash ranges move when a disk arrives,
-// fills, absorbs overflow, balances, or must leave. Solve handles one
-// Event. A returned plan is a success: it meets the rules below, and it
+// Package hashspacesolver plans how hash ranges move when an empty mount
+// connects, a disk fills, a mount's capacity increases, the cluster
+// balances, or a disk must leave. Solve handles one Event. A returned
+// plan is a success: it meets the rules below, and it
 // meets each event's goal as far as a legal cut allows. Planning is
 // greedy. It prefers less data moved, then fewer fragments, and does not
 // search for a globally smallest move.
@@ -28,9 +29,10 @@
 // capacity out of the room the other disks have. Shedding from a frozen
 // disk is an error.
 //
-// An arrive or fill cut stays within the receiver's room under
-// REBALANCE_TARGET_PERCENT. A steal is no larger than the source's excess
-// over that target. Vacate, range repair, and freeing a fragment slot may
+// An EmptyMountConnected, MountCapacityIncreased, or fill cut stays within
+// the receiver's room under REBALANCE_TARGET_PERCENT. A steal is no larger
+// than the source's excess over that target. Vacate, range repair, and
+// freeing a fragment slot may
 // fill a receiver until its free space is zero.
 //
 // Result.Diff names each moved byte once, from the disk that owned it at
@@ -39,7 +41,8 @@
 //
 // # Goals
 //
-// Arrive steals onto the new disk from disks above FILL_LIMIT_PERCENT,
+// EmptyMountConnected steals onto the new disk from disks above
+// FILL_LIMIT_PERCENT,
 // stopping when the new disk is at the rebalance target or no legal cut
 // remains. Disks may stay above the fill line. The new disk need not reach
 // the target.
@@ -53,7 +56,8 @@
 // Remaining ranges are placed largest first. Not enough capacity on the
 // other disks, or a range that cannot be placed, fails the event.
 //
-// Absorb steals the same way arrive does, onto the named disk.
+// MountCapacityIncreased steals the same way EmptyMountConnected does,
+// onto the named disk.
 //
 // Balance moves half the widest fill-percentage gap onto the emptier disk
 // when that gap is at least SPREAD_POINTS. A smaller gap moves nothing.
@@ -65,8 +69,9 @@
 // already on the destination absorbs, so that disk's range count stays the
 // same or drops. Any other cut opens a fragment.
 //
-// Arrive tries absorbing cuts first, and opens a fragment only when no
-// absorbing cut remains. Among the cuts that fit, it prefers a larger cut,
+// EmptyMountConnected and MountCapacityIncreased try absorbing cuts
+// first, and open a fragment only when no absorbing cut remains. Among
+// the cuts that fit, it prefers a larger cut,
 // then more excess on the source, then a smaller range-count change, then
 // the lower space, range, and cut kind.
 //

@@ -54,26 +54,29 @@ type State struct {
 type EventKind int
 
 const (
-	// EventArrive uses a newly added disk to take overflow off other disks.
+	// EventEmptyMountConnected uses a newly added disk to take overflow off
+	// other disks.
 	// Steals grow an existing dest range when possible; a new fragment is
 	// opened only while dest is under MAX_RANGES_PER_DISK.
-	EventArrive EventKind = iota + 1
+	EventEmptyMountConnected EventKind = iota + 1
 	// EventFull sheds from a disk that is above FILL_LIMIT_PERCENT of its
 	// capacity, down to REBALANCE_TARGET_PERCENT.
 	EventFull
 	// EventVacate empties a disk so it can leave the cluster.
 	EventVacate
-	// EventAbsorb moves overflow onto a disk that gained capacity. Bytes move
-	// only from disks above FILL_LIMIT_PERCENT, and only until the destination
+	// EventMountCapacityIncreased moves overflow onto a disk that gained
+	// capacity. Bytes move only from disks above FILL_LIMIT_PERCENT, and
+	// only until the destination
 	// is at REBALANCE_TARGET_PERCENT or no legal cut remains.
-	EventAbsorb
+	EventMountCapacityIncreased
 	// EventBalance moves half the fill-percentage gap from a fuller disk
 	// onto a disk at least SPREAD_POINTS behind it.
 	EventBalance
 )
 
-// Event asks the solver to react to the mountpoint StorageID arriving,
-// filling, vacating, or absorbing. EventBalance ignores StorageID.
+// Event asks the solver to react to the mountpoint StorageID connecting
+// empty, filling, vacating, or gaining capacity. EventBalance ignores
+// StorageID.
 type Event struct {
 	Kind      EventKind
 	StorageID string
