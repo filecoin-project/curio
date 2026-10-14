@@ -100,7 +100,7 @@ func FirstSetup(drives []Drive) (hashspacesolver.State, error) {
 		}(seedCaps) {
 			return hashspacesolver.State{}, errNoPieceDrive
 		}
-		st, err := /* seedState */ func(caps, seedCaps []int64) (hashspacesolver.State, error) {
+		st, err := /* seedState */ func(seedCaps []int64) (hashspacesolver.State, error) {
 			open, err := seedSpace(drives, seedCaps)
 			if err != nil {
 				return hashspacesolver.State{}, err
@@ -109,8 +109,12 @@ func FirstSetup(drives []Drive) (hashspacesolver.State, error) {
 			if err != nil {
 				return hashspacesolver.State{}, err
 			}
+			mounts, err := mountPoints(drives)
+			if err != nil {
+				return hashspacesolver.State{}, err
+			}
 			st := hashspacesolver.State{
-				MountPoints: mountPoints(drives, caps),
+				MountPoints: mounts,
 				HashSpaces:  [2][]hashspacesolver.Range{open, acl},
 			}
 			st, err = hashspacesolver.Apply(st, nil)
@@ -121,7 +125,7 @@ func FirstSetup(drives []Drive) (hashspacesolver.State, error) {
 				return hashspacesolver.State{}, err
 			}
 			return st, nil
-		}(caps, seedCaps)
+		}(seedCaps)
 		if err != nil {
 			return hashspacesolver.State{}, err
 		}
@@ -130,20 +134,20 @@ func FirstSetup(drives []Drive) (hashspacesolver.State, error) {
 		}
 		return st, nil
 	case nBoth == len(drives):
-		return /* loadState */ func(drives []Drive, caps []int64) (hashspacesolver.State, error) {
+		return /* loadState */ func(drives []Drive) (hashspacesolver.State, error) {
 			perSpace, _, err := readOwned(drives, nil)
 			if err != nil {
 				return hashspacesolver.State{}, err
 			}
-			return stateFromOwned(drives, caps, perSpace)
-		}(drives, caps)
+			return stateFromOwned(drives, perSpace)
+		}(drives)
 	default:
-		return /* arriveNew */ func(drives []Drive, caps []int64, hasLayout []bool) (hashspacesolver.State, error) {
+		return /* arriveNew */ func(drives []Drive, hasLayout []bool) (hashspacesolver.State, error) {
 			perSpace, used, err := readOwned(drives, hasLayout)
 			if err != nil {
 				return hashspacesolver.State{}, err
 			}
-			st, err := stateFromOwned(drives, caps, perSpace)
+			st, err := stateFromOwned(drives, perSpace)
 			if err != nil {
 				return hashspacesolver.State{}, err
 			}
@@ -171,7 +175,7 @@ func FirstSetup(drives []Drive) (hashspacesolver.State, error) {
 				return hashspacesolver.State{}, err
 			}
 			return st, nil
-		}(drives, caps, both)
+		}(drives, both)
 	}
 }
 
@@ -211,6 +215,45 @@ func capacityOf(d Drive) (int64, error) {
 	return fsCap, nil
 }
 
+// effectiveCapacity is the capacity the solver may use on d. It is the
+// filesystem's free space plus the hash-space bytes already stored there,
+// and never more than the configured capacity. Other files on the mount are
+// immovable, so they only reduce the free space.
+func effectiveCapacity(d Drive, hashUsed int64) (int64, error) {
+	limit, err := capacityOf(d)
+	if err != nil {
+		return 0, err
+	}
+	free, err := filesystemFree(d.Root)
+	if err != nil {
+		return 0, err
+	}
+	if hashUsed < 0 {
+		hashUsed = 0
+	}
+	if free < 0 {
+		free = 0
+	}
+	if hashUsed > math.MaxInt64-free || hashUsed+free >= limit {
+		return limit, nil
+	}
+	return hashUsed + free, nil
+}
+
+// solverFree is the FreeSpace handed to the solver. The solver adds the
+// hash-space bytes already on the mount, which brings its capacity back to
+// effectiveCapacity.
+func solverFree(d Drive, hashUsed int64) (int64, error) {
+	budget, err := effectiveCapacity(d, hashUsed)
+	if err != nil {
+		return 0, err
+	}
+	if hashUsed >= budget {
+		return 0, nil
+	}
+	return budget - hashUsed, nil
+}
+
 // deniesPiecePark reports whether sectorstore.json refuses piece-park files.
 // A missing file accepts them.
 func deniesPiecePark(root string) (bool, error) {
@@ -242,12 +285,16 @@ func fileExists(path string) (bool, error) {
 	return false, err
 }
 
-func mountPoints(drives []Drive, caps []int64) []hashspacesolver.MountPoint {
+func mountPoints(drives []Drive) ([]hashspacesolver.MountPoint, error) {
 	out := make([]hashspacesolver.MountPoint, len(drives))
 	for i, d := range drives {
-		out[i] = hashspacesolver.MountPoint{FreeSpace: caps[i], StorageID: d.StorageID}
+		free, err := solverFree(d, 0)
+		if err != nil {
+			return nil, err
+		}
+		out[i] = hashspacesolver.MountPoint{FreeSpace: free, StorageID: d.StorageID}
 	}
-	return out
+	return out, nil
 }
 
 // seedSpace cuts one range per drive with positive capacity, sized by that
@@ -383,8 +430,12 @@ func accountedLayout(root, kind string) (Layout, int64, error) {
 	return layout, d.tracker.Used(), nil
 }
 
-func stateFromOwned(drives []Drive, caps []int64, perSpace [][]ownedRange) (hashspacesolver.State, error) {
-	st := hashspacesolver.State{MountPoints: mountPoints(drives, caps)}
+func stateFromOwned(drives []Drive, perSpace [][]ownedRange) (hashspacesolver.State, error) {
+	mounts, err := mountPoints(drives)
+	if err != nil {
+		return hashspacesolver.State{}, err
+	}
+	st := hashspacesolver.State{MountPoints: mounts}
 	for s, rs := range perSpace {
 		/* sortOwned */ func(rs []ownedRange) {
 			for i := 1; i < len(rs); i++ {
@@ -406,22 +457,23 @@ func stateFromOwned(drives []Drive, caps []int64, perSpace [][]ownedRange) (hash
 		}
 		st.HashSpaces[s] = ranges
 	}
-	// FreeSpace is the drive capacity minus the bytes already in its ranges,
-	// so the solver's capacity stays the drive size.
-	for i := range st.MountPoints {
+	// FreeSpace is the filesystem's free space, capped so that free space plus
+	// the hash-space bytes on this mount is the solver capacity. Other files
+	// on the mount stay outside that capacity.
+	for i, d := range drives {
 		var used int64
 		for _, rs := range st.HashSpaces {
 			for _, r := range rs {
-				if r.StorageID == st.MountPoints[i].StorageID {
+				if r.StorageID == d.StorageID {
 					used += r.Size
 				}
 			}
 		}
-		if used > st.MountPoints[i].FreeSpace {
-			st.MountPoints[i].FreeSpace = 0
-			continue
+		free, err := solverFree(d, used)
+		if err != nil {
+			return hashspacesolver.State{}, err
 		}
-		st.MountPoints[i].FreeSpace -= used
+		st.MountPoints[i].FreeSpace = free
 	}
 	if err := hashspacesolver.Validate(st); err != nil {
 		return hashspacesolver.State{}, err
