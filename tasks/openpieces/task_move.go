@@ -47,7 +47,7 @@ func (t *MoveTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned
 	if len(moves) == 0 {
 		return true, nil
 	}
-	// Refresh rewrites layout.json from the map, including this move, before
+	// Refresh rewrites the layout from the map, including this move, before
 	// any bytes are copied.
 	if err := t.hs.Refresh(ctx); err != nil {
 		return false, xerrors.Errorf("refreshing hash space map: %w", err)
