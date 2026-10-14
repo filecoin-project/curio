@@ -106,8 +106,8 @@ type moveSourceRow struct {
 	Size        int64  `db:"size"`
 }
 
-// NewCluster joins drives into the cluster map, writes their layout.json
-// from it, and loads the local open-pieces space. auth is sent on requests
+// NewCluster joins drives into the cluster map, writes their layouts from
+// it, and loads the local open-pieces space. auth is sent on requests
 // to other nodes' /hashspace routes.
 func NewCluster(ctx context.Context, db *harmonydb.DB, drives []LocalDrive, auth http.Header) (*Cluster, error) {
 	c := &Cluster{
@@ -680,7 +680,7 @@ func (c *Cluster) Refresh(ctx context.Context) error {
 func diskHashUsed(root string) (int64, error) {
 	var n int64
 	for _, kind := range spaceKinds {
-		ok, err := fileExists(filepath.Join(root, kind, layoutFile))
+		ok, err := layoutExists(root, kind)
 		if err != nil {
 			return 0, err
 		}
