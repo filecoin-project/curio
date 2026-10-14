@@ -424,20 +424,37 @@ func (c *Cluster) AdoptLocal(storageID string, pc cid.Cid, src string) (int64, e
 	return c.open.AdoptFileOn(root, pc, src)
 }
 
-// WriteLocal copies r into open-pieces on a local disk. An existing file is
-// kept and its size returned.
+// WriteLocal copies r into open-pieces on a local disk. When r's length is
+// known, an existing file shorter than it is a partial copy and is replaced.
+// Otherwise an existing file is kept and its size returned.
 func (c *Cluster) WriteLocal(storageID string, pc cid.Cid, r io.Reader) (int64, error) {
 	root, err := c.rootOf(storageID)
 	if err != nil {
 		return 0, err
 	}
-	w, err := c.open.WriteCIDOn(root, pc)
-	if err != nil {
-		if errors.Is(err, os.ErrExist) {
-			size, _, err := c.StatLocal(storageID, pc)
-			return size, err
+	var w io.WriteCloser
+	if size, ok := readerSize(r); ok {
+		hexHash, _, err := cidHashHex(pc)
+		if err != nil {
+			return 0, err
 		}
-		return 0, err
+		var existing int64
+		w, existing, err = c.open.ReplaceShorterHashOn(root, hexHash, size)
+		if err != nil {
+			return 0, err
+		}
+		if w == nil {
+			return existing, nil
+		}
+	} else {
+		w, err = c.open.WriteCIDOn(root, pc)
+		if err != nil {
+			if errors.Is(err, os.ErrExist) {
+				size, _, err := c.StatLocal(storageID, pc)
+				return size, err
+			}
+			return 0, err
+		}
 	}
 	n, err := io.CopyBuffer(w, r, make([]byte, 8<<20))
 	if err != nil {
@@ -454,6 +471,22 @@ func (c *Cluster) WriteLocal(storageID string, pc cid.Cid, r io.Reader) (int64, 
 		return 0, err
 	}
 	return n, nil
+}
+
+// readerSize returns the bytes left in r when r reports them: a file's size
+// from Stat, or Len for in-memory readers.
+func readerSize(r io.Reader) (int64, bool) {
+	switch v := r.(type) {
+	case interface{ Len() int }:
+		return int64(v.Len()), true
+	case interface{ Stat() (os.FileInfo, error) }:
+		info, err := v.Stat()
+		if err != nil || !info.Mode().IsRegular() {
+			return 0, false
+		}
+		return info.Size(), true
+	}
+	return 0, false
 }
 
 // DropLocal removes the open-pieces file from a local disk. Missing is fine.
@@ -1245,7 +1278,8 @@ func (c *Cluster) PendingCopy(ctx context.Context, m *MoveSource) iter.Seq2[stri
 // then removes the source file. The move row still exists, so a delete during
 // the copy still sees this disk. A source file that disappears during the copy
 // is a delete: the destination copy is removed and the move continues. A
-// destination file already the right size only needs the source removed.
+// destination file at least the source size only needs the source removed.
+// A shorter destination file is a partial copy and is replaced.
 func (c *Cluster) CopyOne(ctx context.Context, m *MoveSource, hexHash string) error {
 	size, ok, err := c.hashSize(ctx, m.FromStorage, m.Space, hexHash)
 	if err != nil {
@@ -1254,21 +1288,12 @@ func (c *Cluster) CopyOne(ctx context.Context, m *MoveSource, hexHash string) er
 	if !ok {
 		return nil
 	}
-	have, err := c.hasHashLocal(m.ToStorage, m.Space, hexHash)
+	destSize, have, err := c.hashSize(ctx, m.ToStorage, m.Space, hexHash)
 	if err != nil {
 		return err
 	}
-	if have {
-		destSize, destOK, err := c.hashSize(ctx, m.ToStorage, m.Space, hexHash)
-		if err != nil {
-			return err
-		}
-		if destOK && destSize == size {
-			return c.deleteHash(ctx, m.FromStorage, m.Space, hexHash)
-		}
-		if err := c.deleteHash(ctx, m.ToStorage, m.Space, hexHash); err != nil {
-			return xerrors.Errorf("dropping short copy of %s: %w", hexHash, err)
-		}
+	if have && destSize >= size {
+		return c.deleteHash(ctx, m.FromStorage, m.Space, hexHash)
 	}
 	src, err := /* Cluster.openHash */ func(ctx context.Context, storageID, kind, hexHash string) (io.ReadCloser, error) {
 		kind, err := parseSpaceKind(kind)
@@ -1309,61 +1334,43 @@ func (c *Cluster) CopyOne(ctx context.Context, m *MoveSource, hexHash string) er
 		}
 		return xerrors.Errorf("opening %s on %s: %w", hexHash, m.FromStorage, err)
 	}
-	n, err := /* Cluster.writeHashLocal */ func(storageID, kind, hexHash string, r io.Reader) (int64, error) {
+	n, kept, err := /* Cluster.writeHashLocal */ func(storageID, kind, hexHash string, r io.Reader) (int64, bool, error) {
 		kind, err := parseSpaceKind(kind)
 		if err != nil {
-			return 0, err
+			return 0, false, err
 		}
 		sp := c.space(kind)
 		if sp == nil {
-			return 0, xerrors.Errorf("hash space %s is not loaded", kind)
+			return 0, false, xerrors.Errorf("hash space %s is not loaded", kind)
 		}
 		root, err := c.rootOf(storageID)
 		if err != nil {
-			return 0, err
+			return 0, false, err
 		}
-		w, err := sp.WriteHashOn(root, hexHash)
+		w, existing, err := sp.ReplaceShorterHashOn(root, hexHash, size)
 		if err != nil {
-			if errors.Is(err, os.ErrExist) {
-				ok, serr := c.hasHashLocal(storageID, kind, hexHash)
-				if serr != nil {
-					return 0, serr
-				}
-				if !ok {
-					return 0, os.ErrNotExist
-				}
-				path, serr := sp.hashPathOn(root, hexHash)
-				if serr != nil {
-					return 0, serr
-				}
-				info, serr := os.Stat(path)
-				if serr != nil {
-					return 0, serr
-				}
-				return info.Size(), nil
-			}
-			return 0, err
+			return 0, false, err
+		}
+		if w == nil {
+			return existing, true, nil
 		}
 		n, err := io.CopyBuffer(w, r, make([]byte, 8<<20))
 		if err != nil {
 			if a, ok := w.(interface{ Abort() error }); ok {
 				_ = a.Abort()
 			}
-			return 0, xerrors.Errorf("copying %s into %s: %w", hexHash, kind, err)
+			return 0, false, xerrors.Errorf("copying %s into %s: %w", hexHash, kind, err)
 		}
 		if err := w.Close(); err != nil {
-			if errors.Is(err, os.ErrExist) {
-				return n, nil
-			}
-			return 0, err
+			return 0, false, err
 		}
-		return n, nil
+		return n, false, nil
 	}(m.ToStorage, m.Space, hexHash, src)
 	_ = src.Close()
 	if err != nil {
 		return err
 	}
-	if n != size {
+	if !kept && n != size {
 		if derr := c.deleteHash(ctx, m.ToStorage, m.Space, hexHash); derr != nil {
 			return xerrors.Errorf("dropping short copy of %s (%d bytes, source %d): %w", hexHash, n, size, derr)
 		}

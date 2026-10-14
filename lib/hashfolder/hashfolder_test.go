@@ -84,6 +84,40 @@ func TestWriteLeavesOnlyHashFiles(t *testing.T) {
 	}
 }
 
+func TestReplaceShorterHashOn(t *testing.T) {
+	root, sp := loadOne(t, 1<<30)
+	c := mustPiece(t, 0x35)
+	hexHash := mustHashHex(t, c)
+	commit(t, sp, c, []byte("abc"))
+	require.Equal(t, int64(3), sp.Used())
+
+	w, existing, err := sp.ReplaceShorterHashOn(root, hexHash, 5)
+	require.NoError(t, err)
+	require.NotNil(t, w)
+	require.Zero(t, existing)
+	require.Zero(t, sp.Used())
+	_, _, err = sp.ReplaceShorterHashOn(root, hexHash, 5)
+	require.ErrorIs(t, err, errWriteInProgress)
+	_, ok, err := sp.StatCIDOn(root, c)
+	require.NoError(t, err)
+	require.False(t, ok)
+	_, err = sp.ReadCIDFileFrom(c)
+	require.ErrorIs(t, err, os.ErrNotExist)
+	require.ErrorIs(t, sp.DeleteCID(c), os.ErrNotExist)
+	_, err = w.Write([]byte("abcde"))
+	require.NoError(t, err)
+	require.NoError(t, w.Close())
+	require.Equal(t, int64(5), sp.Used())
+
+	for _, size := range []int64{5, 4} {
+		w, existing, err = sp.ReplaceShorterHashOn(root, hexHash, size)
+		require.NoError(t, err)
+		require.Nil(t, w)
+		require.Equal(t, int64(5), existing)
+	}
+	require.Equal(t, int64(5), sp.Used())
+}
+
 func TestLoadMovesLegacyLayoutAndDropsTemps(t *testing.T) {
 	root := t.TempDir()
 	full := strings.Repeat("0", HASH_BYTES*2)

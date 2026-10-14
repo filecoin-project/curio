@@ -18,12 +18,18 @@ import (
 
 // Space is one hash namespace across local storage roots.
 type Space struct {
-	kind   string
-	disks  []*disk
-	mu     sync.Mutex
-	cancel context.CancelFunc
-	wg     sync.WaitGroup
+	kind  string
+	disks []*disk
+	mu    sync.Mutex
+	// writing holds piece paths with an open writer. Guarded by mu. Those
+	// files are partial and not yet counted, so lookups treat them as absent.
+	writing map[string]struct{}
+	cancel  context.CancelFunc
+	wg      sync.WaitGroup
 }
+
+// errWriteInProgress reports that another writer has the piece file open.
+var errWriteInProgress = xerrors.New("piece write in progress")
 
 type disk struct {
 	root        string
@@ -47,7 +53,7 @@ func Load(kind string, roots []string) (*Space, error) {
 	if len(roots) == 0 {
 		return nil, xerrors.Errorf("no storage roots")
 	}
-	s := &Space{kind: kind, disks: make([]*disk, 0, len(roots))}
+	s := &Space{kind: kind, disks: make([]*disk, 0, len(roots)), writing: map[string]struct{}{}}
 	seen := make(map[string]struct{}, len(roots))
 	for _, root := range roots {
 		if root == "" {
@@ -197,6 +203,15 @@ func (s *Space) writeOn(disk *disk, hexHash string) (io.WriteCloser, error) {
 	if err := os.MkdirAll(filepath.Dir(final), 0o755); err != nil {
 		return nil, xerrors.Errorf("creating shard for %s: %w", hexHash, err)
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.createLocked(disk, final)
+}
+
+// createLocked opens final exclusively and records it as being written.
+// s.mu must be held and final's shard directory must exist. An existing
+// file returns os.ErrExist.
+func (s *Space) createLocked(disk *disk, final string) (io.WriteCloser, error) {
 	f, err := os.OpenFile(final, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 	if err != nil {
 		if os.IsExist(err) {
@@ -204,7 +219,61 @@ func (s *Space) writeOn(disk *disk, hexHash string) (io.WriteCloser, error) {
 		}
 		return nil, err
 	}
+	s.writing[final] = struct{}{}
 	return &cidWriter{space: s, disk: disk, f: f, path: final}, nil
+}
+
+// ReplaceShorterHashOn opens a writer for hexHash on root when the piece
+// file is missing or shorter than size. A shorter file is a partial copy:
+// it is deleted and its bytes leave the counter. A file at least size bytes
+// long stays, and its size is returned with a nil writer. A file another
+// writer has open returns errWriteInProgress.
+func (s *Space) ReplaceShorterHashOn(root, hexHash string, size int64) (io.WriteCloser, int64, error) {
+	d, err := s.diskOn(root)
+	if err != nil {
+		return nil, 0, err
+	}
+	final, err := piecePath(d.root, s.kind, hexHash)
+	if err != nil {
+		return nil, 0, err
+	}
+	if err := os.MkdirAll(filepath.Dir(final), 0o755); err != nil {
+		return nil, 0, xerrors.Errorf("creating shard for %s: %w", hexHash, err)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.writing[final]; ok {
+		return nil, 0, errWriteInProgress
+	}
+	info, err := os.Stat(final)
+	switch {
+	case err == nil:
+		if !info.Mode().IsRegular() {
+			return nil, 0, xerrors.Errorf("%s is not a regular file", final)
+		}
+		if info.Size() >= size {
+			return nil, info.Size(), nil
+		}
+		if err := os.Remove(final); err != nil && !os.IsNotExist(err) {
+			return nil, 0, err
+		}
+		d.tracker.Sub(info.Size())
+	case !os.IsNotExist(err):
+		return nil, 0, err
+	}
+	w, err := s.createLocked(d, final)
+	if err != nil {
+		return nil, 0, err
+	}
+	return w, 0, nil
+}
+
+// isWriting reports whether path has an open writer.
+func (s *Space) isWriting(path string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, ok := s.writing[path]
+	return ok
 }
 
 // DeleteCID removes the CID file and subtracts its size. A missing file
@@ -220,7 +289,7 @@ func (s *Space) DeleteCID(c cid.Cid) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	err = removePiece(owner, s.kind, hexHash)
+	err = s.removePieceLocked(owner, hexHash)
 	if err == nil || !os.IsNotExist(err) {
 		return err
 	}
@@ -228,7 +297,7 @@ func (s *Space) DeleteCID(c cid.Cid) error {
 		if d == owner {
 			continue
 		}
-		err = removePiece(d, s.kind, hexHash)
+		err = s.removePieceLocked(d, hexHash)
 		if os.IsNotExist(err) {
 			continue
 		}
@@ -237,10 +306,15 @@ func (s *Space) DeleteCID(c cid.Cid) error {
 	return os.ErrNotExist
 }
 
-func removePiece(d *disk, kind, hexHash string) error {
-	path, err := piecePath(d.root, kind, hexHash)
+// removePieceLocked deletes the piece file on d and subtracts its size.
+// s.mu must be held. A file still being written counts as missing.
+func (s *Space) removePieceLocked(d *disk, hexHash string) error {
+	path, err := piecePath(d.root, s.kind, hexHash)
 	if err != nil {
 		return err
+	}
+	if _, ok := s.writing[path]; ok {
+		return os.ErrNotExist
 	}
 	info, err := os.Stat(path)
 	if err != nil {
@@ -284,6 +358,9 @@ func (s *Space) ReadCIDFileFrom(c cid.Cid) (ReadSeekFile, error) {
 		path, err := piecePath(d.root, s.kind, hexHash)
 		if err != nil {
 			return nil, err
+		}
+		if s.isWriting(path) {
+			continue
 		}
 		f, err := os.Open(path)
 		if err == nil {
@@ -394,6 +471,9 @@ func (s *Space) ReturnFileOn(root string, c cid.Cid, dest string) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if _, ok := s.writing[final]; ok {
+		return os.ErrNotExist
+	}
 	if err := renameNoReplace(final, dest); err != nil {
 		if isCrossDevice(err) {
 			return ErrCrossDevice
@@ -421,7 +501,7 @@ func (s *Space) deleteHashOn(root, hexHash string) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return removePiece(d, s.kind, hexHash)
+	return s.removePieceLocked(d, hexHash)
 }
 
 // OpenCIDOn opens the CID file on root only.
@@ -444,6 +524,9 @@ func (s *Space) StatCIDOn(root string, c cid.Cid) (int64, bool, error) {
 	if err != nil {
 		return 0, false, err
 	}
+	if s.isWriting(path) {
+		return 0, false, nil
+	}
 	info, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -459,7 +542,7 @@ func (s *Space) openCIDFileOn(root string, c cid.Cid) (*os.File, error) {
 	if err != nil {
 		return nil, err
 	}
-	return os.Open(path)
+	return s.openCommitted(path)
 }
 
 func (s *Space) cidPathOn(root string, c cid.Cid) (string, error) {
@@ -474,6 +557,15 @@ func (s *Space) openHashOn(root, hexHash string) (*os.File, error) {
 	path, err := s.hashPathOn(root, hexHash)
 	if err != nil {
 		return nil, err
+	}
+	return s.openCommitted(path)
+}
+
+// openCommitted opens path unless a writer still has it open, in which case
+// it returns an os.ErrNotExist error.
+func (s *Space) openCommitted(path string) (*os.File, error) {
+	if s.isWriting(path) {
+		return nil, &os.PathError{Op: "open", Path: path, Err: os.ErrNotExist}
 	}
 	return os.Open(path)
 }
@@ -639,19 +731,18 @@ func (w *cidWriter) Close() error {
 		return w.err
 	}
 	w.done = true
-	if err := w.f.Sync(); err != nil {
-		_ = w.f.Close()
-		_ = os.Remove(w.path)
-		w.err = err
-		return err
-	}
-	if err := w.f.Close(); err != nil {
-		_ = os.Remove(w.path)
-		w.err = err
-		return err
+	err := w.f.Sync()
+	if cerr := w.f.Close(); err == nil {
+		err = cerr
 	}
 	w.space.mu.Lock()
 	defer w.space.mu.Unlock()
+	delete(w.space.writing, w.path)
+	if err != nil {
+		_ = os.Remove(w.path)
+		w.err = err
+		return err
+	}
 	w.disk.tracker.Add(w.written)
 	return nil
 }
@@ -665,6 +756,9 @@ func (w *cidWriter) Abort() error {
 	}
 	w.done = true
 	err := w.f.Close()
+	w.space.mu.Lock()
+	defer w.space.mu.Unlock()
+	delete(w.space.writing, w.path)
 	if rmErr := os.Remove(w.path); rmErr != nil && !os.IsNotExist(rmErr) && err == nil {
 		err = rmErr
 	}
