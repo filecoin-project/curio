@@ -1,8 +1,9 @@
-// Package hashspacesolver plans how hash ranges move when one disk arrives,
-// fills, or must leave. Solve handles one Event. A returned plan is a
-// success: it meets the rules below, and it meets each event's goal as far
-// as a legal cut allows. Planning is greedy. It prefers less data moved,
-// then fewer fragments, and does not search for a globally smallest move.
+// Package hashspacesolver plans how hash ranges move when a disk arrives,
+// fills, absorbs overflow, balances, or must leave. Solve handles one
+// Event. A returned plan is a success: it meets the rules below, and it
+// meets each event's goal as far as a legal cut allows. Planning is
+// greedy. It prefers less data moved, then fewer fragments, and does not
+// search for a globally smallest move.
 //
 // A mount's capacity is its FreeSpace plus the hash-space bytes already on
 // it, and that capacity stays fixed for the solve. Both hash spaces share
@@ -18,9 +19,9 @@
 //
 // Every active disk ends with free space at or above zero, and with at most
 // MAX_RANGES_PER_DISK ranges in each space. A cut that would exceed either
-// limit is illegal. Repair runs before an arrive or a fill, and again
-// before Solve returns. A repair that cannot lower an over-cap count fails
-// the event.
+// limit is illegal. Repair runs before every event except vacate, and
+// again before Solve returns. A repair that cannot lower an over-cap
+// count fails the event.
 //
 // A frozen disk accepts nothing. A mount marked Vacating starts frozen.
 // Vacate freezes the named disk for the rest of the plan and leaves its

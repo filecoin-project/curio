@@ -9,15 +9,12 @@ import (
 	"golang.org/x/xerrors"
 )
 
-// Solve computes a minimum-movement target for a disk arriving, filling,
-// vacating, absorbing, or for a balance across the cluster. The resulting
-// assignment keeps every active disk's FreeSpace at
-// or above zero and at or under MAX_RANGES_PER_DISK contiguous ranges per
-// space.
+// Solve plans one event: arrive, fill, vacate, absorb, or balance. The
+// finished assignment keeps every active disk's FreeSpace at or above zero
+// and at or under MAX_RANGES_PER_DISK ranges per space. Planning is greedy.
 //
-// A space may loop:  FF00 - AABB includes AAAA, not BBBB.
-// Cost: Prefer moving the least data. If they're equal, prefer fewer total files moved.
-// Cuts may come from the /public/ or /acl-pieces/ spaces.
+// A space may loop: FF00 - AABB includes AAAA, not BBBB.
+// Cuts may come from either hash space.
 //
 // Result.State is the finished layout. Result.Diff moves each byte at most
 // once, from the disk that owned it at the start to the disk that holds it
