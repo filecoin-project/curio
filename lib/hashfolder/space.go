@@ -38,8 +38,8 @@ type hashInterval struct {
 	end   []byte
 }
 
-// Load reads layout.json for kind on each root, restores used, then adds
-// only files whose mtime is newer than layout.json. kind is DIR_OPEN or DIR_ACL.
+// Load reads kind's layout on each root, restores used, then adds only files
+// whose mtime is newer than the layout. kind is DIR_OPEN or DIR_ACL.
 func Load(kind string, roots []string) (*Space, error) {
 	if kind != DIR_OPEN && kind != DIR_ACL {
 		return nil, xerrors.Errorf("unknown hash space %q", kind)
@@ -58,16 +58,11 @@ func Load(kind string, roots []string) (*Space, error) {
 		}
 		seen[root] = struct{}{}
 		d, err := /* loadDisk */ func(kind, root string) (*disk, error) {
-			removeLayoutTemp(root, kind)
-			path := filepath.Join(root, kind, layoutFile)
-			layout, err := readLayout(path)
+			layout, modTime, err := openLayout(root, kind)
 			if err != nil {
 				return nil, err
 			}
-			info, err := os.Stat(path)
-			if err != nil {
-				return nil, err
-			}
+			path := layoutPath(root, kind)
 			d := &disk{
 				root:    root,
 				tracker: &sizeTracker{},
@@ -80,7 +75,7 @@ func Load(kind string, roots []string) (*Space, error) {
 			if d.moveSources, err = decodeIntervals(layout.MoveSources); err != nil {
 				return nil, xerrors.Errorf("%s move sources: %w", path, err)
 			}
-			if err := d.catchUp(kind, info.ModTime()); err != nil {
+			if err := d.catchUp(kind, modTime); err != nil {
 				return nil, err
 			}
 			return d, nil
@@ -103,7 +98,7 @@ func (s *Space) Used() int64 {
 	return n
 }
 
-// Flush writes each folder's used counter into layout.json.
+// Flush writes each folder's used counter into its layout.
 func (s *Space) Flush() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -129,7 +124,7 @@ func (s *Space) flushLocked() error {
 	return first
 }
 
-// Close stops the periodic flush and writes layout.json once more.
+// Close stops the periodic flush and writes the layout once more.
 func (s *Space) Close() error {
 	if s.cancel != nil {
 		s.cancel()
@@ -160,7 +155,7 @@ func (s *Space) startFlush() {
 // WriteCID opens a new file for a piece CID that is not already stored.
 // The file is written to the root whose ranges contain the CID hash.
 // Close adds the written byte count. A second Close does not add again.
-// Abort drops the temp sibling and leaves the counter unchanged.
+// Abort deletes the partial file and leaves the counter unchanged.
 // If the CID file already exists, WriteCID returns os.ErrExist and does
 // not change the counter.
 func (s *Space) WriteCID(c cid.Cid) (io.WriteCloser, error) {
@@ -199,23 +194,17 @@ func (s *Space) writeOn(disk *disk, hexHash string) (io.WriteCloser, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err := os.Lstat(final); err == nil {
-		return nil, os.ErrExist
-	} else if !os.IsNotExist(err) {
-		return nil, err
-	}
 	if err := os.MkdirAll(filepath.Dir(final), 0o755); err != nil {
 		return nil, xerrors.Errorf("creating shard for %s: %w", hexHash, err)
 	}
-	tmp := filepath.Join(filepath.Dir(final), "."+filepath.Base(final)+".tmp")
-	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	f, err := os.OpenFile(final, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 	if err != nil {
 		if os.IsExist(err) {
 			return nil, os.ErrExist
 		}
 		return nil, err
 	}
-	return &cidWriter{space: s, disk: disk, f: f, tmp: tmp, final: final}, nil
+	return &cidWriter{space: s, disk: disk, f: f, path: final}, nil
 }
 
 // DeleteCID removes the CID file and subtracts its size. A missing file
@@ -516,7 +505,7 @@ func (s *Space) UsedOn(root string) (int64, error) {
 }
 
 // SetIntervalsOn replaces the owned ranges and move sources of root, read at
-// map version, and rewrites its layout.json.
+// map version, and rewrites its layout.
 func (s *Space) SetIntervalsOn(root string, version int64, owned, moveSources []HashRange) error {
 	d, err := s.diskOn(root)
 	if err != nil {
@@ -576,7 +565,7 @@ func (d *disk) catchUp(kind string, cutoff time.Time) error {
 	}
 	for _, e := range entries {
 		name := e.Name()
-		if name == layoutFile || strings.HasPrefix(name, ".") {
+		if strings.HasPrefix(name, ".") {
 			continue
 		}
 		info, err := e.Info()
@@ -626,8 +615,7 @@ type cidWriter struct {
 	space   *Space
 	disk    *disk
 	f       *os.File
-	tmp     string
-	final   string
+	path    string
 	written int64
 	done    bool
 	err     error
@@ -653,27 +641,22 @@ func (w *cidWriter) Close() error {
 	w.done = true
 	if err := w.f.Sync(); err != nil {
 		_ = w.f.Close()
-		_ = os.Remove(w.tmp)
+		_ = os.Remove(w.path)
 		w.err = err
 		return err
 	}
 	if err := w.f.Close(); err != nil {
-		_ = os.Remove(w.tmp)
+		_ = os.Remove(w.path)
 		w.err = err
 		return err
 	}
 	w.space.mu.Lock()
 	defer w.space.mu.Unlock()
-	if err := renameNoReplace(w.tmp, w.final); err != nil {
-		_ = os.Remove(w.tmp)
-		w.err = err
-		return err
-	}
 	w.disk.tracker.Add(w.written)
 	return nil
 }
 
-// Abort deletes the temp sibling and does not change the used counter.
+// Abort deletes the partial CID file and does not change the used counter.
 func (w *cidWriter) Abort() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -682,7 +665,7 @@ func (w *cidWriter) Abort() error {
 	}
 	w.done = true
 	err := w.f.Close()
-	if rmErr := os.Remove(w.tmp); rmErr != nil && !os.IsNotExist(rmErr) && err == nil {
+	if rmErr := os.Remove(w.path); rmErr != nil && !os.IsNotExist(rmErr) && err == nil {
 		err = rmErr
 	}
 	w.err = err

@@ -55,11 +55,65 @@ func TestFlushPersistsUsed(t *testing.T) {
 	commit(t, sp, mustPiece(t, 0x33), body)
 	require.NoError(t, sp.Flush())
 
-	layout, err := readLayout(filepath.Join(root, DIR_OPEN, layoutFile))
+	layout, err := readLayout(layoutPath(root, DIR_OPEN))
 	require.NoError(t, err)
 	require.Equal(t, int64(len(body)), layout.Used)
 	require.Equal(t, SPLIT, layout.Split)
 	require.False(t, layout.CommittedAt.IsZero())
+}
+
+func TestWriteLeavesOnlyHashFiles(t *testing.T) {
+	root, sp := loadOne(t, 1<<30)
+	c := mustPiece(t, 0x34)
+	w, err := sp.WriteCID(c)
+	require.NoError(t, err)
+	_, err = w.Write([]byte("bytes"))
+	require.NoError(t, err)
+	final, err := piecePath(root, DIR_OPEN, mustHashHex(t, c))
+	require.NoError(t, err)
+	shard, err := os.ReadDir(filepath.Dir(final))
+	require.NoError(t, err)
+	require.Len(t, shard, 1)
+	require.Equal(t, filepath.Base(final), shard[0].Name())
+	require.NoError(t, w.Close())
+
+	top, err := os.ReadDir(filepath.Join(root, DIR_OPEN))
+	require.NoError(t, err)
+	for _, e := range top {
+		require.True(t, e.IsDir(), "non-shard entry %s", e.Name())
+	}
+}
+
+func TestLoadMovesLegacyLayoutAndDropsTemps(t *testing.T) {
+	root := t.TempDir()
+	full := strings.Repeat("0", HASH_BYTES*2)
+	require.NoError(t, writeLayout(root, DIR_OPEN, Layout{
+		Used:        5,
+		CommittedAt: time.Now().UTC(),
+		Split:       SPLIT,
+		Ranges:      []HashRange{{Start: full, End: full}},
+	}))
+	require.NoError(t, os.Rename(layoutPath(root, DIR_OPEN), legacyLayoutPath(root, DIR_OPEN)))
+	shard := filepath.Join(root, DIR_OPEN, "ab")
+	require.NoError(t, os.MkdirAll(shard, 0o755))
+	stale := filepath.Join(shard, ".cdef.tmp")
+	require.NoError(t, os.WriteFile(stale, []byte("partial"), 0o644))
+	layoutTemp := filepath.Join(root, DIR_OPEN, "."+legacyLayoutFile+".tmp")
+	require.NoError(t, os.WriteFile(layoutTemp, []byte("{"), 0o644))
+
+	sp := mustLoad(t, DIR_OPEN, root)
+	require.Equal(t, int64(5), sp.Used())
+	for _, p := range []string{stale, layoutTemp} {
+		_, err := os.Stat(p)
+		require.ErrorIs(t, err, os.ErrNotExist, p)
+	}
+
+	require.NoError(t, sp.Flush())
+	_, err := os.Stat(legacyLayoutPath(root, DIR_OPEN))
+	require.ErrorIs(t, err, os.ErrNotExist)
+	layout, err := readLayout(layoutPath(root, DIR_OPEN))
+	require.NoError(t, err)
+	require.Equal(t, int64(5), layout.Used)
 }
 
 func TestFirstSetupSkipsPieceDenied(t *testing.T) {
@@ -76,7 +130,7 @@ func TestFirstSetupSkipsPieceDenied(t *testing.T) {
 		require.Equal(t, "a", sp[0].StorageID)
 	}
 	for _, kind := range []string{DIR_OPEN, DIR_ACL} {
-		layout, err := readLayout(filepath.Join(b, kind, layoutFile))
+		layout, err := readLayout(layoutPath(b, kind))
 		require.NoError(t, err)
 		require.Empty(t, layout.Ranges)
 	}
@@ -210,7 +264,7 @@ func TestFirstSetupSeedsEveryDrive(t *testing.T) {
 
 	for _, root := range []string{a, b} {
 		for _, kind := range []string{DIR_OPEN, DIR_ACL} {
-			layout, err := readLayout(filepath.Join(root, kind, layoutFile))
+			layout, err := readLayout(layoutPath(root, kind))
 			require.NoError(t, err)
 			require.Equal(t, SPLIT, layout.Split)
 			require.Zero(t, layout.Used)
@@ -235,7 +289,7 @@ func TestFirstSetupArriveDoesNotReseed(t *testing.T) {
 	require.Len(t, st.HashSpaces[0], 1)
 	require.Len(t, st.HashSpaces[1], 1)
 
-	fresh, err := readLayout(filepath.Join(second, DIR_OPEN, layoutFile))
+	fresh, err := readLayout(layoutPath(second, DIR_OPEN))
 	require.NoError(t, err)
 	require.Equal(t, SPLIT, fresh.Split)
 	require.Empty(t, fresh.Ranges)
@@ -253,7 +307,7 @@ func TestRestartKeepsUsedAndAddsOnlyNewerFiles(t *testing.T) {
 		Split:       SPLIT,
 		Ranges:      []HashRange{{Start: full, End: full}},
 	}))
-	layoutInfo, err := os.Stat(filepath.Join(space, layoutFile))
+	layoutInfo, err := os.Stat(layoutPath(root, DIR_OPEN))
 	require.NoError(t, err)
 	past := layoutInfo.ModTime().Add(-2 * time.Second)
 	future := layoutInfo.ModTime().Add(2 * time.Second)
@@ -307,7 +361,6 @@ func TestMultiRangeUsesFS2NotFolderUsed(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "de"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "ab", "cdefc"), bytes.Repeat([]byte{'a'}, 42), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "de", "f0123"), bytes.Repeat([]byte{'m'}, 9), 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, layoutFile), bytes.Repeat([]byte{'L'}, 10), 0o644))
 
 	ranges := []HashRange{{Start: "a", End: "b"}, {Start: "c", End: "e"}}
 	sizes, err := sizesForRanges(dir, ranges, 999)

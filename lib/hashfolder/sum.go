@@ -1,11 +1,6 @@
 package hashfolder
 
 import (
-	"os"
-	"path/filepath"
-
-	"golang.org/x/xerrors"
-
 	"github.com/filecoin-project/curio/lib/fs2"
 )
 
@@ -30,6 +25,8 @@ func sizesForRanges(dir string, ranges []HashRange, folderUsed int64) ([]int64, 
 	return out, nil
 }
 
+// sumInterval sums the piece files in dir whose hash lies in (start, end].
+// start == end, both set, is the whole circle.
 func sumInterval(dir, start, end string) (int64, error) {
 	low, high := start, end
 	if start != "" && start == end {
@@ -39,35 +36,5 @@ func sumInterval(dir, start, end string) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	n := res.Bytes
-	if /* stringHashInInterval */ func(hash, low, high string) bool {
-		if low != "" && high != "" && low > high {
-			return hash > low || hash <= high
-		}
-		if low != "" && hash <= low {
-			return false
-		}
-		if high != "" && hash > high {
-			return false
-		}
-		return true
-	}(layoutFile, low, high) {
-		info, statErr := os.Stat(filepath.Join(dir, layoutFile))
-		if statErr != nil && !os.IsNotExist(statErr) {
-			return 0, statErr
-		}
-		if statErr == nil && info.Mode().IsRegular() {
-			if info.Size() < 0 {
-				return 0, xerrors.Errorf("negative layout size in %s", dir)
-			}
-			if n < info.Size() {
-				return 0, xerrors.Errorf("range sum does not cover layout.json in %s", dir)
-			}
-			n -= info.Size()
-		}
-	}
-	if n < 0 {
-		return 0, xerrors.Errorf("range sum overflows")
-	}
-	return n, nil
+	return res.Bytes, nil
 }

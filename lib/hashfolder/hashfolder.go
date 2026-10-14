@@ -1,7 +1,8 @@
 // Package hashfolder stores piece files in two CID-hash namespaces,
 // open-pieces and acl-pieces. Each namespace implements HashSpace.
-// layout.json at each space root records that folder's used bytes, the
-// "2,-" split, and the hash ranges the folder owns.
+// layout-open-pieces.json and layout-acl-pieces.json at each storage root
+// record that folder's used bytes, the "2,-" split, and the hash ranges the
+// folder owns. The space folders hold only hash-named piece files.
 //
 // FirstSetup assigns ranges by presenting every drive to hashspacesolver.
 // WriteCID creates a file only when that CID is not already stored.
@@ -25,7 +26,7 @@ import (
 )
 
 const (
-	// SPLIT is the layout.json split. The first two hex characters of the CID
+	// SPLIT is the layout's folder split. The first two hex characters of the CID
 	// hash are the directory and the rest is the file name: abcdefg is ab/cdefg.
 	SPLIT = "2,-"
 
@@ -36,12 +37,12 @@ const (
 	// HASH_BYTES is the CID hash width used for layout ranges.
 	HASH_BYTES = 32
 
-	// FLUSH_INTERVAL is how often a loaded space rewrites layout.json.
+	// FLUSH_INTERVAL is how often a loaded space rewrites its layout.
 	// It matches the storage heartbeat cadence.
 	FLUSH_INTERVAL = 10 * time.Second
 
-	layoutFile      = "layout.json"
-	sectorStoreFile = "sectorstore.json"
+	legacyLayoutFile = "layout.json"
+	sectorStoreFile  = "sectorstore.json"
 )
 
 // ErrCrossDevice reports that a rename would cross filesystems, so the bytes

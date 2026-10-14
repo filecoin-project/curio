@@ -19,11 +19,11 @@ import (
 // is nothing to seed a hash space onto.
 var errNoPieceDrive = xerrors.New("no drive accepts piece park")
 
-// FirstSetup writes layout.json for both spaces on every drive.
+// FirstSetup writes the layout for both spaces on every drive.
 //
 // With no layouts, it seeds one capacity-weighted range per disk and checks
 // that assignment with hashspacesolver.Validate. A drive added beside
-// existing layouts is presented with EventArrive. Existing layouts are
+// existing layouts is presented with EventEmptyMountConnected. Existing layouts are
 // reloaded rather than seeded again.
 func FirstSetup(drives []Drive) (hashspacesolver.State, error) {
 	if len(drives) == 0 {
@@ -45,11 +45,11 @@ func FirstSetup(drives []Drive) (hashspacesolver.State, error) {
 		}
 		caps[i] = cap
 		hasBoth, hasNeither, err := /* layoutPresence */ func(root string) (hasBoth, hasNeither bool, err error) {
-			openOK, err := fileExists(filepath.Join(root, DIR_OPEN, layoutFile))
+			openOK, err := layoutExists(root, DIR_OPEN)
 			if err != nil {
 				return false, false, err
 			}
-			aclOK, err := fileExists(filepath.Join(root, DIR_ACL, layoutFile))
+			aclOK, err := layoutExists(root, DIR_ACL)
 			if err != nil {
 				return false, false, err
 			}
@@ -163,11 +163,11 @@ func FirstSetup(drives []Drive) (hashspacesolver.State, error) {
 					continue
 				}
 				res, err := hashspacesolver.Solve(st, hashspacesolver.Event{
-					Kind:      hashspacesolver.EventArrive,
+					Kind:      hashspacesolver.EventEmptyMountConnected,
 					StorageID: drives[i].StorageID,
 				})
 				if err != nil {
-					return hashspacesolver.State{}, xerrors.Errorf("arrive %s: %w", drives[i].StorageID, err)
+					return hashspacesolver.State{}, xerrors.Errorf("empty mount %s: %w", drives[i].StorageID, err)
 				}
 				st = res.State
 			}
@@ -372,7 +372,7 @@ type ownedRange struct {
 }
 
 // readOwned loads ranges for drives that already have layouts. hasLayout nil
-// means every drive is present. used includes files newer than layout.json.
+// means every drive is present. used includes files newer than the layout.
 func readOwned(drives []Drive, hasLayout []bool) ([][]ownedRange, [][2]int64, error) {
 	perSpace := make([][]ownedRange, 2)
 	used := make([][2]int64, len(drives))
@@ -412,19 +412,13 @@ func readOwned(drives []Drive, hasLayout []bool) ([][]ownedRange, [][2]int64, er
 }
 
 func accountedLayout(root, kind string) (Layout, int64, error) {
-	removeLayoutTemp(root, kind)
-	path := filepath.Join(root, kind, layoutFile)
-	layout, err := readLayout(path)
-	if err != nil {
-		return Layout{}, 0, err
-	}
-	info, err := os.Stat(path)
+	layout, modTime, err := openLayout(root, kind)
 	if err != nil {
 		return Layout{}, 0, err
 	}
 	d := &disk{root: root, tracker: &sizeTracker{}}
 	d.tracker.Set(layout.Used)
-	if err := d.catchUp(kind, info.ModTime()); err != nil {
+	if err := d.catchUp(kind, modTime); err != nil {
 		return Layout{}, 0, err
 	}
 	return layout, d.tracker.Used(), nil
