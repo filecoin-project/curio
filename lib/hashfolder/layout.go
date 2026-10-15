@@ -131,9 +131,6 @@ func readLayout(path string) (Layout, error) {
 	if err := json.Unmarshal(b, &layout); err != nil {
 		return Layout{}, xerrors.Errorf("decoding %s: %w", path, err)
 	}
-	if layout.Split != SPLIT {
-		return Layout{}, xerrors.Errorf("%s split %q, want %s", path, layout.Split, SPLIT)
-	}
 	if layout.Used < 0 {
 		return Layout{}, xerrors.Errorf("%s used is negative", path)
 	}
