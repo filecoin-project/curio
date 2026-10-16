@@ -116,7 +116,6 @@ func (s *Space) flushLocked() error {
 			Version:     d.version,
 			Used:        d.tracker.Used(),
 			CommittedAt: now,
-			Split:       SPLIT,
 			Ranges:      encodeIntervals(d.intervals),
 			MoveSources: encodeIntervals(d.moveSources),
 		})
