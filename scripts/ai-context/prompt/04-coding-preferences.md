@@ -30,3 +30,4 @@ Rules:
 - Only include preferences that are likely to remain useful across many chats
 - Phrase them as stable guidance
 - Do not include one-off frustrations unless they imply a durable preference
+- Go comments stay brief. In production code, every unexported function and method is documented with what it does and the conditions a caller must already have established. If the function checks its own inputs, say so instead of inventing a precondition. Do not restate the body, and do not comment only to explain the latest diff. Test helpers are exempt.
