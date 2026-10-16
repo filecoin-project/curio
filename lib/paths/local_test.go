@@ -146,17 +146,12 @@ func TestExistingLocalFileReleasesLockWhenManyPathsMatch(t *testing.T) {
 	_, ok := st.ExistingLocalFile(abi.SectorID{Miner: 0, Number: 1}, storiface.FTPiece)
 	require.False(t, ok)
 
-	locked := make(chan struct{})
-	go func() {
-		st.localLk.Lock()
-		st.localLk.Unlock()
-		close(locked)
-	}()
-	select {
-	case <-locked:
-	case <-time.After(time.Second):
+	if !st.localLk.TryLock() {
 		t.Fatal("read lock still held after ExistingLocalFile")
 	}
+	n := len(st.paths)
+	st.localLk.Unlock()
+	require.Equal(t, 6, n)
 }
 
 func TestDeclareableSectorEntrySkipsLeftovers(t *testing.T) {
