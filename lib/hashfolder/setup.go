@@ -485,7 +485,6 @@ func writeState(drives []Drive, st hashspacesolver.State, used [][2]int64) error
 			if err := writeLayout(d.Root, kind, Layout{
 				Used:        folderUsed,
 				CommittedAt: now,
-				Split:       SPLIT,
 				Ranges:      ranges,
 			}); err != nil {
 				return err
