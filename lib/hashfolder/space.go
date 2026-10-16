@@ -123,7 +123,6 @@ func (s *Space) flushLocked() error {
 			Version:     d.version,
 			Used:        d.tracker.Used(),
 			CommittedAt: now,
-			Split:       SPLIT,
 			Ranges:      encodeIntervals(d.intervals),
 			MoveDests:   encodeIntervals(d.moveDests),
 		})
