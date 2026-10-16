@@ -17,7 +17,6 @@ type Layout struct {
 	Version     int64       `json:"version,omitempty"`
 	Used        int64       `json:"used"`
 	CommittedAt time.Time   `json:"committed_at"`
-	Split       string      `json:"split"`
 	Ranges      []HashRange `json:"ranges"`
 	// MoveDests are intervals owned by another folder that are being moved
 	// here. A piece in one may be on either folder until the move ends.

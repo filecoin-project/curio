@@ -58,7 +58,6 @@ func TestFlushPersistsUsed(t *testing.T) {
 	layout, err := readLayout(layoutPath(root, DIR_OPEN))
 	require.NoError(t, err)
 	require.Equal(t, int64(len(body)), layout.Used)
-	require.Equal(t, SPLIT, layout.Split)
 	require.False(t, layout.CommittedAt.IsZero())
 }
 
@@ -124,7 +123,6 @@ func TestLoadMovesLegacyLayoutAndDropsTemps(t *testing.T) {
 	require.NoError(t, writeLayout(root, DIR_OPEN, Layout{
 		Used:        5,
 		CommittedAt: time.Now().UTC(),
-		Split:       SPLIT,
 		Ranges:      []HashRange{{Start: full, End: full}},
 	}))
 	require.NoError(t, os.Rename(layoutPath(root, DIR_OPEN), legacyLayoutPath(root, DIR_OPEN)))
@@ -300,7 +298,6 @@ func TestFirstSetupSeedsEveryDrive(t *testing.T) {
 		for _, kind := range []string{DIR_OPEN, DIR_ACL} {
 			layout, err := readLayout(layoutPath(root, kind))
 			require.NoError(t, err)
-			require.Equal(t, SPLIT, layout.Split)
 			require.Zero(t, layout.Used)
 			require.NotEmpty(t, layout.Ranges)
 			require.False(t, layout.CommittedAt.IsZero())
@@ -325,7 +322,6 @@ func TestFirstSetupArriveDoesNotReseed(t *testing.T) {
 
 	fresh, err := readLayout(layoutPath(second, DIR_OPEN))
 	require.NoError(t, err)
-	require.Equal(t, SPLIT, fresh.Split)
 	require.Empty(t, fresh.Ranges)
 	require.Zero(t, fresh.Used)
 }
@@ -338,7 +334,6 @@ func TestRestartKeepsUsedAndAddsOnlyNewerFiles(t *testing.T) {
 	require.NoError(t, writeLayout(root, DIR_OPEN, Layout{
 		Used:        100,
 		CommittedAt: time.Now().UTC().Add(-time.Hour),
-		Split:       SPLIT,
 		Ranges:      []HashRange{{Start: full, End: full}},
 	}))
 	layoutInfo, err := os.Stat(layoutPath(root, DIR_OPEN))
@@ -421,7 +416,6 @@ func TestWriteCIDPlacesOnOwningDiskWithoutChmod(t *testing.T) {
 		require.NoError(t, writeLayout(root, DIR_OPEN, Layout{
 			Used:        0,
 			CommittedAt: time.Now().UTC(),
-			Split:       SPLIT,
 			Ranges:      ranges,
 		}))
 	}
