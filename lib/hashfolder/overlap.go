@@ -75,11 +75,12 @@ func (c *Cluster) FixOverlaps(ctx context.Context) (int, error) {
 			continue
 		}
 		for id, root := range c.roots {
-			for i, r := range rs {
-				if r.StorageID == id {
+			ends := onePerEnd(rs)
+			for i, r := range ends {
+				if ownsEnd(rs, r.EndHash, id) {
 					continue
 				}
-				start := rs[(i-1+len(rs))%len(rs)].EndHash
+				start := ends[(i-1+len(ends))%len(ends)].EndHash
 				low, high := hexEncode(start), hexEncode(r.EndHash)
 				batch, err := c.listPieceHashes(ctx, id, kind, low, high, "", 1)
 				if err != nil {

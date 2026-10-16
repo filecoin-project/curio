@@ -25,6 +25,7 @@ func Solve(state State, event Event) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	w.shedProblemOwners()
 	var disk int
 	if event.Kind != EventBalance {
 		var ok bool

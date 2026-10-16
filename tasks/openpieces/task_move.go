@@ -2,6 +2,7 @@ package openpieces
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	logging "github.com/ipfs/go-log/v2"
@@ -55,15 +56,53 @@ func (t *MoveTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned
 
 	for _, m := range moves {
 		if err := t.moveOne(ctx, m, stillOwned); err != nil {
+			if errors.Is(err, hashfolder.ErrDiskFull) {
+				if aerr := t.hs.AbandonMoveTask(ctx, int64(taskID), m.ToStorage); aerr != nil {
+					return false, aerr
+				}
+				return true, nil
+			}
+			if errors.Is(err, hashfolder.ErrSourceUnavailable) {
+				last, lerr := t.lastAttempt(ctx, taskID)
+				if lerr != nil {
+					return false, lerr
+				}
+				if last {
+					if aerr := t.hs.AbandonMoveTask(ctx, int64(taskID), m.FromStorage); aerr != nil {
+						return false, aerr
+					}
+					return true, nil
+				}
+			}
 			return false, err
 		}
 	}
 	return true, nil
 }
 
+// lastAttempt reports whether this run is the one that would exhaust
+// MaxFailures. retries is the count stored before this attempt. A task with
+// no failure cap never abandons for a missing source.
+func (t *MoveTask) lastAttempt(ctx context.Context, id harmonytask.TaskID) (bool, error) {
+	max := t.TypeDetails().MaxFailures
+	if max == 0 {
+		return false, nil
+	}
+	var retries uint
+	err := t.db.QueryRow(ctx, `SELECT retries FROM harmony_task WHERE id = $1`, id).Scan(&retries)
+	if err != nil {
+		return false, err
+	}
+	return retries >= max-1, nil
+}
+
 // moveOne copies m's pending files in groups of COPY_PARALLEL until none are
-// left, then completes the move.
+// left, then completes the move. It stamps the row first so a later retry is
+// not treated as a move that never started.
 func (t *MoveTask) moveOne(ctx context.Context, m *hashfolder.MoveSource, stillOwned func() bool) error {
+	if err := t.hs.MarkMoveStarted(ctx, m.ID); err != nil {
+		return err
+	}
 	for {
 		if !stillOwned() {
 			return xerrors.Errorf("lost ownership of move source %d", m.ID)

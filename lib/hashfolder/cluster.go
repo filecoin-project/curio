@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/ipfs/go-cid"
@@ -62,9 +63,21 @@ const (
 
 	// LIST_PAGE is how many directory entries a rebalance scan reads at once.
 	LIST_PAGE = 256
+
+	// MOVE_STALE is how long a move row may sit without HashSpaceMove starting
+	// it before the row is obsolete and the destination is treated as missing.
+	MOVE_STALE = 48 * time.Hour
 )
 
 var spaceKinds = []string{DIR_OPEN, DIR_ACL}
+
+// ErrDiskFull means the destination could not store the copy because the
+// disk is full. The move is abandoned instead of retried.
+var ErrDiskFull = errors.New("hash space destination is full")
+
+// ErrSourceUnavailable means the move could not read the source. Retries
+// continue until the last one, which abandons the move.
+var ErrSourceUnavailable = errors.New("hash space source is unavailable")
 
 // LocalDrive is one storage path on this node that holds hash-space folders.
 type LocalDrive struct {
@@ -79,7 +92,8 @@ type Location struct {
 }
 
 // Cluster shares the hash-space map of every node through the database.
-// hash_space_range is the single-owner tiling the solver plans on.
+// hash_space_range covers each circle once. A stuck move may leave one range
+// owned by both disks. The row with problem set is not a place for new files.
 // A piece file is on that range's owner, or on both ends of a move that
 // covers its hash.
 type Cluster struct {
@@ -100,6 +114,7 @@ type rangeRow struct {
 	EndHash   []byte `db:"end_hash"`
 	StorageID string `db:"storage_id"`
 	Size      int64  `db:"size"`
+	Problem   bool   `db:"problem"`
 }
 
 type moveSourceRow struct {
@@ -210,6 +225,7 @@ func (c *Cluster) loop(ctx context.Context) {
 		case <-ticker.C:
 		}
 		c.dropDeadMoves(ctx)
+		c.abandonStaleMoves(ctx)
 		c.requeueDrop(ctx)
 		if c.open != nil {
 			if err := c.refresh(ctx, false); err != nil {
@@ -310,7 +326,8 @@ func (c *Cluster) rootOf(storageID string) (string, error) {
 }
 
 // Target returns the disk a new open-pieces file for digest belongs on: the
-// destination of an in-flight move covering it, otherwise the range owner.
+// destination of an in-flight move covering it, otherwise an owner of the
+// range. An owner marked problem is skipped when the other owner is not.
 func (c *Cluster) Target(ctx context.Context, digest []byte) (string, error) {
 	resolve, err := c.Targets(ctx)
 	if err != nil {
@@ -329,7 +346,7 @@ func (c *Cluster) Targets(ctx context.Context) (func(digest []byte) (string, err
 		return nil, xerrors.Errorf("reading hash space moveSources: %w", err)
 	}
 	var rs []rangeRow
-	err = c.db.Select(ctx, &rs, `SELECT end_hash, storage_id FROM hash_space_range WHERE space = $1 ORDER BY end_hash`, DIR_OPEN)
+	err = c.db.Select(ctx, &rs, `SELECT end_hash, storage_id, problem FROM hash_space_range WHERE space = $1 ORDER BY end_hash`, DIR_OPEN)
 	if err != nil {
 		return nil, xerrors.Errorf("reading hash space ranges: %w", err)
 	}
@@ -339,10 +356,12 @@ func (c *Cluster) Targets(ctx context.Context) (func(digest []byte) (string, err
 				return m.ToStorage, nil
 			}
 		}
-		for i, r := range rs {
-			if hashspacesolver.Contains(rs[(i-1+len(rs))%len(rs)].EndHash, r.EndHash, digest) {
-				return r.StorageID, nil
+		ends := onePerEnd(rs)
+		for i, r := range ends {
+			if !hashspacesolver.Contains(ends[(i-1+len(ends))%len(ends)].EndHash, r.EndHash, digest) {
+				continue
 			}
+			return ownerForWrite(rowsAt(rs, r.EndHash)), nil
 		}
 		return "", xerrors.Errorf("no hash space range owns %x", digest)
 	}, nil
@@ -602,9 +621,10 @@ func (c *Cluster) places(ctx context.Context, digest []byte) ([]Location, error)
 		if err != nil {
 			return nil, xerrors.Errorf("reading hash space ranges: %w", err)
 		}
-		for i, r := range rs {
-			if hashspacesolver.Contains(rs[(i-1+len(rs))%len(rs)].EndHash, r.EndHash, digest) {
-				ids = []string{r.StorageID}
+		ends := onePerEnd(rs)
+		for i, r := range ends {
+			if hashspacesolver.Contains(ends[(i-1+len(ends))%len(ends)].EndHash, r.EndHash, digest) {
+				ids = ownersOfEnd(rs, r.EndHash)
 				break
 			}
 		}
@@ -929,6 +949,9 @@ func (c *Cluster) raise(ctx context.Context, storageID, kind string) error {
 		if active {
 			return false, errMovesActive
 		}
+		if _, err := shedProblemOwnersTx(tx); err != nil {
+			return false, err
+		}
 
 		st, err := loadClusterState(tx)
 		if err != nil {
@@ -1159,9 +1182,13 @@ func (c *Cluster) requeueDrop(ctx context.Context) {
 // reevaluate runs after the cluster is idle. Triggers recorded while moves
 // were copying are checked against the current fill; ones that no longer
 // apply are dropped, and the solver runs for the rest until a plan starts
-// new moves or nothing valid is left.
+// new moves or nothing valid is left. A problem co-owner is dropped first,
+// including while other moves are still copying. That drop is not a new solve.
 func (c *Cluster) reevaluate(ctx context.Context) error {
 	c.dropDeadMoves(ctx)
+	if err := c.shedProblemOwners(ctx); err != nil {
+		return err
+	}
 	tried := map[string]struct{}{}
 	for {
 		busy, err := c.movesActive(ctx)
@@ -1349,7 +1376,7 @@ func (c *Cluster) PendingCopy(ctx context.Context, m *MoveSource) iter.Seq2[stri
 			}
 			batch, err := c.listPieceHashes(ctx, m.FromStorage, m.Space, low, high, after, LIST_PAGE)
 			if err != nil {
-				yield("", err)
+				yield("", xerrors.Errorf("%w: %w", ErrSourceUnavailable, err))
 				return
 			}
 			if len(batch) == 0 {
@@ -1368,48 +1395,64 @@ func (c *Cluster) PendingCopy(ctx context.Context, m *MoveSource) iter.Seq2[stri
 	}
 }
 
-// CopyOne copies one piece hash of the move source onto its local destination,
-// then removes the source file. The move row still exists, so a delete during
-// the copy still sees this disk. A source file that disappears during the copy
-// is a delete: the destination copy is removed and the move continues. A
-// destination file at least the source size only needs the source removed.
-// A shorter destination file is a partial copy and is replaced.
+// CopyOne copies one piece hash of the move source onto its local destination.
+// The source file stays until CompleteMoveSource has committed the range, so
+// abandoning the move cannot hide the only copy. The move row still exists, so
+// a delete during the copy still sees this disk. A source file that disappears
+// during the copy is a delete: the destination copy is removed and the move
+// continues. A destination file at least the source size is left in place. A
+// shorter destination file is a partial copy and is replaced.
 func (c *Cluster) CopyOne(ctx context.Context, m *MoveSource, hexHash string) error {
 	size, ok, err := c.hashSize(ctx, m.FromStorage, m.Space, hexHash)
 	if err != nil {
-		return err
+		if isNoSpace(err) {
+			return ErrDiskFull
+		}
+		return xerrors.Errorf("%w: %w", ErrSourceUnavailable, err)
 	}
 	if !ok {
 		return nil
 	}
 	destSize, have, err := c.hashSize(ctx, m.ToStorage, m.Space, hexHash)
 	if err != nil {
+		if isNoSpace(err) {
+			return ErrDiskFull
+		}
 		return err
 	}
 	if have && destSize >= size {
-		return c.deleteHash(ctx, m.FromStorage, m.Space, hexHash)
+		return nil
 	}
 	src, err := c.openHash(ctx, m.FromStorage, m.Space, hexHash)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil
 		}
-		return xerrors.Errorf("opening %s on %s: %w", hexHash, m.FromStorage, err)
+		if isNoSpace(err) {
+			return ErrDiskFull
+		}
+		return xerrors.Errorf("%w: opening %s on %s: %w", ErrSourceUnavailable, hexHash, m.FromStorage, err)
 	}
 	n, kept, err := c.writeHashLocal(m.ToStorage, m.Space, hexHash, size, src)
 	_ = src.Close()
 	if err != nil {
+		if isNoSpace(err) {
+			return ErrDiskFull
+		}
 		return err
 	}
 	if !kept && n != size {
 		if derr := c.deleteHash(ctx, m.ToStorage, m.Space, hexHash); derr != nil {
 			return xerrors.Errorf("dropping short copy of %s (%d bytes, source %d): %w", hexHash, n, size, derr)
 		}
-		return xerrors.Errorf("copied %d bytes of %s, source is %d", n, hexHash, size)
+		return ErrDiskFull
 	}
 	ok, err = c.hasHash(ctx, m.FromStorage, m.Space, hexHash)
 	if err != nil {
-		return err
+		if isNoSpace(err) {
+			return ErrDiskFull
+		}
+		return xerrors.Errorf("%w: %w", ErrSourceUnavailable, err)
 	}
 	if !ok {
 		if err := c.deleteHash(ctx, m.ToStorage, m.Space, hexHash); err != nil {
@@ -1417,7 +1460,12 @@ func (c *Cluster) CopyOne(ctx context.Context, m *MoveSource, hexHash string) er
 		}
 		return nil
 	}
-	return c.deleteHash(ctx, m.FromStorage, m.Space, hexHash)
+	return nil
+}
+
+// isNoSpace reports whether err is a full filesystem. It walks wrapped errors.
+func isNoSpace(err error) bool {
+	return errors.Is(err, syscall.ENOSPC)
 }
 
 // writeHashLocal copies r into the local kind file named hexHash and returns
@@ -1493,8 +1541,8 @@ func (c *Cluster) openHash(ctx context.Context, storageID, kind, hexHash string)
 }
 
 // CompleteMoveSource hands the move interval to its destination once every
-// file still on the source is also on the destination. CopyOne removed each
-// source file after the destination had it. A file deleted from the source
+// file still on the source is also on the destination. Source files are
+// removed only after that ownership commit. A file deleted from the source
 // is not required on the destination.
 func (c *Cluster) CompleteMoveSource(ctx context.Context, m *MoveSource) error {
 	if !c.HasLocal(m.ToStorage) {
@@ -1519,12 +1567,17 @@ func (c *Cluster) CompleteMoveSource(ctx context.Context, m *MoveSource) error {
 			return false, err
 		}
 		// A misplacement fix moves pieces into an interval the destination
-		// already owns; only the source copies need to go.
+		// already owns; only the source copies need to go. A range with two
+		// owners keeps the destination and drops the other owners.
 		if !intervalOwnedBy(rs, m.StartHash, m.EndHash, m.ToStorage) {
 			next, err := transferRanges(rs, m.StartHash, m.EndHash, m.FromStorage, m.ToStorage)
 			if err != nil {
 				return false, xerrors.Errorf("move source %d: %w", m.ID, err)
 			}
+			if err := writeSpaceRanges(tx, kind, next); err != nil {
+				return false, err
+			}
+		} else if next := dropOtherOwners(rs, m.StartHash, m.EndHash, m.ToStorage); len(next) != len(rs) {
 			if err := writeSpaceRanges(tx, kind, next); err != nil {
 				return false, err
 			}
@@ -1540,6 +1593,9 @@ func (c *Cluster) CompleteMoveSource(ctx context.Context, m *MoveSource) error {
 		return true, nil
 	})
 	if err != nil {
+		return err
+	}
+	if err := c.deleteMovedSource(ctx, m); err != nil {
 		return err
 	}
 
@@ -2150,7 +2206,6 @@ func (c *Cluster) writeLocalLayouts(ctx context.Context) error {
 				Version:     ver,
 				Used:        used,
 				CommittedAt: now,
-				Split:       SPLIT,
 				Ranges:      owned,
 				MoveDests:   moveDests,
 			}); err != nil {
@@ -2203,12 +2258,13 @@ func (c *Cluster) localIntervals(ctx context.Context, kind, storageID string) ([
 		return nil, nil, err
 	}
 	owned := []HashRange{}
-	for i, r := range rs {
-		if r.StorageID != storageID {
+	ends := onePerEnd(rs)
+	for i, r := range ends {
+		if !ownsEnd(rs, r.EndHash, storageID) {
 			continue
 		}
 		owned = append(owned, HashRange{
-			Start: hexEncode(rs[(i-1+len(rs))%len(rs)].EndHash),
+			Start: hexEncode(ends[(i-1+len(ends))%len(ends)].EndHash),
 			End:   hexEncode(r.EndHash),
 		})
 	}
@@ -2370,9 +2426,12 @@ func (c *Cluster) anyOverFill(ctx context.Context) (bool, error) {
 // storeState replaces both spaces' ranges with st's.
 func storeState(tx *harmonydb.Tx, st hashspacesolver.State) error {
 	for s, kind := range spaceKinds {
-		rs := make([]rangeRow, len(st.HashSpaces[s]))
-		for i, r := range st.HashSpaces[s] {
-			rs[i] = rangeRow{EndHash: r.EndHash, StorageID: r.StorageID, Size: r.Size}
+		var rs []rangeRow
+		for _, r := range st.HashSpaces[s] {
+			rs = append(rs, rangeRow{EndHash: r.EndHash, StorageID: r.StorageID, Size: r.Size, Problem: indexOf(r.Problem, r.StorageID) >= 0})
+			for _, also := range r.Also {
+				rs = append(rs, rangeRow{EndHash: r.EndHash, StorageID: also, Size: r.Size, Problem: indexOf(r.Problem, also) >= 0})
+			}
 		}
 		if err := writeSpaceRanges(tx, kind, rs); err != nil {
 			return err
@@ -2389,30 +2448,28 @@ func loadClusterState(tx *harmonydb.Tx) (hashspacesolver.State, error) {
 		StorageID string `db:"storage_id"`
 		Capacity  int64  `db:"capacity"`
 		Vacating  bool   `db:"vacating"`
+		Misplaced bool   `db:"has_misplaced"`
 	}
-	if err := tx.Select(&disks, `SELECT storage_id, capacity, vacating FROM hash_space_disk ORDER BY storage_id`); err != nil {
+	if err := tx.Select(&disks, `SELECT storage_id, capacity, vacating, has_misplaced FROM hash_space_disk ORDER BY storage_id`); err != nil {
 		return hashspacesolver.State{}, err
 	}
 	st := hashspacesolver.State{MountPoints: make([]hashspacesolver.MountPoint, len(disks))}
 	known := make(map[string]bool, len(disks))
 	for i, d := range disks {
-		st.MountPoints[i] = hashspacesolver.MountPoint{FreeSpace: d.Capacity, StorageID: d.StorageID, Vacating: d.Vacating}
+		st.MountPoints[i] = hashspacesolver.MountPoint{FreeSpace: d.Capacity, StorageID: d.StorageID, Vacating: d.Vacating, Misplaced: d.Misplaced}
 		known[d.StorageID] = true
 	}
 	for s, kind := range spaceKinds {
 		var rs []rangeRow
-		if err := tx.Select(&rs, `SELECT end_hash, storage_id, size FROM hash_space_range WHERE space = $1 ORDER BY end_hash`, kind); err != nil {
+		if err := tx.Select(&rs, `SELECT end_hash, storage_id, size, problem FROM hash_space_range WHERE space = $1 ORDER BY end_hash, storage_id`, kind); err != nil {
 			return hashspacesolver.State{}, err
 		}
 		if len(rs) == 0 {
 			return hashspacesolver.State{}, xerrors.Errorf("hash space %s has no ranges", kind)
 		}
-		ranges := make([]hashspacesolver.Range, len(rs))
-		for i, r := range rs {
-			if !known[r.StorageID] {
-				return hashspacesolver.State{}, xerrors.Errorf("range owner %s is not a hash space disk", r.StorageID)
-			}
-			ranges[i] = hashspacesolver.Range{EndHash: r.EndHash, Size: r.Size, StorageID: r.StorageID}
+		ranges, err := groupOwners(rs, known)
+		if err != nil {
+			return hashspacesolver.State{}, err
 		}
 		hashspacesolver.LinkStarts(ranges)
 		st.HashSpaces[s] = ranges
@@ -2421,7 +2478,7 @@ func loadClusterState(tx *harmonydb.Tx) (hashspacesolver.State, error) {
 		var used int64
 		for _, rs := range st.HashSpaces {
 			for _, r := range rs {
-				if r.StorageID == st.MountPoints[i].StorageID {
+				if r.StorageID == st.MountPoints[i].StorageID || indexOf(r.Also, st.MountPoints[i].StorageID) >= 0 {
 					used += r.Size
 				}
 			}
@@ -2440,7 +2497,7 @@ func ownedBytes(st hashspacesolver.State, storageID string) int64 {
 	var n int64
 	for _, rs := range st.HashSpaces {
 		for _, r := range rs {
-			if r.StorageID == storageID {
+			if r.StorageID == storageID || indexOf(r.Also, storageID) >= 0 {
 				n += r.Size
 			}
 		}
@@ -2453,7 +2510,7 @@ func writeSpaceRanges(tx *harmonydb.Tx, kind string, rs []rangeRow) error {
 		return err
 	}
 	for _, r := range rs {
-		if _, err := tx.Exec(`INSERT INTO hash_space_range (space, end_hash, storage_id, size) VALUES ($1, $2, $3, $4)`, kind, r.EndHash, r.StorageID, r.Size); err != nil {
+		if _, err := tx.Exec(`INSERT INTO hash_space_range (space, end_hash, storage_id, size, problem) VALUES ($1, $2, $3, $4, $5)`, kind, r.EndHash, r.StorageID, r.Size, r.Problem); err != nil {
 			return err
 		}
 	}
@@ -2462,7 +2519,19 @@ func writeSpaceRanges(tx *harmonydb.Tx, kind string, rs []rangeRow) error {
 
 // transferRanges gives (start, end] to "to". The interval must lie within
 // one range owned by "from". Neighbours with the same owner are merged.
+// Co-owners of ends this does not rewrite are kept.
 func transferRanges(rs []rangeRow, start, end []byte, from, to string) ([]rangeRow, error) {
+	ends := onePerEndPrefer(rs, from)
+	next, err := transferOne(ends, start, end, from, to)
+	if err != nil {
+		return nil, err
+	}
+	return keepCoOwners(rs, ends, next), nil
+}
+
+// transferOne is transferRanges on a circle with one owner per end hash.
+// rs must already be one row per end. Neighbours with the same owner are merged.
+func transferOne(rs []rangeRow, start, end []byte, from, to string) ([]rangeRow, error) {
 	n := len(rs)
 	if n == 0 {
 		return nil, xerrors.Errorf("no ranges")
@@ -2552,8 +2621,9 @@ func intervalOwnedBy(rs []rangeRow, start, end []byte, owner string) bool {
 	if len(rs) == 0 {
 		return false
 	}
-	for _, r := range splitRangesAt(splitRangesAt(append([]rangeRow(nil), rs...), start), end) {
-		if hashspacesolver.Contains(start, end, r.EndHash) && r.StorageID != owner {
+	ends := onePerEnd(rs)
+	for _, r := range splitRangesAt(splitRangesAt(append([]rangeRow(nil), ends...), start), end) {
+		if hashspacesolver.Contains(start, end, r.EndHash) && r.StorageID != owner && !ownsEnd(rs, r.EndHash, owner) {
 			return false
 		}
 	}
@@ -2562,6 +2632,7 @@ func intervalOwnedBy(rs []rangeRow, start, end []byte, owner string) bool {
 
 // splitRangesAt adds a boundary at p, keeping the owner of the range it cut.
 func splitRangesAt(rs []rangeRow, p []byte) []rangeRow {
+	rs = onePerEnd(rs)
 	n := len(rs)
 	for _, r := range rs {
 		if bytes.Equal(r.EndHash, p) {

@@ -27,7 +27,6 @@ func writeClaim(t *testing.T, root string, used int64) {
 		require.NoError(t, writeLayout(root, kind, Layout{
 			Used:        n,
 			CommittedAt: time.Now().UTC().Truncate(time.Second),
-			Split:       SPLIT,
 			Ranges:      []HashRange{{Start: fullCircle, End: fullCircle}},
 			Claim:       true,
 		}))

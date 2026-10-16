@@ -26,12 +26,16 @@ const CLAIM_STEP_PERCENT = 10
 // Range is the half-open hash interval (StartHash, EndHash] holding Size
 // bytes on the mountpoint StorageID. StartHash == EndHash is the full circle.
 // Within a hash space, each StartHash must equal the EndHash of the range
-// before it.
+// before it. Also lists other disks that own the same range. Problem lists
+// owners of this range that a stuck move should give up. The circle still
+// has one range per end hash; Also is not a second range.
 type Range struct {
 	StartHash []byte
 	EndHash   []byte
 	Size      int64
 	StorageID string
+	Also      []string
+	Problem   []string
 }
 
 // MountPoint is one disk, named by its storage path ID. FreeSpace is the
@@ -43,6 +47,9 @@ type MountPoint struct {
 	// Vacating marks a disk that must not receive ranges. Existing ranges
 	// stay until EventVacate moves them off.
 	Vacating bool
+	// Misplaced marks a disk that holds piece files outside its ranges, such as
+	// pieces migrated from piece-park. It is not a stuck hash-space range.
+	Misplaced bool
 }
 
 // State is an assignment of ranges to mountpoints across the hash spaces.

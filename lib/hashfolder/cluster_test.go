@@ -133,3 +133,62 @@ func TestAssignRange(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []rangeRow{{EndHash: h(0x70), StorageID: "c"}}, out)
 }
+
+func TestCoOwnRanges(t *testing.T) {
+	rs := []rangeRow{{EndHash: h(0x40), StorageID: "a", Size: 40}, {EndHash: h(0xc0), StorageID: "b", Size: 80}}
+
+	// The shared piece stays its own range on both disks, beside b's remainder.
+	out, err := coOwnRanges(rs, h(0x60), h(0x80), "b", "c")
+	require.NoError(t, err)
+	require.Equal(t, []rangeRow{
+		{EndHash: h(0x40), StorageID: "a", Size: 40},
+		{EndHash: h(0x60), StorageID: "b", Size: 20},
+		{EndHash: h(0x80), StorageID: "b", Size: 20},
+		{EndHash: h(0x80), StorageID: "c", Size: 20},
+		{EndHash: h(0xc0), StorageID: "b", Size: 40},
+	}, out)
+
+	// A prefix shared with the neighbor is not merged into that neighbor.
+	out, err = coOwnRanges(rs, h(0x40), h(0x80), "b", "a")
+	require.NoError(t, err)
+	require.Equal(t, []rangeRow{
+		{EndHash: h(0x40), StorageID: "a", Size: 40},
+		{EndHash: h(0x80), StorageID: "b", Size: 40},
+		{EndHash: h(0x80), StorageID: "a", Size: 40},
+		{EndHash: h(0xc0), StorageID: "b", Size: 40},
+	}, out)
+
+	// An existing co-owner of an untouched end stays.
+	shared := []rangeRow{
+		{EndHash: h(0x40), StorageID: "a", Size: 40},
+		{EndHash: h(0xc0), StorageID: "b", Size: 80},
+		{EndHash: h(0xc0), StorageID: "d", Size: 80},
+	}
+	out, err = transferRanges(shared, h(0x60), h(0x80), "b", "c")
+	require.NoError(t, err)
+	require.Equal(t, []rangeRow{
+		{EndHash: h(0x40), StorageID: "a", Size: 40},
+		{EndHash: h(0x60), StorageID: "b", Size: 20},
+		{EndHash: h(0x80), StorageID: "c", Size: 20},
+		{EndHash: h(0xc0), StorageID: "b", Size: 40},
+		{EndHash: h(0xc0), StorageID: "d", Size: 40},
+	}, out)
+}
+
+func TestGroupOwners(t *testing.T) {
+	rs := []rangeRow{
+		{EndHash: h(0x40), StorageID: "a", Size: 10},
+		{EndHash: h(0x40), StorageID: "b", Size: 10, Problem: true},
+		{EndHash: h(0x80), StorageID: "c", Size: 20},
+	}
+	known := map[string]bool{"a": true, "b": true, "c": true}
+	got, err := groupOwners(rs, known)
+	require.NoError(t, err)
+	require.Equal(t, "a", got[0].StorageID)
+	require.Equal(t, []string{"b"}, got[0].Also)
+	require.Equal(t, []string{"b"}, got[0].Problem)
+	require.Equal(t, "c", got[1].StorageID)
+	require.Empty(t, got[1].Also)
+	require.Equal(t, "a", ownerForWrite(rowsAt(rs, h(0x40))))
+	require.Equal(t, "c", ownerForWrite(rowsAt(rs, h(0x80))))
+}

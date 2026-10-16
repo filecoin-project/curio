@@ -390,6 +390,32 @@ func TestClaimStepsTowardCapacityShare(t *testing.T) {
 	require.InDelta(t, 800, usedOf(st, 0), 10)
 }
 
+func TestShedProblemOwner(t *testing.T) {
+	st := mk([]int64{100, 100}, []byte{0x80}, []int64{40}, []int{0})
+	st.HashSpaces[0][0].Also = []string{sid(1)}
+	st.HashSpaces[0][0].Problem = []string{sid(1)}
+	st.MountPoints[1].FreeSpace = 60
+
+	res, err := Solve(st, ev(EventFull, 0))
+	require.NoError(t, err)
+	require.Empty(t, res.Diff)
+	require.Equal(t, sid(0), res.State.HashSpaces[0][0].StorageID)
+	require.Empty(t, res.State.HashSpaces[0][0].Also)
+	require.Empty(t, res.State.HashSpaces[0][0].Problem)
+	require.NoError(t, Validate(res.State))
+
+	// The failed disk was the primary. The other owner keeps the range and
+	// the diff does not copy bytes that are already there.
+	st.HashSpaces[0][0].Problem = []string{sid(0)}
+	res, err = Solve(st, ev(EventFull, 1))
+	require.NoError(t, err)
+	require.Empty(t, res.Diff)
+	require.Equal(t, sid(1), res.State.HashSpaces[0][0].StorageID)
+	require.Empty(t, res.State.HashSpaces[0][0].Also)
+	require.Equal(t, int64(40), usedOf(res.State, 1))
+	require.Equal(t, int64(0), usedOf(res.State, 0))
+}
+
 func TestClaimIdleAtShare(t *testing.T) {
 	st := mk([]int64{100, 100}, []byte{0x40, 0x80}, []int64{40, 40}, []int{0, 1})
 	_, res := solveOK(t, st, ev(EventClaim, 1))

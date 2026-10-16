@@ -420,7 +420,6 @@ func migratePass(ctx context.Context, db *harmonydb.DB, roots map[string]string,
 				if err := writeLayout(root, kind, Layout{
 					Used:        used[s],
 					CommittedAt: now,
-					Split:       SPLIT,
 					Ranges:      []HashRange{{Start: fullCircle, End: fullCircle}},
 					Claim:       true,
 				}); err != nil {
