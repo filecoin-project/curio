@@ -260,6 +260,7 @@ func (p *path) sectorPath(sid abi.SectorID, fileType storiface.SectorFileType) s
 // The random order should tend toward less disk activity than purely-parallel searching.
 func (st *Local) ExistingLocalFile(sid abi.SectorID, ft storiface.SectorFileType) (string, bool) {
 	candidates := make([]string, 0, len(st.paths))
+	tooMany := false
 	st.localLk.RLock()
 	for _, p := range st.paths {
 		if p.Local == "" || !ft.Allowed(p.AllowTypes, p.DenyTypes) {
@@ -267,10 +268,14 @@ func (st *Local) ExistingLocalFile(sid abi.SectorID, ft storiface.SectorFileType
 		}
 		candidates = append(candidates, p.sectorPath(sid, ft))
 		if len(candidates) >= 5 {
-			return "", false // this is no fast path, return false
+			tooMany = true
+			break
 		}
 	}
 	st.localLk.RUnlock()
+	if tooMany {
+		return "", false // too many roots for a stat fast path
+	}
 	for _, spath := range candidates {
 		// Worst= O(Log(dirLength)) which should be very fast for most cases.
 		if fi, err := os.Stat(spath); err == nil && !fi.IsDir() {
