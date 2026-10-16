@@ -30,7 +30,7 @@ const OVERLAP_CHECK_INTERVAL = 10 * time.Minute
 // disks by design. A local has_misplaced disk with nothing left outside its
 // ranges has the flag cleared. It returns the number of moves planned.
 func (c *Cluster) FixOverlaps(ctx context.Context) (int, error) {
-	if c.open == nil || len(c.roots) == 0 {
+	if len(c.roots) == 0 {
 		return 0, nil
 	}
 	c.dropDeadMoves(ctx)

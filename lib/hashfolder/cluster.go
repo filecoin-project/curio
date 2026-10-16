@@ -128,8 +128,8 @@ type moveSourceRow struct {
 }
 
 // NewCluster joins drives into the cluster map, writes their layouts from
-// it, and loads the local open-pieces space. auth is sent on requests
-// to other nodes' /hashspace routes.
+// it, and loads both local spaces. A node with no drives still gets both,
+// empty. auth is sent on requests to other nodes' /hashspace routes.
 func NewCluster(ctx context.Context, db *harmonydb.DB, drives []LocalDrive, auth http.Header) (*Cluster, error) {
 	c := &Cluster{
 		db:     db,
@@ -157,20 +157,25 @@ func NewCluster(ctx context.Context, db *harmonydb.DB, drives []LocalDrive, auth
 		if err := c.writeLocalLayouts(ctx); err != nil {
 			return nil, err
 		}
-		roots := make([]string, 0, len(drives))
-		for _, d := range drives {
-			roots = append(roots, d.Root)
-		}
-		c.open, err = Load(DIR_OPEN, roots)
-		if err != nil {
-			return nil, err
-		}
-		c.acl, err = Load(DIR_ACL, roots)
-		if err != nil {
-			_ = c.open.Close()
-			return nil, err
-		}
+	}
+	roots := make([]string, 0, len(drives))
+	for _, d := range drives {
+		roots = append(roots, d.Root)
+	}
+	var err error
+	c.open, err = Load(DIR_OPEN, roots)
+	if err != nil {
+		return nil, err
+	}
+	c.acl, err = Load(DIR_ACL, roots)
+	if err != nil {
+		_ = c.open.Close()
+		return nil, err
+	}
+	if len(drives) > 0 {
 		if err := c.refresh(ctx, true); err != nil {
+			_ = c.open.Close()
+			_ = c.acl.Close()
 			return nil, err
 		}
 		c.publishUsed(ctx)
@@ -195,20 +200,15 @@ func NewCluster(ctx context.Context, db *harmonydb.DB, drives []LocalDrive, auth
 	return c, nil
 }
 
-// Close stops the refresh loop and flushes the local space.
+// Close stops the refresh loop and flushes both local spaces.
 func (c *Cluster) Close() error {
 	if c.cancel != nil {
 		c.cancel()
 		c.wg.Wait()
 	}
-	var err error
-	if c.open != nil {
-		err = c.open.Close()
-	}
-	if c.acl != nil {
-		if aerr := c.acl.Close(); err == nil {
-			err = aerr
-		}
+	err := c.open.Close()
+	if aerr := c.acl.Close(); err == nil {
+		err = aerr
 	}
 	return err
 }
@@ -227,7 +227,7 @@ func (c *Cluster) loop(ctx context.Context) {
 		c.dropDeadMoves(ctx)
 		c.abandonStaleMoves(ctx)
 		c.requeueDrop(ctx)
-		if c.open != nil {
+		if len(c.roots) > 0 {
 			if err := c.refresh(ctx, false); err != nil {
 				log.Warnw("refreshing hash space map", "error", err)
 			}
@@ -240,7 +240,7 @@ func (c *Cluster) loop(ctx context.Context) {
 		if err := c.reevaluate(ctx); err != nil {
 			log.Warnw("processing pending hash space event", "error", err)
 		}
-		if c.open == nil {
+		if len(c.roots) == 0 {
 			continue
 		}
 		ids := make([]string, 0, len(c.roots))
@@ -319,7 +319,7 @@ func (c *Cluster) ownsRanges(ctx context.Context, storageID string) (bool, error
 
 func (c *Cluster) rootOf(storageID string) (string, error) {
 	root, ok := c.roots[storageID]
-	if !ok || (c.open == nil && c.acl == nil) {
+	if !ok {
 		return "", xerrors.Errorf("storage %s is not a local hash space root", storageID)
 	}
 	return root, nil
@@ -881,7 +881,7 @@ func (c *Cluster) DeleteCID(ctx context.Context, pieceCID string) error {
 // disk is leaving or is above FILL_LIMIT_PERCENT, then notices fill spread.
 func (c *Cluster) MaybeRebalance(ctx context.Context, storageID string) error {
 	defer c.noticeSpread(ctx)
-	if root, ok := c.roots[storageID]; ok && c.open != nil {
+	if root, ok := c.roots[storageID]; ok {
 		c.publishOne(ctx, storageID, root)
 		if diskVacate(root) {
 			usedOpen, usedACL, err := c.spaceUsedOn(root)
@@ -1829,7 +1829,7 @@ func (c *Cluster) accountStorage(ctx context.Context, storageID string) error {
 
 // Refresh reloads local ranges and move sources from the cluster map now.
 func (c *Cluster) Refresh(ctx context.Context) error {
-	if c.open == nil {
+	if len(c.roots) == 0 {
 		return nil
 	}
 	return c.refresh(ctx, true)
@@ -1871,7 +1871,7 @@ func (c *Cluster) casTaskTx(ctx context.Context, addTask harmonytask.AddTaskFunc
 		}
 		if !stale {
 			if committed {
-				if c.open != nil {
+				if len(c.roots) > 0 {
 					if err := c.refresh(ctx, true); err != nil {
 						log.Warnw("refreshing hash space map", "error", err)
 					}
@@ -2235,9 +2235,6 @@ func (c *Cluster) refresh(ctx context.Context, force bool) error {
 		return nil
 	}
 	for _, sp := range []*Space{c.open, c.acl} {
-		if sp == nil {
-			continue
-		}
 		for id, root := range c.roots {
 			owned, moveDests, err := c.localIntervals(ctx, sp.kind, id)
 			if err != nil {
@@ -2361,15 +2358,9 @@ func (c *Cluster) publishDisk(ctx context.Context, storageID, root string) (bool
 
 // spaceUsedOn returns the in-memory used counters of both spaces on root.
 func (c *Cluster) spaceUsedOn(root string) (openUsed, aclUsed int64, err error) {
-	if c.open == nil {
-		return 0, 0, xerrors.Errorf("open-pieces is not loaded")
-	}
 	openUsed, err = c.open.UsedOn(root)
 	if err != nil {
 		return 0, 0, err
-	}
-	if c.acl == nil {
-		return openUsed, 0, nil
 	}
 	aclUsed, err = c.acl.UsedOn(root)
 	return openUsed, aclUsed, err
