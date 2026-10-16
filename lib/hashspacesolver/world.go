@@ -129,6 +129,11 @@ func newWorld(state State) (*world, error) {
 			if _, known := ids[r.StorageID]; !known {
 				return nil, xerrors.Errorf("space %d range %d: unknown StorageID %q", s, i, r.StorageID)
 			}
+			for _, also := range r.Also {
+				if _, known := ids[also]; !known {
+					return nil, xerrors.Errorf("space %d range %d: unknown co-owner %q", s, i, also)
+				}
+			}
 		}
 		if err := checkTiling(ranges); err != nil {
 			return nil, xerrors.Errorf("space %d: %w", s, err)
@@ -166,7 +171,10 @@ func newWorld(state State) (*world, error) {
 		}
 		w.mergeSpace(s)
 		for _, r := range w.hashSpaces[s].ranges {
-			w.mountPoints[w.mountOf[r.StorageID]].used += r.Size
+			w.mountPoints[w.diskOf(r)].used += r.Size
+			for _, also := range r.Also {
+				w.mountPoints[w.mountOf[also]].used += r.Size
+			}
 		}
 	}
 	for i := range w.mountPoints {
@@ -177,7 +185,7 @@ func newWorld(state State) (*world, error) {
 
 // cloneRange copies r and its hashes.
 func cloneRange(r Range) Range {
-	return Range{StartHash: cloneHash(r.StartHash), EndHash: cloneHash(r.EndHash), Size: r.Size, StorageID: r.StorageID}
+	return Range{StartHash: cloneHash(r.StartHash), EndHash: cloneHash(r.EndHash), Size: r.Size, StorageID: r.StorageID, Also: append([]string(nil), r.Also...), Problem: append([]string(nil), r.Problem...)}
 }
 
 // diskOf is the mountPoints index of r.StorageID. StorageID must already
@@ -192,7 +200,7 @@ func (w *world) diskOf(r Range) int {
 func (w *world) snapshot() State {
 	st := State{MountPoints: make([]MountPoint, len(w.mountPoints))}
 	for i, mp := range w.mountPoints {
-		st.MountPoints[i] = MountPoint{FreeSpace: w.free(i), StorageID: mp.StorageID, Vacating: mp.Vacating}
+		st.MountPoints[i] = MountPoint{FreeSpace: w.free(i), StorageID: mp.StorageID, Vacating: mp.Vacating, Misplaced: mp.Misplaced}
 	}
 	for s, sp := range w.hashSpaces {
 		if len(sp.ranges) == 0 {
@@ -282,24 +290,84 @@ func (w *world) ownsRange(disk int) bool {
 	return false
 }
 
-// rangeCount is how many ranges in space sit on d.
+// rangeCount is how many ranges in space sit on d, including a co-owned range.
 // space must index a hash space and d a mount.
 func (w *world) rangeCount(space, d int) int {
 	n := 0
 	for _, r := range w.hashSpaces[space].ranges {
-		if w.diskOf(r) == d {
+		if w.owns(r, d) {
 			n++
 		}
 	}
 	return n
 }
 
-// rangeIndexes lists the range indexes in space owned by d, in circle order.
-// space must index a hash space and d a mount.
+// owns reports whether d is r's primary owner or a co-owner. d must be a
+// mount index.
+func (w *world) owns(r Range, d int) bool {
+	if w.diskOf(r) == d {
+		return true
+	}
+	id := w.mountPoints[d].StorageID
+	for _, also := range r.Also {
+		if also == id {
+			return true
+		}
+	}
+	return false
+}
+
+// shedProblemOwners drops every owner listed in Range.Problem when another
+// owner remains. The other owner stays, and no bytes are reported as moved.
+// Call it before planning so a stuck range does not keep the failed disk.
+func (w *world) shedProblemOwners() {
+	for s := range w.hashSpaces {
+		sp := &w.hashSpaces[s]
+		for i := range sp.ranges {
+			r := &sp.ranges[i]
+			if len(r.Problem) == 0 {
+				continue
+			}
+			bad := make(map[string]bool, len(r.Problem))
+			for _, id := range r.Problem {
+				bad[id] = true
+			}
+			also := append([]string(nil), r.Also...)
+			kept := make([]string, 0, len(also))
+			for _, id := range also {
+				if bad[id] {
+					w.mountPoints[w.mountOf[id]].used -= r.Size
+					continue
+				}
+				kept = append(kept, id)
+			}
+			r.Also = kept
+			if !bad[r.StorageID] || len(r.Also) == 0 {
+				r.Problem = nil
+				continue
+			}
+			nextID := r.Also[0]
+			r.Also = append([]string(nil), r.Also[1:]...)
+			primary := w.diskOf(*r)
+			next := w.mountOf[nextID]
+			w.mountPoints[primary].used -= r.Size
+			r.StorageID = nextID
+			for li := range sp.layouts[i] {
+				if sp.layouts[i][li].mountPointIdx == primary {
+					sp.layouts[i][li].mountPointIdx = next
+				}
+			}
+			r.Problem = nil
+		}
+	}
+}
+
+// rangeIndexes lists the range indexes in space owned by d, including a
+// co-owned range, in circle order. space must index a hash space and d a mount.
 func (w *world) rangeIndexes(space, d int) []int {
 	var out []int
 	for i, r := range w.hashSpaces[space].ranges {
-		if w.diskOf(r) == d {
+		if w.owns(r, d) {
 			out = append(out, i)
 		}
 	}
@@ -532,7 +600,7 @@ func (w *world) mergeSpace(space int) {
 		merged := false
 		for i := 0; i < n; i++ {
 			j := (i + 1) % n
-			if sp.ranges[i].StorageID != sp.ranges[j].StorageID || i == j {
+			if sp.ranges[i].StorageID != sp.ranges[j].StorageID || i == j || !sameAlso(sp.ranges[i].Also, sp.ranges[j].Also) || !sameAlso(sp.ranges[i].Problem, sp.ranges[j].Problem) {
 				continue
 			}
 			sp.ranges[j].StartHash = sp.ranges[i].StartHash
@@ -549,6 +617,27 @@ func (w *world) mergeSpace(space int) {
 			return
 		}
 	}
+}
+
+// sameAlso reports whether a and b list the same co-owners. Order does not
+// matter. Call it when deciding whether two neighboring ranges can merge.
+func sameAlso(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for _, x := range a {
+		found := false
+		for _, y := range b {
+			if x == y {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
 }
 
 // checkTiling requires the ranges to cover the circle exactly once: in
