@@ -198,7 +198,7 @@ func (t *DropTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Ram: 16 << 20,
 		},
 		MaxFailures: 10,
-		RetryWait:   taskhelp.RetryWaitExp(5*time.Second, 2),
+		RetryWait:   taskhelp.RetryWaitExp(5 * time.Second),
 	}
 }
 

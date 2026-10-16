@@ -32,6 +32,9 @@ func FirstSetup(drives []Drive) (hashspacesolver.State, error) {
 	}
 	caps := make([]int64, len(drives))
 	hasLayout := make([]bool, len(drives))
+	// A whole-circle claim from migratePiecePark counts as no layout, keeping
+	// the bytes it counted.
+	claimUsed := make([][2]int64, len(drives))
 	var nLayout int
 	for i, d := range drives {
 		if d.Root == "" {
@@ -45,6 +48,16 @@ func FirstSetup(drives []Drive) (hashspacesolver.State, error) {
 			return hashspacesolver.State{}, err
 		}
 		caps[i] = cap
+		claim, err := isClaim(d.Root)
+		if err != nil {
+			return hashspacesolver.State{}, err
+		}
+		if claim {
+			if claimUsed[i], err = claimedBytes(d.Root); err != nil {
+				return hashspacesolver.State{}, err
+			}
+			continue
+		}
 		if hasLayout[i], err = hasBothLayouts(d.Root); err != nil {
 			return hashspacesolver.State{}, err
 		}
@@ -54,7 +67,7 @@ func FirstSetup(drives []Drive) (hashspacesolver.State, error) {
 	}
 	switch nLayout {
 	case 0:
-		return seedState(drives, caps)
+		return seedState(drives, caps, claimUsed)
 	case len(drives):
 		perSpace, _, err := readOwned(drives, nil)
 		if err != nil {
@@ -62,8 +75,26 @@ func FirstSetup(drives []Drive) (hashspacesolver.State, error) {
 		}
 		return stateFromOwned(drives, perSpace)
 	default:
-		return arriveNew(drives, hasLayout)
+		return arriveNew(drives, hasLayout, claimUsed)
 	}
+}
+
+// claimedBytes is the used count of each space's claim layout on root.
+func claimedBytes(root string) ([2]int64, error) {
+	var used [2]int64
+	for s, kind := range spaceKinds {
+		ok, err := layoutExists(root, kind)
+		if err != nil {
+			return used, err
+		}
+		if !ok {
+			continue
+		}
+		if _, used[s], err = accountedLayout(root, kind); err != nil {
+			return used, err
+		}
+	}
+	return used, nil
 }
 
 // hasBothLayouts reports whether root has a layout for both spaces. A layout
@@ -85,8 +116,8 @@ func hasBothLayouts(root string) (bool, error) {
 
 // seedState cuts one capacity-weighted range per space for each drive that
 // accepts piece park, validates the result, and writes every drive's
-// layouts. caps is indexed like drives.
-func seedState(drives []Drive, caps []int64) (hashspacesolver.State, error) {
+// layouts with used as their counters. caps and used are indexed like drives.
+func seedState(drives []Drive, caps []int64, used [][2]int64) (hashspacesolver.State, error) {
 	seedCaps := append([]int64(nil), caps...)
 	anyPositive := false
 	for i, d := range drives {
@@ -126,7 +157,7 @@ func seedState(drives []Drive, caps []int64) (hashspacesolver.State, error) {
 	if err := hashspacesolver.Validate(st); err != nil {
 		return hashspacesolver.State{}, err
 	}
-	if err := writeState(drives, st, make([][2]int64, len(drives))); err != nil {
+	if err := writeState(drives, st, used); err != nil {
 		return hashspacesolver.State{}, err
 	}
 	return st, nil
@@ -134,8 +165,8 @@ func seedState(drives []Drive, caps []int64) (hashspacesolver.State, error) {
 
 // arriveNew loads the ranges of drives with layouts, presents every other
 // drive that accepts piece park with EventEmptyMountConnected, and writes
-// the result.
-func arriveNew(drives []Drive, hasLayout []bool) (hashspacesolver.State, error) {
+// the result. A drive without a layout keeps its claimUsed counters.
+func arriveNew(drives []Drive, hasLayout []bool, claimUsed [][2]int64) (hashspacesolver.State, error) {
 	perSpace, used, err := readOwned(drives, hasLayout)
 	if err != nil {
 		return hashspacesolver.State{}, err
@@ -148,6 +179,7 @@ func arriveNew(drives []Drive, hasLayout []bool) (hashspacesolver.State, error) 
 		if ok {
 			continue
 		}
+		used[i] = claimUsed[i]
 		deny, err := deniesPiecePark(drives[i].Root)
 		if err != nil {
 			return hashspacesolver.State{}, err
