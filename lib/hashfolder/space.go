@@ -47,14 +47,15 @@ type hashInterval struct {
 
 // Load reads kind's layout on each root, restores used, then adds only files
 // whose mtime is newer than the layout. kind is DIR_OPEN or DIR_ACL.
+// An empty root list returns an empty space.
 func Load(kind string, roots []string) (*Space, error) {
 	if kind != DIR_OPEN && kind != DIR_ACL {
 		return nil, xerrors.Errorf("unknown hash space %q", kind)
 	}
-	if len(roots) == 0 {
-		return nil, xerrors.Errorf("no storage roots")
-	}
 	s := &Space{kind: kind, disks: make([]*disk, 0, len(roots)), writing: map[string]struct{}{}}
+	if len(roots) == 0 {
+		return s, nil
+	}
 	seen := make(map[string]struct{}, len(roots))
 	for _, root := range roots {
 		if root == "" {

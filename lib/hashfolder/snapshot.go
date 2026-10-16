@@ -82,7 +82,7 @@ func (c *Cluster) refreshSnapshot(ctx context.Context) error {
 // syncMap reloads the cluster map: the read snapshot on every node, and the
 // local space intervals on nodes with disks.
 func (c *Cluster) syncMap(ctx context.Context, force bool) error {
-	if c.open != nil {
+	if len(c.roots) > 0 {
 		return c.refresh(ctx, force)
 	}
 	return c.refreshSnapshot(ctx)
