@@ -1,12 +1,19 @@
 // Package fs2 sums logical sizes of CID-named regular files under a directory tree.
 // Each file's hash is its path relative to the root with separators removed,
-// so ab/cdefg is the hash abcdefg. Bounds use the same half-open convention
-// as hashspacesolver.Transfer: (low, high]. An empty low or high leaves that
-// side open.
+// so ab/cdefg is the hash abcdefg. That is the "2,-" split: the first two
+// characters are the directory and the rest is the file name.
+//
+// Bounds use the same half-open convention as hashspacesolver.Transfer:
+// (low, high]. An empty low or high leaves that side open.
+// SumFileSizesInterval also accepts a wrapped interval, where low sorts
+// after high.
 package fs2
 
 import (
 	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -112,4 +119,107 @@ func hashFromRel(rel string) string {
 		}
 		return r
 	}, rel)
+}
+
+// SumFileSizesInterval sums regular files whose concatenated path hash lies
+// in the half-open interval (low, high]. When both bounds are set and low
+// sorts after high, the interval wraps around the hash circle: hashes after
+// low plus hashes up to high. Otherwise it matches SumFileSizesRange.
+func SumFileSizesInterval(directory, low, high string, queueDepth uint32) (Result, error) {
+	if low == "" || high == "" || low <= high {
+		return SumFileSizesRange(directory, low, high, queueDepth)
+	}
+	hi, err := SumFileSizesRange(directory, low, "", queueDepth)
+	if err != nil {
+		return Result{}, err
+	}
+	lo, err := SumFileSizesRange(directory, "", high, queueDepth)
+	if err != nil {
+		return Result{}, err
+	}
+	return Result{
+		Bytes:    hi.Bytes + lo.Bytes,
+		Files:    hi.Files + lo.Files,
+		Vanished: hi.Vanished + lo.Vanished,
+	}, nil
+}
+
+// ListHashesInterval returns up to limit regular-file hashes in (low, high],
+// lexicographic order, strictly after `after`. An empty low or high leaves
+// that side open. When low sorts after high the interval wraps. When low
+// and high are equal and non-empty, the interval is the whole circle.
+func ListHashesInterval(directory, low, high, after string, limit int) ([]string, error) {
+	if err := checkSumArgs(directory, low, high, 0); err != nil {
+		return nil, err
+	}
+	if strings.IndexByte(after, 0) >= 0 {
+		return nil, fmt.Errorf("list hashes: bounds cannot contain NUL bytes")
+	}
+	if limit <= 0 {
+		return nil, nil
+	}
+	if low != "" && low == high {
+		low, high = "", ""
+	}
+	var out []string
+	err := filepath.WalkDir(directory, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
+			return err
+		}
+		rel, err := filepath.Rel(directory, path)
+		if err != nil {
+			return err
+		}
+		if rel == "." {
+			return nil
+		}
+		hash := hashFromRel(rel)
+		if d.IsDir() {
+			// A wrapped interval is the union of (low, ...] and (..., high].
+			// A directory whose hashes all sort at or before after cannot
+			// hold a later file.
+			matches := subtreeCanMatch(hash, low, high)
+			if low != "" && high != "" && low > high {
+				matches = subtreeCanMatch(hash, low, "") || subtreeCanMatch(hash, "", high)
+			}
+			exhausted := after != "" && hash != "" && !strings.HasPrefix(after, hash) && hash < after
+			if !matches || exhausted {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		matches := hashInRange(hash, low, high)
+		if low != "" && high != "" && low > high {
+			matches = hashInRange(hash, low, "") || hashInRange(hash, "", high)
+		}
+		if !matches || (after != "" && hash <= after) {
+			return nil
+		}
+		mode := d.Type()
+		if mode != 0 && !mode.IsRegular() {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
+			return fmt.Errorf("stat %s: %w", rel, err)
+		}
+		if !info.Mode().IsRegular() {
+			return nil
+		}
+		out = append(out, hash)
+		if len(out) >= limit {
+			return fs.SkipAll
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list hashes: %w", err)
+	}
+	return out, nil
 }
