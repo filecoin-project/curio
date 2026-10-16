@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
+	"errors"
 	"io"
 	"net/http"
 	"os"
@@ -17,8 +18,13 @@ import (
 	"github.com/filecoin-project/curio/lib/fs2"
 )
 
+const (
+	headerPutSize    = "X-Curio-Size"
+	headerPutExisted = "X-Curio-Existed"
+)
+
 // ServeHTTP serves /hashspace/{storage id}/{hash} for clustermates.
-// GET reads the piece file (Range supported), DELETE removes it.
+// GET reads the piece file (Range supported), PUT writes it, DELETE removes it.
 // Query space selects open-pieces or acl-pieces; it defaults to open-pieces.
 // POST /hashspace/notify reloads the local map after another node changed it.
 // Callers must authenticate the request before it reaches this handler.
@@ -97,6 +103,21 @@ func (c *Cluster) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Header().Set("Content-Type", "application/octet-stream")
 		http.ServeContent(w, r, "", info.ModTime(), f)
+	case http.MethodPut:
+		n, existed, err := putHash(sp, root, hexHash, r.Body, r.ContentLength)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		c.publishOne(r.Context(), storageID, root)
+		if err := c.MaybeRebalance(r.Context(), storageID); err != nil {
+			log.Warnw("hash space rebalance", "storage", storageID, "error", err)
+		}
+		w.Header().Set(headerPutSize, strconv.FormatInt(n, 10))
+		if existed {
+			w.Header().Set(headerPutExisted, "1")
+		}
+		w.WriteHeader(http.StatusNoContent)
 	case http.MethodDelete:
 		if err := sp.deleteHashOn(root, hexHash); err != nil && !os.IsNotExist(err) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -107,6 +128,65 @@ func (c *Cluster) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+// putHash streams r into the piece file. With a known length, an existing
+// shorter file is a partial copy and is replaced. Otherwise an existing file
+// is left in place and its size returned with existed set.
+func putHash(sp *Space, root, hexHash string, r io.Reader, size int64) (int64, bool, error) {
+	if r == nil {
+		r = bytes.NewReader(nil)
+	}
+	var w io.WriteCloser
+	var err error
+	if size >= 0 {
+		var existing int64
+		w, existing, err = sp.ReplaceShorterHashOn(root, hexHash, size)
+		if err == nil && w == nil {
+			_, _ = io.Copy(io.Discard, r)
+			return existing, true, nil
+		}
+	} else {
+		w, err = sp.WriteHashOn(root, hexHash)
+	}
+	if err != nil {
+		if errors.Is(err, os.ErrExist) {
+			// The client is already streaming. Drain it so the 204 can be
+			// delivered instead of resetting the connection.
+			_, _ = io.Copy(io.Discard, r)
+			n, err := hashSize(sp, root, hexHash)
+			return n, true, err
+		}
+		return 0, false, err
+	}
+	n, err := io.CopyBuffer(w, r, make([]byte, 8<<20))
+	if err != nil {
+		if a, ok := w.(interface{ Abort() error }); ok {
+			_ = a.Abort()
+		}
+		return 0, false, err
+	}
+	if err := w.Close(); err != nil {
+		if errors.Is(err, os.ErrExist) {
+			n, err := hashSize(sp, root, hexHash)
+			return n, true, err
+		}
+		return 0, false, err
+	}
+	return n, false, nil
+}
+
+func hashSize(sp *Space, root, hexHash string) (int64, error) {
+	f, err := sp.openHashOn(root, hexHash)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = f.Close() }()
+	info, err := f.Stat()
+	if err != nil {
+		return 0, err
+	}
+	return info.Size(), nil
 }
 
 // serveList answers GET/HEAD .../{storage}/list with up to limit piece
@@ -232,7 +312,7 @@ func (c *Cluster) remoteList(ctx context.Context, storageID, kind, low, high, af
 		q += "&after=" + after
 	}
 	var body []byte
-	err := c.remoteHash(ctx, http.MethodGet, storageID, kind, "list"+q, nil, func(r *http.Response) (bool, error) {
+	err := c.remoteHash(ctx, http.MethodGet, storageID, kind, "list"+q, nil, nil, func(r *http.Response) (bool, error) {
 		defer func() { _ = r.Body.Close() }()
 		if r.StatusCode != http.StatusOK {
 			return false, xerrors.Errorf("GET list %s: %s", storageID, r.Status)
