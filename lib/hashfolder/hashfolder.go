@@ -1,8 +1,8 @@
 // Package hashfolder stores piece files in two CID-hash namespaces,
 // open-pieces and acl-pieces. Each namespace implements HashSpace.
 // layout-open-pieces.json and layout-acl-pieces.json at each storage root
-// record that folder's used bytes, the "2,-" split, and the hash ranges the
-// folder owns. The space folders hold only hash-named piece files.
+// record that folder's used bytes and the hash ranges the folder owns.
+// The space folders hold only hash-named piece files.
 //
 // FirstSetup assigns ranges by presenting every drive to hashspacesolver.
 // WriteCID creates a file only when that CID is not already stored.
@@ -26,8 +26,8 @@ import (
 )
 
 const (
-	// SPLIT is the layout's folder split. The first two hex characters of the CID
-	// hash are the directory and the rest is the file name: abcdefg is ab/cdefg.
+	// SPLIT is the folder split. The first two hex characters of the CID hash
+	// are the directory and the rest is the file name: abcdefg is ab/cdefg.
 	SPLIT = "2,-"
 
 	// DIR_OPEN and DIR_ACL are the space folders on each storage root.
