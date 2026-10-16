@@ -472,6 +472,14 @@ func (s *Space) cidPathOn(root string, c cid.Cid) (string, error) {
 	return s.hashPathOn(root, hexHash)
 }
 
+func (s *Space) openHashOn(root, hexHash string) (*os.File, error) {
+	path, err := s.hashPathOn(root, hexHash)
+	if err != nil {
+		return nil, err
+	}
+	return os.Open(path)
+}
+
 func (s *Space) hashPathOn(root, hexHash string) (string, error) {
 	d, err := s.diskOn(root)
 	if err != nil {
