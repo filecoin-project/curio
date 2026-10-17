@@ -15,9 +15,13 @@ func uiDefaultJSON() (map[string]any, error) {
 }
 
 func uiLayerJSON(layerToml string) (map[string]any, error) {
-	return tomlToJSONMap(layerToml)
+	return editableCurioLayer(layerToml)
 }
 
 func uiPrepareLayerSave(layer string, submitted map[string]any, existingToml string) (string, error) {
+	// Even if an older editor omitted an unknown key, do not silently destroy it.
+	if _, err := editableCurioLayer(existingToml); err != nil {
+		return "", err
+	}
 	return prepareCurioLayerSave(layer, submitted)
 }

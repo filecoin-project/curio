@@ -10,6 +10,7 @@ func TestDurationPattern(t *testing.T) {
 	re := regexp.MustCompile(durationPattern)
 
 	valid := []string{
+		"0", "0s", ".5h", "1.h", "+1m", "-1m", "1μs", "43m45s", "25m20s",
 		"0h0m0s",
 		"8h0m0s",
 		"1h30m",
