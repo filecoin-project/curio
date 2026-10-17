@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math/big"
 	"net/http"
 
@@ -18,6 +19,8 @@ import (
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/pdp/contract/FWSS"
 )
+
+const MaxPullRequestBodySize = 4 * 1024 * 1024 // 4MB
 
 // getPDPSenderAddress retrieves the PDP key address from the database
 func getPDPSenderAddress(ctx context.Context, db *harmonydb.DB) (common.Address, error) {
@@ -187,11 +190,9 @@ func NewPullHandler(auth Auth, store PullStore, validator AddPiecesValidator, db
 //     will receive callbacks from PDPVerifier (typically FilecoinWarmStorageService).
 //     Must be in the allowed list for public services.
 //
-//   - pieces (required): Array of pieces to pull, each containing:
-//
-//   - pieceCid: PieceCIDv2 format (encodes both CommP and raw size)
-//
-//   - sourceUrl: HTTPS URL ending in /piece/{pieceCid} on a public host
+//   - pieces (required): Array of {pieceCid, sourceUrls} entries. sourceUrls are
+//     tried in order for that piece. sourceUrl is still accepted; when both are
+//     set, both are used with sourceUrl tried first.
 //
 // # ExtraData and Authorization
 //
@@ -216,8 +217,8 @@ func NewPullHandler(auth Auth, store PullStore, validator AddPiecesValidator, db
 //
 //  1. Client calls POST /pdp/piece/pull with piece CIDs and source URLs
 //  2. Server validates extraData via eth_call (ensures authorization)
-//  3. Server creates pull tracking records; duplicate pieces with different
-//     source URLs are kept so the server can try each supplied source.
+//  3. Server creates pull tracking records. Each piece keeps its source URLs
+//     in the order given so ingest tries them in that order.
 //  4. Client polls the same endpoint to check status (idempotent)
 //  5. Once all pieces are "complete", client calls the contract to add pieces to dataset
 //
@@ -238,8 +239,8 @@ func NewPullHandler(auth Auth, store PullStore, validator AddPiecesValidator, db
 //
 // Several safety measures protect against malicious sources:
 //
-//   - Source URL validation: Must be HTTPS, path must match /piece/{pieceCid},
-//     host must not be localhost/private IP/link-local
+//   - Source URL validation: Must be HTTPS. Hosts are checked against the SSRF
+//     policy at fetch time (localhost/private IP/link-local are blocked).
 //
 //   - Size limits: Piece size (encoded in PieceCIDv2) must not exceed PieceSizeMaxLimit.
 //     Downloads are capped at the declared size to prevent abuse.
@@ -284,7 +285,8 @@ func (h *PullHandler) HandlePull(w http.ResponseWriter, r *http.Request) {
 
 	// Parse request body
 	var req PullRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	limitedReader := &io.LimitedReader{R: r.Body, N: MaxPullRequestBodySize}
+	if err := json.NewDecoder(limitedReader).Decode(&req); err != nil {
 		httpServerError(w, http.StatusBadRequest, "Invalid request body: "+err.Error(), err)
 		return
 	}
@@ -371,29 +373,35 @@ func (h *PullHandler) HandlePull(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse all piece CIDs (validates PieceCIDv2 format, extracts v1, size info)
-	pieceInfos := make([]*PieceCidInfo, len(req.Pieces))
-	pieceData := make([]contract.CidsCid, len(req.Pieces))
-	for i, piece := range req.Pieces {
+	// One addPieces entry per piece. Each of that piece's URLs is its own pull item.
+	pieceData := make([]contract.CidsCid, 0, len(req.Pieces))
+	pullPieces := make([]PullPiece, 0, len(req.Pieces))
+	for _, piece := range req.Pieces {
 		info, err := ParsePieceCidV2(piece.PieceCid)
 		if err != nil {
-			msg := fmt.Sprintf("Invalid pieceCid[%d]: %s", i, err.Error())
+			msg := fmt.Sprintf("Invalid pieceCid %s: %s", piece.PieceCid, err.Error())
 			httpServerError(w, http.StatusBadRequest, msg, err)
-
 			return
 		}
 		if info.RawSize < uint64(PieceSizeMinLimit) {
-			msg := fmt.Sprintf("pieceCid[%d]: size %d is below minimum %d", i, info.RawSize, PieceSizeMinLimit)
+			msg := fmt.Sprintf("pieceCid %s: size %d is below minimum %d", piece.PieceCid, info.RawSize, PieceSizeMinLimit)
 			httpServerError(w, http.StatusBadRequest, msg, nil)
 			return
 		}
 		if info.RawSize > uint64(PieceSizeMaxLimit) {
-			msg := fmt.Sprintf("pieceCid[%d]: size %d exceeds maximum %d", i, info.RawSize, PieceSizeMaxLimit)
+			msg := fmt.Sprintf("pieceCid %s: size %d exceeds maximum %d", piece.PieceCid, info.RawSize, PieceSizeMaxLimit)
 			httpServerError(w, http.StatusBadRequest, msg, nil)
 			return
 		}
-		pieceInfos[i] = info
-		pieceData[i] = contract.CidsCid{Data: info.CidV2.Bytes()}
+		pieceData = append(pieceData, contract.CidsCid{Data: info.CidV2.Bytes()})
+		for j, sourceURL := range piece.orderedSourceURLs() {
+			pullPieces = append(pullPieces, PullPiece{
+				CidV1:       info.CidV1,
+				RawSize:     info.RawSize,
+				SourceURL:   sourceURL,
+				SourceOrder: j,
+			})
+		}
 	}
 
 	abiData, err := contract.PDPVerifierMetaData.GetAbi()
@@ -420,16 +428,6 @@ func (h *PullHandler) HandlePull(w http.ResponseWriter, r *http.Request) {
 	if err := h.validator.ValidateAddPieces(ctx, validatorParams); err != nil {
 		httpServerError(w, http.StatusBadRequest, "extraData validation failed: "+err.Error(), err)
 		return
-	}
-
-	// Build normalized pull pieces for persistence.
-	pullPieces := make([]PullPiece, len(pieceInfos))
-	for i, info := range pieceInfos {
-		pullPieces[i] = PullPiece{
-			CidV1:     info.CidV1,
-			RawSize:   info.RawSize,
-			SourceURL: req.Pieces[i].SourceURL,
-		}
 	}
 
 	// Create pull record
