@@ -19,6 +19,54 @@ import (
 	"github.com/filecoin-project/lotus/chain/types"
 )
 
+const PRECOMMIT_BATCH_CANDIDATES_SQL = `
+	WITH initial AS (
+		SELECT
+			p.sp_id,
+			p.sector_number,
+			COALESCE(
+				(SELECT MIN(LEAST(s.f05_deal_start_epoch, s.direct_start_epoch))
+				 FROM sectors_sdr_initial_pieces s
+				 WHERE s.sp_id = p.sp_id AND s.sector_number = p.sector_number),
+				p.ticket_epoch + $1
+			) AS start_epoch,
+			COALESCE(p.precommit_ready_at, '1970-01-01 00:00:00+00'::TIMESTAMPTZ) AS ready_at,
+			p.reg_seal_proof
+		FROM sectors_sdr_pipeline p
+		WHERE p.after_synth = TRUE
+			AND p.task_id_precommit_msg IS NULL
+			AND p.after_precommit_msg = FALSE
+			AND p.failed = FALSE
+	),
+	numbered AS (
+		SELECT l.*,
+			ROW_NUMBER() OVER (
+				PARTITION BY l.sp_id, l.reg_seal_proof
+				ORDER BY l.start_epoch
+			) AS rn
+		FROM initial l
+	)
+	SELECT
+		sp_id,
+		sector_number,
+		start_epoch,
+		ready_at,
+		reg_seal_proof,
+		FLOOR((rn - 1)::NUMERIC / $2)::BIGINT AS batch_index
+	FROM numbered
+	ORDER BY sp_id, reg_seal_proof, batch_index, start_epoch`
+
+const PRECOMMIT_BATCH_ASSIGN_SQL = `
+	UPDATE sectors_sdr_pipeline
+	SET task_id_precommit_msg = $1
+	WHERE sp_id = $2
+		AND reg_seal_proof = $3
+		AND sector_number = ANY($4::bigint[])
+		AND after_synth = TRUE
+		AND task_id_precommit_msg IS NULL
+		AND after_precommit_msg = FALSE
+		AND failed = FALSE`
+
 func (s *SealPoller) pollStartBatchPrecommitMsg(ctx context.Context) {
 	if !s.pollers[pollerPrecommitMsg].IsSet() {
 		return
@@ -43,41 +91,7 @@ func (s *SealPoller) pollStartBatchPrecommitMsg(ctx context.Context) {
 
 	s.pollers[pollerPrecommitMsg].Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
 		var rows []BatchRow
-		err := tx.Select(&rows, `
-			WITH initial AS (
-				SELECT
-					p.sp_id,
-					p.sector_number,
-					COALESCE(
-						(SELECT MIN(LEAST(s.f05_deal_start_epoch, s.direct_start_epoch))
-						 FROM sectors_sdr_initial_pieces s
-						 WHERE s.sp_id = p.sp_id AND s.sector_number = p.sector_number),
-						p.ticket_epoch + $1
-					) AS start_epoch,
-					COALESCE(p.precommit_ready_at, '1970-01-01 00:00:00+00'::TIMESTAMPTZ) AS ready_at,
-					p.reg_seal_proof
-				FROM sectors_sdr_pipeline p
-				WHERE p.after_synth = TRUE
-					AND p.task_id_precommit_msg IS NULL
-					AND p.after_precommit_msg = FALSE
-			),
-			numbered AS (
-				SELECT l.*,
-					ROW_NUMBER() OVER (
-						PARTITION BY l.sp_id, l.reg_seal_proof
-						ORDER BY l.start_epoch
-					) AS rn
-				FROM initial l
-			)
-			SELECT
-				sp_id,
-				sector_number,
-				start_epoch,
-				ready_at,
-				reg_seal_proof,
-				FLOOR((rn - 1)::NUMERIC / $2)::BIGINT AS batch_index
-			FROM numbered
-			ORDER BY sp_id, reg_seal_proof, batch_index, start_epoch`,
+		err := tx.Select(&rows, PRECOMMIT_BATCH_CANDIDATES_SQL,
 			policy.MaxPreCommitRandomnessLookback,
 			s.cfg.preCommit.MaxPreCommitBatch)
 		if err != nil {
@@ -114,15 +128,7 @@ func (s *SealPoller) pollStartBatchPrecommitMsg(ctx context.Context) {
 			return false, nil
 		}
 
-		n, err := tx.Exec(`
-			UPDATE sectors_sdr_pipeline
-			SET task_id_precommit_msg = $1
-			WHERE sp_id = $2
-				AND reg_seal_proof = $3
-				AND sector_number = ANY($4::bigint[])
-				AND after_synth = TRUE
-				AND task_id_precommit_msg IS NULL
-				AND after_precommit_msg = FALSE`,
+		n, err := tx.Exec(PRECOMMIT_BATCH_ASSIGN_SQL,
 			id, firing.SpID, firing.RegSealProof, firing.SectorNums)
 		if err != nil {
 			return false, xerrors.Errorf("assigning precommit batch: %w", err)
