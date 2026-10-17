@@ -282,6 +282,16 @@ func TestMiddleware_Allowed(t *testing.T) {
 }
 
 func TestMiddleware_PiecePath(t *testing.T) {
+	testMiddlewareBlockedPath(t, "/piece/%s")
+}
+
+func TestMiddleware_PublicPath(t *testing.T) {
+	testMiddlewareBlockedPath(t, "/public/%s")
+}
+
+func testMiddlewareBlockedPath(t *testing.T, pathFmt string) {
+	t.Helper()
+
 	c := makeCIDv1("blocked-piece")
 	h := CIDToHash(c)
 
@@ -293,7 +303,7 @@ func TestMiddleware_PiecePath(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/piece/%s", c.String()), nil)
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf(pathFmt, c.String()), nil)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 
@@ -329,9 +339,11 @@ func TestExtractCID(t *testing.T) {
 	}{
 		{"/ipfs/" + cidStr, true, c},
 		{"/ipfs/" + cidStr + "/path/to/file", true, c},
+		{"/public/" + cidStr, true, c},
 		{"/piece/" + cidStr, true, c},
 		{"/info", false, cid.Undef},
 		{"/ipfs/", false, cid.Undef},
+		{"/public/", false, cid.Undef},
 		{"/piece/", false, cid.Undef},
 		{"/ipfs/notacid", false, cid.Undef},
 		{"/other/" + cidStr, false, cid.Undef},
