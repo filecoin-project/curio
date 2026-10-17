@@ -515,7 +515,7 @@ func (P *PDPIPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTask
 
 			// Mark deal is complete if:
 			// 1. We don't need to announce anything
-			// 2. Both type of announcements are done
+			// 2. Both types of announcements are complete
 			if (!p.Announce && !p.AnnouncePayload) || (p.Announced && p.AnnouncedPayload) { //nolint:staticcheck
 				isRm = p.IsRM
 				complete = &p.ID
