@@ -173,6 +173,10 @@ func TestDynamicMarshalSlice(t *testing.T) {
 func TestDefaultCurioConfigMarshal(t *testing.T) {
 	// Test that the default config with Dynamic fields can be marshaled
 	cfg := DefaultCurioConfig()
+	assert.NotNil(t, cfg.Ingest.MK20PipelineInsertBatch)
+	assert.Equal(t, 0, cfg.Ingest.MK20PipelineInsertBatch.Get())
+	assert.NotNil(t, cfg.Ingest.MK20PipelineInsertMaxActive)
+	assert.Equal(t, 0, cfg.Ingest.MK20PipelineInsertMaxActive.Get())
 
 	// This should not panic or error using TransparentMarshal
 	data, err := TransparentMarshal(cfg)
@@ -190,6 +194,8 @@ func TestCurioConfigRoundTrip(t *testing.T) {
 	// Modify some Dynamic values to test they persist
 	cfg1.Ingest.MaxQueueDownload.Set(16)
 	cfg1.Ingest.MaxMarketRunningPipelines.Set(32)
+	cfg1.Ingest.MK20PipelineInsertBatch.Set(12)
+	cfg1.Ingest.MK20PipelineInsertMaxActive.Set(200)
 
 	// Marshal to TOML using TransparentMarshal
 	data, err := TransparentMarshal(cfg1)
@@ -204,6 +210,8 @@ func TestCurioConfigRoundTrip(t *testing.T) {
 	// Verify Dynamic values were preserved
 	assert.Equal(t, 16, cfg2.Ingest.MaxQueueDownload.Get(), "MaxQueueDownload should be preserved")
 	assert.Equal(t, 32, cfg2.Ingest.MaxMarketRunningPipelines.Get(), "MaxMarketRunningPipelines should be preserved")
+	assert.Equal(t, 12, cfg2.Ingest.MK20PipelineInsertBatch.Get(), "MK20PipelineInsertBatch should be preserved")
+	assert.Equal(t, 200, cfg2.Ingest.MK20PipelineInsertMaxActive.Get(), "MK20PipelineInsertMaxActive should be preserved")
 
 	// Verify the Addresses Dynamic slice was preserved
 	assert.Equal(t, len(cfg1.Addresses.Get()), len(cfg2.Addresses.Get()), "Addresses slice length should match")
