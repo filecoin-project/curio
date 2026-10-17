@@ -842,17 +842,32 @@ func (d *CurioStorageDealMarket) createCommPMk20Piece(ctx context.Context, piece
 	return nil
 }
 
+type mk20SectorPiece struct {
+	CID   string              `db:"piece_cid"`
+	Size  abi.PaddedPieceSize `db:"piece_size"`
+	Index int64               `db:"piece_index"`
+}
+
+func findMK20PieceOffset(pieces []mk20SectorPiece, pieceCID string, pieceSize abi.PaddedPieceSize) (abi.PaddedPieceSize, bool) {
+	var offset abi.UnpaddedPieceSize
+
+	for _, piece := range pieces {
+		_, padLength := proofs.GetRequiredPadding(offset.Padded(), piece.Size)
+		offset += padLength.Unpadded()
+		if piece.CID == pieceCID && piece.Size == pieceSize {
+			return offset.Padded(), true
+		}
+		offset += piece.Size.Unpadded()
+	}
+
+	return 0, false
+}
+
 func (d *CurioStorageDealMarket) addDealOffset(ctx context.Context, piece MK20PipelinePiece) error {
 	// Get the deal offset if sector has started sealing
 	if piece.Sector.Valid && piece.RegSealProof.Valid && !piece.SectorOffset.Valid {
 		_, err := d.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
-			type pieces struct {
-				Cid   string              `db:"piece_cid"`
-				Size  abi.PaddedPieceSize `db:"piece_size"`
-				Index int64               `db:"piece_index"`
-			}
-
-			var pieceList []pieces
+			var pieceList []mk20SectorPiece
 			err = tx.Select(&pieceList, `SELECT piece_cid, piece_size, piece_index
 												FROM sectors_sdr_initial_pieces
 												WHERE sp_id = $1 AND sector_number = $2
@@ -873,25 +888,19 @@ func (d *CurioStorageDealMarket) addDealOffset(ctx context.Context, piece MK20Pi
 				return false, nil
 			}
 
-			var offset abi.UnpaddedPieceSize
-
-			for _, p := range pieceList {
-				_, padLength := proofs.GetRequiredPadding(offset.Padded(), p.Size)
-				offset += padLength.Unpadded()
-				if p.Cid == piece.PieceCID && p.Size == abi.PaddedPieceSize(piece.PieceSize) {
-					n, err := tx.Exec(`UPDATE market_mk20_pipeline SET sector_offset = $1 WHERE id = $2 AND sector = $3 AND sector_offset IS NULL`, offset.Padded(), piece.ID, piece.Sector.Int64)
-					if err != nil {
-						return false, xerrors.Errorf("updating deal offset: %w", err)
-					}
-					if n != 1 {
-						return false, xerrors.Errorf("expected to update 1 deal, updated %d", n)
-					}
-					offset += p.Size.Unpadded()
-					return true, nil
-				}
-
+			offset, found := findMK20PieceOffset(pieceList, piece.PieceCID, abi.PaddedPieceSize(piece.PieceSize))
+			if !found {
+				return false, xerrors.Errorf("failed to find deal offset for piece %s", piece.PieceCID)
 			}
-			return false, xerrors.Errorf("failed to find deal offset for piece %s", piece.PieceCID)
+
+			n, err := tx.Exec(`UPDATE market_mk20_pipeline SET sector_offset = $1 WHERE id = $2 AND sector = $3 AND sector_offset IS NULL`, offset, piece.ID, piece.Sector.Int64)
+			if err != nil {
+				return false, xerrors.Errorf("updating deal offset: %w", err)
+			}
+			if n != 1 {
+				return false, xerrors.Errorf("expected to update 1 deal, updated %d", n)
+			}
+			return true, nil
 		}, harmonydb.OptionRetry())
 		if err != nil {
 			return xerrors.Errorf("failed to get deal offset: %w", err)
