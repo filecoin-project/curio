@@ -27,6 +27,12 @@ docker/skiff/data
 /itests
 /shouldtest
 
+# Manual upload wallet and its installed packages. The image build must not receive the key.
+scripts/manual_test/synapse-random-upload/node_modules
+scripts/manual_test/synapse-random-upload/wallet.json
+scripts/manual_test/synapse-random-upload/datasets.json
+scripts/manual_test/synapse-random-upload/datasets.json.tmp
+
 # Misc dev artifacts.
 /coverage
 /scratchpad

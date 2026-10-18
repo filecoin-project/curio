@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Install Synapse SDK deps if needed, then upload random calibration pieces.
+set -euo pipefail
+
+cd "$(dirname "$0")"
+
+if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
+	echo "node and npm are required (Node.js 20+)." >&2
+	exit 1
+fi
+
+if [[ ! -d node_modules/@filoz/synapse-sdk ]]; then
+	npm install
+fi
+
+exec node upload.mjs "$@"

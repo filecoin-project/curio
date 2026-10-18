@@ -1,0 +1,6 @@
+node_modules/
+wallet.json
+datasets.json
+datasets.json.tmp
+.synapse-commit-lock/
+.synapse-ledger-lock/

@@ -29,6 +29,7 @@
 - Pipeline/task engine work: `04` + `01` + `05` (+ `06` when currently evolving).
 - API/handler/product behavior: `04` + `01` + `05` (+ `07` for recent directional decisions).
 - Operational triage/current state: `04` + `06` + `07` (+ `08` for known uncertainty zones).
+- Calibration PDP piece uploads or provider load tests: `scripts/manual_test/synapse-random-upload/README.md`.
 
 ## Starter message template
 Read the attached Curio context files first and treat them as the project briefing for this conversation.

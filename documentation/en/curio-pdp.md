@@ -356,3 +356,7 @@ To move **relational PDP state and piece indexes**:
 4. If the imported DB has a separate `pdp` config layer, Curio-PDP merges it into `base` on next startup.
 
 There is no dedicated migration tool — Yugabyte backup/restore plus file copy is sufficient.
+
+## Sending test pieces
+
+[`synapse-random-upload`](developer/synapse-random-upload.md) (`scripts/manual_test/synapse-random-upload/`) generates random pieces and uploads them to one calibration provider through the Synapse SDK. Use it to fill data sets on a Curio-PDP stack. Pass that stack's PDP URL as `--provider`.

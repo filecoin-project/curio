@@ -6,6 +6,9 @@ This repository uses modular AI context files under [`scripts/ai-context/`](scri
 - Read [`scripts/ai-context/README.md`](scripts/ai-context/README.md) for purpose and workflow.
 - Use [`scripts/ai-context/index.md`](scripts/ai-context/index.md) to choose which files to load for a task.
 
+## Manual test tools
+- [`scripts/manual_test/synapse-random-upload/`](scripts/manual_test/synapse-random-upload/README.md) uploads random calibration pieces to a chosen PDP provider with the Synapse SDK. Do not commit `wallet.json` or `datasets.json` from that directory.
+
 ## Runtime Context (Coding/Design Chats)
 - Load context files from [`scripts/ai-context/context/`](scripts/ai-context/context/).
 - Default context loading (for every new coding/design chat):

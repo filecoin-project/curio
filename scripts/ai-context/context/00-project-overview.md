@@ -34,6 +34,7 @@ Curio is a clustered Filecoin Storage Provider runtime focused on replacing the 
 - CQL: indexstore schema in `market/indexstore/cql`.
 - JavaScript/HTML/CSS: Web UI under `web/static` (ES modules + Lit-based components).
 - Shell/Make: build/test/devnet automation in `scripts/makefiles`, `docker/`, CI workflows.
+- Node: `scripts/manual_test/synapse-random-upload/` uploads calibration PDP pieces through the Synapse SDK. See its README. `wallet.json` and `datasets.json` there are local and must not be committed.
 
 ## What makes this codebase non-trivial
 - The scheduler is distributed and DB-coordinated, not a single-process queue.
