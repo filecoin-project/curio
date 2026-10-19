@@ -68,6 +68,8 @@ Curio Storage is continuously evolving, with future plans including:
 
 We recommend reading [docs.CurioStorage.org](https://docs.curiostorage.org/) where you may have a pre-built binary for your system.
 
+Let your AI agent help you earn on Filecoin using your spare hardware and storage capacity. [Filecoin PDP Agent](documentation/en/filecoin-pdp-agent.md) handles provider setup and ongoing operation on your behalf. This option is designed for **full agent control, including access to the private keys Curio uses**.
+
 One way to get started with Curio Storage, follow these steps:
 
 1. **Clone the Repository**:
