@@ -1961,27 +1961,39 @@ func (c *Cluster) notifyOne(ctx context.Context, target string) error {
 // diskHashUsed is the hash-space bytes recorded on root. The solver adds
 // these to the filesystem's free space.
 func diskHashUsed(root string) (int64, error) {
-	var n int64
+	openUsed, aclUsed, err := folderUsed(root)
+	return openUsed + aclUsed, err
+}
+
+// folderUsed is the used counter of each space's layout on root. A missing
+// layout counts as zero.
+func folderUsed(root string) (openUsed, aclUsed int64, err error) {
 	for _, kind := range spaceKinds {
 		ok, err := layoutExists(root, kind)
 		if err != nil {
-			return 0, err
+			return 0, 0, err
 		}
 		if !ok {
 			continue
 		}
-		_, used, err := accountedLayout(root, kind)
+		_, n, err := accountedLayout(root, kind)
 		if err != nil {
-			return 0, err
+			return 0, 0, err
 		}
-		n += used
+		if kind == DIR_ACL {
+			aclUsed = n
+		} else {
+			openUsed = n
+		}
 	}
-	return n, nil
+	return openUsed, aclUsed, nil
 }
 
 // join adds drives to the cluster map. It returns new drives to present with
 // EVENT_ARRIVE and new drives holding a whole-circle claim, which take
-// EVENT_CLAIM instead.
+// EVENT_CLAIM instead. Each claim is also inserted as a pending event in
+// this transaction. A disk already in hash_space_disk is not claimed again,
+// so the row is what the refresh loop solves if this process stops before raise.
 func (c *Cluster) join(ctx context.Context, drives []LocalDrive) (arrived, claimed []string, err error) {
 	claims := make(map[string]bool, len(drives))
 	for _, d := range drives {
@@ -2055,10 +2067,11 @@ func (c *Cluster) join(ctx context.Context, drives []LocalDrive) (arrived, claim
 
 		var fresh []string
 		for _, d := range drives {
-			used, err := diskHashUsed(d.Root)
+			openUsed, aclUsed, err := folderUsed(d.Root)
 			if err != nil {
 				return false, err
 			}
+			used := openUsed + aclUsed
 			capacity, err := effectiveCapacity(Drive{StorageID: d.StorageID, Root: d.Root}, used)
 			if err != nil {
 				return false, err
@@ -2075,14 +2088,23 @@ func (c *Cluster) join(ctx context.Context, drives []LocalDrive) (arrived, claim
 				}
 				continue
 			}
-			if _, err := tx.Exec(`INSERT INTO hash_space_disk (storage_id, capacity, vacating, has_misplaced) VALUES ($1, $2, $3, $4)
-				ON CONFLICT (storage_id) DO NOTHING`, d.StorageID, capacity, deny, claim); err != nil {
+			// Folder bytes commit with the disk. A claim solved before publishUsed
+			// would otherwise see zero used and be consumed.
+			if _, err := tx.Exec(`INSERT INTO hash_space_disk (storage_id, capacity, used_open, used_acl, vacating, has_misplaced)
+				VALUES ($1, $2, $3, $4, $5, $6)
+				ON CONFLICT (storage_id) DO NOTHING`, d.StorageID, capacity, openUsed, aclUsed, deny, claim); err != nil {
 				return false, err
 			}
 			switch {
 			case deny:
 			case claim:
+				// The disk row makes the next start skip this claim, so the
+				// event has to commit with it.
 				claimed = append(claimed, d.StorageID)
+				if _, err := tx.Exec(`INSERT INTO hash_space_pending_event (storage_id, event_kind) VALUES ($1, $2)
+					ON CONFLICT (storage_id, event_kind) DO NOTHING`, d.StorageID, EVENT_CLAIM); err != nil {
+					return false, err
+				}
 			default:
 				fresh = append(fresh, d.StorageID)
 			}
