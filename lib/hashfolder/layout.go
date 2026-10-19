@@ -18,9 +18,12 @@ type Layout struct {
 	Used        int64       `json:"used"`
 	CommittedAt time.Time   `json:"committed_at"`
 	Ranges      []HashRange `json:"ranges"`
-	// MoveSources are intervals owned by another folder that are being moved
+	// MoveDests are intervals owned by another folder that are being moved
 	// here. A piece in one may be on either folder until the move ends.
-	MoveSources []HashRange `json:"move_sources,omitempty"`
+	MoveDests []HashRange `json:"move_dests,omitempty"`
+	// Claim marks a folder of pieces migrated from piece-park, holding hashes
+	// from the whole circle. Its disk joins with EVENT_CLAIM.
+	Claim bool `json:"claim,omitempty"`
 }
 
 // HashRange is one half-open interval (start, end] owned by this folder.
@@ -49,6 +52,18 @@ func layoutExists(root, kind string) (bool, error) {
 		return ok, err
 	}
 	return fileExists(legacyLayoutPath(root, kind))
+}
+
+// removeLayouts removes both spaces' layouts from root, at either path.
+func removeLayouts(root string) error {
+	for _, kind := range spaceKinds {
+		for _, path := range []string{layoutPath(root, kind), legacyLayoutPath(root, kind)} {
+			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+				return xerrors.Errorf("removing %s: %w", path, err)
+			}
+		}
+	}
+	return nil
 }
 
 // openLayout reads kind's layout on root and the file's mtime. A missing
@@ -121,6 +136,10 @@ func removeLegacyTemps(dir string) error {
 	return nil
 }
 
+// errBadLayout marks a layout file whose contents cannot be used, such as
+// one truncated by a crash during writeLayout.
+var errBadLayout = xerrors.New("bad layout")
+
 func readLayout(path string) (Layout, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -128,10 +147,10 @@ func readLayout(path string) (Layout, error) {
 	}
 	var layout Layout
 	if err := json.Unmarshal(b, &layout); err != nil {
-		return Layout{}, xerrors.Errorf("decoding %s: %w", path, err)
+		return Layout{}, xerrors.Errorf("decoding %s: %w: %v", path, errBadLayout, err)
 	}
 	if layout.Used < 0 {
-		return Layout{}, xerrors.Errorf("%s used is negative", path)
+		return Layout{}, xerrors.Errorf("%s: %w: used is negative", path, errBadLayout)
 	}
 	if layout.Ranges == nil {
 		layout.Ranges = []HashRange{}
