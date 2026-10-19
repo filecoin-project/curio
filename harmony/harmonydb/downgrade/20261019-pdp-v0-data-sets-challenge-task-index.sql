@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS idx_pdp_data_sets_challenge_request_task_id;
