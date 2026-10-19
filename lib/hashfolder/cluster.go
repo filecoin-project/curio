@@ -69,6 +69,7 @@ const (
 	MOVE_STALE = 48 * time.Hour
 )
 
+// spaceKinds lists the hash spaces
 var spaceKinds = []string{DIR_OPEN, DIR_ACL}
 
 // ErrDiskFull means the destination could not store the copy because the
@@ -119,7 +120,7 @@ type rangeRow struct {
 
 type moveSourceRow struct {
 	ID          int64  `db:"id"`
-	Space       string `db:"space"`
+	Space       string `db:"space"` // "open-pieces" or "acl-pieces"
 	StartHash   []byte `db:"start_hash"`
 	EndHash     []byte `db:"end_hash"`
 	FromStorage string `db:"from_storage"`
@@ -1336,7 +1337,7 @@ func (c *Cluster) triggerStill(ctx context.Context, fills []diskFill, storageID,
 // MoveSource is an in-flight interval copy.
 type MoveSource struct {
 	ID          int64
-	Space       string
+	Space       string // "open-pieces" or "acl-pieces"
 	StartHash   []byte
 	EndHash     []byte
 	FromStorage string

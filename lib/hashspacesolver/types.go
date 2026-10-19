@@ -55,7 +55,8 @@ type MountPoint struct {
 // State is an assignment of ranges to mountpoints across the hash spaces.
 //
 // Each HashSpaces entry is an independent circle; a nil entry is an unused
-// space. All spaces draw on the same mount free space.
+// space. Index 0 is open-pieces and index 1 is acl-pieces. All spaces draw
+// on the same mount free space.
 type State struct {
 	MountPoints []MountPoint
 	HashSpaces  [2][]Range
@@ -101,7 +102,7 @@ type Event struct {
 // within one space. Intervals are half-open (StartHash, EndHash]. From and
 // To are StorageIDs.
 type Transfer struct {
-	Space     int
+	Space     int // HashSpaces index: 0 is open-pieces, 1 is acl-pieces
 	StartHash []byte
 	EndHash   []byte
 	From      string

@@ -57,7 +57,7 @@ func (c *Cluster) FixOverlaps(ctx context.Context) (int, error) {
 	budget := map[pair]int64{}
 
 	type stray struct {
-		space string
+		space string // "open-pieces" or "acl-pieces"
 		start []byte
 		end   []byte
 		from  string

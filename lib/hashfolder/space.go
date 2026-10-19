@@ -16,9 +16,9 @@ import (
 	"github.com/filecoin-project/curio/lib/hashspacesolver"
 )
 
-// Space is one hash namespace across local storage roots.
+// Space is one hash namespace, open-pieces or acl-pieces, across local storage roots.
 type Space struct {
-	kind  string
+	kind  string // DIR_OPEN or DIR_ACL
 	disks []*disk
 	mu    sync.Mutex
 	// writing holds piece paths with an open writer. Guarded by mu. Those
