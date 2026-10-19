@@ -94,7 +94,7 @@ services:
       args:
         SKIFF_MAKE_TARGET: ${SKIFF_MAKE_TARGET:-skiff}
     init: true
-    # Docker's default seccomp profile blocks io_uring. open-source Skiff uses Docker for packaging, not containment. 
+    # Docker's default seccomp profile blocks io_uring. open-source Skiff uses Docker for packaging, not containment.
     security_opt:
       - seccomp=unconfined
     depends_on:
