@@ -16,16 +16,26 @@ func sizesForRanges(dir string, ranges []HashRange, folderUsed int64) ([]int64, 
 	}
 	out := make([]int64, len(ranges))
 	for i, r := range ranges {
-		// start == end, both set, is the whole circle.
-		low, high := r.Start, r.End
-		if low != "" && low == high {
-			low, high = "", ""
-		}
-		res, err := fs2.SumFileSizesInterval(dir, low, high, 0)
+		n, err := sumInterval(dir, r.Start, r.End)
 		if err != nil {
 			return nil, err
 		}
-		out[i] = res.Bytes
+		out[i] = n
 	}
 	return out, nil
+}
+
+// sumInterval sums the piece files in dir whose hash lies in (start, end].
+// start == end, both set, is the whole circle. It is shared by range sizing
+// and overlap repair.
+func sumInterval(dir, start, end string) (int64, error) {
+	low, high := start, end
+	if start != "" && start == end {
+		low, high = "", ""
+	}
+	res, err := fs2.SumFileSizesInterval(dir, low, high, 0)
+	if err != nil {
+		return 0, err
+	}
+	return res.Bytes, nil
 }

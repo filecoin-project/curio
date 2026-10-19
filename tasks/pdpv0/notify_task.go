@@ -179,7 +179,7 @@ func (t *PDPNotifyTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Ram: 1 << 20,
 		},
 		MaxFailures: 14,
-		RetryWait:   taskhelp.RetryWaitExp(5*time.Second, 2),
+		RetryWait:   taskhelp.RetryWaitExp(5 * time.Second),
 		CanYield:    true,
 		IAmBored: passcall.Every(5*time.Second, func(taskFunc harmonytask.AddTaskFunc) error {
 			return t.schedule(taskFunc)
