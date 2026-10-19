@@ -12,6 +12,13 @@ import (
 
 var processEngine atomic.Pointer[TaskEngine]
 
+// SetEngineForTest installs e as this process's task engine and returns a
+// function that restores the previous one. e may be nil.
+func SetEngineForTest(e *TaskEngine) func() {
+	prev := processEngine.Swap(e)
+	return func() { processEngine.Store(prev) }
+}
+
 // AdderFor returns an AddTaskFunc for the named task type on this process's
 // task engine, for code that is not that task's Adder. The task type does
 // not have to be registered locally; another node that runs it picks the
