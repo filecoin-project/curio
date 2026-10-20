@@ -81,6 +81,10 @@ func (m *uploadTestPieceIO) RemovePiece(_ context.Context, pieceID storiface.Pie
 	return nil
 }
 
+func (m *uploadTestPieceIO) LocalStorage(ctx context.Context) ([]storiface.StoragePath, error) {
+	return nil, nil
+}
+
 func testPieceCIDs(t *testing.T, body []byte) (string, string, int64) {
 	t.Helper()
 	calc := &commp.Calc{}
