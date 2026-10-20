@@ -625,7 +625,7 @@ func (a *WebRPC) PieceInfo(ctx context.Context, pieceCid string) (*PieceInfo, er
 
 		c1 := itype.PdpIpniContext{
 			PieceCID: piece,
-			Payload:  true,
+			Flags:    itype.PDP_IPNI_FLAG_PAYLOAD,
 		}
 
 		c1b, err := c1.Marshal()
@@ -635,7 +635,6 @@ func (a *WebRPC) PieceInfo(ctx context.Context, pieceCid string) (*PieceInfo, er
 
 		c2 := itype.PdpIpniContext{
 			PieceCID: piece,
-			Payload:  false,
 		}
 
 		c2b, err := c2.Marshal()
