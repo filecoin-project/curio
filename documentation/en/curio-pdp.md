@@ -237,7 +237,11 @@ To pin a specific release instead, set `FOREST_IMAGE=ghcr.io/chainsafe/forest:<v
 
 ### YugabyteDB
 
-Existing deployments using the previous `2024.1` default need a PostgreSQL 11 to 15 YSQL major upgrade. Back up both YSQL and any YCQL index data, and follow the [official upgrade procedure](https://docs.yugabyte.com/stable/manage/ysql-major-upgrade-yugabyted/), which requires first upgrading the source cluster to a supported 2024.2 release (2024.2.3.0 or later). Keep Curio stopped during the database upgrade to prevent schema migrations while DDL is restricted. Replacing the image alone does not complete this upgrade, and switching back to the old image does not roll it back. Pin the existing image with `YUGABYTE_IMAGE` until you are ready to upgrade.
+Replacing the Docker image or installed binaries does not complete a database upgrade. Follow the [official upgrade procedure](https://docs.yugabyte.com/stable/manage/upgrade-deployment/), including the applicable AutoFlags promotion and YSQL catalog upgrade commands. These steps are not automated by this stack.
+
+Upgrading from the previous `2024.1` default to `2025.2` also requires a PostgreSQL 11 to 15 [YSQL major upgrade](https://docs.yugabyte.com/stable/manage/ysql-major-upgrade-yugabyted/). First upgrade to a supported 2024.2 release (2024.2.3.0 or later), then complete the major upgrade procedure, including finalization. Switching back to the old image does not undo a completed major upgrade.
+
+Before upgrading, back up YSQL and any YCQL index data and verify recovery. Pin the existing image with `YUGABYTE_IMAGE` in `.env` until ready. Keep Curio stopped during the database upgrade; afterward, verify database connectivity and Curio task processing and index reads and writes.
 
 ### Curio-PDP (Skiff)
 
