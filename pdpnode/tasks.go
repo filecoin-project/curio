@@ -12,6 +12,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/resources/ffigpu"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/chainsched"
+	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/tasks/dbmaint"
 	"github.com/filecoin-project/curio/tasks/gc"
 	"github.com/filecoin-project/curio/tasks/indexing"
@@ -19,6 +20,7 @@ import (
 	"github.com/filecoin-project/curio/tasks/pay"
 	"github.com/filecoin-project/curio/tasks/pdp"
 	"github.com/filecoin-project/curio/tasks/pdpv0"
+	"github.com/filecoin-project/curio/tasks/piece"
 )
 
 // TaskResult is the output of RegisterTasks.
@@ -114,7 +116,11 @@ func buildPDPTasks(ctx context.Context, d *Deps, chainSched *chainsched.CurioCha
 
 	if pdponly {
 		amTask := alertmanager.NewAlertTask(d.Chain, db, cfg.Alerting)
-		tasks = append(tasks, amTask, gc.NewPieceCleanupTask(db, d.IndexStore))
+		tasks = append(tasks,
+			amTask,
+			gc.NewPieceCleanupTask(db, d.IndexStore),
+			piece.NewCleanupPieceTask(db, ffi.NewSealCalls(d.Stor, d.LocalStore, d.Si), cfg.Subsystems.ParkPieceMaxTasks),
+		)
 		if cfg.Subsystems.EnableDBAnalyze {
 			tasks = append(tasks, dbmaint.NewDBAnalyzeTask(db))
 		}

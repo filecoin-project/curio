@@ -1,3 +1,5 @@
+//go:build !skiff
+
 package ffi
 
 import (
@@ -12,8 +14,6 @@ import (
 
 	"github.com/KarpelesLab/reflink"
 	"github.com/ipfs/go-cid"
-	logging "github.com/ipfs/go-log/v2"
-	"github.com/puzpuzpuz/xsync/v2"
 	"github.com/samber/lo"
 	"golang.org/x/xerrors"
 
@@ -29,47 +29,10 @@ import (
 	proof2 "github.com/filecoin-project/go-state-types/proof"
 
 	"github.com/filecoin-project/curio/lib/paths"
-	"github.com/filecoin-project/curio/lib/piecestore"
 	"github.com/filecoin-project/curio/lib/proofpaths"
 )
 
 const C1CheckNumber = 3
-
-var log = logging.Logger("cu/ffi")
-
-/*
-type ExternPrecommit2 func(ctx context.Context, sector storiface.SectorRef, cache, sealed string, pc1out storiface.PreCommit1Out) (sealedCID cid.Cid, unsealedCID cid.Cid, err error)
-
-	type ExternalSealer struct {
-		PreCommit2 ExternPrecommit2
-	}
-*/
-type SealCalls struct {
-	Pieces  *piecestore.Store
-	Sectors *storageProvider
-
-	/*// externCalls cointain overrides for calling alternative sealing logic
-	externCalls ExternalSealer*/
-}
-
-func NewSealCalls(st *paths.Remote, ls *paths.Local, si paths.SectorIndex) *SealCalls {
-	return &SealCalls{
-		Pieces: piecestore.New(st, ls, si),
-		Sectors: &storageProvider{
-			storage:             st,
-			localStore:          ls,
-			sindex:              si,
-			storageReservations: xsync.NewIntegerMapOf[harmonytask.TaskID, []*StorageReservation](),
-		},
-	}
-}
-
-type storageProvider struct {
-	storage             *paths.Remote
-	localStore          *paths.Local
-	sindex              paths.SectorIndex
-	storageReservations *xsync.MapOf[harmonytask.TaskID, []*StorageReservation]
-}
 
 func (l *storageProvider) AcquireSector(ctx context.Context, taskID *harmonytask.TaskID, sector storiface.SectorRef, existing, allocate storiface.SectorFileType, sealing storiface.PathType) (fspaths, ids storiface.SectorPaths, release func(dontDeclare ...storiface.SectorFileType), err error) {
 	var sectorPaths, storageIDs storiface.SectorPaths
@@ -504,10 +467,6 @@ func (sb *SealCalls) makePhase1Out(unsCid cid.Cid, spt abi.RegisteredSealProof) 
 	}
 
 	return json.Marshal(phase1Output)
-}
-
-func (sb *SealCalls) LocalStorage(ctx context.Context) ([]storiface.StoragePath, error) {
-	return sb.Sectors.localStore.Local(ctx)
 }
 
 func changePathType(path string, newType storiface.SectorFileType) (string, error) {
