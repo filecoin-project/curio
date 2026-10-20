@@ -55,6 +55,7 @@ func (c *Cluster) FixOverlaps(ctx context.Context) (int, error) {
 	}
 	type pair struct{ from, to string }
 	budget := map[pair]int64{}
+	budgetLogged := map[pair]bool{}
 
 	type stray struct {
 		space string // "open-pieces" or "acl-pieces"
@@ -96,6 +97,11 @@ func (c *Cluster) FixOverlaps(ctx context.Context) (int, error) {
 					left = min(capOf[id], capOf[r.StorageID]) * hashspacesolver.CLAIM_STEP_PERCENT / 100
 				}
 				if left <= 0 {
+					if !budgetLogged[p] {
+						budgetLogged[p] = true
+						log.Infow("hash space overlap step budget is spent; remaining pieces wait",
+							"space", kind, "from", id, "to", r.StorageID)
+					}
 					continue
 				}
 				end, n, err := c.leadingBytes(ctx, id, root, kind, low, high, left)
@@ -111,6 +117,9 @@ func (c *Cluster) FixOverlaps(ctx context.Context) (int, error) {
 		}
 	}
 	if len(found) == 0 {
+		if len(hasStray) > 0 {
+			log.Warnw("misplaced hash space pieces remain but this pass planned no move", "disks", len(hasStray))
+		}
 		cleared := false
 		var clearErr error
 		for _, d := range disks {
@@ -139,6 +148,7 @@ func (c *Cluster) FixOverlaps(ctx context.Context) (int, error) {
 
 	addMove := harmonytask.AdderFor(tasknames.HashSpaceMove)
 	if addMove == nil {
+		log.Warnw("misplaced hash space pieces found but the move task is not registered", "ranges", len(found))
 		return 0, nil
 	}
 	var planned int
@@ -165,7 +175,7 @@ func (c *Cluster) FixOverlaps(ctx context.Context) (int, error) {
 			if n > 0 {
 				planned++
 				log.Warnw("pieces held outside their range owner; scheduling move",
-					"space", s.space, "from", s.from, "to", s.to, "bytes", s.size,
+					"task", id, "space", s.space, "from", s.from, "to", s.to, "bytes", s.size,
 					"start", hexEncode(s.start), "end", hexEncode(s.end))
 			}
 		}

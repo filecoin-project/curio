@@ -1044,14 +1044,14 @@ func (c *Cluster) raise(ctx context.Context, storageID, kind string) error {
 	c.dropDeadMoves(ctx)
 	addMove := harmonytask.AdderFor(tasknames.HashSpaceMove)
 	if addMove == nil {
-		return c.queueEvent(ctx, storageID, kind)
+		return c.queueEvent(ctx, storageID, kind, "task engine is not running")
 	}
 	busy, err := c.movesActive(ctx)
 	if err != nil {
 		return err
 	}
 	if busy {
-		return c.queueEvent(ctx, storageID, kind)
+		return c.queueEvent(ctx, storageID, kind, "a move is already in progress")
 	}
 	err = c.casTaskTx(ctx, addMove, func(tx *harmonydb.Tx, id harmonytask.TaskID) (bool, error) {
 		var active bool
@@ -1071,6 +1071,7 @@ func (c *Cluster) raise(ctx context.Context, storageID, kind string) error {
 		}
 		disk := slices.IndexFunc(st.MountPoints, func(mp hashspacesolver.MountPoint) bool { return mp.StorageID == storageID })
 		if disk < 0 {
+			log.Warnw("dropping hash space event for a disk that is not in the map", "storage", storageID, "event", kind)
 			return true, consumePending(tx, storageID, kind)
 		}
 		ev := hashspacesolver.Event{StorageID: storageID}
@@ -1081,6 +1082,8 @@ func (c *Cluster) raise(ctx context.Context, storageID, kind string) error {
 			// bytes on the mount. Adding those bytes back to FreeSpace is
 			// the capacity isOverFull compares against.
 			if !isOverFull(owned, st.MountPoints[disk].FreeSpace+owned) {
+				log.Infow("dropping hash space full event; disk is under the fill line",
+					"storage", storageID, "owned", owned, "capacity", st.MountPoints[disk].FreeSpace+owned)
 				return true, consumePending(tx, storageID, kind)
 			}
 			ev.Kind = hashspacesolver.EventFull
@@ -1096,15 +1099,19 @@ func (c *Cluster) raise(ctx context.Context, storageID, kind string) error {
 			// Migrated pieces sit outside this disk's ranges, so the solver
 			// would see it as empty and take ranges that already hold pieces.
 			// Folder bytes already at its share means there is nothing to claim.
-			satisfied, err := claimSatisfied(tx, storageID)
+			satisfied, used, share, err := claimSatisfied(tx, storageID)
 			if err != nil {
 				return false, err
 			}
 			if satisfied {
+				log.Infow("hash space claim already holds its share", "storage", storageID, "used", used, "share", share)
 				if err := consumePending(tx, storageID, kind); err != nil {
 					return false, err
 				}
 				return true, nil
+			}
+			if share == 0 {
+				log.Infow("hash space claim has no positive share", "storage", storageID, "used", used)
 			}
 			ev.Kind = hashspacesolver.EventClaim
 		default:
@@ -1113,10 +1120,11 @@ func (c *Cluster) raise(ctx context.Context, storageID, kind string) error {
 
 		res, err := hashspacesolver.Solve(st, ev)
 		if err != nil {
-			log.Warnw("hash space solver", "storage", storageID, "event", kind, "error", err)
+			log.Warnw("hash space solver failed; this solve was discarded", "storage", storageID, "event", kind, "error", err)
 			return false, nil
 		}
 		if res.BytesMoved == 0 {
+			log.Infow("hash space solver moved nothing", "storage", storageID, "event", kind, "mounts", len(st.MountPoints))
 			if err := consumePending(tx, storageID, kind); err != nil {
 				return false, err
 			}
@@ -1137,6 +1145,7 @@ func (c *Cluster) raise(ctx context.Context, storageID, kind string) error {
 			moves = append(moves, t)
 		}
 		if len(moves) == 0 {
+			log.Infow("hash space solver diff had no copy", "storage", storageID, "event", kind, "bytes", res.BytesMoved)
 			return true, consumePending(tx, storageID, kind)
 		}
 		if id == 0 {
@@ -1178,11 +1187,18 @@ func (c *Cluster) raise(ctx context.Context, storageID, kind string) error {
 			if err != nil {
 				return false, xerrors.Errorf("inserting hash space move source: %w", err)
 			}
+			if n > 0 {
+				log.Infow("planned hash space move",
+					"storage", storageID, "event", kind, "task", id,
+					"space", spaceKinds[t.Space], "from", t.From, "to", t.To,
+					"start", hexEncode(t.StartHash), "end", hexEncode(t.EndHash), "bytes", t.Size)
+			}
 			planned += n
 		}
 		// Every insert conflicted with a move already in flight. Leave the
 		// event queued; rolling back also drops the empty task.
 		if planned == 0 {
+			log.Warnw("hash space moves already exist for every planned interval", "storage", storageID, "event", kind, "to", pick, "bytes", best)
 			return false, nil
 		}
 		// A claim moves one step at a time; it stays queued so the next step
@@ -1199,15 +1215,23 @@ func (c *Cluster) raise(ctx context.Context, storageID, kind string) error {
 		return true, nil
 	})
 	if errors.Is(err, errMovesActive) {
-		return c.queueEvent(ctx, storageID, kind)
+		return c.queueEvent(ctx, storageID, kind, "a move is already in progress")
 	}
 	return err
 }
 
-func (c *Cluster) queueEvent(ctx context.Context, storageID, kind string) error {
-	_, err := c.db.Exec(ctx, `INSERT INTO hash_space_pending_event (storage_id, event_kind) VALUES ($1, $2)
+// queueEvent records a trigger to solve later. why is why it cannot be
+// solved now. A row that is already queued is left as it is.
+func (c *Cluster) queueEvent(ctx context.Context, storageID, kind, why string) error {
+	n, err := c.db.Exec(ctx, `INSERT INTO hash_space_pending_event (storage_id, event_kind) VALUES ($1, $2)
 		ON CONFLICT (storage_id, event_kind) DO NOTHING`, storageID, kind)
-	return err
+	if err != nil {
+		return err
+	}
+	if n > 0 {
+		log.Infow("queued hash space event", "storage", storageID, "event", kind, "reason", why)
+	}
+	return nil
 }
 
 func (c *Cluster) movesActive(ctx context.Context) (bool, error) {
@@ -1217,8 +1241,10 @@ func (c *Cluster) movesActive(ctx context.Context) (bool, error) {
 }
 
 // claimSatisfied reports whether storageID already holds at least its
-// capacity-weighted share of every active disk's folder bytes.
-func claimSatisfied(tx *harmonydb.Tx, storageID string) (bool, error) {
+// capacity-weighted share of every active disk's folder bytes. used is that
+// disk's folder bytes and share is the share it is measured against. The
+// caller holds the map transaction.
+func claimSatisfied(tx *harmonydb.Tx, storageID string) (satisfied bool, used, share int64, err error) {
 	var rows []struct {
 		StorageID string `db:"storage_id"`
 		UsedOpen  int64  `db:"used_open"`
@@ -1226,10 +1252,10 @@ func claimSatisfied(tx *harmonydb.Tx, storageID string) (bool, error) {
 		Capacity  int64  `db:"capacity"`
 		Vacating  bool   `db:"vacating"`
 	}
-	if err := tx.Select(&rows, `SELECT storage_id, used_open, used_acl, capacity, vacating FROM hash_space_disk`); err != nil {
-		return false, err
+	if err = tx.Select(&rows, `SELECT storage_id, used_open, used_acl, capacity, vacating FROM hash_space_disk`); err != nil {
+		return false, 0, 0, err
 	}
-	var sumCap, total, used, cap int64
+	var sumCap, total, cap int64
 	var found bool
 	for _, r := range rows {
 		if r.Vacating || r.Capacity <= 0 {
@@ -1243,11 +1269,12 @@ func claimSatisfied(tx *harmonydb.Tx, storageID string) (bool, error) {
 		}
 	}
 	if !found || sumCap <= 0 || cap <= 0 {
-		return false, nil
+		return false, used, 0, nil
 	}
-	share := new(big.Int).Mul(big.NewInt(total), big.NewInt(cap))
-	share.Div(share, big.NewInt(sumCap))
-	return used >= share.Int64(), nil
+	shareN := new(big.Int).Mul(big.NewInt(total), big.NewInt(cap))
+	shareN.Div(shareN, big.NewInt(sumCap))
+	share = shareN.Int64()
+	return used >= share, used, share, nil
 }
 
 // consumePending removes a queued event inside the transaction that handled it.
@@ -1266,6 +1293,7 @@ func (c *Cluster) dropDeadMoves(ctx context.Context) {
 		return
 	}
 	if n > 0 {
+		log.Warnw("dropped hash space moves whose task is gone", "rows", n)
 		c.spreadMap(ctx)
 	}
 }
@@ -1344,11 +1372,21 @@ func (c *Cluster) reevaluate(ctx context.Context) error {
 			if _, ok := tried[key]; ok {
 				continue
 			}
-			ok, err := c.triggerStill(ctx, fills, e.StorageID, e.Kind)
+			ok, why, err := c.triggerStill(ctx, fills, e.StorageID, e.Kind)
 			if err != nil {
 				return err
 			}
 			if !ok {
+				var used, capacity int64
+				for _, d := range fills {
+					if d.StorageID == e.StorageID {
+						used = d.UsedOpen + d.UsedACL
+						capacity = d.Capacity
+						break
+					}
+				}
+				log.Infow("dropping hash space event that no longer applies",
+					"storage", e.StorageID, "event", e.Kind, "reason", why, "used", used, "capacity", capacity)
 				if _, err := c.db.Exec(ctx, `DELETE FROM hash_space_pending_event WHERE storage_id = $1 AND event_kind = $2`, e.StorageID, e.Kind); err != nil {
 					return err
 				}
@@ -1397,7 +1435,8 @@ type diskFill struct {
 
 // triggerStill reports whether a queued event still describes the cluster.
 // Moves that finished while it waited may have removed the reason to run it.
-func (c *Cluster) triggerStill(ctx context.Context, fills []diskFill, storageID, kind string) (bool, error) {
+// why is set when it no longer applies. fills is the current disk table.
+func (c *Cluster) triggerStill(ctx context.Context, fills []diskFill, storageID, kind string) (bool, string, error) {
 	var disk *diskFill
 	for i := range fills {
 		if fills[i].StorageID == storageID {
@@ -1406,47 +1445,63 @@ func (c *Cluster) triggerStill(ctx context.Context, fills []diskFill, storageID,
 		}
 	}
 	if disk == nil {
-		return false, nil
+		return false, "disk is gone", nil
 	}
 	used := disk.UsedOpen + disk.UsedACL
 	switch kind {
 	case EVENT_VACATE:
 		if !disk.Vacating {
-			return false, nil
+			return false, "disk is not vacating", nil
 		}
 		if used > 0 {
-			return true, nil
+			return true, "", nil
 		}
-		return c.ownsRanges(ctx, storageID)
+		owns, err := c.ownsRanges(ctx, storageID)
+		if err != nil {
+			return false, "", err
+		}
+		if !owns {
+			return false, "vacating disk is empty", nil
+		}
+		return true, "", nil
 	case EVENT_FULL:
-		return !disk.Vacating && isOverFull(used, disk.Capacity), nil
+		if disk.Vacating {
+			return false, "disk is vacating", nil
+		}
+		if !isOverFull(used, disk.Capacity) {
+			return false, "disk is under the fill line", nil
+		}
+		return true, "", nil
 	case EVENT_ARRIVE, EVENT_CLAIM:
-		return !disk.Vacating, nil
+		if disk.Vacating {
+			return false, "disk is vacating", nil
+		}
+		return true, "", nil
 	case EVENT_ABSORB:
 		if disk.Vacating || isOverFull(used, disk.Capacity) {
-			return false, nil
+			return false, "disk is vacating or over the fill line", nil
 		}
 		for _, o := range fills {
 			if isOverFull(o.UsedOpen+o.UsedACL, o.Capacity) {
-				return true, nil
+				return true, "", nil
 			}
 		}
-		return false, nil
+		return false, "no disk is over the fill line", nil
 	case EVENT_BALANCE:
 		if disk.Vacating || disk.Capacity <= 0 {
-			return false, nil
+			return false, "disk is vacating or has no capacity", nil
 		}
 		for _, o := range fills {
 			if o.StorageID == storageID || o.Vacating || o.Capacity <= 0 {
 				continue
 			}
 			if hashspacesolver.BalanceBytes(o.UsedOpen+o.UsedACL, o.Capacity, used, disk.Capacity) > 0 {
-				return true, nil
+				return true, "", nil
 			}
 		}
-		return false, nil
+		return false, "fill spread is within the limit", nil
 	default:
-		return false, nil
+		return false, "unknown event", nil
 	}
 }
 
@@ -1458,6 +1513,7 @@ type MoveSource struct {
 	EndHash     []byte
 	FromStorage string
 	ToStorage   string
+	Size        int64 // planned bytes of the interval
 }
 
 // MoveSourcesByTask returns the move sources owned by a HashSpaceMove task.
@@ -1470,14 +1526,15 @@ func (c *Cluster) MoveSourcesByTask(ctx context.Context, taskID int64) ([]*MoveS
 	}
 	out := make([]*MoveSource, len(ms))
 	for i, m := range ms {
-		out[i] = &MoveSource{ID: m.ID, Space: m.Space, StartHash: m.StartHash, EndHash: m.EndHash, FromStorage: m.FromStorage, ToStorage: m.ToStorage}
+		out[i] = &MoveSource{ID: m.ID, Space: m.Space, StartHash: m.StartHash, EndHash: m.EndHash, FromStorage: m.FromStorage, ToStorage: m.ToStorage, Size: m.Size}
 	}
 	return out, nil
 }
 
 // PendingCopy yields piece hashes still on the source in the move interval,
-// one directory page at a time. The caller copies each hash and removes it
-// from the source; ranging stops without holding the rest of the interval.
+// one directory page at a time. The caller copies each hash and leaves the
+// source file until the move commits. Ranging stops without holding the rest
+// of the interval.
 func (c *Cluster) PendingCopy(ctx context.Context, m *MoveSource) iter.Seq2[string, error] {
 	return func(yield func(string, error) bool) {
 		if !c.HasLocal(m.ToStorage) {
@@ -1674,6 +1731,7 @@ func (c *Cluster) CompleteMoveSource(ctx context.Context, m *MoveSource) error {
 	}
 
 	var last bool
+	var handoff string
 	err = c.casTx(ctx, func(tx *harmonydb.Tx) (bool, error) {
 		var rs []rangeRow
 		kind, err := parseSpaceKind(m.Space)
@@ -1694,10 +1752,14 @@ func (c *Cluster) CompleteMoveSource(ctx context.Context, m *MoveSource) error {
 			if err := writeSpaceRanges(tx, kind, next); err != nil {
 				return false, err
 			}
+			handoff = "transferred"
 		} else if next := dropOtherOwners(rs, m.StartHash, m.EndHash, m.ToStorage); len(next) != len(rs) {
 			if err := writeSpaceRanges(tx, kind, next); err != nil {
 				return false, err
 			}
+			handoff = "dropped-other-owners"
+		} else {
+			handoff = "destination-already-owned"
 		}
 		if _, err := tx.Exec(`DELETE FROM hash_space_move_source WHERE id = $1`, m.ID); err != nil {
 			return false, err
@@ -1712,6 +1774,9 @@ func (c *Cluster) CompleteMoveSource(ctx context.Context, m *MoveSource) error {
 	if err != nil {
 		return err
 	}
+	log.Infow("hash space move committed",
+		"move_source", m.ID, "space", m.Space, "from", m.FromStorage, "to", m.ToStorage,
+		"start", hexEncode(m.StartHash), "end", hexEncode(m.EndHash), "handoff", handoff, "last", last)
 	if err := c.deleteMovedSource(ctx, m); err != nil {
 		return err
 	}
@@ -1799,6 +1864,7 @@ func (c *Cluster) noticeSpread(ctx context.Context) {
 	if best <= 0 {
 		return
 	}
+	log.Infow("hash space fill spread", "storage", dest, "bytes", best)
 	if err := c.raise(ctx, dest, EVENT_BALANCE); err != nil {
 		log.Warnw("hash space balance", "storage", dest, "error", err)
 	}
@@ -2043,8 +2109,10 @@ func (c *Cluster) join(ctx context.Context, drives []LocalDrive) (arrived, claim
 		}
 		claims[d.StorageID] = ok
 	}
+	var seeded, vacatedAll bool
 	err = c.casTx(ctx, func(tx *harmonydb.Tx) (bool, error) {
 		arrived, claimed = nil, nil
+		seeded, vacatedAll = false, false
 		var known []string
 		if err := tx.Select(&known, `SELECT storage_id FROM hash_space_disk`); err != nil {
 			return false, err
@@ -2066,6 +2134,7 @@ func (c *Cluster) join(ctx context.Context, drives []LocalDrive) (arrived, claim
 			}
 			st, err := FirstSetup(hd)
 			if errors.Is(err, errNoPieceDrive) {
+				vacatedAll = true
 				for _, d := range drives {
 					capacity, err := effectiveCapacity(Drive{Root: d.Root}, 0)
 					if err != nil {
@@ -2102,6 +2171,7 @@ func (c *Cluster) join(ctx context.Context, drives []LocalDrive) (arrived, claim
 					return false, err
 				}
 			}
+			seeded = true
 			return true, storeState(tx, st)
 		}
 
@@ -2160,7 +2230,64 @@ func (c *Cluster) join(ctx context.Context, drives []LocalDrive) (arrived, claim
 		}
 		return true, nil
 	})
-	return arrived, claimed, err
+	if err != nil {
+		return arrived, claimed, err
+	}
+	c.logJoinSnapshot(ctx, arrived, claimed, seeded, vacatedAll)
+	return arrived, claimed, nil
+}
+
+// logJoinSnapshot logs the disk table and ranges after a successful join.
+// arrived and claimed are the drives this call added. seeded means the map
+// was empty and FirstSetup wrote it. vacatedAll means every drive denies
+// piece park, so the map was left empty.
+func (c *Cluster) logJoinSnapshot(ctx context.Context, arrived, claimed []string, seeded, vacatedAll bool) {
+	var version int64
+	if err := c.db.QueryRow(ctx, `SELECT version FROM hash_space_meta WHERE id = 1`).Scan(&version); err != nil {
+		log.Warnw("reading hash space version after join", "error", err)
+	}
+	log.Infow("joined hash space", "version", version, "drives", len(c.roots), "arrived", arrived, "claimed", claimed, "seeded", seeded, "all_vacating", vacatedAll)
+	var disks []struct {
+		StorageID string `db:"storage_id"`
+		Capacity  int64  `db:"capacity"`
+		UsedOpen  int64  `db:"used_open"`
+		UsedACL   int64  `db:"used_acl"`
+		Vacating  bool   `db:"vacating"`
+		Misplaced bool   `db:"has_misplaced"`
+	}
+	if err := c.db.Select(ctx, &disks, `SELECT storage_id, capacity, used_open, used_acl, vacating, has_misplaced FROM hash_space_disk ORDER BY storage_id`); err != nil {
+		log.Warnw("reading hash space disks after join", "error", err)
+		return
+	}
+	for _, d := range disks {
+		role := "existing"
+		switch {
+		case indexOf(claimed, d.StorageID) >= 0:
+			role = "claim"
+		case indexOf(arrived, d.StorageID) >= 0:
+			role = "arrive"
+		case d.Vacating:
+			role = "vacating"
+		}
+		log.Infow("hash space disk",
+			"storage", d.StorageID, "role", role, "capacity", d.Capacity,
+			"used_open", d.UsedOpen, "used_acl", d.UsedACL, "vacating", d.Vacating, "misplaced", d.Misplaced)
+	}
+	var ranges []struct {
+		Space     string `db:"space"`
+		EndHash   []byte `db:"end_hash"`
+		StorageID string `db:"storage_id"`
+		Size      int64  `db:"size"`
+		Problem   bool   `db:"problem"`
+	}
+	if err := c.db.Select(ctx, &ranges, `SELECT space, end_hash, storage_id, size, problem FROM hash_space_range ORDER BY space, end_hash, storage_id`); err != nil {
+		log.Warnw("reading hash space ranges after join", "error", err)
+		return
+	}
+	for _, r := range ranges {
+		log.Infow("hash space range",
+			"space", r.Space, "storage", r.StorageID, "end", hexEncode(r.EndHash), "bytes", r.Size, "problem", r.Problem)
+	}
 }
 
 // importNewerLayouts writes the ranges of every local layout whose

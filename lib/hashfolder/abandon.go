@@ -87,7 +87,13 @@ func (c *Cluster) AbandonMoveTask(ctx context.Context, taskID int64, troubled st
 		if err := tx.QueryRow(`SELECT COUNT(*) FROM hash_space_move_source`).Scan(&left); err != nil {
 			return false, err
 		}
-		log.Infow("abandoned hash space move", "task", taskID, "problem", troubled, "ranges", len(ms))
+		log.Warnw("abandoned hash space move", "task", taskID, "problem", troubled, "ranges", len(ms))
+		for _, m := range ms {
+			log.Warnw("hash space move interval abandoned",
+				"task", taskID, "problem", troubled, "move_source", m.ID, "space", m.Space,
+				"from", m.FromStorage, "to", m.ToStorage,
+				"start", hexEncode(m.StartHash), "end", hexEncode(m.EndHash), "bytes", m.Size)
+		}
 		return true, nil
 	})
 	if err != nil {
@@ -118,10 +124,16 @@ func (c *Cluster) AbandonMoveTask(ctx context.Context, taskID int64, troubled st
 // owns that range. The other owner stays. Nothing is written when no such
 // row exists.
 func (c *Cluster) shedProblemOwners(ctx context.Context) error {
-	return c.casTx(ctx, func(tx *harmonydb.Tx) (bool, error) {
-		n, err := shedProblemOwnersTx(tx)
+	var n int
+	err := c.casTx(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		var err error
+		n, err = shedProblemOwnersTx(tx)
 		return n > 0, err
 	})
+	if err == nil && n > 0 {
+		log.Infow("dropped problem hash space co-owners", "ranges", n)
+	}
+	return err
 }
 
 // shedProblemOwnersTx deletes problem rows that still have another owner.
@@ -142,21 +154,46 @@ func shedProblemOwnersTx(tx *harmonydb.Tx) (int, error) {
 func (c *Cluster) deleteMovedSource(ctx context.Context, m *MoveSource) error {
 	low, high := hexEncode(m.StartHash), hexEncode(m.EndHash)
 	after := ""
+	var removed int
+	var lastLog time.Time
+	// logRemoval records how many source files are gone. done is the final
+	// line; a non-nil err is where the walk stopped.
+	logRemoval := func(done bool, err error) {
+		if err != nil {
+			log.Warnw("removing moved hash space pieces from source stopped",
+				"move_source", m.ID, "space", m.Space, "from", m.FromStorage, "removed", removed, "error", err)
+			return
+		}
+		if !done && time.Since(lastLog) < 30*time.Second {
+			return
+		}
+		lastLog = time.Now()
+		log.Infow("removing moved hash space pieces from source",
+			"move_source", m.ID, "space", m.Space, "from", m.FromStorage, "to", m.ToStorage, "removed", removed, "done", done)
+	}
 	for {
 		batch, err := c.listPieceHashes(ctx, m.FromStorage, m.Space, low, high, after, LIST_PAGE)
 		if err != nil {
-			return xerrors.Errorf("listing source %s after move %d: %w", m.FromStorage, m.ID, err)
+			err = xerrors.Errorf("listing source %s after move %d: %w", m.FromStorage, m.ID, err)
+			logRemoval(false, err)
+			return err
 		}
 		if len(batch) == 0 {
+			logRemoval(true, nil)
 			return nil
 		}
 		for _, h := range batch {
 			after = h
 			if err := c.deleteHash(ctx, m.FromStorage, m.Space, h); err != nil {
-				return xerrors.Errorf("removing %s from %s: %w", h, m.FromStorage, err)
+				err = xerrors.Errorf("removing %s from %s: %w", h, m.FromStorage, err)
+				logRemoval(false, err)
+				return err
 			}
+			removed++
+			logRemoval(false, nil)
 		}
 		if len(batch) < LIST_PAGE {
+			logRemoval(true, nil)
 			return nil
 		}
 	}

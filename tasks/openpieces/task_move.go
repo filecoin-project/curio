@@ -2,6 +2,7 @@ package openpieces
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"time"
 
@@ -46,8 +47,10 @@ func (t *MoveTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned
 		return false, xerrors.Errorf("reading hash space move sources: %w", err)
 	}
 	if len(moves) == 0 {
+		log.Infow("hash space move has no intervals", "task", taskID)
 		return true, nil
 	}
+	log.Infow("hash space move starting", "task", taskID, "moves", len(moves))
 	// Refresh rewrites the layout from the map, including this move, before
 	// any bytes are copied.
 	if err := t.hs.Refresh(ctx); err != nil {
@@ -57,6 +60,8 @@ func (t *MoveTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned
 	for _, m := range moves {
 		if err := t.moveOne(ctx, m, stillOwned); err != nil {
 			if errors.Is(err, hashfolder.ErrDiskFull) {
+				log.Errorw("hash space move stopped because the destination is full",
+					"task", taskID, "move_source", m.ID, "space", m.Space, "from", m.FromStorage, "to", m.ToStorage, "error", err)
 				if aerr := t.hs.AbandonMoveTask(ctx, int64(taskID), m.ToStorage); aerr != nil {
 					return false, aerr
 				}
@@ -64,6 +69,9 @@ func (t *MoveTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned
 			}
 			if errors.Is(err, hashfolder.ErrSourceUnavailable) {
 				last, lerr := t.lastAttempt(ctx, taskID)
+				log.Warnw("hash space move source is unavailable",
+					"task", taskID, "move_source", m.ID, "space", m.Space, "from", m.FromStorage, "to", m.ToStorage,
+					"last_attempt", lerr == nil && last, "error", err)
 				if lerr != nil {
 					return false, lerr
 				}
@@ -74,6 +82,8 @@ func (t *MoveTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned
 					return true, nil
 				}
 			}
+			log.Errorw("hash space move failed",
+				"task", taskID, "move_source", m.ID, "space", m.Space, "from", m.FromStorage, "to", m.ToStorage, "error", err)
 			return false, err
 		}
 	}
@@ -96,70 +106,82 @@ func (t *MoveTask) lastAttempt(ctx context.Context, id harmonytask.TaskID) (bool
 	return retries >= max-1, nil
 }
 
-// moveOne copies m's pending files in groups of COPY_PARALLEL until none are
-// left, then completes the move. It stamps the row first so a later retry is
-// not treated as a move that never started.
+// moveOne copies every file still on m's source, in groups of COPY_PARALLEL,
+// then completes the move. Source files stay until that completion commits
+// the range, so this is one pass: a file the destination already has is left
+// in place. It stamps the row first so a later retry is not treated as a
+// move that never started.
 func (t *MoveTask) moveOne(ctx context.Context, m *hashfolder.MoveSource, stillOwned func() bool) error {
 	if err := t.hs.MarkMoveStarted(ctx, m.ID); err != nil {
 		return err
 	}
-	for {
-		if !stillOwned() {
-			return xerrors.Errorf("lost ownership of move source %d", m.ID)
+	log.Infow("hash space move copying",
+		"move_source", m.ID, "space", m.Space, "from", m.FromStorage, "to", m.ToStorage,
+		"bytes", m.Size, "start", hex.EncodeToString(m.StartHash), "end", hex.EncodeToString(m.EndHash))
+	if !stillOwned() {
+		log.Warnw("lost ownership of hash space move", "move_source", m.ID, "from", m.FromStorage, "to", m.ToStorage, "pieces", 0)
+		return xerrors.Errorf("lost ownership of move source %d", m.ID)
+	}
+	// Copies of one group finish before the next hash is pulled. PendingCopy
+	// reads the next directory page only when asked for the next hash.
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(COPY_PARALLEL)
+	n := 0
+	started := 0
+	var pullErr error
+	lastLog := time.Now()
+	for h, err := range t.hs.PendingCopy(ctx, m) {
+		if err != nil {
+			pullErr = err
+			break
 		}
-		// Copies of one group finish before the next hash is pulled. PendingCopy
-		// reads the next directory page only when asked for the next hash, so
-		// those deletes are not running during that read.
-		g, gctx := errgroup.WithContext(ctx)
-		g.SetLimit(COPY_PARALLEL)
-		n := 0
-		started := 0
-		var pullErr error
-		for h, err := range t.hs.PendingCopy(ctx, m) {
-			if err != nil {
-				pullErr = err
-				break
-			}
-			if gctx.Err() != nil {
-				break
-			}
-			n++
-			started++
-			g.Go(func() error {
-				if !stillOwned() {
-					return xerrors.Errorf("lost ownership of move source %d", m.ID)
-				}
-				if err := t.hs.CopyOne(gctx, m, h); err != nil {
-					return xerrors.Errorf("move source %d: %w", m.ID, err)
-				}
-				return nil
-			})
-			if started == COPY_PARALLEL {
-				if err := g.Wait(); err != nil {
-					return err
-				}
-				g, gctx = errgroup.WithContext(ctx)
-				g.SetLimit(COPY_PARALLEL)
-				started = 0
-			}
+		if gctx.Err() != nil {
+			break
 		}
-		if started > 0 {
+		n++
+		started++
+		g.Go(func() error {
+			if !stillOwned() {
+				return xerrors.Errorf("lost ownership of move source %d", m.ID)
+			}
+			if err := t.hs.CopyOne(gctx, m, h); err != nil {
+				log.Warnw("hash space piece copy failed",
+					"move_source", m.ID, "hash", h, "space", m.Space, "from", m.FromStorage, "to", m.ToStorage, "error", err)
+				return xerrors.Errorf("move source %d hash %s: %w", m.ID, h, err)
+			}
+			return nil
+		})
+		if started == COPY_PARALLEL {
 			if err := g.Wait(); err != nil {
 				return err
 			}
+			if time.Since(lastLog) >= 30*time.Second {
+				lastLog = time.Now()
+				log.Infow("hash space move progress",
+					"move_source", m.ID, "space", m.Space, "from", m.FromStorage, "to", m.ToStorage,
+					"pieces", n, "planned_bytes", m.Size)
+			}
+			g, gctx = errgroup.WithContext(ctx)
+			g.SetLimit(COPY_PARALLEL)
+			started = 0
 		}
-		if pullErr != nil {
-			return xerrors.Errorf("listing move source %d pieces: %w", m.ID, pullErr)
+	}
+	if started > 0 {
+		if err := g.Wait(); err != nil {
+			return err
 		}
-		if n == 0 {
-			break
-		}
+	}
+	if pullErr != nil {
+		return xerrors.Errorf("listing move source %d pieces: %w", m.ID, pullErr)
 	}
 
 	if err := t.hs.CompleteMoveSource(ctx, m); err != nil {
 		return xerrors.Errorf("completing move source %d: %w", m.ID, err)
 	}
-	log.Infow("hash space move complete", "move_source", m.ID, "from", m.FromStorage, "to", m.ToStorage)
+	log.Infow("hash space move complete",
+		"move_source", m.ID, "space", m.Space, "from", m.FromStorage, "to", m.ToStorage,
+		"pieces", n, "planned_bytes", m.Size,
+		"start", hex.EncodeToString(m.StartHash), "end", hex.EncodeToString(m.EndHash))
 	return nil
 }
 

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -40,6 +41,10 @@ const (
 	// migration pass runs again. Startup waits until a pass succeeds.
 	MIGRATE_RETRY_MIN = 5 * time.Second
 	MIGRATE_RETRY_MAX = 2 * time.Minute
+
+	// MIGRATE_SKIP_SAMPLES is how many pieces of one skip reason are logged
+	// with their ids. Later ones of that reason are only counted.
+	MIGRATE_SKIP_SAMPLES = 32
 )
 
 // fullCircle is the start and end of a range covering every hash.
@@ -70,19 +75,24 @@ func migratePiecePark(ctx context.Context, db *harmonydb.DB, drives []LocalDrive
 		if ok, err := layoutExists(d.Root, DIR_OPEN); err != nil {
 			return nil, err
 		} else if ok {
+			log.Infow("piece-park migration leaving drive; open-pieces layout exists", "storage", d.StorageID, "root", d.Root)
 			continue
 		}
 		if deny, err := deniesPiecePark(d.Root); err != nil {
 			return nil, err
 		} else if deny {
+			log.Infow("piece-park migration leaving drive; piece park is denied", "storage", d.StorageID, "root", d.Root)
 			continue
 		}
+		log.Infow("piece-park migration will scan drive", "storage", d.StorageID, "root", d.Root)
 		roots[d.StorageID] = d.Root
 		ids = append(ids, d.StorageID)
 	}
 	if len(ids) == 0 {
+		log.Infow("piece-park migration has no drive to scan", "drives", len(drives), "ranges", nRanges)
 		return nil, nil
 	}
+	log.Infow("piece-park migration starting", "drives", ids, "ranges", nRanges)
 
 	prog := &migrateProgress{start: time.Now()}
 	prog.report("In Progress")
@@ -115,7 +125,19 @@ func migratePiecePark(ctx context.Context, db *harmonydb.DB, drives []LocalDrive
 		}
 		msg := fmt.Sprintf("Piece Migration Retrying in %s: attempt %d failed: %s", wait, attempt, err)
 		fmt.Println(msg)
-		log.Error(msg)
+		log.Errorw(msg,
+			"attempt", attempt,
+			"wait", wait.String(),
+			"error", err,
+			"bytes", prog.bytes.Load(),
+			"renamed", prog.renamed.Load(),
+			"copied", prog.copied.Load(),
+			"copied_back", prog.copiedBack.Load(),
+			"already_present", prog.present.Load(),
+			"listed", prog.listed.Load(),
+			"skipped", prog.skipped.Load(),
+			"skips", prog.skipSummary(),
+		)
 		select {
 		case <-ctx.Done():
 			return nil, xerrors.Errorf("piece migration stopped after attempt %d failed: %w", attempt, err)
@@ -126,18 +148,87 @@ func migratePiecePark(ctx context.Context, db *harmonydb.DB, drives []LocalDrive
 }
 
 // migrateProgress counts what migratePiecePark has moved, for its progress
-// lines.
+// lines. listed is pieces the workers pulled. present is a shared piece
+// whose open-pieces file was already complete. copiedBack is a renamed
+// piece that gained another ref and was copied back to piece-park.
 type migrateProgress struct {
-	start                  time.Time
-	bytes, renamed, copied atomic.Int64
+	start time.Time
+
+	bytes      atomic.Int64
+	renamed    atomic.Int64
+	copied     atomic.Int64
+	copiedBack atomic.Int64
+	present    atomic.Int64
+	listed     atomic.Int64
+	skipped    atomic.Int64
+
+	skipMu sync.Mutex
+	skipN  map[string]int64
 }
 
 func (p *migrateProgress) report(state string) {
-	msg := fmt.Sprintf("Piece Migration %s: %s (%d bytes) of pieces migrated, %d renamed, %d copied, %s elapsed",
+	elapsed := time.Since(p.start).Truncate(time.Second)
+	skips := p.skipSummary()
+	if skips == "" {
+		skips = "none"
+	}
+	msg := fmt.Sprintf("Piece Migration %s: %s (%d bytes) migrated, %d renamed, %d copied, %d copied back, %d already present, %d skipped (%s), %d listed, %s elapsed",
 		state, humanize.IBytes(uint64(p.bytes.Load())), p.bytes.Load(), p.renamed.Load(), p.copied.Load(),
-		time.Since(p.start).Truncate(time.Second))
+		p.copiedBack.Load(), p.present.Load(), p.skipped.Load(), skips, p.listed.Load(), elapsed)
 	fmt.Println(msg)
-	log.Info(msg)
+	log.Infow(msg,
+		"state", state,
+		"bytes", p.bytes.Load(),
+		"renamed", p.renamed.Load(),
+		"copied", p.copied.Load(),
+		"copied_back", p.copiedBack.Load(),
+		"already_present", p.present.Load(),
+		"listed", p.listed.Load(),
+		"skipped", p.skipped.Load(),
+		"skips", skips,
+		"elapsed", elapsed.String(),
+	)
+}
+
+// noteSkip counts a piece this pass did not migrate. The first
+// MIGRATE_SKIP_SAMPLES of each reason are logged with kv; the rest are only
+// counted. kv is the usual alternating key, value pairs.
+func (p *migrateProgress) noteSkip(reason string, kv ...any) {
+	p.skipped.Add(1)
+	p.skipMu.Lock()
+	if p.skipN == nil {
+		p.skipN = map[string]int64{}
+	}
+	p.skipN[reason]++
+	n := p.skipN[reason]
+	p.skipMu.Unlock()
+	if n <= MIGRATE_SKIP_SAMPLES {
+		log.Warnw("skipping piece-park migration", append([]any{"reason", reason}, kv...)...)
+		return
+	}
+	if n == MIGRATE_SKIP_SAMPLES+1 {
+		log.Warnw("further piece-park migration skips of this reason are only counted", "reason", reason)
+	}
+}
+
+// skipSummary is the per-reason skip counts, "reason=n" joined in reason
+// order, or "" when nothing was skipped.
+func (p *migrateProgress) skipSummary() string {
+	p.skipMu.Lock()
+	defer p.skipMu.Unlock()
+	if len(p.skipN) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(p.skipN))
+	for k := range p.skipN {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	parts := make([]string, len(keys))
+	for i, k := range keys {
+		parts[i] = fmt.Sprintf("%s=%d", k, p.skipN[k])
+	}
+	return strings.Join(parts, ",")
 }
 
 // migratePass runs one migration over the drives in roots, keyed by the
@@ -208,15 +299,16 @@ func migratePass(ctx context.Context, db *harmonydb.DB, roots map[string]string,
 		workers.Go(func() error {
 			copyBuf := make([]byte, 8<<20)
 			for p := range work {
+				prog.listed.Add(1)
 				root := roots[p.StorageID]
 				v1, err := cid.Parse(p.PieceCID)
 				if err != nil {
-					log.Warnw("skipping piece-park migration of unparsable cid", "piece", p.ID, "cid", p.PieceCID, "error", err)
+					prog.noteSkip("unparsable-cid", "piece", p.ID, "cid", p.PieceCID, "storage", p.StorageID, "error", err)
 					continue
 				}
 				v2, err := commcid.PieceCidV2FromV1(v1, uint64(p.RawSize))
 				if err != nil {
-					log.Warnw("skipping piece-park migration without a v2 cid", "piece", p.ID, "cid", p.PieceCID, "error", err)
+					prog.noteSkip("no-v2-cid", "piece", p.ID, "cid", p.PieceCID, "storage", p.StorageID, "raw_size", p.RawSize, "error", err)
 					continue
 				}
 				hexHash, _, err := cidHashHex(v2)
@@ -246,16 +338,21 @@ func migratePass(ctx context.Context, db *harmonydb.DB, roots map[string]string,
 					case dstErr == nil:
 						from, to = dst, src
 					case srcErr != nil:
-						log.Warnw("piece-park file missing; skipping migration", "piece", p.ID, "path", src)
+						prog.noteSkip("missing-file", "piece", p.ID, "cid", p.PieceCID, "storage", p.StorageID, "path", src, "open", dst)
 						continue
 					}
-					ok, err := copyPieceFile(from, to, p.RawSize, copyBuf)
+					ok, skip, err := copyPieceFile(from, to, p.RawSize, copyBuf)
 					if err != nil {
 						return xerrors.Errorf("copying %s to %s: %w", from, to, err)
 					}
-					if ok {
+					switch {
+					case ok:
 						prog.copied.Add(1)
 						prog.bytes.Add(p.RawSize)
+					case skip == "already-present":
+						prog.present.Add(1)
+					default:
+						prog.noteSkip(skip, "piece", p.ID, "cid", p.PieceCID, "storage", p.StorageID, "from", from, "to", to, "size", p.RawSize)
 					}
 					continue
 				}
@@ -277,7 +374,13 @@ func migratePass(ctx context.Context, db *harmonydb.DB, roots map[string]string,
 				case errors.Is(err, os.ErrNotExist) || errors.Is(err, os.ErrExist):
 					// An earlier run renamed it before stopping, or the bytes are
 					// already in open-pieces. Either way the file at dst is the piece.
-					if info, serr := os.Stat(dst); serr != nil || info.Size() != p.RawSize {
+					info, serr := os.Stat(dst)
+					if serr != nil || info.Size() != p.RawSize {
+						got := int64(-1)
+						if serr == nil {
+							got = info.Size()
+						}
+						prog.noteSkip("dest-size-mismatch", "piece", p.ID, "cid", p.PieceCID, "storage", p.StorageID, "path", dst, "size", got, "expected", p.RawSize, "error", serr)
 						continue
 					}
 					if errors.Is(err, os.ErrNotExist) {
@@ -286,6 +389,7 @@ func migratePass(ctx context.Context, db *harmonydb.DB, roots map[string]string,
 						r.dropSrc = src
 					}
 				case isCrossDevice(err):
+					prog.noteSkip("cross-device", "piece", p.ID, "cid", p.PieceCID, "storage", p.StorageID, "from", src, "to", dst, "error", err)
 					continue
 				default:
 					return xerrors.Errorf("renaming %s into open-pieces: %w", src, err)
@@ -364,11 +468,15 @@ func migratePass(ctx context.Context, db *harmonydb.DB, roots map[string]string,
 				// The piece gained a ref after the listing: keep the open-pieces
 				// file and put a copy back for piece-park readers.
 				if r.returnTo != "" {
-					if _, err := copyPieceFile(r.dst, r.returnTo, r.size, copyBuf); err != nil {
+					ok, skip, err := copyPieceFile(r.dst, r.returnTo, r.size, copyBuf)
+					if err != nil {
 						return xerrors.Errorf("copying %s back to piece-park: %w", r.dst, err)
 					}
+					if !ok && skip != "already-present" {
+						return xerrors.Errorf("copying %s back to piece-park: %s", r.dst, skip)
+					}
 				}
-				prog.copied.Add(1)
+				prog.copiedBack.Add(1)
 				prog.bytes.Add(r.size)
 			}
 			return nil
@@ -413,6 +521,7 @@ func migratePass(ctx context.Context, db *harmonydb.DB, roots map[string]string,
 				used[s] = n
 			}
 			if used[0]+used[1] == 0 {
+				log.Infow("hash space claim not written; drive holds no hash-space bytes", "storage", storageID, "root", root)
 				return nil
 			}
 			now := time.Now().UTC().Truncate(time.Second)
@@ -444,26 +553,26 @@ func migratePass(ctx context.Context, db *harmonydb.DB, roots map[string]string,
 }
 
 // copyPieceFile copies src onto dst and syncs it. A dst at least size bytes
-// long is kept; a shorter one is a partial copy and is rewritten. It
-// reports false without error when src is missing, dst is kept, or src is
-// not size bytes; a dst it wrote is removed on failure.
-func copyPieceFile(src, dst string, size int64, buf []byte) (bool, error) {
+// long is kept. It reports false and a reason, without error, when src is
+// missing ("missing-source"), dst is kept ("already-present"), or src is not
+// size bytes ("wrong-size"). A dst it wrote is removed on failure.
+func copyPieceFile(src, dst string, size int64, buf []byte) (bool, string, error) {
 	in, err := os.Open(src)
 	if os.IsNotExist(err) {
-		return false, nil
+		return false, "missing-source", nil
 	}
 	if err != nil {
-		return false, err
+		return false, "", err
 	}
 	defer func() { _ = in.Close() }()
 	if info, err := os.Stat(dst); err == nil && info.Size() >= size {
-		return false, nil
+		return false, "already-present", nil
 	} else if err != nil && !os.IsNotExist(err) {
-		return false, err
+		return false, "", err
 	}
 	out, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
 	if err != nil {
-		return false, err
+		return false, "", err
 	}
 	n, err := io.CopyBuffer(out, in, buf)
 	if err == nil {
@@ -473,15 +582,15 @@ func copyPieceFile(src, dst string, size int64, buf []byte) (bool, error) {
 		err = cerr
 	}
 	if err == nil && n != size {
-		log.Warnw("skipping piece copy of the wrong size", "path", src, "size", n, "expected", size)
+		log.Warnw("piece copy is the wrong size", "path", src, "dest", dst, "size", n, "expected", size)
 		_ = os.Remove(dst)
-		return false, nil
+		return false, "wrong-size", nil
 	}
 	if err != nil {
 		_ = os.Remove(dst)
-		return false, err
+		return false, "", err
 	}
-	return true, nil
+	return true, "", nil
 }
 
 // dropUnusableLayouts removes both layouts of each drive whose layout set
