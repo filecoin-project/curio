@@ -7,7 +7,7 @@ set -Eeuo pipefail
 # Decisions baked into this script:
 # - OS target: Ubuntu 24.04
 # - Architecture: x86_64
-# - YugabyteDB version: 2025.2.2.2-b11
+# - YugabyteDB version: 2025.2.7.0-b107
 # - PostgreSQL version: 18
 # - Install path: /usr/local/yugabyte
 # - Base dir: /var/lib/yugabytedb
@@ -17,8 +17,8 @@ set -Eeuo pipefail
 # - Start and validate
 # -----------------------------------------------------------------------------
 
-readonly YB_VERSION="2025.2.2.2-b11"
-readonly YB_SERIES_DIR="2025.2.2.2"
+readonly YB_VERSION="2025.2.7.0-b107"
+readonly YB_SERIES_DIR="2025.2.7.0"
 readonly YB_TARBALL="yugabyte-${YB_VERSION}-linux-x86_64.tar.gz"
 readonly YB_DOWNLOAD_URL="https://downloads.yugabyte.com/releases/${YB_SERIES_DIR}/${YB_TARBALL}"
 
