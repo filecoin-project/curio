@@ -4,7 +4,6 @@ package webrpc
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -24,66 +23,6 @@ import (
 	"github.com/filecoin-project/lotus/chain/types"
 	lethtypes "github.com/filecoin-project/lotus/chain/types/ethtypes"
 )
-
-type MK20StorageDeal struct {
-	Deal   *mk20.Deal `json:"deal"`
-	DDOErr NullString `json:"ddoerr"`
-	PDPErr NullString `json:"pdperr"`
-	DDOId  NullInt64  `json:"ddoid"`
-}
-
-func (a *WebRPC) MK20DDOStorageDeal(ctx context.Context, id string) (*MK20StorageDeal, error) {
-	pid, err := ulid.Parse(id)
-	if err != nil {
-		return nil, xerrors.Errorf("parsing deal ID: %w", err)
-	}
-
-	var dbDeals []mk20.DBDeal
-	err = a.Deps.DB.Select(ctx, &dbDeals, `SELECT id,
-       												client,
-													data, 
-													ddo_v1,
-													retrieval_v1,
-													pdp_v1 FROM market_mk20_deal WHERE id = $1`, pid.String())
-	if err != nil {
-		return nil, xerrors.Errorf("getting deal from DB: %w", err)
-	}
-	if len(dbDeals) != 1 {
-		return nil, xerrors.Errorf("expected 1 deal, got %d", len(dbDeals))
-	}
-	dbDeal := dbDeals[0]
-	deal, err := dbDeal.ToDeal()
-	if err != nil {
-		return nil, xerrors.Errorf("converting DB deal to struct: %w", err)
-	}
-
-	ret := &MK20StorageDeal{Deal: deal}
-
-	if len(dbDeal.DDOv1) > 0 && string(dbDeal.DDOv1) != "null" {
-		var dddov1 mk20.DBDDOV1
-		if err := json.Unmarshal(dbDeal.DDOv1, &dddov1); err != nil {
-			return nil, fmt.Errorf("unmarshal ddov1: %w", err)
-		}
-		if dddov1.Error != "" {
-			ret.DDOErr = NullString{String: dddov1.Error, Valid: true}
-		}
-		if dddov1.DealID > 0 {
-			ret.DDOId = NullInt64{Int64: dddov1.DealID, Valid: true}
-		}
-	}
-
-	if len(dbDeal.PDPV1) > 0 && string(dbDeal.PDPV1) != "null" {
-		var pdpv1 mk20.DBPDPV1
-		if err := json.Unmarshal(dbDeal.PDPV1, &pdpv1); err != nil {
-			return nil, fmt.Errorf("unmarshal pdpv1: %w", err)
-		}
-		if pdpv1.Error != "" {
-			ret.PDPErr = NullString{String: pdpv1.Error, Valid: true}
-		}
-	}
-
-	return ret, nil
-}
 
 type MK20StorageDealList struct {
 	ID         string     `db:"id" json:"id"`
@@ -830,4 +769,112 @@ func (a *WebRPC) ChunkUploadStatus(ctx context.Context, idStr string) (*UploadSt
 		ID:     idStr,
 		Status: status,
 	}, nil
+}
+
+func (a *WebRPC) mk20DealPipelineRemove(ctx context.Context, id string) error {
+	committed, err := a.Deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		var pipelines []struct {
+			URL    NullString `db:"url"`
+			Sector NullInt64  `db:"sector"`
+		}
+		// Check every aggregation input in the delete predicate, so an active
+		// task prevents removing any of the deal's pipeline rows.
+		err := tx.Select(&pipelines, `
+			DELETE FROM market_mk20_pipeline dp
+			WHERE dp.id = $1
+				AND NOT EXISTS (
+					SELECT 1 FROM market_mk20_pipeline p
+					JOIN harmony_task ht ON ht.id IN (p.commp_task_id, p.agg_task_id, p.indexing_task_id)
+					WHERE p.id = dp.id
+				)
+				AND NOT EXISTS (
+					SELECT 1 FROM market_mk20_pipeline p
+					JOIN parked_piece_refs pr ON p.url = 'pieceref:' || pr.ref_id::text
+					JOIN parked_pieces pp ON pp.id = pr.piece_id
+					JOIN harmony_task ht ON ht.id = pp.task_id
+					WHERE p.id = dp.id
+				)
+				AND NOT EXISTS (
+					SELECT 1 FROM market_mk20_download_pipeline d
+					JOIN parked_piece_refs pr ON pr.ref_id = ANY(d.ref_ids)
+					JOIN parked_pieces pp ON pp.id = pr.piece_id
+					JOIN harmony_task ht ON ht.id = pp.task_id
+					WHERE d.id = dp.id AND d.product = $2
+				)
+			RETURNING dp.url, dp.sector`, id, mk20.ProductNameDDOV1)
+		if err != nil {
+			return false, fmt.Errorf("removing deal pipeline %s: %w", id, err)
+		}
+		if len(pipelines) == 0 {
+			var exists bool
+			if err := tx.QueryRow(`SELECT EXISTS (
+				SELECT 1 FROM market_mk20_pipeline WHERE id = $1
+			)`, id).Scan(&exists); err != nil {
+				return false, err
+			}
+			if exists {
+				return false, fmt.Errorf("cannot remove deal pipeline %s: tasks are still pending or running", id)
+			}
+			return false, fmt.Errorf("no deal pipeline found with id %s", id)
+		}
+
+		// Keep the deal ledger so its removal remains visible to the operator.
+		updated, err := tx.Exec(`UPDATE market_mk20_deal
+			SET ddo_v1 = jsonb_set(ddo_v1, '{error}', to_jsonb($2::text), TRUE)
+			WHERE id = $1 AND jsonb_typeof(ddo_v1) = 'object'`, id, "Deal pipeline removed by SP")
+		if err != nil {
+			return false, xerrors.Errorf("failed to mark deal %s as failed: %w", id, err)
+		}
+		if updated != 1 {
+			return false, xerrors.Errorf("expected one DDO deal for pipeline %s, updated %d", id, updated)
+		}
+
+		retainedURLs := []string{}
+		retainedRefs := make(map[string]bool)
+		for _, pipeline := range pipelines {
+			if pipeline.Sector.Valid && pipeline.URL.Valid {
+				retainedURLs = append(retainedURLs, pipeline.URL.String)
+				retainedRefs[pipeline.URL.String] = true
+			}
+		}
+		_, err = tx.Exec(`
+			WITH removed_downloads AS (
+				DELETE FROM market_mk20_download_pipeline
+				WHERE id = $1 AND product = $2
+				RETURNING ref_ids
+			)
+			DELETE FROM parked_piece_refs pr
+			WHERE EXISTS (
+				SELECT 1 FROM removed_downloads d WHERE pr.ref_id = ANY(d.ref_ids)
+			) AND NOT ('pieceref:' || pr.ref_id::text = ANY($3::text[]))`,
+			id, mk20.ProductNameDDOV1, retainedURLs)
+		if err != nil {
+			return false, xerrors.Errorf("removing downloads for deal %s: %w", id, err)
+		}
+		for _, pipeline := range pipelines {
+			// Once assigned to a sector, the piece reference belongs to sealing.
+			if pipeline.Sector.Valid || !pipeline.URL.Valid || retainedRefs[pipeline.URL.String] {
+				continue
+			}
+			const prefix = "pieceref:"
+			if !strings.HasPrefix(pipeline.URL.String, prefix) {
+				continue
+			}
+			refID, err := strconv.ParseInt(pipeline.URL.String[len(prefix):], 10, 64)
+			if err != nil {
+				return false, fmt.Errorf("invalid refID in URL: %w", err)
+			}
+			if _, err := tx.Exec(`DELETE FROM parked_piece_refs WHERE ref_id = $1`, refID); err != nil {
+				return false, err
+			}
+		}
+		return true, nil
+	}, harmonydb.OptionRetry())
+	if err != nil {
+		return err
+	}
+	if !committed {
+		return fmt.Errorf("transaction did not commit")
+	}
+	return nil
 }
