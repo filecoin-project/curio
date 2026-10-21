@@ -28,3 +28,4 @@ Output format:
 
 Be concrete.
 Describe patterns in terms of intent and constraints, not just syntax.
+In "Patterns an AI should reuse", keep this rule: a short comment on every unexported production function and method stating what it does and the caller conditions it relies on and does not re-check. Test helpers are exempt.

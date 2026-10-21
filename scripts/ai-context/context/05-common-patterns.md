@@ -66,6 +66,7 @@
 - Encapsulate cross-table semantic operations in SQL function(s) when multiple callers need identical behavior.
 
 ## Patterns an AI should reuse
+- A short comment on every unexported production function and method: what it does, and the caller conditions it relies on and does not re-check. Test helpers are exempt.
 - Transactional add-task + extra-info writes.
 - Conditional update patterns that encode state preconditions.
 - DB-level dedupe (`UNIQUE`, `ON CONFLICT`) for externally repeated triggers.

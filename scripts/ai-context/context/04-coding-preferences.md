@@ -6,14 +6,15 @@
 - Preserve existing architecture boundaries unless change is explicitly requested.
 - Treat Curio as clustered software; avoid single-node assumptions.
 - State assumptions and uncertainty explicitly when facts are incomplete.
-- Keep comments brief omitting when possible. Comments should only be used to describe complex, unintuitive and dense code. Avoid adding comments that describe only the rationale for the latest diff.
+- Keep comments brief. In production code, an unexported function or method still gets a short comment: what it does, and the conditions a caller must already have established. Test helpers are exempt. Other comments describe only complex, unintuitive, or dense code, not the rationale for the latest diff.
 
 ## Go preferences
 - Keep changes idiomatic and straightforward; optimize for maintainability over cleverness.
 - Prefer constants in ANACONDA_CASE, following the C-style convention.
 - Preserve task idempotency and DB-backed coordination semantics in `harmonytask` and `tasks/*`.
 - Use explicit error handling and wrap errors with context.
-- Keep comments sparse and high-signal (non-obvious invariants, coordination logic, edge cases).
+- In production code, give every unexported function and method a short comment. Privacy means the caller is expected to have established conditions the function does not re-check: valid indexes, required order, a prior capacity or range-cap check, or which limits it deliberately skips. Say what it does and those conditions. If it checks its own inputs, say that instead of inventing a precondition. Do not restate the body. Test helpers are exempt.
+- Keep other comments sparse and high-signal (non-obvious invariants, coordination logic, edge cases).
 - Avoid unnecessary abstractions and wide refactors when scoped fixes are sufficient.
 
 ## SQL / DB preferences
