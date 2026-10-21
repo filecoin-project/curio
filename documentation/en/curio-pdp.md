@@ -235,6 +235,14 @@ docker compose -f docker-compose.yaml -f docker-compose.calibnet.yaml up -d --no
 
 To pin a specific release instead, set `FOREST_IMAGE=ghcr.io/chainsafe/forest:<version-tag>` in `.env`. Updates briefly interrupt Forest RPC while the container restarts.
 
+### YugabyteDB
+
+Replacing the Docker image or installed binaries does not complete a database upgrade. Follow the [official upgrade procedure](https://docs.yugabyte.com/stable/manage/upgrade-deployment/), including the applicable AutoFlags promotion and YSQL catalog upgrade commands. These steps are not automated by this stack.
+
+Upgrading from the previous `2024.1` default to `2025.2` also requires a PostgreSQL 11 to 15 [YSQL major upgrade](https://docs.yugabyte.com/stable/manage/ysql-major-upgrade-yugabyted/). First upgrade to a supported 2024.2 release (2024.2.3.0 or later), then complete the major upgrade procedure, including finalization. Switching back to the old image does not undo a completed major upgrade.
+
+Before upgrading, back up YSQL and any YCQL index data and verify recovery. Pin the existing image with `YUGABYTE_IMAGE` in `.env` until ready. Keep Curio stopped during the database upgrade; afterward, verify database connectivity and Curio task processing and index reads and writes.
+
 ### Curio-PDP (Skiff)
 
 Published images use `filecoin/curio-pdp:latest` for mainnet and `filecoin/curio-pdp:calibnet` for calibration. Running containers do not upgrade automatically. Set `SKIFF_IMAGE` in `.env` to the tag for your network; the repository's `:dev` setting is for local builds.
