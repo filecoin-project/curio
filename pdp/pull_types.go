@@ -117,6 +117,9 @@ func (r *PullRequest) pullSources() ([]pullSource, error) {
 		if len(sourceURLs) == 0 {
 			return nil, fmt.Errorf("piece[%d]: sourceUrl or sourceUrls is required", i)
 		}
+		if len(sourceURLs) > 100 {
+			return nil, fmt.Errorf("piece[%d]: too many source URLs, max is 100", i)
+		}
 		seenURL := make(map[string]struct{}, len(sourceURLs))
 		for j, sourceURL := range sourceURLs {
 			urlIndex := j
