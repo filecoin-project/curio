@@ -85,6 +85,7 @@ func Open(ctx context.Context, cctx *cli.Context) (*Deps, error) {
 	if err != nil {
 		return nil, xerrors.Errorf("load config: %w", err)
 	}
+	curiodeps.ConfigureSSRF(cfg.Ingest)
 
 	// Skiff-specific defaults. Empty function in the base package.
 	applySkiffDefaults(cfg)
