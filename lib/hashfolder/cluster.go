@@ -200,7 +200,6 @@ func (c *Cluster) loop(ctx context.Context) {
 		case <-ticker.C:
 		}
 		c.dropDeadMoves(ctx)
-		c.requeuePlace(ctx)
 		c.requeueDrop(ctx)
 		if c.open != nil {
 			if err := c.refresh(ctx, false); err != nil {
@@ -425,12 +424,27 @@ func (c *Cluster) WriteLocal(storageID string, pc cid.Cid, r io.Reader) (int64, 
 	return n, nil
 }
 
-// readerSize returns the bytes left in r when r reports them: a file's size
-// from Stat, or Len for in-memory readers.
+// WithSize labels r as holding n bytes, so WriteLocal and PutRemote can
+// replace a shorter partial copy of the piece.
+func WithSize(r io.Reader, n int64) io.Reader {
+	return sizedReader{Reader: r, n: n}
+}
+
+type sizedReader struct {
+	io.Reader
+	n int64
+}
+
+func (r sizedReader) Size() int64 { return r.n }
+
+// readerSize returns the bytes left in r when r reports them: Len for
+// in-memory readers, the WithSize label, or a file's size from Stat.
 func readerSize(r io.Reader) (int64, bool) {
 	switch v := r.(type) {
 	case interface{ Len() int }:
 		return int64(v.Len()), true
+	case sizedReader:
+		return v.n, true
 	case interface{ Stat() (os.FileInfo, error) }:
 		info, err := v.Stat()
 		if err != nil || !info.Mode().IsRegular() {
@@ -497,7 +511,7 @@ func (c *Cluster) hasHash(ctx context.Context, storageID, kind, hexHash string) 
 		return c.hasHashLocal(storageID, kind, hexHash)
 	}
 	var found bool
-	err := c.remoteHash(ctx, http.MethodHead, storageID, kind, hexHash, nil, func(r *http.Response) (bool, error) {
+	err := c.remoteHash(ctx, http.MethodHead, storageID, kind, hexHash, nil, nil, func(r *http.Response) (bool, error) {
 		_ = r.Body.Close()
 		switch r.StatusCode {
 		case http.StatusOK:
@@ -632,6 +646,68 @@ func (c *Cluster) remoteGet(ctx context.Context, storageID string, pc cid.Cid, b
 	return resp.Body, nil
 }
 
+// Drop removes pc from storageID, locally or through that node's DELETE.
+// A missing file is fine.
+func (c *Cluster) Drop(ctx context.Context, storageID string, pc cid.Cid) error {
+	return c.deleteOn(ctx, storageID, pc)
+}
+
+func (c *Cluster) deleteOn(ctx context.Context, storageID string, pc cid.Cid) error {
+	if c.HasLocal(storageID) {
+		return c.DropLocal(storageID, pc)
+	}
+	return c.remote(ctx, http.MethodDelete, storageID, pc, nil, func(r *http.Response) (bool, error) {
+		_ = r.Body.Close()
+		switch r.StatusCode {
+		case http.StatusOK, http.StatusNoContent, http.StatusNotFound:
+			return false, nil
+		default:
+			return false, xerrors.Errorf("DELETE %s: %s", r.Request.URL, r.Status)
+		}
+	})
+}
+
+// PutRemote streams r to the node that holds storageID. That node writes the
+// file locally, publishes its usage, and maybe starts a rebalance. The body
+// is not buffered. A client with no storage auth does not send the request.
+// When r's length is known it is sent as Content-Length, and that node
+// replaces a shorter copy of the piece. A seekable r is rewound for the next
+// URL; otherwise the first attempt that starts sending is the only one.
+func (c *Cluster) PutRemote(ctx context.Context, storageID string, pc cid.Cid, r io.Reader) (int64, bool, error) {
+	if len(c.auth) == 0 {
+		return 0, false, xerrors.Errorf("putting %s on %s: hash space client has no storage auth", pc, storageID)
+	}
+	if r == nil {
+		return 0, false, xerrors.Errorf("putting %s on %s: empty body", pc, storageID)
+	}
+	hexHash, _, err := cidHashHex(pc)
+	if err != nil {
+		return 0, false, err
+	}
+	var prep func(*http.Request)
+	if n, ok := readerSize(r); ok {
+		prep = func(req *http.Request) { req.ContentLength = n }
+	}
+	var size int64
+	var existed bool
+	err = c.remoteHash(ctx, http.MethodPut, storageID, DIR_OPEN, hexHash, r, prep, func(resp *http.Response) (bool, error) {
+		if resp.StatusCode != http.StatusNoContent {
+			return false, xerrors.Errorf("PUT %s: %s", resp.Request.URL, resp.Status)
+		}
+		n, err := strconv.ParseInt(resp.Header.Get(headerPutSize), 10, 64)
+		if err != nil {
+			return false, xerrors.Errorf("PUT %s: bad size", resp.Request.URL)
+		}
+		size = n
+		existed = resp.Header.Get(headerPutExisted) == "1"
+		return false, nil
+	})
+	if err != nil {
+		return 0, false, err
+	}
+	return size, existed, nil
+}
+
 // remote sends one request to each URL of storageID until one answers.
 // handle reports whether it kept the response body open.
 func (c *Cluster) remote(ctx context.Context, method, storageID string, pc cid.Cid, prep func(*http.Request), handle func(*http.Response) (bool, error)) error {
@@ -639,10 +715,10 @@ func (c *Cluster) remote(ctx context.Context, method, storageID string, pc cid.C
 	if err != nil {
 		return err
 	}
-	return c.remoteHash(ctx, method, storageID, DIR_OPEN, hexHash, prep, handle)
+	return c.remoteHash(ctx, method, storageID, DIR_OPEN, hexHash, nil, prep, handle)
 }
 
-func (c *Cluster) remoteHash(ctx context.Context, method, storageID, kind, hexHash string, prep func(*http.Request), handle func(*http.Response) (bool, error)) error {
+func (c *Cluster) remoteHash(ctx context.Context, method, storageID, kind, hexHash string, body io.Reader, prep func(*http.Request), handle func(*http.Response) (bool, error)) error {
 	kind, err := parseSpaceKind(kind)
 	if err != nil {
 		return err
@@ -657,9 +733,19 @@ func (c *Cluster) remoteHash(ctx context.Context, method, storageID, kind, hexHa
 		return xerrors.Errorf("looking up storage %s urls: %w", storageID, err)
 	}
 	lastErr := xerrors.Errorf("storage %s has no urls", storageID)
+	started := false
 	for _, u := range strings.Split(urls, storageURLSeparator) {
 		if u == "" {
 			continue
+		}
+		if body != nil {
+			if seeker, ok := body.(io.Seeker); ok {
+				if _, err := seeker.Seek(0, io.SeekStart); err != nil {
+					return err
+				}
+			} else if started {
+				return lastErr
+			}
 		}
 		target := strings.TrimSuffix(strings.TrimSuffix(u, "/"), remoteSuffix) + httpPrefix + storageID + "/" + hexHash
 		req, err := http.NewRequestWithContext(ctx, method, target, nil)
@@ -670,10 +756,17 @@ func (c *Cluster) remoteHash(ctx context.Context, method, storageID, kind, hexHa
 		for k, v := range c.auth {
 			req.Header[k] = v
 		}
+		if body != nil {
+			req.Body = io.NopCloser(body)
+			req.ContentLength = -1
+		}
 		if prep != nil {
 			prep(req)
 		}
 		resp, err := c.client.Do(req)
+		if body != nil {
+			started = true
+		}
 		if err != nil {
 			lastErr = err
 			continue
@@ -727,23 +820,6 @@ func (c *Cluster) DeleteCID(ctx context.Context, pieceCID string) error {
 		}
 	}
 	return nil
-}
-
-// deleteOn removes pc from storageID, locally or through that node's DELETE.
-// A missing file is fine.
-func (c *Cluster) deleteOn(ctx context.Context, storageID string, pc cid.Cid) error {
-	if c.HasLocal(storageID) {
-		return c.DropLocal(storageID, pc)
-	}
-	return c.remote(ctx, http.MethodDelete, storageID, pc, nil, func(r *http.Response) (bool, error) {
-		_ = r.Body.Close()
-		switch r.StatusCode {
-		case http.StatusOK, http.StatusNoContent, http.StatusNotFound:
-			return false, nil
-		default:
-			return false, xerrors.Errorf("DELETE %s: %s", r.Request.URL, r.Status)
-		}
-	})
 }
 
 // MaybeRebalance starts a vacate or full rebalance for storageID when that
@@ -968,33 +1044,8 @@ func (c *Cluster) dropDeadMoves(ctx context.Context) {
 	}
 }
 
-// requeuePlace points place rows at a new task when theirs was deleted. The
+// requeueDrop points drop rows at a new task when theirs was deleted. The
 // row is what keeps the piece from being queued again.
-func (c *Cluster) requeuePlace(ctx context.Context) {
-	add := harmonytask.AdderFor(tasknames.HashSpacePlace)
-	if add == nil {
-		return
-	}
-	_, err := harmonytask.TxWithTask(ctx, c.db, add, func(tx *harmonydb.Tx, id harmonytask.TaskID) (bool, error) {
-		var n int
-		if err := tx.QueryRow(`SELECT COUNT(*) FROM hash_space_place WHERE task_id NOT IN (SELECT id FROM harmony_task)`).Scan(&n); err != nil {
-			return false, err
-		}
-		if n == 0 {
-			return false, nil
-		}
-		if id == 0 {
-			return false, harmonytask.ErrNeedTask
-		}
-		_, err := tx.Exec(`UPDATE hash_space_place SET task_id = $1 WHERE task_id NOT IN (SELECT id FROM harmony_task)`, id)
-		return err == nil, err
-	})
-	if err != nil {
-		log.Warnw("requeueing hash space work whose task is gone", "task", tasknames.HashSpacePlace, "error", err)
-	}
-}
-
-// requeueDrop points drop rows at a new task when theirs was deleted.
 func (c *Cluster) requeueDrop(ctx context.Context) {
 	add := harmonytask.AdderFor(tasknames.HashSpaceDrop)
 	if add == nil {
@@ -1336,7 +1387,7 @@ func (c *Cluster) openHash(ctx context.Context, storageID, kind, hexHash string)
 		return sp.openHashOn(root, hexHash)
 	}
 	var resp *http.Response
-	err = c.remoteHash(ctx, http.MethodGet, storageID, kind, hexHash, nil, func(r *http.Response) (bool, error) {
+	err = c.remoteHash(ctx, http.MethodGet, storageID, kind, hexHash, nil, nil, func(r *http.Response) (bool, error) {
 		switch r.StatusCode {
 		case http.StatusOK:
 			resp = r
@@ -1551,7 +1602,7 @@ func (c *Cluster) hashSize(ctx context.Context, storageID, kind, hexHash string)
 	}
 	var n int64
 	var found bool
-	err = c.remoteHash(ctx, http.MethodHead, storageID, kind, hexHash, nil, func(r *http.Response) (bool, error) {
+	err = c.remoteHash(ctx, http.MethodHead, storageID, kind, hexHash, nil, nil, func(r *http.Response) (bool, error) {
 		switch r.StatusCode {
 		case http.StatusOK:
 			if r.ContentLength < 0 {
@@ -1588,7 +1639,7 @@ func (c *Cluster) deleteHash(ctx context.Context, storageID, kind, hexHash strin
 		}
 		return nil
 	}
-	return c.remoteHash(ctx, http.MethodDelete, storageID, kind, hexHash, nil, func(r *http.Response) (bool, error) {
+	return c.remoteHash(ctx, http.MethodDelete, storageID, kind, hexHash, nil, nil, func(r *http.Response) (bool, error) {
 		_ = r.Body.Close()
 		switch r.StatusCode {
 		case http.StatusOK, http.StatusNoContent, http.StatusNotFound:
