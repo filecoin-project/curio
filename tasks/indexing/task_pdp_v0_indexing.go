@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/ipfs/go-cid"
-	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
 
 	commcid "github.com/filecoin-project/go-fil-commcid"
@@ -123,16 +122,12 @@ func (P *PDPIndexingV0Task) Do(ctx context.Context, taskID harmonytask.TaskID, s
 	recs := make(chan indexstore.Record, chanSize)
 	var blocks int64
 
-	var eg errgroup.Group
-	addFail := make(chan struct{})
 	var interrupted bool
 
 	aggRecs := make(chan indexstore.Record, chanSize)
-	eg.Go(func() error {
-		defer close(addFail)
+	eg, addFail := startIndexWriters(func() error {
 		return P.indexStore.AddIndex(ctx, pcid2, recs)
-	})
-	eg.Go(func() error {
+	}, func() error {
 		return P.indexStore.InsertAggregateIndex(ctx, pcid2, aggRecs)
 	})
 
