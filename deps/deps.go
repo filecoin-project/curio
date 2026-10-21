@@ -216,31 +216,7 @@ func (deps *Deps) PopulateRemainingDeps(ctx context.Context, cctx *cli.Context, 
 
 	log.Debugw("config", "config", deps.Cfg)
 
-	// Wire SSRF policy override from config so that all nil-policy callers
-	// (deal data fetchers, proposal validators) pick up the operator settings.
-	applySSRFOverride := func() {
-		disabled := deps.Cfg.Ingest.DisableSSRFProtection.Get()
-		hosts := deps.Cfg.Ingest.SSRFAllowedHosts.Get()
-		if !disabled && len(hosts) == 0 {
-			robusthttp.SetGlobalSSRFOverride(nil)
-			return
-		}
-		robusthttp.SetGlobalSSRFOverride(&robusthttp.SSRFPolicy{
-			Disabled:            disabled,
-			AllowLoopbackIPs:    disabled,
-			AllowLocalHostnames: disabled,
-			AllowPrivateIPs:     disabled,
-			AllowedHosts:        hosts,
-		})
-		if disabled {
-			log.Warnw("SSRF protection is disabled — do not use in production")
-		} else {
-			log.Infow("SSRF allowed hosts configured", "hosts", hosts)
-		}
-	}
-	applySSRFOverride()
-	deps.Cfg.Ingest.DisableSSRFProtection.OnChange(applySSRFOverride)
-	deps.Cfg.Ingest.SSRFAllowedHosts.OnChange(applySSRFOverride)
+	ConfigureSSRF(deps.Cfg.Ingest)
 
 	if deps.As == nil {
 		deps.As, err = multictladdr.AddressSelector(deps.Cfg.Addresses)()
@@ -416,6 +392,35 @@ Get it with: jq .PrivateKey ~/.lotus-miner/keystore/MF2XI2BNNJ3XILLQOJUXMYLUMU`,
 	setDefaultVerifProver(deps)
 
 	return nil
+}
+
+// ConfigureSSRF applies the ingest policy and keeps it updated as config changes.
+func ConfigureSSRF(ingest config.CurioIngestConfig) {
+	// Wire SSRF policy override from config so that all nil-policy callers
+	// (deal data fetchers, proposal validators) pick up the operator settings.
+	applySSRFOverride := func() {
+		disabled := ingest.DisableSSRFProtection.Get()
+		hosts := ingest.SSRFAllowedHosts.Get()
+		if !disabled && len(hosts) == 0 {
+			robusthttp.SetGlobalSSRFOverride(nil)
+			return
+		}
+		robusthttp.SetGlobalSSRFOverride(&robusthttp.SSRFPolicy{
+			Disabled:            disabled,
+			AllowLoopbackIPs:    disabled,
+			AllowLocalHostnames: disabled,
+			AllowPrivateIPs:     disabled,
+			AllowedHosts:        hosts,
+		})
+		if disabled {
+			log.Warnw("SSRF protection is disabled — do not use in production")
+		} else {
+			log.Infow("SSRF allowed hosts configured", "hosts", hosts)
+		}
+	}
+	applySSRFOverride()
+	ingest.DisableSSRFProtection.OnChange(applySSRFOverride)
+	ingest.SSRFAllowedHosts.OnChange(applySSRFOverride)
 }
 
 func LoadConfigWithUpgrades(text string, curioConfigWithDefaults *config.CurioConfig) (toml.MetaData, error) {
