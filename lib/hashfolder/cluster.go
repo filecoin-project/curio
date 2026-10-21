@@ -2416,6 +2416,9 @@ func (c *Cluster) mapVersion(ctx context.Context) (int64, error) {
 	return ver, nil
 }
 
+// refresh reloads the snapshot and rewrites local layouts from the cluster
+// map. A space that is not loaded yet is skipped, and the version is left
+// unchanged so the next refresh still writes those layouts.
 func (c *Cluster) refresh(ctx context.Context, force bool) error {
 	if err := c.refreshSnapshot(ctx); err != nil {
 		return err
@@ -2427,7 +2430,12 @@ func (c *Cluster) refresh(ctx context.Context, force bool) error {
 	if !force && ver == c.lastVersion.Load() {
 		return nil
 	}
+	wrote := true
 	for _, sp := range []*Space{c.open, c.acl} {
+		if sp == nil {
+			wrote = false
+			continue
+		}
 		for id, root := range c.roots {
 			owned, moveDests, err := c.localIntervals(ctx, sp.kind, id)
 			if err != nil {
@@ -2438,7 +2446,9 @@ func (c *Cluster) refresh(ctx context.Context, force bool) error {
 			}
 		}
 	}
-	c.lastVersion.Store(ver)
+	if wrote {
+		c.lastVersion.Store(ver)
+	}
 	return nil
 }
 

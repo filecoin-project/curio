@@ -118,17 +118,6 @@ func insertPDPReference(tx *harmonydb.Tx, service, pieceCID string, pieceRef, ra
 	return nil
 }
 
-func deleteClaimedUpload(tx *harmonydb.Tx, uploadID string, pieceRef int64) error {
-	n, err := tx.Exec(`DELETE FROM pdp_piece_uploads WHERE id = $1 AND piece_ref = $2`, uploadID, pieceRef)
-	if err != nil {
-		return fmt.Errorf("failed to delete pdp_piece_uploads row: %w", err)
-	}
-	if n != 1 {
-		return fmt.Errorf("failed to delete pdp_piece_uploads row: expected 1 row, got %d", n)
-	}
-	return nil
-}
-
 type parkedPieceClaim struct {
 	parkedPieceID int64
 	pieceRefID    int64

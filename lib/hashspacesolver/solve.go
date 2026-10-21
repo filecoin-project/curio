@@ -429,7 +429,6 @@ func (w *world) claim(dest int) {
 				}
 				over := cut.size - want
 				if over >= ask {
-					ask = 0
 					ok = false
 					break
 				}
