@@ -867,7 +867,7 @@ func (p *ProveTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Ram: 100 << 20,
 		},
 		MaxFailures: 5,
-		RetryWait:   taskhelp.RetryWaitExp(10*time.Second, 2),
+		RetryWait:   taskhelp.RetryWaitExp(10 * time.Second),
 	}
 }
 
