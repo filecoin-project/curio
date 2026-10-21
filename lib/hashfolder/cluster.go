@@ -2140,10 +2140,10 @@ func (c *Cluster) join(ctx context.Context, drives []LocalDrive) (arrived, claim
 					if err != nil {
 						return false, err
 					}
-					if _, err := tx.Exec(`INSERT INTO hash_space_disk (storage_id, capacity, vacating) VALUES ($1, $2, TRUE)
+					if _, err := tx.Exec(`INSERT INTO hash_space_disk (storage_id, capacity, vacating, has_misplaced) VALUES ($1, $2, TRUE, FALSE)
 						ON CONFLICT (storage_id) DO UPDATE SET capacity = EXCLUDED.capacity, vacating = TRUE, updated_at = NOW()`,
 						d.StorageID, capacity); err != nil {
-						return false, err
+						return false, xerrors.Errorf("insert vacating hash_space_disk %s: %w", d.StorageID, err)
 					}
 				}
 				return true, nil
@@ -2168,7 +2168,7 @@ func (c *Cluster) join(ctx context.Context, drives []LocalDrive) (arrived, claim
 					ON CONFLICT (storage_id) DO UPDATE SET capacity = EXCLUDED.capacity, vacating = EXCLUDED.vacating,
 						has_misplaced = EXCLUDED.has_misplaced, updated_at = NOW()`,
 					d.StorageID, capacity, deny, claims[d.StorageID]); err != nil {
-					return false, err
+					return false, xerrors.Errorf("insert seeded hash_space_disk %s: %w", d.StorageID, err)
 				}
 			}
 			seeded = true
@@ -2192,9 +2192,19 @@ func (c *Cluster) join(ctx context.Context, drives []LocalDrive) (arrived, claim
 			}
 			claim := claims[d.StorageID]
 			if indexOf(known, d.StorageID) >= 0 {
-				if _, err := tx.Exec(`UPDATE hash_space_disk SET capacity = $1, vacating = $2, has_misplaced = has_misplaced OR $3, updated_at = NOW()
-					WHERE storage_id = $4`, capacity, deny, claim, d.StorageID); err != nil {
-					return false, err
+				// Do not write "has_misplaced = has_misplaced OR $n" in the same
+				// UPDATE as other columns: Yugabyte evaluates the old column as
+				// NULL in that form and then rejects the NOT NULL constraint.
+				if claim {
+					if _, err := tx.Exec(`UPDATE hash_space_disk SET capacity = $1, vacating = $2, has_misplaced = TRUE, updated_at = NOW()
+						WHERE storage_id = $3`, capacity, deny, d.StorageID); err != nil {
+						return false, xerrors.Errorf("update hash_space_disk %s: %w", d.StorageID, err)
+					}
+				} else {
+					if _, err := tx.Exec(`UPDATE hash_space_disk SET capacity = $1, vacating = $2, updated_at = NOW()
+						WHERE storage_id = $3`, capacity, deny, d.StorageID); err != nil {
+						return false, xerrors.Errorf("update hash_space_disk %s: %w", d.StorageID, err)
+					}
 				}
 				continue
 			}
@@ -2203,7 +2213,7 @@ func (c *Cluster) join(ctx context.Context, drives []LocalDrive) (arrived, claim
 			if _, err := tx.Exec(`INSERT INTO hash_space_disk (storage_id, capacity, used_open, used_acl, vacating, has_misplaced)
 				VALUES ($1, $2, $3, $4, $5, $6)
 				ON CONFLICT (storage_id) DO NOTHING`, d.StorageID, capacity, openUsed, aclUsed, deny, claim); err != nil {
-				return false, err
+				return false, xerrors.Errorf("insert hash_space_disk %s: %w", d.StorageID, err)
 			}
 			switch {
 			case deny:
@@ -2432,6 +2442,7 @@ func (c *Cluster) refresh(ctx context.Context, force bool) error {
 	}
 	wrote := true
 	for _, sp := range []*Space{c.open, c.acl} {
+		// join's casTx spreads the map before NewCluster has Load'd spaces.
 		if sp == nil {
 			wrote = false
 			continue
