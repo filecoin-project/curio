@@ -55,7 +55,14 @@ func (t *PieceGCTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOw
 	if !stillOwned() {
 		return false, nil
 	}
-	if err = processIndexingAndIPNICleanup(ctx, t.db, t.cfg, t.idx, t.keepHours); err != nil {
+	pieces, err := processIPNICleanup(ctx, t.db, t.cfg, t.keepHours)
+	if err != nil {
+		return false, err
+	}
+	if !stillOwned() {
+		return false, nil
+	}
+	if err = processIndexCleanup(ctx, t.db, t.idx, pieces); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -129,17 +136,20 @@ func processPendingCleanup(ctx context.Context, db *harmonydb.DB, ethClient ethc
 	return nil
 }
 
-func processIndexingAndIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *config.HTTPConfig, idx IndexCleaner, keepHours *config.Dynamic[int]) error {
+type pieceCleanup struct {
+	ID          int64  `db:"id"`
+	PieceCID    string `db:"piece_cid"`
+	PieceSize   int64  `db:"piece_padded_size"`
+	PieceRef    int64  `db:"piece_ref"`
+	RawSize     int64  `db:"piece_raw_size"`
+	DeleteIndex bool
+}
+
+func processIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *config.HTTPConfig, keepHours *config.Dynamic[int]) ([]pieceCleanup, error) {
 
 	hours := max(2, keepHours.Get())
 
-	var pieces []struct {
-		ID        int64  `db:"id"`
-		PieceCID  string `db:"piece_cid"`
-		PieceSize int64  `db:"piece_padded_size"`
-		PieceRef  int64  `db:"piece_ref"`
-		RawSize   int64  `db:"piece_raw_size"`
-	}
+	var pieces []pieceCleanup
 
 	err := db.Select(ctx, &pieces, `SELECT
     										pr.id,
@@ -159,11 +169,11 @@ func processIndexingAndIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *c
 										        AND (a.add_message_ok IS NULL OR a.add_message_ok = TRUE)
 										  )`, hours)
 	if err != nil {
-		return xerrors.Errorf("failed to select pending piece deletes: %w", err)
+		return nil, xerrors.Errorf("failed to select pending piece deletes: %w", err)
 	}
 
 	if len(pieces) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	log.Infof("Cleaning up %d pieces not referenced by any datasets", len(pieces))
@@ -173,32 +183,36 @@ func processIndexingAndIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *c
 	err = db.QueryRow(ctx, `SELECT priv_key, peer_id FROM ipni_peerid WHERE sp_id = -2`).Scan(&privKeyBytes, &peerID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil // IPNI not init yet
+			return nil, nil // IPNI not init yet
 		}
-		return xerrors.Errorf("failed to get private ipni-libp2p key: %w", err)
+		return nil, xerrors.Errorf("failed to get private ipni-libp2p key: %w", err)
 	}
 
 	pkey, err := crypto.UnmarshalPrivateKey(privKeyBytes)
 	if err != nil {
-		return xerrors.Errorf("unmarshaling private key: %w", err)
+		return nil, xerrors.Errorf("unmarshaling private key: %w", err)
 	}
 
+	var ready []pieceCleanup
 	for _, piece := range pieces {
-		var deleteIndex bool
 		// Create RM ad
 		pcid1, err := cid.Parse(piece.PieceCID)
 		if err != nil {
-			return xerrors.Errorf("failed to parse piece CID: %w", err)
+			return nil, xerrors.Errorf("failed to parse piece CID: %w", err)
 		}
 		pcidV2, err := commcid.PieceCidV2FromV1(pcid1, uint64(piece.RawSize))
 		if err != nil {
-			return xerrors.Errorf("failed to construct piece cid v2: %w", err)
+			return nil, xerrors.Errorf("failed to construct piece cid v2: %w", err)
 		}
 
 		var skipLoop bool
+		var cleanupReady bool
 		failed := true
 		for range 5 {
 			comm, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+				skipLoop = false
+				cleanupReady = false
+				piece.DeleteIndex = false
 				var deletable bool
 				err = tx.QueryRow(`SELECT EXISTS(
 					SELECT 1 FROM pdp_piecerefs
@@ -226,37 +240,11 @@ func processIndexingAndIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *c
 					return false, xerrors.Errorf("failed to check if piece is referenced: %w", err)
 				}
 
-				// Let's drop the PDP piece ref even if we don't publish the removal ad
-				n, err := tx.Exec(`DELETE FROM pdp_piecerefs
-					WHERE id = $1 AND data_set_refcount = 0
-					  AND NOT EXISTS (
-					      SELECT 1 FROM pdp_data_set_piece_adds a
-					      WHERE a.pdp_pieceref = $1
-					        AND a.pieces_added = FALSE
-					        AND (a.add_message_ok IS NULL OR a.add_message_ok = TRUE)
-					  )`, piece.ID)
-				if err != nil {
-					return false, xerrors.Errorf("failed to delete PDP piece ref id=%d: %w", piece.ID, err)
-				}
-
-				if n == 0 {
-					skipLoop = true
-					log.Infof("Piece %s with pdp_piecerefs ID %d became referenced or in-flight; skipping cleanup", piece.PieceCID, piece.ID)
-					return false, nil
-				}
-
-				if n != 1 {
-					return false, xerrors.Errorf("expected to delete 1 row but deleted %d", n)
-				}
-
-				_, err = tx.Exec(`DELETE FROM parked_piece_refs WHERE ref_id = $1`, piece.PieceRef)
-				if err != nil {
-					return false, xerrors.Errorf("failed to delete parked piece ref %d: %w", piece.PieceRef, err)
-				}
-
 				if skipCleanup {
 					log.Debugf("Skipping IPNI removal ad for piece %s as it is referenced by another piece", piece.PieceCID)
-					return true, nil
+					deleted, err := deletePieceRef(tx, piece)
+					skipLoop = !deleted
+					return deleted, err
 				}
 
 				var contextID []byte
@@ -272,6 +260,7 @@ func processIndexingAndIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *c
 				if err != nil {
 					if errors.Is(err, pgx.ErrNoRows) {
 						log.Debugf("No previous advertisement for piece %s, skipping", piece.PieceCID)
+						cleanupReady = true
 						return true, nil
 					}
 					return false, xerrors.Errorf("querying previous advertisement: %w", err)
@@ -280,6 +269,8 @@ func processIndexingAndIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *c
 				if isRMAd {
 					// Already removed, skip
 					log.Infof("Skipping removal ad for piece %s as last ad for this piece requested removal", piece.PieceCID)
+					piece.DeleteIndex = true
+					cleanupReady = true
 					return true, nil
 				}
 
@@ -359,16 +350,20 @@ func processIndexingAndIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *c
 					return false, nil
 				}
 
-				deleteIndex = true
+				piece.DeleteIndex = true
+				cleanupReady = true
 
 				return true, nil
 
 			}, harmonydb.OptionRetry())
 
 			if err != nil {
-				return xerrors.Errorf("failed to create IPNI removal ad for piece %s: %w", piece.PieceCID, err)
+				return nil, xerrors.Errorf("failed to create IPNI removal ad for piece %s: %w", piece.PieceCID, err)
 			}
 
+			if comm && cleanupReady {
+				ready = append(ready, piece)
+			}
 			if comm || skipLoop {
 				failed = false
 				break
@@ -378,21 +373,91 @@ func processIndexingAndIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *c
 		if failed {
 			log.Warnf("Failed to create IPNI removal ad for piece %s after 5 retries", piece.PieceCID)
 		}
+	}
 
-		if deleteIndex {
-			pcid, err := cid.Parse(piece.PieceCID)
+	return ready, nil
+}
+
+func processIndexCleanup(ctx context.Context, db *harmonydb.DB, idx IndexCleaner, pieces []pieceCleanup) error {
+	for _, piece := range pieces {
+		var deletable, shared bool
+		err := db.QueryRow(ctx, `SELECT
+			pr.data_set_refcount = 0 AND NOT EXISTS (
+				SELECT 1 FROM pdp_data_set_piece_adds a
+				WHERE a.pdp_pieceref = pr.id AND a.pieces_added = FALSE
+				  AND (a.add_message_ok IS NULL OR a.add_message_ok = TRUE)
+			),
+			EXISTS(SELECT 1 FROM pdp_piecerefs other WHERE other.piece_cid = pr.piece_cid AND other.id != pr.id)
+			FROM pdp_piecerefs pr WHERE pr.id = $1`, piece.ID).Scan(&deletable, &shared)
+		if errors.Is(err, pgx.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return xerrors.Errorf("checking piece references before index cleanup: %w", err)
+		}
+		if !deletable {
+			continue
+		}
+
+		if piece.DeleteIndex && !shared {
+			pcid1, err := cid.Parse(piece.PieceCID)
 			if err != nil {
 				return xerrors.Errorf("failed to parse piece CID: %w", err)
 			}
-
-			err = idx.RemoveIndexes(ctx, pcid)
+			pcidV2, err := commcid.PieceCidV2FromV1(pcid1, uint64(piece.RawSize))
 			if err != nil {
-				return xerrors.Errorf("failed to remove indexes for piece %s: %w", piece.PieceCID, err)
+				return xerrors.Errorf("failed to construct piece cid v2: %w", err)
 			}
+
+			err = idx.RemoveIndexes(ctx, pcid1)
+			if err != nil {
+				return xerrors.Errorf("failed to remove indexes for piece %s: %w", pcid1, err)
+			}
+
+			err = idx.RemoveIndexes(ctx, pcidV2)
+			if err != nil {
+				return xerrors.Errorf("failed to remove indexes for piece %s with piece cid %s: %w", piece.PieceCID, pcidV2, err)
+			}
+
+			err = idx.RemoveAggregateIndex(ctx, pcidV2)
+			if err != nil {
+				return xerrors.Errorf("failed to remove aggregate indexes for piece %s: %w", pcidV2, err)
+			}
+		}
+
+		_, err = db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+			return deletePieceRef(tx, piece)
+		}, harmonydb.OptionRetry())
+		if err != nil {
+			return xerrors.Errorf("finalizing cleanup for piece %s: %w", piece.PieceCID, err)
 		}
 	}
 
 	return nil
+}
+
+func deletePieceRef(tx *harmonydb.Tx, piece pieceCleanup) (bool, error) {
+	n, err := tx.Exec(`DELETE FROM pdp_piecerefs
+		WHERE id = $1 AND data_set_refcount = 0
+		  AND NOT EXISTS (
+			SELECT 1 FROM pdp_data_set_piece_adds a
+			WHERE a.pdp_pieceref = $1 AND a.pieces_added = FALSE
+			  AND (a.add_message_ok IS NULL OR a.add_message_ok = TRUE)
+		  )`, piece.ID)
+	if err != nil {
+		return false, xerrors.Errorf("failed to delete PDP piece ref id=%d: %w", piece.ID, err)
+	}
+	if n == 0 {
+		return false, nil
+	}
+	if n != 1 {
+		return false, xerrors.Errorf("expected to delete 1 row but deleted %d", n)
+	}
+	_, err = tx.Exec(`DELETE FROM parked_piece_refs WHERE ref_id = $1`, piece.PieceRef)
+	if err != nil {
+		return false, xerrors.Errorf("failed to delete parked piece ref %d: %w", piece.PieceRef, err)
+	}
+	return true, nil
 }
 
 func nullableText(v string) any {
