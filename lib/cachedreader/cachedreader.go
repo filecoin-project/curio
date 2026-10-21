@@ -46,6 +46,7 @@ type CachedPieceReader struct {
 	sectorReader    *pieceprovider.SectorReader
 	pieceParkReader *pieceprovider.PieceParkReader
 	openPieceReader atomic.Pointer[openReaderBox]
+	aclPieceReader  atomic.Pointer[openReaderBox]
 
 	aggs            aggregateFinder
 	clusterHasDeals *clusterHasDeals

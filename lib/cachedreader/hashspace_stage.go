@@ -57,6 +57,33 @@ func (cpr *CachedPieceReader) SetOpenPieceReader(r OpenReader) {
 	cpr.openPieceReader.Store(&openReaderBox{r: r})
 }
 
+// SetACLPieceReader makes /download read acl-pieces. A nil reader clears it.
+func (cpr *CachedPieceReader) SetACLPieceReader(r OpenReader) {
+	if r == nil {
+		cpr.aclPieceReader.Store(nil)
+		return
+	}
+	cpr.aclPieceReader.Store(&openReaderBox{r: r})
+}
+
+// ReadACLPiece opens pc from acl-pieces. It returns a nil reader when the
+// piece is not there. A v2 CID needs no SQL. A v1 CID costs one raw-size lookup.
+func (cpr *CachedPieceReader) ReadACLPiece(ctx context.Context, pc cid.Cid) (storiface.Reader, uint64, error) {
+	box := cpr.aclPieceReader.Load()
+	if box == nil {
+		return nil, 0, nil
+	}
+	v2, rawSize, ok := cpr.hashspaceKey(ctx, pc)
+	if !ok {
+		return nil, 0, nil
+	}
+	reader, err := box.r.ReadPiece(ctx, v2, int64(rawSize))
+	if err != nil {
+		return nil, 0, err
+	}
+	return reader, rawSize, nil
+}
+
 func (cpr *CachedPieceReader) hasCachedReader(pieceCid cid.Cid) bool {
 	cpr.pieceReaderCacheMu.Lock()
 	defer cpr.pieceReaderCacheMu.Unlock()

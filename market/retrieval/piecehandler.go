@@ -91,6 +91,54 @@ func (rp *Provider) handleByPieceCid(w http.ResponseWriter, r *http.Request) {
 
 }
 
+// handleDownload serves a piece from acl-pieces. A missing piece is 404.
+// The caller has already applied the denylist and the piece request limiter.
+func (rp *Provider) handleDownload(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	prefixLen := len(downloadPrefix)
+	if len(r.URL.Path) <= prefixLen {
+		log.Errorf("path '%s' is missing piece CID", r.URL.Path)
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	pieceCidStr := r.URL.Path[prefixLen:]
+	pieceCid, err := cid.Parse(pieceCidStr)
+	if err != nil {
+		log.Errorf("parsing piece CID '%s': %s", pieceCidStr, err.Error())
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	if rp.cpr == nil {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	reader, rawSize, err := rp.cpr.ReadACLPiece(ctx, pieceCid)
+	if err != nil {
+		log.Errorf("server error getting acl piece %s: %s", pieceCid, err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	if reader == nil {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	defer func() {
+		_ = reader.Close()
+	}()
+
+	contentType, err := sniffContentType(reader)
+	if err != nil {
+		log.Errorf("error sniffing content type for piece CID %s: %s", pieceCid, err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	setHeaders(w, pieceCid, contentType)
+	http.ServeContent(w, r, "", lastModified, io.NewSectionReader(reader, 0, int64(rawSize)))
+}
+
 func sniffContentType(r io.ReaderAt) (string, error) {
 	buf := make([]byte, MIME_SNIFF_BYTES)
 	n, err := r.ReadAt(buf, 0)

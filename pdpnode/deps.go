@@ -167,6 +167,7 @@ func Open(ctx context.Context, cctx *cli.Context) (*Deps, error) {
 	cpr := cachedreader.NewCachedPieceReader(db, sectorReader, ppr, indexStore)
 	if hs != nil {
 		cpr.SetOpenPieceReader(pieceprovider.NewOpenPieceReader(hs))
+		cpr.SetACLPieceReader(pieceprovider.NewACLPieceReader(hs))
 	}
 	serveChunker := chunker.NewServeChunker(db, sectorReader, indexStore, cpr)
 

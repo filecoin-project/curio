@@ -23,6 +23,7 @@ import (
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/pdp/contract"
+	"github.com/filecoin-project/curio/tasks/openpieces"
 )
 
 type SubPieceEntry struct {
@@ -45,6 +46,7 @@ type SubPieceInfo struct {
 	PaddedSize     abi.PaddedPieceSize
 	RawSize        uint64 // RawSize is the size of the piece with no padding applied
 	PDPPieceRefID  int64
+	PieceRef       int64 // parked_piece_refs.ref_id
 	SubPieceOffset uint64
 }
 
@@ -131,6 +133,7 @@ func (p *PDPService) transformAddPiecesRequest(ctx context.Context, serviceLabel
 				PaddedSize:     abi.PaddedPieceSize(piecePaddedSize),
 				RawSize:        pieceRawSize,
 				PDPPieceRefID:  pdpPieceRefID,
+				PieceRef:       pieceRefID,
 				SubPieceOffset: 0, // Will compute offset later
 			}
 
@@ -402,7 +405,7 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 		data,
 	)
 
-	// Step 8: Resolve indexing intent from cached pdp_data_sets.ipfs_indexing (chain-fill if NULL).
+	// Step 8: Resolve indexing and ACL intent from cached pdp_data_sets columns (chain-fill if NULL).
 	mustIndex, err := ResolveDatasetIPFSIndexing(workCtx, p.db, p.ethClient, dataSetIdUint64)
 	if err != nil {
 		log.Errorw("Failed to resolve indexing requirements", "error", err, "dataSetId", dataSetId)
@@ -411,6 +414,11 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 	}
 	if mustIndex {
 		log.Infow("Data set has withIPFSIndexing enabled, pieces will be indexed", "dataSetId", dataSetId)
+	}
+	if _, err := ResolveDatasetACL(workCtx, p.db, p.ethClient, dataSetIdUint64); err != nil {
+		log.Errorw("Failed to resolve ACL requirements", "error", err, "dataSetId", dataSetId)
+		httpServerError(w, http.StatusInternalServerError, "Internal server error", err)
+		return
 	}
 
 	// Step 9: Send the transaction
@@ -485,6 +493,12 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	if err := p.placePieceRefs(workCtx, subPieceInfoMap, false); err != nil {
+		log.Errorw("Failed to place added pieces", "error", err, "txHash", txHashLower)
+		httpServerError(w, http.StatusInternalServerError, "Failed to place piece in hash space", err)
+		return
+	}
+
 	// Step 10: Respond with 201 Created
 	w.Header().Set("Location", path.Join("/pdp/data-sets", dataSetIdStr, "pieces/added", txHashLower))
 	w.WriteHeader(http.StatusCreated)
@@ -524,6 +538,33 @@ func (p *PDPService) insertPieceAdds(txdb *harmonydb.Tx, dataSetId *uint64, txHa
 			if n != 1 {
 				return fmt.Errorf("expected 1 row to be inserted into pdp_data_set_piece_adds, got %d", n)
 			}
+		}
+	}
+	return nil
+}
+
+// placePieceRefs copies each parked piece into the hash space its data sets
+// require. forceACL writes acl-pieces even when the data set row is not linked
+// yet. The caller has committed the piece-add rows, or has decoded foc/acl
+// from create extraData.
+func (p *PDPService) placePieceRefs(ctx context.Context, infos map[string]*SubPieceInfo, forceACL bool) error {
+	seen := map[int64]struct{}{}
+	for _, info := range infos {
+		if info == nil || info.PieceRef == 0 {
+			continue
+		}
+		if _, ok := seen[info.PieceRef]; ok {
+			continue
+		}
+		seen[info.PieceRef] = struct{}{}
+		var err error
+		if forceACL {
+			err = openpieces.PlaceACL(ctx, p.db, p.hs, p.local, p.pieceIO, info.PieceRef)
+		} else {
+			err = openpieces.Place(ctx, p.db, p.hs, p.local, p.pieceIO, info.PieceRef)
+		}
+		if err != nil {
+			return err
 		}
 	}
 	return nil

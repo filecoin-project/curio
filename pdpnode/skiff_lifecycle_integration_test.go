@@ -90,6 +90,7 @@ func TestSkiffCreateAddRetrieveLifecycle(t *testing.T) {
 		nil,
 	)
 	cpr.SetOpenPieceReader(pieceprovider.NewOpenPieceReader(hs))
+	cpr.SetACLPieceReader(pieceprovider.NewACLPieceReader(hs))
 
 	cfg := config.DefaultCurioConfig()
 	cfg.HTTP.DenylistServers = config.NewDynamic([]string{})

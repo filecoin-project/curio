@@ -47,6 +47,7 @@ func Attach(
 		cd.HashSpace = hs
 		if hs != nil && cd.CachedPieceReader != nil {
 			cd.CachedPieceReader.SetOpenPieceReader(pieceprovider.NewOpenPieceReader(hs))
+			cd.CachedPieceReader.SetACLPieceReader(pieceprovider.NewACLPieceReader(hs))
 		}
 	}
 

@@ -16,17 +16,28 @@ import (
 	"github.com/filecoin-project/curio/lib/storiface"
 )
 
-// OpenPieceReader reads PDP pieces placed in the open-pieces hash space.
+// OpenPieceReader reads PDP pieces placed in one hash space.
 type OpenPieceReader struct {
-	hs *hashfolder.Cluster
+	space *hashfolder.ClusterSpace
 }
 
 func NewOpenPieceReader(hs *hashfolder.Cluster) *OpenPieceReader {
-	return &OpenPieceReader{hs: hs}
+	if hs == nil {
+		return &OpenPieceReader{}
+	}
+	return &OpenPieceReader{space: hs.Public}
 }
 
-// ReadPiece opens pc (a piece CID v2) from open-pieces. It returns nil, nil
-// when no disk that may hold pc has it. Finding the disks uses only the
+// NewACLPieceReader reads pieces placed in acl-pieces.
+func NewACLPieceReader(hs *hashfolder.Cluster) *OpenPieceReader {
+	if hs == nil {
+		return &OpenPieceReader{}
+	}
+	return &OpenPieceReader{space: hs.ACL}
+}
+
+// ReadPiece opens pc (a piece CID v2) from this reader's hash space. It returns
+// nil, nil when no disk that may hold pc has it. Finding the disks uses only the
 // in-memory cluster map, and they are checked in parallel, so a miss costs no
 // SQL.
 //
@@ -35,6 +46,9 @@ func NewOpenPieceReader(hs *hashfolder.Cluster) *OpenPieceReader {
 // places are looked up again and the read moves on to the other one, so a
 // long-lived cached reader follows the piece.
 func (o *OpenPieceReader) ReadPiece(ctx context.Context, pc cid.Cid, rawSize int64) (storiface.Reader, error) {
+	if o.space == nil {
+		return nil, nil
+	}
 	holder, err := o.find(ctx, pc)
 	if err != nil {
 		return nil, err
@@ -44,7 +58,7 @@ func (o *OpenPieceReader) ReadPiece(ctx context.Context, pc cid.Cid, rawSize int
 	}
 
 	rctx, cancel := context.WithCancel(ctx)
-	fr := &failoverRange{hs: o.hs, pc: pc, ctx: rctx, current: holder}
+	fr := &failoverRange{space: o.space, pc: pc, ctx: rctx, current: holder}
 	pr, err := (&pieceReader{
 		getReader: fr.get,
 		len:       abi.UnpaddedPieceSize(rawSize),
@@ -66,10 +80,10 @@ func (o *OpenPieceReader) ReadPiece(ctx context.Context, pc cid.Cid, rawSize int
 // being the quickest to answer. A candidate that errors counts as a miss; the
 // error is returned only when no candidate has the piece.
 func (o *OpenPieceReader) find(ctx context.Context, pc cid.Cid) (string, error) {
-	return findHolder(ctx, o.hs, pc)
+	return findHolder(ctx, o.space, pc)
 }
 
-// holderFinder is the part of the cluster that finding a holder uses.
+// holderFinder is the part of a hash space that finding a holder uses.
 type holderFinder interface {
 	Candidates(pc cid.Cid) ([]hashfolder.Location, error)
 	StatAt(ctx context.Context, storageID string, pc cid.Cid) (bool, error)
@@ -128,9 +142,9 @@ func findHolder(ctx context.Context, hs holderFinder, pc cid.Cid) (string, error
 }
 
 type failoverRange struct {
-	hs  *hashfolder.Cluster
-	pc  cid.Cid
-	ctx context.Context
+	space *hashfolder.ClusterSpace
+	pc    cid.Cid
+	ctx   context.Context
 
 	mu      sync.Mutex
 	current string
@@ -146,7 +160,7 @@ func (f *failoverRange) get(offset, size uint64) (io.ReadCloser, error) {
 		return r, err
 	}
 
-	locs, lerr := f.hs.Locations(f.ctx, f.pc.String())
+	locs, lerr := f.space.Locations(f.ctx, f.pc.String())
 	if lerr != nil {
 		return nil, xerrors.Errorf("open piece %s missing on %s; relisting locations: %w", f.pc, current, lerr)
 	}
@@ -169,8 +183,8 @@ func (f *failoverRange) get(offset, size uint64) (io.ReadCloser, error) {
 }
 
 func (f *failoverRange) open(storageID string, offset, size uint64) (io.ReadCloser, error) {
-	if f.hs.HasLocal(storageID) {
-		return f.hs.OpenLocalAt(storageID, f.pc, int64(offset), int64(size))
+	if f.space.HasLocal(storageID) {
+		return f.space.OpenLocalAt(storageID, f.pc, int64(offset), int64(size))
 	}
-	return f.hs.RemoteAt(f.ctx, storageID, f.pc, int64(offset), int64(offset+size))
+	return f.space.RemoteAt(f.ctx, storageID, f.pc, int64(offset), int64(offset+size))
 }

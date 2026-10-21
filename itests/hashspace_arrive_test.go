@@ -100,9 +100,9 @@ func TestHashSpaceArrivingDiskMovesPiecesOff(t *testing.T) {
 		digest := hsDigest(byte(i*32 + 2))
 		pc, err := commcid.DataCommitmentToPieceCidv2(digest, hsPieceRawSize)
 		require.NoError(t, err)
-		owner, err := existing.Target(ctx, digest)
+		owner, err := existing.Public.Target(ctx, digest)
 		require.NoError(t, err)
-		_, err = existing.WriteLocal(owner, pc, bytes.NewReader(bytes.Repeat([]byte{digest[0]}, hsPieceRawSize)))
+		_, err = existing.Public.WriteLocal(owner, pc, bytes.NewReader(bytes.Repeat([]byte{digest[0]}, hsPieceRawSize)))
 		require.NoError(t, err)
 		residentHashes[hex.EncodeToString(digest)] = owner
 	}

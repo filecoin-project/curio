@@ -16,6 +16,7 @@ type FWSSCreateIdentity struct {
 	Payer           common.Address
 	ClientDataSetId *big.Int
 	MetadataKeys    []string
+	MetadataValues  []string
 }
 
 func createPayloadArgs() (abi.Arguments, error) {
@@ -72,11 +73,19 @@ func decodeFWSSCreateData(createPayload []byte) (*FWSSCreateIdentity, error) {
 	if !ok {
 		return nil, fmt.Errorf("keys is not []string")
 	}
+	var values []string
+	if len(createDecoded) >= 4 && createDecoded[3] != nil {
+		values, ok = createDecoded[3].([]string)
+		if !ok {
+			return nil, fmt.Errorf("values is not []string")
+		}
+	}
 
 	return &FWSSCreateIdentity{
 		Payer:           payer,
 		ClientDataSetId: clientDataSetId,
 		MetadataKeys:    keys,
+		MetadataValues:  values,
 	}, nil
 }
 

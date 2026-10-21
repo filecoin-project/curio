@@ -183,6 +183,14 @@ func (p *PDPService) handleCreateDataSetAndAddPieces(w http.ResponseWriter, r *h
 		return
 	}
 
+	if known, acl := ACLFromExtraData(extraDataBytes); known && acl {
+		if err := p.placePieceRefs(workCtx, subPieceInfoMap, true); err != nil {
+			log.Errorw("Failed to place ACL pieces for create-and-add", "error", err, "txHash", txHashLower)
+			httpServerError(w, http.StatusInternalServerError, "Failed to place piece in hash space", err)
+			return
+		}
+	}
+
 	// Step 7: Respond with 201 Created and Location header
 	w.Header().Set("Location", path.Join("/pdp/data-sets/created", txHashLower))
 	w.WriteHeader(http.StatusCreated)

@@ -386,7 +386,7 @@ func (p *PDPService) finalizeDirectUpload(ctx context.Context, uploadID, service
 	if err := p.placeRef(ctx, claim.pieceRefID); err != nil {
 		return err
 	}
-	// Drop the upload only after the piece is in open-pieces, so a retry of
+	// Drop the upload only after the piece is in its hash space, so a retry of
 	// this request can place again if the copy failed.
 	n, err := p.db.Exec(ctx, `DELETE FROM pdp_piece_uploads WHERE id = $1 AND piece_ref = $2`, uploadID, claim.pieceRefID)
 	if err != nil {
@@ -720,7 +720,7 @@ func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 	}
 	if responseStatus == http.StatusOK {
 		if err := p.placeRef(ctx, placedRef); err != nil {
-			httpServerError(w, http.StatusInternalServerError, "Failed to place piece in open-pieces", err)
+			httpServerError(w, http.StatusInternalServerError, "Failed to place piece in hash space", err)
 			return
 		}
 	}
@@ -779,7 +779,7 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Debugw("[handlePieceUpload] -- upload lookup done", "uploadUUID", uploadUUID)
 	// A non-null ref is an active direct-write claim, or a finalize that
-	// published the PDP ref and then failed while copying into open-pieces.
+	// published the PDP ref and then failed while copying into its hash space.
 	if pieceRef.Valid {
 		var published bool
 		err = p.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pdp_piecerefs WHERE piece_ref = $1)`, pieceRef.Int64).Scan(&published)
@@ -792,7 +792,7 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := p.placeRef(ctx, pieceRef.Int64); err != nil {
-			httpServerError(w, http.StatusInternalServerError, "Failed to place piece in open-pieces", err)
+			httpServerError(w, http.StatusInternalServerError, "Failed to place piece in hash space", err)
 			return
 		}
 		if _, err := p.db.Exec(ctx, `DELETE FROM pdp_piece_uploads WHERE id = $1 AND piece_ref = $2`, uploadUUID.String(), pieceRef.Int64); err != nil {
@@ -1217,7 +1217,7 @@ func (p *PDPService) handleFinalizeStreamingUpload(w http.ResponseWriter, r *htt
 		return
 	}
 	if err := p.placeRef(ctx, pref); err != nil {
-		httpServerError(w, http.StatusInternalServerError, "Failed to place piece in open-pieces", err)
+		httpServerError(w, http.StatusInternalServerError, "Failed to place piece in hash space", err)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
