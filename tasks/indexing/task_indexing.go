@@ -520,6 +520,7 @@ func (i *IndexingTask) schedule(ctx context.Context, taskFunc harmonytask.AddTas
 					SELECT uuid
 					FROM market_mk12_deal_pipeline
 					WHERE sealed = TRUE
+					  AND sector_offset IS NOT NULL
 					  AND indexing_task_id IS NULL
 					  AND indexed = FALSE
 					  AND indexing_created_at IS NOT NULL
@@ -531,6 +532,7 @@ func (i *IndexingTask) schedule(ctx context.Context, taskFunc harmonytask.AddTas
 				FROM pending
 				WHERE p.uuid = pending.uuid
 				  AND p.sealed = TRUE
+				  AND p.sector_offset IS NOT NULL
 				  AND p.indexing_task_id IS NULL
 				  AND p.indexed = FALSE`, id)
 			if err != nil {
@@ -548,6 +550,7 @@ func (i *IndexingTask) schedule(ctx context.Context, taskFunc harmonytask.AddTas
 					SELECT id, aggr_index
 					FROM market_mk20_pipeline
 					WHERE sealed = TRUE
+					  AND sector_offset IS NOT NULL
 					  AND indexing_task_id IS NULL
 					  AND indexed = FALSE
 					  AND indexing_created_at IS NOT NULL
@@ -560,6 +563,7 @@ func (i *IndexingTask) schedule(ctx context.Context, taskFunc harmonytask.AddTas
 				WHERE p.id = pending.id
 				  AND p.aggr_index = pending.aggr_index
 				  AND p.sealed = TRUE
+				  AND p.sector_offset IS NOT NULL
 				  AND p.indexing_task_id IS NULL
 				  AND p.indexed = FALSE`, id)
 			if err != nil {
