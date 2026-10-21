@@ -23,4 +23,5 @@ type PieceIO interface {
 	WriteUploadPiece(ctx context.Context, pieceID storiface.PieceNumber, size int64, data io.Reader, storageType storiface.PathType, verifySize bool) (abi.PieceInfo, uint64, error)
 	PieceReader(ctx context.Context, id storiface.PieceNumber) (io.ReadCloser, error)
 	RemovePiece(ctx context.Context, id storiface.PieceNumber) error
+	LocalStorage(ctx context.Context) ([]storiface.StoragePath, error)
 }

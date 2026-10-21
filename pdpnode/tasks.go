@@ -19,6 +19,7 @@ import (
 	"github.com/filecoin-project/curio/tasks/pay"
 	"github.com/filecoin-project/curio/tasks/pdp"
 	"github.com/filecoin-project/curio/tasks/pdpv0"
+	"github.com/filecoin-project/curio/tasks/piece"
 )
 
 // TaskResult is the output of RegisterTasks.
@@ -118,6 +119,7 @@ func buildPDPTasks(ctx context.Context, d *Deps, chainSched *chainsched.CurioCha
 		if cfg.Subsystems.EnableDBAnalyze {
 			tasks = append(tasks, dbmaint.NewDBAnalyzeTask(db))
 		}
+		tasks = append(tasks, piece.NewCleanupPieceTask(db, d.PieceIO, 16))
 		return &pdpTaskBundle{
 			tasks:     tasks,
 			amTask:    amTask,
