@@ -1,10 +1,15 @@
 -- Cluster view of the open-pieces / acl-pieces hash spaces.
+-- space is the folder name of one of those hash spaces: "open-pieces" or "acl-pieces".
 --
--- hash_space_range is the single-owner tiling the solver works on. A range
--- covers (previous end_hash, end_hash] within its space.
+-- hash_space_range tiles each space. A range covers (previous end_hash, end_hash]
+-- within its space. size is the range's bytes as published by the node that
+-- holds the disk. A stuck move leaves that range owned by both disks: the
+-- second row shares end_hash and is the other owner. problem marks the owner
+-- that failed, so new files in the range are written to the other disk.
 -- hash_space_move_source is an interval being moved from from_storage to
 -- to_storage; while the row exists, a piece in that interval may be found on
--- either disk.
+-- either disk. started_at records when HashSpaceMove first began the row, so
+-- a row that never runs can be told from one that is retrying.
 
 CREATE TABLE IF NOT EXISTS hash_space_meta (
     id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
@@ -13,26 +18,34 @@ CREATE TABLE IF NOT EXISTS hash_space_meta (
 
 INSERT INTO hash_space_meta (id, version) VALUES (1, 0) ON CONFLICT (id) DO NOTHING;
 
+-- vacating: layout.json asked to vacate; the disk must not receive new ranges.
+-- has_misplaced: the disk holds piece files outside its own ranges, such as
+-- pieces migrated from piece-park. Lookups check it for every hash until
+-- those files reach their owners.
 CREATE TABLE IF NOT EXISTS hash_space_disk (
     storage_id TEXT PRIMARY KEY,
     capacity BIGINT NOT NULL,
     used_open BIGINT NOT NULL DEFAULT 0,
     used_acl BIGINT NOT NULL DEFAULT 0,
+    vacating BOOLEAN NOT NULL DEFAULT FALSE,
+    has_misplaced BOOLEAN NOT NULL DEFAULT FALSE,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS hash_space_range (
-    space TEXT NOT NULL,
+    space TEXT NOT NULL, -- "open-pieces" or "acl-pieces"
     end_hash BYTEA NOT NULL,
     storage_id TEXT NOT NULL,
-    PRIMARY KEY (space, end_hash)
+    size BIGINT NOT NULL DEFAULT 0,
+    problem BOOLEAN NOT NULL DEFAULT FALSE,
+    PRIMARY KEY (space, end_hash, storage_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_hash_space_range_storage ON hash_space_range (storage_id);
 
 CREATE TABLE IF NOT EXISTS hash_space_move_source (
     id BIGSERIAL PRIMARY KEY,
-    space TEXT NOT NULL,
+    space TEXT NOT NULL, -- "open-pieces" or "acl-pieces"
     start_hash BYTEA NOT NULL,
     end_hash BYTEA NOT NULL,
     from_storage TEXT NOT NULL,
@@ -40,6 +53,7 @@ CREATE TABLE IF NOT EXISTS hash_space_move_source (
     size BIGINT NOT NULL,
     task_id BIGINT NOT NULL, -- HashSpaceMove, added in the same transaction
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    started_at TIMESTAMPTZ,
     UNIQUE (space, start_hash, end_hash)
 );
 

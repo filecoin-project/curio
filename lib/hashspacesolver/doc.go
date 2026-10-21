@@ -1,7 +1,7 @@
 // Package hashspacesolver plans how hash ranges move when an empty mount
 // connects, a disk fills, a mount's capacity increases, the cluster
-// balances, or a disk must leave. Solve handles one Event. A returned
-// plan is a success: it meets the rules below, and it
+// balances, a disk claims a share, or a disk must leave. Solve handles one
+// Event. A returned plan is a success: it meets the rules below, and it
 // meets each event's goal as far as a legal cut allows. Planning is
 // greedy. It prefers less data moved, then fewer fragments, and does not
 // search for a globally smallest move.
@@ -59,6 +59,11 @@
 // MountCapacityIncreased steals the same way EmptyMountConnected does,
 // onto the named disk.
 //
+// Claim moves one step onto the named disk toward its capacity-weighted
+// share of the bytes in use. Each source gives at most CLAIM_STEP_PERCENT
+// of the smaller capacity, and only bytes above its own share. Callers
+// repeat the event until it moves nothing. A frozen disk is left as it is.
+//
 // Balance moves half the widest fill-percentage gap onto the emptier disk
 // when that gap is at least SPREAD_POINTS. A smaller gap moves nothing.
 // A frozen disk is neither end. The named disk is ignored.
@@ -87,6 +92,9 @@
 // range-count change, then the most free space, then the lower disk index;
 // a split across the two neighbors; a split onto any disk that has room,
 // preferring a cut that adds no range and then a larger cut.
+//
+// Claim uses the same cut order as balance, and takes from the source
+// furthest above its share first.
 //
 // Balance takes cuts from the fuller disk up to that byte budget. Among
 // cuts that fit, it prefers one that adds no range, then a larger cut,

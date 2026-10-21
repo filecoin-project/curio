@@ -16,9 +16,9 @@ import (
 	"github.com/filecoin-project/curio/lib/hashspacesolver"
 )
 
-// Space is one hash namespace across local storage roots.
+// Space is one hash namespace, open-pieces or acl-pieces, across local storage roots.
 type Space struct {
-	kind  string
+	kind  string // DIR_OPEN or DIR_ACL
 	disks []*disk
 	mu    sync.Mutex
 	// writing holds piece paths with an open writer. Guarded by mu. Those
@@ -32,11 +32,12 @@ type Space struct {
 var errWriteInProgress = xerrors.New("piece write in progress")
 
 type disk struct {
-	root        string
-	tracker     *sizeTracker
-	version     int64
-	intervals   []hashInterval
-	moveSources []hashInterval
+	root      string
+	tracker   *sizeTracker
+	version   int64
+	intervals []hashInterval
+	// moveDests are intervals another disk still owns that are moving here.
+	moveDests []hashInterval
 }
 
 type hashInterval struct {
@@ -46,14 +47,15 @@ type hashInterval struct {
 
 // Load reads kind's layout on each root, restores used, then adds only files
 // whose mtime is newer than the layout. kind is DIR_OPEN or DIR_ACL.
+// An empty root list returns an empty space.
 func Load(kind string, roots []string) (*Space, error) {
 	if kind != DIR_OPEN && kind != DIR_ACL {
 		return nil, xerrors.Errorf("unknown hash space %q", kind)
 	}
-	if len(roots) == 0 {
-		return nil, xerrors.Errorf("no storage roots")
-	}
 	s := &Space{kind: kind, disks: make([]*disk, 0, len(roots)), writing: map[string]struct{}{}}
+	if len(roots) == 0 {
+		return s, nil
+	}
 	seen := make(map[string]struct{}, len(roots))
 	for _, root := range roots {
 		if root == "" {
@@ -89,8 +91,8 @@ func loadDisk(kind, root string) (*disk, error) {
 	if d.intervals, err = decodeIntervals(layout.Ranges); err != nil {
 		return nil, xerrors.Errorf("%s ranges: %w", path, err)
 	}
-	if d.moveSources, err = decodeIntervals(layout.MoveSources); err != nil {
-		return nil, xerrors.Errorf("%s move sources: %w", path, err)
+	if d.moveDests, err = decodeIntervals(layout.MoveDests); err != nil {
+		return nil, xerrors.Errorf("%s move destinations: %w", path, err)
 	}
 	if err := d.catchUp(kind, modTime); err != nil {
 		return nil, err
@@ -123,7 +125,7 @@ func (s *Space) flushLocked() error {
 			Used:        d.tracker.Used(),
 			CommittedAt: now,
 			Ranges:      encodeIntervals(d.intervals),
-			MoveSources: encodeIntervals(d.moveSources),
+			MoveDests:   encodeIntervals(d.moveDests),
 		})
 		if err != nil && first == nil {
 			first = err
@@ -161,9 +163,10 @@ func (s *Space) startFlush() {
 }
 
 // WriteCID opens a new file for a piece CID that is not already stored.
-// The file is written to the root whose ranges contain the CID hash.
-// Close adds the written byte count. A second Close does not add again.
-// Abort deletes the partial file and leaves the counter unchanged.
+// The file is written to the root a move is bringing the hash to, else the
+// root whose ranges contain it. Close adds the written byte count. A second
+// Close does not add again. Abort deletes the partial file and leaves the
+// counter unchanged.
 // If the CID file already exists, WriteCID returns os.ErrExist and does
 // not change the counter.
 func (s *Space) WriteCID(c cid.Cid) (io.WriteCloser, error) {
@@ -171,11 +174,39 @@ func (s *Space) WriteCID(c cid.Cid) (io.WriteCloser, error) {
 	if err != nil {
 		return nil, err
 	}
-	disk, ok := s.locate(digest)
-	if !ok {
+	d := s.writeTarget(digest)
+	if d == nil {
 		return nil, xerrors.Errorf("cid hash is not owned by any local range")
 	}
-	return s.writeOn(disk, hexHash)
+	return s.writeOn(d, hexHash)
+}
+
+// writeTarget picks the local disk a new file for digest goes to: a move
+// destination covering it, else the range owner. Never the move's source, as
+// the mover may already have passed the hash.
+func (s *Space) writeTarget(digest []byte) *disk {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, d := range s.disks {
+		if covers(d.moveDests, digest) {
+			return d
+		}
+	}
+	for _, d := range s.disks {
+		if covers(d.intervals, digest) {
+			return d
+		}
+	}
+	return nil
+}
+
+func covers(ivs []hashInterval, digest []byte) bool {
+	for _, iv := range ivs {
+		if hashspacesolver.Contains(iv.start, iv.end, digest) {
+			return true
+		}
+	}
+	return false
 }
 
 // WriteCIDOn is WriteCID on the named root, whether or not that root owns
@@ -382,17 +413,13 @@ func (s *Space) locate(digest []byte) (*disk, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, d := range s.disks {
-		for _, iv := range d.intervals {
-			if hashspacesolver.Contains(iv.start, iv.end, digest) {
-				return d, true
-			}
+		if covers(d.intervals, digest) {
+			return d, true
 		}
 	}
 	for _, d := range s.disks {
-		for _, iv := range d.moveSources {
-			if hashspacesolver.Contains(iv.start, iv.end, digest) {
-				return d, true
-			}
+		if covers(d.moveDests, digest) {
+			return d, true
 		}
 	}
 	return nil, false
@@ -598,9 +625,9 @@ func (s *Space) UsedOn(root string) (int64, error) {
 	return d.tracker.Used(), nil
 }
 
-// SetIntervalsOn replaces the owned ranges and move sources of root, read at
-// map version, and rewrites its layout.
-func (s *Space) SetIntervalsOn(root string, version int64, owned, moveSources []HashRange) error {
+// SetIntervalsOn replaces the owned ranges and move destinations of root, read
+// at map version, and rewrites its layout.
+func (s *Space) SetIntervalsOn(root string, version int64, owned, moveDests []HashRange) error {
 	d, err := s.diskOn(root)
 	if err != nil {
 		return err
@@ -609,7 +636,7 @@ func (s *Space) SetIntervalsOn(root string, version int64, owned, moveSources []
 	if err != nil {
 		return err
 	}
-	mivs, err := decodeIntervals(moveSources)
+	mivs, err := decodeIntervals(moveDests)
 	if err != nil {
 		return err
 	}
@@ -617,7 +644,7 @@ func (s *Space) SetIntervalsOn(root string, version int64, owned, moveSources []
 	defer s.mu.Unlock()
 	d.version = version
 	d.intervals = ivs
-	d.moveSources = mivs
+	d.moveDests = mivs
 	return s.flushLocked()
 }
 

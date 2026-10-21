@@ -34,7 +34,7 @@ func (c *Cluster) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		if c.open != nil {
+		if len(c.roots) > 0 {
 			if err := c.refresh(r.Context(), true); err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
@@ -48,7 +48,7 @@ func (c *Cluster) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		if c.open != nil {
+		if len(c.roots) > 0 {
 			c.publishUsed(r.Context())
 		}
 		w.WriteHeader(http.StatusNoContent)
