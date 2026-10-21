@@ -249,15 +249,15 @@ func TestVacateOnlyDisk(t *testing.T) {
 }
 
 func TestArriveRelievesOverflow(t *testing.T) {
-	// Disk 0 has no free space, so its capacity is the 80 bytes it holds,
-	// its line is 64, and its target is 60. The new disk takes the 20 bytes
-	// over that target.
+	// Disk 0 has no free space, so its capacity is the 80 bytes it holds.
+	// The fill line is 72 and the rebalance target is 64. The new disk
+	// takes the 16 bytes over that target.
 	st := mk([]int64{50, 100}, []byte{0x80}, []int64{80}, []int{0})
 	out, res := solveOK(t, st, ev(EventArrive, 1))
 	require.NotEmpty(t, res.Diff)
 	require.Equal(t, int64(80), usedOf(out, 0)+usedOf(out, 1))
 	require.Equal(t, rebalanceTargetOf(80), usedOf(out, 0))
-	require.Equal(t, int64(20), usedOf(out, 1))
+	require.Equal(t, int64(80)-rebalanceTargetOf(80), usedOf(out, 1))
 	require.Equal(t, 1, rangeCountOf(out, 0, 0))
 	require.Equal(t, 1, rangeCountOf(out, 0, 1))
 }
@@ -290,12 +290,12 @@ func TestArriveIdleWhenUnderFillLimit(t *testing.T) {
 }
 
 func TestArriveClusterOverFillLimit(t *testing.T) {
-	// Cluster is already ~90% full. The new disk can only take up to its
-	// own 80% fill limit; remaining disks stay above 80%.
+	// Both disks are full, above the fill line. The new disk's rebalance
+	// target is 8 bytes, so it cannot bring either disk back under the line.
 	st := mk(
 		[]int64{100, 100, 10},
 		[]byte{0x80, 0xFF},
-		[]int64{90, 90},
+		[]int64{100, 100},
 		[]int{0, 1},
 	)
 	out, res := solveOK(t, st, ev(EventArrive, 2))
@@ -318,16 +318,18 @@ func TestFullStopsWhenDestsAtFillLimit(t *testing.T) {
 }
 
 func TestFullPeelsMinimum(t *testing.T) {
+	// (0x00, 0x64] is 100 hash steps and 100 bytes, so the 20-byte peel
+	// down to the rebalance target lands on a hash. Disk 0 is full.
 	st := mk(
-		[]int64{25, 50},
-		[]byte{0x00, 0x80},
-		[]int64{5, 22},
+		[]int64{100, 100},
+		[]byte{0x00, 0x64},
+		[]int64{10, 100},
 		[]int{1, 0},
 	)
 	require.NoError(t, Validate(st))
 	out, res := solveOK(t, st, ev(EventFull, 0))
-	require.LessOrEqual(t, usedOf(out, 0), fillLimitOf(25))
-	require.GreaterOrEqual(t, res.BytesMoved, int64(2))
+	require.Equal(t, rebalanceTargetOf(capacityOf(st, 0)), usedOf(out, 0))
+	require.Equal(t, int64(100)-rebalanceTargetOf(100), res.BytesMoved)
 	require.Len(t, res.Diff, 1)
 }
 
@@ -484,7 +486,7 @@ func TestArriveAtMostThreeRanges(t *testing.T) {
 
 func TestTwoSpacesUnequalSharedCapacity(t *testing.T) {
 	// A is large, B is small, and both spaces draw on disk 0's capacity of
-	// 100. The new disk takes the 25 bytes over disk 0's target.
+	// 100. The new disk takes the 20 bytes over disk 0's target.
 	st := mk2(
 		[]int64{70, 100},
 		spaceOf([]byte{0x80}, []int64{80}, []int{0}),
@@ -494,7 +496,7 @@ func TestTwoSpacesUnequalSharedCapacity(t *testing.T) {
 	require.NotEmpty(t, res.Diff)
 	require.Equal(t, int64(100), usedOf(out, 0)+usedOf(out, 1))
 	require.Equal(t, rebalanceTargetOf(100), usedOf(out, 0))
-	require.Equal(t, int64(25), usedOf(out, 1))
+	require.Equal(t, int64(100)-rebalanceTargetOf(100), usedOf(out, 1))
 }
 
 func TestArriveStealsFromEitherSpace(t *testing.T) {
@@ -507,7 +509,7 @@ func TestArriveStealsFromEitherSpace(t *testing.T) {
 	)
 	out, res := solveOK(t, st, ev(EventArrive, 2))
 	require.NotEmpty(t, res.Diff)
-	require.Equal(t, int64(15), usedOf(out, 2))
+	require.Equal(t, int64(60)-rebalanceTargetOf(60), usedOf(out, 2))
 	require.Equal(t, rebalanceTargetOf(60), usedOf(out, 0))
 	for _, tr := range res.Diff {
 		require.Equal(t, "2", tr.To)
@@ -516,17 +518,18 @@ func TestArriveStealsFromEitherSpace(t *testing.T) {
 }
 
 func TestFullShedsCheapestSpace(t *testing.T) {
-	// Disk 0 is over its line; B has an exact small peel, A has a large block.
+	// Disk 0 is full. B's 20-byte range is the excess over the rebalance
+	// target; A is a larger block.
 	st := mk2(
-		[]int64{50, 100},
-		spaceOf([]byte{0x80}, []int64{30}, []int{0}),
-		spaceOf([]byte{0x00, 0x40}, []int64{5, 15}, []int{1, 0}),
+		[]int64{100, 200},
+		spaceOf([]byte{0x50, 0x00}, []int64{80, 10}, []int{0, 1}),
+		spaceOf([]byte{0x00, 0x14}, []int64{5, 20}, []int{1, 0}),
 	)
-	// used[0] = 30+15 = 45; fill limit 40; target 37; need to shed 8.
+	// used[0] = 80+20 = 100; fill line 90; target 80; shed 20.
 	require.NoError(t, Validate(st))
 	out, res := solveOK(t, st, ev(EventFull, 0))
-	require.LessOrEqual(t, usedOf(out, 0), rebalanceTargetOf(50))
-	require.GreaterOrEqual(t, res.BytesMoved, int64(8))
+	require.LessOrEqual(t, usedOf(out, 0), rebalanceTargetOf(100))
+	require.GreaterOrEqual(t, res.BytesMoved, int64(20))
 }
 
 func TestFullIdleBetweenTargetAndLine(t *testing.T) {
@@ -542,11 +545,13 @@ func TestFullIdleBetweenTargetAndLine(t *testing.T) {
 }
 
 func TestFullShedsToTarget(t *testing.T) {
+	// (0x00, 0x64] is 100 hash steps and 100 bytes, so shedding to the
+	// rebalance target lands on a hash. Disk 0 is full, above the line.
 	st := mk(
 		[]int64{100, 100},
-		[]byte{0x80, 0xFF},
-		[]int64{90, 10},
-		[]int{0, 1},
+		[]byte{0x00, 0x64},
+		[]int64{10, 100},
+		[]int{1, 0},
 	)
 	out, _ := solveOK(t, st, ev(EventFull, 0))
 	require.LessOrEqual(t, usedOf(out, 0), rebalanceTargetOf(100))
