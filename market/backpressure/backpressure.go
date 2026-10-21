@@ -114,7 +114,7 @@ func (c *CachedBackPressure) checkSectorBackpressure(ctx context.Context, cfg *c
 		return true, nil
 	}
 
-	if bufferedSDR > cfg.MaxQueueSDR.Get() {
+	if cfg.MaxQueueSDR.Get() != 0 && bufferedSDR > cfg.MaxQueueSDR.Get() {
 		log.Infow("backpressure", "reason", "too many SDR tasks", "buffered", bufferedSDR, "max", cfg.MaxQueueSDR.Get())
 		return true, nil
 	}
