@@ -142,6 +142,7 @@ func newWorld(state State) (*world, error) {
 	}
 	for i, mp := range state.MountPoints {
 		w.mountPoints[i].MountPoint = mp
+		w.mountPoints[i].frozen = mp.Vacating
 		w.mountOf[mp.StorageID] = i
 	}
 	for s, ranges := range state.HashSpaces {
@@ -191,7 +192,7 @@ func (w *world) diskOf(r Range) int {
 func (w *world) snapshot() State {
 	st := State{MountPoints: make([]MountPoint, len(w.mountPoints))}
 	for i, mp := range w.mountPoints {
-		st.MountPoints[i] = MountPoint{FreeSpace: w.free(i), StorageID: mp.StorageID}
+		st.MountPoints[i] = MountPoint{FreeSpace: w.free(i), StorageID: mp.StorageID, Vacating: mp.Vacating}
 	}
 	for s, sp := range w.hashSpaces {
 		if len(sp.ranges) == 0 {
