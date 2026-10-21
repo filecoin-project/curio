@@ -10,26 +10,27 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/ipfs/go-cid"
+	"github.com/oklog/ulid"
 	"github.com/snadrus/must"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
 	commcid "github.com/filecoin-project/go-fil-commcid"
-	"github.com/filecoin-project/go-padreader"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/big"
 
 	"github.com/filecoin-project/curio/deps/config"
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/commcidv2"
 	"github.com/filecoin-project/curio/lib/lists"
-	itype "github.com/filecoin-project/curio/market/ipni/types"
 	"github.com/filecoin-project/curio/market/mk20"
-	"github.com/filecoin-project/curio/tasks/indexing"
 
 	lapi "github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors"
@@ -564,248 +565,6 @@ func (a *WebRPC) MoveBalanceToEscrow(ctx context.Context, miner string, amount s
 
 }
 
-type PieceDeal struct {
-	// Cache line 1 (0-64 bytes): Hot path - identification fields used together
-	ID    string `db:"id" json:"id"`       // 16 bytes - used with SpId (line 621-623)
-	SpId  int64  `db:"sp_id" json:"sp_id"` // 8 bytes - checked early (line 614), used with ID (line 617)
-	Miner string `json:"miner"`            // 16 bytes - set based on SpId (line 615, 625)
-	// Cache line 2: Additional 8-byte types grouped together
-	ChainDealId int64 `db:"chain_deal_id" json:"chain_deal_id"` // 8 bytes
-	Sector      int64 `db:"sector_num" json:"sector"`           // 8 bytes
-	Length      int64 `db:"piece_length" json:"length"`         // 8 bytes
-	RawSize     int64 `db:"raw_size" json:"raw_size"`           // 8 bytes
-	// NullInt64 (16 bytes)
-	Offset NullInt64 `db:"piece_offset" json:"offset"` // 16 bytes
-	// Cache line 3 (64+ bytes): Bools grouped together at the end to minimize padding
-	MK20       bool `db:"-" json:"mk20"`                  // Used with ID check (line 621-623) - hot path
-	BoostDeal  bool `db:"boost_deal" json:"boost_deal"`   // Less frequently accessed
-	LegacyDeal bool `db:"legacy_deal" json:"legacy_deal"` // Less frequently accessed
-}
-
-type PieceInfo struct {
-	// Cache line 1 (0-64 bytes): Hot path - piece identification used together
-	PieceCidv2 string   `json:"piece_cid_v2"` // 16 bytes - used together with PieceCid (line 584)
-	PieceCid   string   `json:"piece_cid"`    // 16 bytes - used with PieceCidv2 (line 584)
-	Size       int64    `json:"size"`         // 8 bytes - used with PieceCid (line 587, 604)
-	IPNIAd     []string `json:"ipni_ads"`     // 24 bytes - used for results
-	// Cache line 2 (64+ bytes): Display
-	CreatedAt time.Time `json:"created_at"` // 24 bytes - used for display
-	IndexedAT time.Time `json:"indexed_at"` // 24 bytes - used for display
-	Indexed   bool      `json:"indexed"`    // Used for display
-	// Cache line 3
-	Deals []PieceDeal `json:"deals"` // 24 bytes - used for results
-}
-
-func (a *WebRPC) PieceInfo(ctx context.Context, pieceCid string) (*PieceInfo, error) {
-	piece, err := cid.Parse(pieceCid)
-	if err != nil {
-		return nil, err
-	}
-
-	var ret PieceInfo
-	var pcid cid.Cid
-	var size abi.PaddedPieceSize
-
-	if commcidv2.IsPieceCidV2(piece) {
-		pcid1, rawSize, err := commcid.PieceCidV1FromV2(piece)
-		if err != nil {
-			return nil, xerrors.Errorf("failed to get pieceCidv1 from piece CID v2: %w", err)
-		}
-
-		psize := padreader.PaddedSize(rawSize).Padded()
-		ret.PieceCidv2 = piece.String()
-		ret.PieceCid = pcid1.String()
-		ret.Size = int64(psize)
-		pcid = pcid1
-		size = psize
-		err = a.Deps.DB.QueryRow(ctx, `SELECT created_at, indexed, indexed_at FROM market_piece_metadata WHERE piece_cid = $1 AND piece_size = $2`, pcid1.String(), psize).Scan(&ret.CreatedAt, &ret.Indexed, &ret.IndexedAT)
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return nil, xerrors.Errorf("failed to get piece metadata: %w", err)
-		}
-
-		c1 := itype.PdpIpniContext{
-			PieceCID: piece,
-			Payload:  true,
-		}
-
-		c1b, err := c1.Marshal()
-		if err != nil {
-			return nil, xerrors.Errorf("failed to marshal PDP piece info: %w", err)
-		}
-
-		c2 := itype.PdpIpniContext{
-			PieceCID: piece,
-			Payload:  false,
-		}
-
-		c2b, err := c2.Marshal()
-		if err != nil {
-			return nil, xerrors.Errorf("failed to marshal PDP piece info: %w", err)
-		}
-
-		var ipniAdPdp string
-		err = a.Deps.DB.QueryRow(ctx, `SELECT ad_cid FROM ipni WHERE context_id = $1 ORDER BY order_number DESC LIMIT 1`, c1b).Scan(&ipniAdPdp)
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return nil, xerrors.Errorf("failed to get ad ID by piece CID for PDP: %w", err)
-		}
-
-		var ipniAdPdp1 string
-		err = a.Deps.DB.QueryRow(ctx, `SELECT ad_cid FROM ipni WHERE context_id = $1 ORDER BY order_number DESC LIMIT 1`, c2b).Scan(&ipniAdPdp1)
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return nil, xerrors.Errorf("failed to get ad ID by piece CID for PDP: %w", err)
-		}
-
-		ret.IPNIAd = append(ret.IPNIAd, ipniAdPdp, ipniAdPdp1)
-	} else {
-		ret.PieceCid = piece.String()
-		pcid = piece
-		err = a.Deps.DB.QueryRow(ctx, `SELECT piece_size, created_at, indexed, indexed_at FROM market_piece_metadata WHERE piece_cid = $1`, piece.String()).Scan(&ret.Size, &ret.CreatedAt, &ret.Indexed, &ret.IndexedAT)
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return nil, xerrors.Errorf("failed to get piece metadata: %w", err)
-		}
-		size = abi.PaddedPieceSize(ret.Size)
-	}
-
-	pieceDeals := []PieceDeal{}
-
-	err = a.Deps.DB.Select(ctx, &pieceDeals, `SELECT 
-														id, 
-														boost_deal, 
-														legacy_deal, 
-														chain_deal_id, 
-														sp_id, 
-														sector_num, 
-														piece_offset, 
-														piece_length, 
-														raw_size 
-													FROM market_piece_deal
-													WHERE piece_cid = $1`, ret.PieceCid)
-	if err != nil {
-		return nil, xerrors.Errorf("failed to get piece deals: %w", err)
-	}
-
-	for i := range pieceDeals {
-		if pieceDeals[i].SpId == indexing.PDP_v1_SP_ID {
-			pieceDeals[i].Miner = "PDP V1"
-		} else {
-			addr, err := address.NewIDAddress(uint64(pieceDeals[i].SpId))
-			if err != nil {
-				return nil, err
-			}
-			_, err = uuid.Parse(pieceDeals[i].ID)
-			if err != nil {
-				pieceDeals[i].MK20 = true
-			}
-			pieceDeals[i].Miner = addr.String()
-		}
-	}
-	ret.Deals = pieceDeals
-
-	b := new(bytes.Buffer)
-
-	pi := abi.PieceInfo{
-		PieceCID: pcid,
-		Size:     size,
-	}
-
-	err = pi.MarshalCBOR(b)
-	if err != nil {
-		return nil, xerrors.Errorf("failed to marshal piece info: %w", err)
-	}
-
-	// Get only the latest Ad
-	var ipniAd string
-	err = a.Deps.DB.QueryRow(ctx, `SELECT ad_cid FROM ipni WHERE context_id = $1 ORDER BY order_number DESC LIMIT 1`, b.Bytes()).Scan(&ipniAd)
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return nil, xerrors.Errorf("failed to get ad ID by piece CID: %w", err)
-	}
-
-	ret.IPNIAd = append(ret.IPNIAd, ipniAd)
-	return &ret, nil
-}
-
-type ParkedPieceState struct {
-	ID              int64            `db:"id" json:"id"`
-	PieceCID        string           `db:"piece_cid" json:"piece_cid"`
-	PiecePaddedSize int64            `db:"piece_padded_size" json:"piece_padded_size"`
-	PieceRawSize    int64            `db:"piece_raw_size" json:"piece_raw_size"`
-	Complete        bool             `db:"complete" json:"complete"`
-	CreatedAt       time.Time        `db:"created_at" json:"created_at"`
-	TaskID          sql.NullInt64    `db:"task_id" json:"task_id"`
-	CleanupTaskID   sql.NullInt64    `db:"cleanup_task_id" json:"cleanup_task_id"`
-	Refs            []ParkedPieceRef `json:"refs"`
-}
-
-type ParkedPieceRef struct {
-	RefID       int64           `db:"ref_id" json:"ref_id"`
-	PieceID     int64           `db:"piece_id" json:"piece_id"`
-	DataURL     sql.NullString  `db:"data_url" json:"data_url"`
-	DataHeaders json.RawMessage `db:"data_headers" json:"data_headers"`
-}
-
-// PieceParkStates retrieves the park states for a given piece CID
-func (a *WebRPC) PieceParkStates(ctx context.Context, pieceCID string) (*ParkedPieceState, error) {
-	pcid2, err := cid.Parse(pieceCID)
-	if err != nil {
-		return nil, err
-	}
-
-	var pcid1 cid.Cid
-
-	if commcidv2.IsPieceCidV2(pcid2) {
-		pcid, _, err := commcid.PieceCidV1FromV2(pcid2)
-		if err != nil {
-			return nil, xerrors.Errorf("failed to get piece CID v1 from piece CID v2: %w", err)
-		}
-		pcid1 = pcid
-	} else {
-		pcid1 = pcid2
-	}
-
-	var pps ParkedPieceState
-
-	// Query the parked_pieces table
-	err = a.Deps.DB.QueryRow(ctx, `
-        SELECT id, created_at, piece_cid, piece_padded_size, piece_raw_size, complete, task_id, cleanup_task_id
-        FROM parked_pieces WHERE piece_cid = $1
-    `, pcid1.String()).Scan(
-		&pps.ID, &pps.CreatedAt, &pps.PieceCID, &pps.PiecePaddedSize, &pps.PieceRawSize,
-		&pps.Complete, &pps.TaskID, &pps.CleanupTaskID,
-	)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("failed to query parked piece: %w", err)
-	}
-
-	// Query the parked_piece_refs table for references
-	rows, err := a.Deps.DB.Query(ctx, `
-        SELECT ref_id, piece_id, data_url, data_headers
-        FROM parked_piece_refs WHERE piece_id = $1
-    `, pps.ID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query parked piece refs: %w", err)
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var ref ParkedPieceRef
-		var dataHeaders []byte
-		err := rows.Scan(&ref.RefID, &ref.PieceID, &ref.DataURL, &dataHeaders)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan parked piece ref: %w", err)
-		}
-		ref.DataHeaders = json.RawMessage(dataHeaders)
-		pps.Refs = append(pps.Refs, ref)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating over parked piece refs: %w", err)
-	}
-
-	return &pps, nil
-}
-
 type PieceSummary struct {
 	Total       int64     `db:"total" json:"total"`
 	Indexed     int64     `db:"indexed" json:"indexed"`
@@ -822,7 +581,150 @@ func (a *WebRPC) PieceSummary(ctx context.Context) (*PieceSummary, error) {
 	return &s, nil
 }
 
-// MK12Deal represents a record from market_mk12_deals or market_direct_deals table
+func (a *WebRPC) MK12DDOStorageDealList(ctx context.Context, limit int, offset int) ([]*StorageDealList, error) {
+	var deals []*StorageDealList
+	err := a.Deps.DB.Select(ctx, &deals, `
+		SELECT md.uuid, md.sp_id, md.created_at, md.piece_cid, md.piece_size,
+			md.raw_size, md.error, COALESCE(dp.complete, TRUE) AS processed
+		FROM market_direct_deals md
+		LEFT JOIN market_mk12_deal_pipeline dp ON dp.uuid = md.uuid
+		ORDER BY md.created_at DESC
+		LIMIT $1 OFFSET $2`, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch direct deal list: %w", err)
+	}
+
+	for _, deal := range deals {
+		miner, err := address.NewIDAddress(uint64(deal.MinerID))
+		if err != nil {
+			return nil, err
+		}
+		deal.Miner = miner.String()
+		deal.PieceCidV2 = deal.PieceCidV1
+		if deal.RawSize.Valid && deal.RawSize.Int64 >= 127 {
+			pieceCID, err := cid.Parse(deal.PieceCidV1)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse v1 piece CID: %w", err)
+			}
+			pieceCIDV2, err := commcid.PieceCidV2FromV1(pieceCID, uint64(deal.RawSize.Int64))
+			if err != nil {
+				log.Warnw("failed to generate piece cid v2, using piece cid v1",
+					"piece_cid", deal.PieceCidV1, "raw_size", deal.RawSize.Int64, "err", err)
+			} else {
+				deal.PieceCidV2 = pieceCIDV2.String()
+			}
+		}
+	}
+	return deals, nil
+}
+
+type MK12PipelineFailedStats struct {
+	DownloadingFailed int64
+	CommPFailed       int64
+	PSDFailed         int64
+	FindDealFailed    int64
+	IndexFailed       int64
+}
+
+// Resolve downloads through the pipeline's reference: other parked copies of
+// the same piece can have different tasks and completion states.
+const MK12_FAILED_PIPELINE_TASKS = `
+	WITH failed_tasks AS (
+		SELECT dp.uuid, stage.task_id, stage.task_type
+		FROM market_mk12_deal_pipeline dp
+		LEFT JOIN parked_piece_refs pr ON dp.url = 'pieceref:' || pr.ref_id::text
+		LEFT JOIN parked_pieces pp ON pp.id = pr.piece_id
+		CROSS JOIN LATERAL (VALUES
+			(pp.task_id, 'downloading', NOT pp.complete AND NOT dp.after_commp),
+			(dp.commp_task_id, 'commp', NOT dp.after_commp),
+			(dp.psd_task_id, 'psd', NOT dp.after_psd),
+			(dp.find_deal_task_id, 'find_deal', NOT dp.after_find_deal),
+			(dp.indexing_task_id, 'index', dp.after_find_deal AND NOT dp.indexed)
+		) AS stage(task_id, task_type, unfinished)
+		WHERE NOT dp.complete AND stage.unfinished AND stage.task_id IS NOT NULL
+			AND NOT EXISTS (SELECT 1 FROM harmony_task ht WHERE ht.id = stage.task_id)
+	)`
+
+func (a *WebRPC) MK12PipelineFailedTasks(ctx context.Context) (*MK12PipelineFailedStats, error) {
+	var stats MK12PipelineFailedStats
+	err := a.Deps.DB.QueryRow(ctx, MK12_FAILED_PIPELINE_TASKS+`
+		SELECT
+			COUNT(*) FILTER (WHERE task_type = 'downloading'),
+			COUNT(*) FILTER (WHERE task_type = 'commp'),
+			COUNT(*) FILTER (WHERE task_type = 'psd'),
+			COUNT(*) FILTER (WHERE task_type = 'find_deal'),
+			COUNT(*) FILTER (WHERE task_type = 'index')
+		FROM failed_tasks`).Scan(&stats.DownloadingFailed, &stats.CommPFailed,
+		&stats.PSDFailed, &stats.FindDealFailed, &stats.IndexFailed)
+	if err != nil {
+		return nil, fmt.Errorf("failed to count failed market tasks: %w", err)
+	}
+	return &stats, nil
+}
+
+func validateMK12TaskType(taskType string) error {
+	switch taskType {
+	case "downloading", "commp", "psd", "find_deal", "index":
+		return nil
+	default:
+		return fmt.Errorf("unknown market task type %q", taskType)
+	}
+}
+
+func (a *WebRPC) MK12BulkRestartFailedMarketTasks(ctx context.Context, taskType string) error {
+	if err := validateMK12TaskType(taskType); err != nil {
+		return err
+	}
+
+	var tasks []struct {
+		ID int64 `db:"task_id"`
+	}
+	err := a.Deps.DB.Select(ctx, &tasks, MK12_FAILED_PIPELINE_TASKS+`
+		SELECT DISTINCT ft.task_id
+		FROM failed_tasks ft
+		JOIN LATERAL (
+			SELECT result FROM harmony_task_history
+			WHERE task_id = ft.task_id ORDER BY id DESC LIMIT 1
+		) history ON NOT history.result
+		WHERE ft.task_type = $1
+		ORDER BY ft.task_id`, taskType)
+	if err != nil {
+		return fmt.Errorf("failed to find market tasks to restart: %w", err)
+	}
+
+	// Use the task engine restart path so the scheduler is notified and the
+	// latest history and active-task state are checked again before restarting.
+	for _, task := range tasks {
+		if err := a.RestartFailedTask(ctx, task.ID); err != nil {
+			return fmt.Errorf("restarting market task %d: %w", task.ID, err)
+		}
+	}
+	return nil
+}
+
+func (a *WebRPC) MK12BulkRemoveFailedMarketPipelines(ctx context.Context, taskType string) error {
+	if err := validateMK12TaskType(taskType); err != nil {
+		return err
+	}
+
+	_, err := a.Deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		var pipelines []struct {
+			UUID string `db:"uuid"`
+		}
+		if err := tx.Select(&pipelines, MK12_FAILED_PIPELINE_TASKS+`
+			SELECT DISTINCT uuid FROM failed_tasks WHERE task_type = $1 ORDER BY uuid`, taskType); err != nil {
+			return false, fmt.Errorf("failed to find market pipelines to remove: %w", err)
+		}
+		for _, pipeline := range pipelines {
+			if err := mk12DealPipelineRemoveTx(tx, pipeline.UUID); err != nil {
+				return false, err
+			}
+		}
+		return true, nil
+	}, harmonydb.OptionRetry())
+	return err
+}
+
 type MK12Deal struct {
 	UUID              string          `db:"uuid" json:"uuid"`
 	SpId              int64           `db:"sp_id" json:"sp_id"`
@@ -1073,6 +975,28 @@ func (a *WebRPC) PieceDealDetail(ctx context.Context, pieceCid string) (*PieceDe
 		pipelineMap[pipeline.UUID] = pipeline
 	}
 
+	pcid2s := []string{pcid2.String()}
+	if !commcidv2.IsPieceCidV2(pcid2) {
+		var sizes []struct {
+			RawSize uint64 `db:"raw_size"`
+		}
+		err = a.Deps.DB.Select(ctx, &sizes, `
+			SELECT piece_raw_size AS raw_size FROM parked_pieces WHERE piece_cid = $1 AND piece_raw_size >= 127
+			UNION
+			SELECT raw_size FROM market_piece_deal WHERE piece_cid = $1 AND raw_size >= 127
+		`, pcid1.String())
+		if err != nil {
+			return nil, xerrors.Errorf("failed to get piece raw sizes: %w", err)
+		}
+		for _, size := range sizes {
+			pcid, err := commcid.PieceCidV2FromV1(pcid1, size.RawSize)
+			if err != nil {
+				return nil, xerrors.Errorf("failed to get piece CID v2: %w", err)
+			}
+			pcid2s = append(pcid2s, pcid.String())
+		}
+	}
+
 	var mk20Deals []*mk20.DBDeal
 	err = a.Deps.DB.Select(ctx, &mk20Deals, `SELECT 
 													id, 
@@ -1080,7 +1004,7 @@ func (a *WebRPC) PieceDealDetail(ctx context.Context, pieceCid string) (*PieceDe
 													data,
 													ddo_v1,
 													retrieval_v1,
-													pdp_v1 FROM market_mk20_deal WHERE piece_cid_v2 = $1`, pcid2.String())
+													pdp_v1 FROM market_mk20_deal WHERE piece_cid_v2 = ANY($1)`, pcid2s)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to query mk20 deals: %w", err)
 	}
@@ -1089,29 +1013,12 @@ func (a *WebRPC) PieceDealDetail(ctx context.Context, pieceCid string) (*PieceDe
 	mk20deals := make([]*MK20StorageDeal, len(mk20Deals))
 
 	for i, dbdeal := range mk20Deals {
-		deal, err := dbdeal.ToDeal()
+		deal, err := mk20StorageDealFromDB(*dbdeal)
 		if err != nil {
 			return nil, err
 		}
-		ids[i] = deal.Identifier.String()
-
-		var Err NullString
-
-		if len(dbdeal.DDOv1) > 0 && string(dbdeal.DDOv1) != "null" {
-			var dddov1 mk20.DBDDOV1
-			if err := json.Unmarshal(dbdeal.DDOv1, &dddov1); err != nil {
-				return nil, fmt.Errorf("unmarshal ddov1: %w", err)
-			}
-			if dddov1.Error != "" {
-				Err.String = dddov1.Error
-				Err.Valid = true
-			}
-		}
-
-		mk20deals[i] = &MK20StorageDeal{
-			Deal:   deal,
-			DDOErr: Err,
-		}
+		ids[i] = deal.Deal.Identifier.String()
+		mk20deals[i] = deal
 	}
 
 	var mk20Pipelines []MK20DDOPipeline
@@ -1196,7 +1103,7 @@ func (a *WebRPC) PieceDealDetail(ctx context.Context, pieceCid string) (*PieceDe
 		mk20PDPpipelineMap[pipeline.ID] = pipeline
 	}
 
-	ret := &PieceDealDetailEntry{}
+	ret := &PieceDealDetailEntry{MK12: []PieceInfoMK12Deals{}, MK20: []PieceInfoMK20Deals{}}
 
 	for _, deal := range mk12Deals {
 		entry := PieceInfoMK12Deals{
@@ -1224,11 +1131,88 @@ func (a *WebRPC) PieceDealDetail(ctx context.Context, pieceCid string) (*PieceDe
 		} else {
 			entry.PDPPipeline = nil
 		}
-		if ret.MK20 == nil {
-			ret.MK20 = make([]PieceInfoMK20Deals, 0)
-		}
 		ret.MK20 = append(ret.MK20, entry)
 	}
 
 	return ret, nil
+}
+
+func (a *WebRPC) DealPipelineRemove(ctx context.Context, id string) error {
+	if _, err := ulid.Parse(id); err == nil {
+		return a.mk20DealPipelineRemove(ctx, id)
+	}
+	if _, err := uuid.Parse(id); err != nil {
+		return xerrors.Errorf("invalid pipeline id: %w", err)
+	}
+	return a.mk12DealPipelineRemove(ctx, id)
+}
+
+func (a *WebRPC) mk12DealPipelineRemove(ctx context.Context, uuid string) error {
+	_, err := a.Deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		if err := mk12DealPipelineRemoveTx(tx, uuid); err != nil {
+			return false, err
+		}
+		return true, nil
+	}, harmonydb.OptionRetry())
+	return err
+}
+
+func mk12DealPipelineRemoveTx(tx *harmonydb.Tx, uuid string) error {
+	var url NullString
+	var sector NullInt64
+
+	// Check active work in the delete predicate, including the download task.
+	// RETURNING captures the reference and sector from the row actually removed.
+	err := tx.QueryRow(`
+		DELETE FROM market_mk12_deal_pipeline dp
+		WHERE dp.uuid = $1
+			AND NOT EXISTS (
+				SELECT 1 FROM harmony_task ht
+				WHERE ht.id IN (dp.commp_task_id, dp.psd_task_id,
+					dp.find_deal_task_id, dp.indexing_task_id)
+			)
+			AND NOT EXISTS (
+				SELECT 1 FROM parked_piece_refs pr
+				JOIN parked_pieces pp ON pp.id = pr.piece_id
+				JOIN harmony_task ht ON ht.id = pp.task_id
+				WHERE dp.url = 'pieceref:' || pr.ref_id::text
+			)
+		RETURNING dp.url, dp.sector`, uuid).Scan(&url, &sector)
+	if errors.Is(err, pgx.ErrNoRows) {
+		var exists bool
+		if err := tx.QueryRow(`SELECT EXISTS (
+			SELECT 1 FROM market_mk12_deal_pipeline WHERE uuid = $1
+		)`, uuid).Scan(&exists); err != nil {
+			return err
+		}
+		if exists {
+			return fmt.Errorf("cannot remove deal pipeline %s: tasks are still pending or running", uuid)
+		}
+		return fmt.Errorf("no deal pipeline found with uuid %s", uuid)
+	}
+	if err != nil {
+		return fmt.Errorf("removing deal pipeline %s: %w", uuid, err)
+	}
+
+	_, err = tx.Exec(`
+		WITH updated AS (
+			UPDATE market_mk12_deals SET error = $1 WHERE uuid = $2 RETURNING uuid
+		)
+		UPDATE market_direct_deals SET error = $1
+		WHERE uuid = $2 AND NOT EXISTS (SELECT 1 FROM updated)`,
+		"Deal pipeline removed by SP", uuid)
+	if err != nil {
+		return fmt.Errorf("marking deal %s as failed: %w", uuid, err)
+	}
+
+	if !sector.Valid && url.Valid && strings.HasPrefix(url.String, "pieceref:") {
+		refID, err := strconv.ParseInt(strings.TrimPrefix(url.String, "pieceref:"), 10, 64)
+		if err != nil {
+			return fmt.Errorf("invalid piece reference for deal %s: %w", uuid, err)
+		}
+		if _, err := tx.Exec(`DELETE FROM parked_piece_refs WHERE ref_id = $1`, refID); err != nil {
+			return fmt.Errorf("removing piece reference for deal %s: %w", uuid, err)
+		}
+	}
+	return nil
 }
