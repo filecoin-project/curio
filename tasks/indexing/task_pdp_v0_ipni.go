@@ -140,7 +140,7 @@ func (P *PDPV0IPNITask) Do(ctx context.Context, taskID harmonytask.TaskID, still
 
 	for {
 		// Get the next EntriesChunkSize+1 (16384+1) entries for chunking
-		// Use pcidv2 as indexStore will internally get us the correct index gainst v1 or v2 as present
+		// Use pcidv2 because indexStore resolves the appropriate v1 or v2 index
 		mhs, err := P.idx.GetPieceHashRange(ctx, pcidV2, offset, chunker.EntriesChunkSize+1, false)
 		if err != nil {
 			return false, xerrors.Errorf("getting piece hashes: %w", err)
