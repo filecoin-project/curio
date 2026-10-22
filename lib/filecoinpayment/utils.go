@@ -35,6 +35,11 @@ type SettleTargetResolver func(ctx context.Context, railID *big.Int, rail Paymen
 // at execution time and burn the whole gas limit.
 const gasOverestimation = 1.1
 
+// SettleLockupPeriod settles rails paying payees as rarely as possible.
+// Terminated rails and active rails at their lockup horizon are settled when
+// something is owed. Other active rails are settled early only when their
+// queued rate changes push the settlement gas estimate to
+// MAX_DEFERRED_SETTLE_GAS.
 func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, sender *message.SenderETH, from common.Address, payees []common.Address, resolvers map[common.Address]SettleTargetResolver, al curioalerting.AlertingInterface, system, subsystem string) error {
 	paymentContractAddr, err := PaymentContractAddress()
 	if err != nil {
@@ -91,11 +96,16 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchai
 		railId      *big.Int
 		settledUpTo *big.Int
 		target      *big.Int
+		queueSize   *big.Int // set when settling early depends on the gas estimate
 	}
+
+	seen := make(map[int64]struct{}, len(railIds))
+	defer pruneDeferredSettleGas(seen)
 
 	var toSettle []toSettleRail
 	currentEpoch := new(big.Int).SetUint64(current)
 	for _, rail := range railIds {
+		seen[rail.Int64()] = struct{}{}
 		if _, pending := pendingRails[rail.Int64()]; pending {
 			continue
 		}
@@ -111,7 +121,29 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchai
 			continue
 		}
 
-		if !railNeedsSettlement(view, current) {
+		lockupDue := railNeedsSettlement(view, current)
+		var gasCheckQueue *big.Int
+		if isActiveRail(view) {
+			hasRate := view.PaymentRate != nil && view.PaymentRate.Sign() > 0
+			if !hasRate || !lockupDue {
+				queueSize, err := payment.GetRateChangeQueueSize(&bind.CallOpts{Context: ctx}, rail)
+				if err != nil {
+					return xerrors.Errorf("failed to get rate change queue size for rail %s: %w", railID.String(), err)
+				}
+				queueEmpty := queueSize == nil || queueSize.Sign() == 0
+				if !hasRate && queueEmpty {
+					// Nothing is owed; Pay skips the zero-rate gap when the rate next rises.
+					continue
+				}
+				if !lockupDue {
+					// Without queued rate changes, waiting does not grow settlement gas.
+					if queueEmpty || deferredSettleGasKnown(rail.Int64(), view.SettledUpTo, queueSize) {
+						continue
+					}
+					gasCheckQueue = queueSize
+				}
+			}
+		} else if !lockupDue {
 			continue
 		}
 
@@ -136,6 +168,7 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchai
 			railId:      railID,
 			settledUpTo: new(big.Int).Set(view.SettledUpTo),
 			target:      new(big.Int).Set(target),
+			queueSize:   gasCheckQueue,
 		})
 	}
 
@@ -155,6 +188,28 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchai
 	transactionsToSend := make(map[*types.Transaction]settleRailTx)
 
 	for _, detail := range toSettle {
+		if detail.queueSize != nil {
+			early, err := settlementGasDue(ctx, pabi, &paymentContractAddr, ethClient, detail.railId, from, detail.target)
+			if err != nil {
+				if isSkippableSettleRailError(err) {
+					log.Debugw("skipping settlement after non-actionable Pay settleRail revert", "railID", detail.railId.String(), "target", detail.target.String(), "error", err)
+					continue
+				}
+				log.Errorw("failed to gas estimate deferred settlement", "railID", detail.railId.String(), "target", detail.target.String(), "error", err)
+				_ = al.EmitEvent(ctx, curioalerting.AlertEvent{
+					System:    system,
+					Subsystem: subsystem,
+					Message:   fmt.Sprintf("failed to gas estimate settle transaction for rail %s: %s", detail.railId.String(), err.Error()),
+				})
+				continue
+			}
+			if !early {
+				recordDeferredSettleGas(detail.railId.Int64(), detail.settledUpTo, detail.queueSize)
+				continue
+			}
+			log.Infow("settling before lockup horizon due to settlement gas", "railID", detail.railId.String(), "queueSize", detail.queueSize.String())
+		}
+
 		settleUpTo, err := calculateSettleUpTo(ctx, pabi, &paymentContractAddr, ethClient, detail.railId, from, detail.settledUpTo, detail.target)
 		if err != nil {
 			if isSkippableSettleRailError(err) {
@@ -268,13 +323,17 @@ func railNeedsSettlement(rail PaymentsRailView, current uint64) bool {
 		return false
 	}
 
-	if rail.EndEpoch != nil && rail.EndEpoch.Sign() > 0 {
+	if !isActiveRail(rail) {
 		// The equality case can still need one final settleRail call to zero the
 		// rail. Once finalized, getRail stops returning the rail.
 		return rail.SettledUpTo.Cmp(rail.EndEpoch) <= 0
 	}
 
 	return activeRailSettlementDue(rail, current)
+}
+
+func isActiveRail(rail PaymentsRailView) bool {
+	return rail.SettledUpTo != nil && (rail.EndEpoch == nil || rail.EndEpoch.Sign() <= 0)
 }
 
 // IsTerminatedRailFinalizationTarget reports whether settling to target can be
@@ -300,27 +359,39 @@ func activeRailSettlementDue(rail PaymentsRailView, current uint64) bool {
 	// Active rails are settled before the lockup period becomes the only
 	// remaining guarantee. This protects the SP from a client withdrawing funds
 	// after Filecoin Pay can no longer keep enough account lockup reserved.
-	settleInterval := big.NewInt(builtin.EpochsInDay * 3)
-
-	// Keep one day of lockup as a safety buffer. Once settlement is this close to
-	// the lockup horizon, every pass should try to settle so the SP does not rely
-	// on funds the client may soon be able to withdraw.
+	// Keep one day of lockup as a safety buffer; once settlement is this close to
+	// the lockup horizon, every pass should try to settle.
 	gracedLockup := new(big.Int).Sub(rail.LockupPeriod, big.NewInt(builtin.EpochsInDay))
 	if gracedLockup.Sign() <= 0 {
 		return true
 	}
 
-	// Do not wait longer than the usable lockup window. The regular interval is a
-	// batching optimization; the lockup period is the actual payment guarantee.
-	if gracedLockup.Cmp(settleInterval) < 0 {
-		settleInterval = gracedLockup
+	nextSettle := new(big.Int).Add(rail.SettledUpTo, gracedLockup)
+	return nextSettle.Cmp(new(big.Int).SetUint64(current)) < 0
+}
+
+// settlementGasDue reports whether settling to target is already expensive
+// enough in gas that it should not be deferred to the lockup horizon.
+func settlementGasDue(ctx context.Context, pabi *abi.ABI, paymentContractAddr *common.Address, ethClient ethchain.EthClient, id *big.Int, from common.Address, target *big.Int) (bool, error) {
+	data, err := pabi.Pack("settleRail", id, target)
+	if err != nil {
+		return false, xerrors.Errorf("failed to pack data: %w", err)
 	}
 
-	// settledUpTo is the last epoch Pay has accounted for on this rail. If the next
-	// planned settlement point is behind the chain head, this rail needs a new
-	// settle attempt.
-	nextSettle := new(big.Int).Add(rail.SettledUpTo, settleInterval)
-	return nextSettle.Cmp(new(big.Int).SetUint64(current)) < 0
+	gas, err := ethClient.EstimateGas(ctx, ethereum.CallMsg{
+		From:  from,
+		To:    paymentContractAddr,
+		Value: big.NewInt(0),
+		Data:  data,
+	})
+	if err != nil {
+		if isGasEstimateOutOfGas(err) {
+			return true, nil
+		}
+		return false, xerrors.Errorf("failed to estimate gas: %w", err)
+	}
+
+	return gas >= MAX_DEFERRED_SETTLE_GAS, nil
 }
 
 // calculateSettleUpTo starts from the resolver-provided semantic target and
