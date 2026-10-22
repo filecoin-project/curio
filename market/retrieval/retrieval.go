@@ -53,9 +53,10 @@ type Provider struct {
 }
 
 const (
-	piecePrefix = "/piece/"
-	ipfsPrefix  = "/ipfs/"
-	infoPage    = "/info"
+	piecePrefix  = "/piece/"
+	publicPrefix = "/public/"
+	ipfsPrefix   = "/ipfs/"
+	infoPage     = "/info"
 )
 
 var RetrievalBlockCache = must.One(lru.NewARC[blockstore.MhString, blocks.Block](4096))
@@ -241,12 +242,19 @@ func Router(mux *chi.Mux, rp *Provider, df *denylist.Filter) {
 	mux.Group(func(r chi.Router) {
 		r.Use(metricsMiddleware)
 
-		// Piece endpoint with denylist and limiter
+		// Canonical piece retrieval
 		r.Group(func(r chi.Router) {
 			r.Use(denylist.Middleware(df))
 			r.Use(limiterMiddleware(pieceRequestLimiter))
-			r.Get(piecePrefix+"{cid}", rp.handleByPieceCid)
-			r.Head(piecePrefix+"{cid}", rp.handleByPieceCid)
+			r.Get(publicPrefix+"{cid}", rp.handleByPieceCid)
+			r.Head(publicPrefix+"{cid}", rp.handleByPieceCid)
+		})
+
+		// Legacy /piece/{cid} redirects to /public/{cid}
+		r.Group(func(r chi.Router) {
+			r.Use(denylist.Middleware(df))
+			r.Get(piecePrefix+"{cid}", handlePieceToPublicRedirect)
+			r.Head(piecePrefix+"{cid}", handlePieceToPublicRedirect)
 		})
 
 		// IPFS endpoints with denylist and limiter
@@ -265,6 +273,14 @@ func Router(mux *chi.Mux, rp *Provider, df *denylist.Filter) {
 		// Info endpoint without limiter or denylist
 		r.Get(infoPage, handleInfo)
 	})
+}
+
+func handlePieceToPublicRedirect(w http.ResponseWriter, r *http.Request) {
+	target := publicPrefix + chi.URLParam(r, "cid")
+	if r.URL.RawQuery != "" {
+		target += "?" + r.URL.RawQuery
+	}
+	http.Redirect(w, r, target, http.StatusMovedPermanently)
 }
 
 func handleInfo(rw http.ResponseWriter, r *http.Request) {
