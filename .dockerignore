@@ -3,6 +3,16 @@
 # - skiff: sparse-clones filecoin-ffi default branch (Go module stubs only, no rust/)
 
 extern/supraseal
+extern/filecoin-ffi/target
+extern/filecoin-ffi/rust/target
+extern/filecoin-ffi/.install-filcrypto
+extern/filecoin-ffi/filcrypto.h
+extern/filecoin-ffi/filcrypto.pc
+extern/filecoin-ffi/libfilcrypto.a
+build/.update-modules
+build/.filecoin-install
+build/.blst-install
+build/.supraseal-install
 
 docker/data
 docker/skiff/data

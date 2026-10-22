@@ -1,0 +1,203 @@
+name: Docker Curio
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Image version without v prefix (empty reads build/version.go)
+        required: false
+        type: string
+        default: ""
+      prerelease:
+        description: If true, do not also update stable network tags
+        type: boolean
+        default: true
+
+defaults:
+  run:
+    shell: bash
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+      images: ${{ steps.images.outputs.images }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_PRERELEASE: ${{ github.event.release.prerelease }}
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          if [[ "$EVENT_NAME" == "release" ]]; then
+            RAW="$RELEASE_TAG"
+            IS_PRE="$RELEASE_PRERELEASE"
+          else
+            RAW="$INPUT_VERSION"
+            if [[ -z "$RAW" ]]; then
+              RAW="$(scripts/curio-version.sh)"
+            fi
+            IS_PRE="$INPUT_PRERELEASE"
+          fi
+          VERSION="${RAW#v}"
+          if [[ ! "$VERSION" =~ ^[a-zA-Z0-9_][a-zA-Z0-9_.-]*$ ]] || (( ${#VERSION} > 119 )); then
+            echo "Invalid Docker image version: $VERSION" >&2
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$IS_PRE" >> "$GITHUB_OUTPUT"
+
+      - name: Define image matrix
+        id: images
+        run: |
+          IMAGES='[
+            {"name":"curio","network":"mainnet","file":"Dockerfile","target":"build"},
+            {"name":"curio","network":"calibnet","file":"Dockerfile","target":"calibnet"},
+            {"name":"curio","network":"debug","file":"Dockerfile","target":"debug"},
+            {"name":"curio","network":"2k","file":"Dockerfile","target":"2k"}
+          ]'
+          echo "images=$(jq -c . <<< "$IMAGES")" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build (${{ matrix.image.name }} / ${{ matrix.image.network }} / ${{ matrix.platform.arch }})
+    needs: resolve
+    runs-on: ${{ matrix.platform.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ${{ fromJSON(needs.resolve.outputs.images) }}
+        platform:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    env:
+      IMAGE: filecoin/curio
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push architecture image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          target: curio
+          platforms: linux/${{ matrix.platform.arch }}
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          build-args: |
+            CURIO_MAKE_TARGET=${{ matrix.image.target }}
+            CURIO_BUILD_COMMIT=${{ github.sha }}
+            BUILD_VERSION=${{ needs.resolve.outputs.version }}${{ matrix.image.network != 'mainnet' && format('-{0}', matrix.image.network) || '' }}
+
+      - name: Verify architecture image starts
+        env:
+          ARCH: ${{ matrix.platform.arch }}
+          BINARY: curio
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: docker run --rm --platform "linux/$ARCH" --entrypoint "$BINARY" "$IMAGE@$DIGEST" --version
+
+      - name: Export digest
+        env:
+          ARCH: ${{ matrix.platform.arch }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || exit 1
+          mkdir -p "$RUNNER_TEMP/digests"
+          printf '%s\n' "$DIGEST" > "$RUNNER_TEMP/digests/$ARCH"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ matrix.image.name }}-${{ matrix.image.network }}-${{ matrix.platform.arch }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          overwrite: true
+
+  publish:
+    name: Publish (${{ matrix.image.name }} / ${{ matrix.image.network }})
+    needs: [resolve, build]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ${{ fromJSON(needs.resolve.outputs.images) }}
+    env:
+      IMAGE: filecoin/curio
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-${{ matrix.image.name }}-${{ matrix.image.network }}-*
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Publish multi-platform image
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+          IS_PRE: ${{ needs.resolve.outputs.prerelease }}
+          NETWORK: ${{ matrix.image.network }}
+        run: |
+          suffix=""
+          stable_tag="latest"
+          if [[ "$NETWORK" != "mainnet" ]]; then
+            suffix="-$NETWORK"
+            stable_tag="$NETWORK"
+          fi
+          version_tag="$IMAGE:$VERSION$suffix"
+          tag_args=(--tag "$version_tag")
+          if [[ "$IS_PRE" != "true" ]]; then
+            tag_args+=(--tag "$IMAGE:$stable_tag")
+          fi
+          sources=()
+          for arch in amd64 arm64; do
+            digest="$(cat "$RUNNER_TEMP/digests/$arch")"
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || exit 1
+            sources+=("$IMAGE@$digest")
+          done
+
+          docker buildx imagetools create --dry-run "${sources[@]}" > "$RUNNER_TEMP/manifest.json"
+          jq -e '
+            [.manifests[].platform | select(.os == "linux") | .architecture]
+            | sort | unique == ["amd64", "arm64"]
+          ' "$RUNNER_TEMP/manifest.json"
+          docker buildx imagetools create "${tag_args[@]}" "${sources[@]}"
+          docker buildx imagetools inspect --raw "$version_tag" | jq -e '
+            [.manifests[].platform | select(.os == "linux") | .architecture]
+            | sort | unique == ["amd64", "arm64"]
+          '
