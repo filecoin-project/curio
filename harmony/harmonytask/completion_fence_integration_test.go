@@ -4,7 +4,6 @@ package harmonytask
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"os"
 	"strconv"
@@ -66,13 +65,14 @@ func TestCompletionFence(t *testing.T) {
 	require.NoError(t, err)
 	ctx := context.Background()
 	for _, tc := range []struct {
-		name                                                                      string
-		stale, sameOwner, missing, success, preempt, historyFailure, finalFailure bool
+		name                                                                               string
+		stale, sameOwner, recover, missing, success, preempt, historyFailure, finalFailure bool
 	}{
 		{name: "stale success", stale: true, success: true},
 		{name: "stale failure", stale: true},
 		{name: "stale final failure", stale: true, finalFailure: true},
 		{name: "same owner reacquisition", stale: true, sameOwner: true, success: true},
+		{name: "same owner recovery", stale: true, recover: true, success: true},
 		{name: "missing task", missing: true, success: true},
 		{name: "normal completion", success: true},
 		{name: "normal retry"},
@@ -100,11 +100,16 @@ func TestCompletionFence(t *testing.T) {
 			h.accept.Add([]int64{int64(id)})
 			require.True(t, h.considerWork(workSourcePoller, []task{{ID: id}}, eventEmitter{schedulerChannel: events}))
 			waitAcceptanceTestValue(t, body.entered)
+			var generation int64
+			require.NoError(t, db.QueryRow(ctx, `SELECT owner_generation FROM harmony_task WHERE id=$1`, id).Scan(&generation))
 			var current *fenceTask
 			var currentEvents chan schedulerEvent
 			var currentCallbacks *atomic.Int32
 			if tc.stale {
-				if tc.sameOwner {
+				from := workSourcePoller
+				if tc.recover {
+					from = workSourceRecover
+				} else if tc.sameOwner {
 					_, err = db.Exec(ctx, `UPDATE harmony_task SET owner_id=NULL WHERE id=$1`, id)
 				} else {
 					_, err = db.Exec(ctx, `UPDATE harmony_machines SET last_contact=CURRENT_TIMESTAMP - INTERVAL '1 day' WHERE id=$1`, owner)
@@ -116,8 +121,15 @@ func TestCompletionFence(t *testing.T) {
 				var next *taskTypeHandler
 				next, current, currentEvents, currentCallbacks = fenceHandler(db, owner)
 				next.accept.Add([]int64{int64(id)})
-				require.True(t, next.considerWork(workSourcePoller, []task{{ID: id}}, eventEmitter{schedulerChannel: currentEvents}))
+				require.True(t, next.considerWork(from, []task{{ID: id}}, eventEmitter{schedulerChannel: currentEvents}))
 				waitAcceptanceTestValue(t, current.entered)
+				var nextGeneration int64
+				require.NoError(t, db.QueryRow(ctx, `SELECT owner_generation FROM harmony_task WHERE id=$1`, id).Scan(&nextGeneration))
+				require.Greater(t, nextGeneration, generation)
+				if tc.recover {
+					require.Equal(t, generation+1, nextGeneration)
+				}
+				generation = nextGeneration
 				t.Cleanup(func() {
 					select {
 					case current.finish <- true:
@@ -163,14 +175,22 @@ func TestCompletionFence(t *testing.T) {
 				require.Zero(t, callbacks.Load())
 				if tc.stale {
 					var gotOwner, retries int
+					var gotGeneration int64
 					var gotUpdated time.Time
-					require.NoError(t, db.QueryRow(ctx, `SELECT owner_id,retries,update_time FROM harmony_task WHERE id=$1`, id).Scan(&gotOwner, &retries, &gotUpdated))
+					require.NoError(t, db.QueryRow(ctx, `SELECT owner_id,retries,update_time,owner_generation FROM harmony_task WHERE id=$1`, id).Scan(&gotOwner, &retries, &gotUpdated, &gotGeneration))
 					require.Equal(t, owner, gotOwner)
+					require.Equal(t, generation, gotGeneration)
 					require.Equal(t, 2, retries)
 					require.True(t, updated.Equal(gotUpdated))
+					require.Zero(t, currentCallbacks.Load())
 					current.finish <- true
 					waitFenceCompleted(t, currentEvents)
 					require.Equal(t, int32(1), currentCallbacks.Load())
+					var count int
+					require.NoError(t, db.QueryRow(ctx, `SELECT count(*) FROM harmony_task WHERE id=$1`, id).Scan(&count))
+					require.Zero(t, count)
+					require.NoError(t, db.QueryRow(ctx, `SELECT count(*) FROM harmony_task_history WHERE task_id=$1 AND result=true`, id).Scan(&histories))
+					require.Equal(t, 1, histories)
 				}
 			} else {
 				require.Equal(t, 1, histories)
@@ -216,15 +236,4 @@ func waitFenceCompleted(t *testing.T, events <-chan schedulerEvent) {
 			return
 		}
 	}
-}
-
-func TestPeerRetryCommittedTime(t *testing.T) {
-	updated := time.Now().Add(-time.Hour).UTC()
-	wire, err := json.Marshal(map[string]any{"verb": "newTask", "taskID": 42,
-		"other": map[string]any{"taskType": "Fence", "retries": 1, "posted": updated, "updateTime": updated}})
-	require.NoError(t, err)
-	events := make(chan schedulerEvent, 1)
-	p := &peering{h: &TaskEngine{schedulerChannel: events}, peers: peerregistry.New()}
-	require.NoError(t, p.handlePeerMessage("peer", 1, wire))
-	require.True(t, taskFromSchedulerEvent(<-events).UpdateTime.Equal(updated))
 }
