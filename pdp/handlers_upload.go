@@ -720,7 +720,7 @@ func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 	}
 	if responseStatus == http.StatusOK {
 		if err := p.placeRef(ctx, placedRef); err != nil {
-			httpServerError(w, http.StatusInternalServerError, "Failed to place piece in hash space", err)
+			httpPlaceError(w, err)
 			return
 		}
 	}
@@ -792,7 +792,7 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := p.placeRef(ctx, pieceRef.Int64); err != nil {
-			httpServerError(w, http.StatusInternalServerError, "Failed to place piece in hash space", err)
+			httpPlaceError(w, err)
 			return
 		}
 		if _, err := p.db.Exec(ctx, `DELETE FROM pdp_piece_uploads WHERE id = $1 AND piece_ref = $2`, uploadUUID.String(), pieceRef.Int64); err != nil {
@@ -1217,7 +1217,7 @@ func (p *PDPService) handleFinalizeStreamingUpload(w http.ResponseWriter, r *htt
 		return
 	}
 	if err := p.placeRef(ctx, pref); err != nil {
-		httpServerError(w, http.StatusInternalServerError, "Failed to place piece in hash space", err)
+		httpPlaceError(w, err)
 		return
 	}
 	w.WriteHeader(http.StatusOK)

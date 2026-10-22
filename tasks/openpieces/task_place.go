@@ -1,6 +1,6 @@
 // Package openpieces moves PDP pieces between piece-park and the cluster
 // hash spaces. Public pieces go to open-pieces. Pieces in a data set whose
-// foc/acl metadata is true go to acl-pieces.
+// read metadata is restricted go to acl-pieces.
 package openpieces
 
 import (
@@ -17,6 +17,7 @@ import (
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/hashfolder"
+	"github.com/filecoin-project/curio/lib/keysmith"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/piecestore"
 	"github.com/filecoin-project/curio/lib/storiface"
@@ -45,7 +46,7 @@ type parkedPiece struct {
 }
 
 // Place copies the PDP piece for parked piece ref pieceRef into open-pieces,
-// or into acl-pieces when one of its data sets has foc/acl set. After it
+// or into acl-pieces when one of its data sets is read-restricted. After it
 // returns nil, a client can read the piece from that hash space. A nil cluster
 // means this node has not joined the hash space, and placement is skipped.
 // When a hash_space_delete row is present the bytes are left in piece-park.
@@ -54,7 +55,7 @@ func Place(ctx context.Context, db *harmonydb.DB, hs *hashfolder.Cluster, local 
 }
 
 // PlaceACL copies the piece into acl-pieces. The caller has established that
-// the piece belongs to a data set whose foc/acl metadata is true, including
+// the piece belongs to a data set whose read metadata is restricted, including
 // when that data set row is not linked to the piece yet. An open-pieces copy
 // is removed unless the piece is also in a data set whose acl flag is not true.
 func PlaceACL(ctx context.Context, db *harmonydb.DB, hs *hashfolder.Cluster, local *paths.Local, pieceIO piecestore.PieceIO, pieceRef int64) error {
@@ -189,6 +190,17 @@ func place(ctx context.Context, db *harmonydb.DB, hs *hashfolder.Cluster, local 
 		}
 	}
 	if wantACL {
+		placed, err := hs.ACL.HasFile(ctx, pc)
+		if err != nil {
+			return xerrors.Errorf("checking acl-pieces for %s: %w", pc, err)
+		}
+		// The park file is still here the first time an ACL piece is finalized.
+		// A copy already in acl-pieces was checked on that write.
+		if !placed {
+			if err := requireEnvelope(ctx, pieceIO, pp.ID); err != nil {
+				return xerrors.Errorf("acl piece %s: %w", pc, err)
+			}
+		}
 		if err := ensure(hs.ACL); err != nil {
 			if errors.Is(err, errPlacementAborted) {
 				return nil
@@ -226,8 +238,22 @@ func place(ctx context.Context, db *harmonydb.DB, hs *hashfolder.Cluster, local 
 	return nil
 }
 
-// pieceInACL reports whether pieceRef belongs to a data set whose foc/acl
-// metadata is true. pieceRef is parked_piece_refs.ref_id.
+// requireEnvelope reads the parked piece and requires a FEE envelope.
+// The caller is finalizing a piece into acl-pieces and the park file is still present.
+func requireEnvelope(ctx context.Context, pieceIO piecestore.PieceIO, parkedID int64) error {
+	rc, err := pieceIO.PieceReader(ctx, storiface.PieceNumber(parkedID))
+	if err != nil {
+		return xerrors.Errorf("reading parked piece %d: %w", parkedID, err)
+	}
+	defer func() { _ = rc.Close() }()
+	if _, err := keysmith.ReadEnvelopeLabels(rc); err != nil {
+		return err
+	}
+	return nil
+}
+
+// pieceInACL reports whether pieceRef belongs to a data set whose read
+// metadata is restricted. pieceRef is parked_piece_refs.ref_id.
 func pieceInACL(ctx context.Context, db *harmonydb.DB, pieceRef int64) (bool, error) {
 	return pieceDatasetACL(ctx, db, pieceRef, true)
 }

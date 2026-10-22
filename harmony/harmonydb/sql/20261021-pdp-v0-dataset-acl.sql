@@ -1,4 +1,4 @@
--- Cache foc/acl intent on the data set so piece placement does not depend on
+-- Cache read-restricted intent on the data set so piece placement does not depend on
 -- a live chain metadata read. NULL means unresolved.
 DO $$
 BEGIN
@@ -14,4 +14,4 @@ BEGIN
 END $$;
 
 COMMENT ON COLUMN pdp_data_sets.acl IS
-    'foc/acl intent: TRUE when metadata key foc/acl is "true", FALSE once known otherwise, NULL until resolved from create extra_data or chain';
+    'read-restricted intent: TRUE when metadata key read is "restricted", FALSE once known otherwise, NULL until resolved from create extra_data or chain';

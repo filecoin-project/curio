@@ -22,6 +22,7 @@ import (
 	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/keysmith"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/tasks/openpieces"
 )
@@ -415,10 +416,21 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 	if mustIndex {
 		log.Infow("Data set has withIPFSIndexing enabled, pieces will be indexed", "dataSetId", dataSetId)
 	}
-	if _, err := ResolveDatasetACL(workCtx, p.db, p.ethClient, dataSetIdUint64); err != nil {
+	acl, err := ResolveDatasetACL(workCtx, p.db, p.ethClient, dataSetIdUint64)
+	if err != nil {
 		log.Errorw("Failed to resolve ACL requirements", "error", err, "dataSetId", dataSetId)
 		httpServerError(w, http.StatusInternalServerError, "Internal server error", err)
 		return
+	}
+	if acl {
+		if err := p.requireACLEnvelopes(workCtx, subPieceInfoMap); err != nil {
+			if errors.Is(err, keysmith.ErrInvalidEnvelope) {
+				httpServerError(w, http.StatusBadRequest, "Piece is missing a valid encryption envelope", err)
+				return
+			}
+			httpServerError(w, http.StatusInternalServerError, "Failed to read piece envelope", err)
+			return
+		}
 	}
 
 	// Step 9: Send the transaction
@@ -495,7 +507,7 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 
 	if err := p.placePieceRefs(workCtx, subPieceInfoMap, false); err != nil {
 		log.Errorw("Failed to place added pieces", "error", err, "txHash", txHashLower)
-		httpServerError(w, http.StatusInternalServerError, "Failed to place piece in hash space", err)
+		httpPlaceError(w, err)
 		return
 	}
 
@@ -545,8 +557,8 @@ func (p *PDPService) insertPieceAdds(txdb *harmonydb.Tx, dataSetId *uint64, txHa
 
 // placePieceRefs copies each parked piece into the hash space its data sets
 // require. forceACL writes acl-pieces even when the data set row is not linked
-// yet. The caller has committed the piece-add rows, or has decoded foc/acl
-// from create extraData.
+// yet. The caller has committed the piece-add rows, or has decoded read
+// metadata as restricted from create extraData.
 func (p *PDPService) placePieceRefs(ctx context.Context, infos map[string]*SubPieceInfo, forceACL bool) error {
 	seen := map[int64]struct{}{}
 	for _, info := range infos {

@@ -3,6 +3,7 @@ package retrieval
 import (
 	"context"
 	"fmt"
+	"math/big"
 	"net/http"
 	"path"
 	"strconv"
@@ -46,10 +47,21 @@ var (
 )
 
 type Provider struct {
-	db  *harmonydb.DB
-	bs  *remoteblockstore.RemoteBlockstore
-	fr  *frisbii.HttpIpfs
-	cpr *cachedreader.CachedPieceReader
+	db         *harmonydb.DB
+	bs         *remoteblockstore.RemoteBlockstore
+	fr         *frisbii.HttpIpfs
+	cpr        *cachedreader.CachedPieceReader
+	blockChain *big.Int
+}
+
+// SetBlockChain records the blockchain FOC grants must name.
+// id is copied. A nil id leaves ACL downloads without a blockchain to check against.
+func (p *Provider) SetBlockChain(id *big.Int) {
+	if id == nil {
+		p.blockChain = nil
+		return
+	}
+	p.blockChain = new(big.Int).Set(id)
 }
 
 const (

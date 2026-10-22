@@ -89,22 +89,27 @@ func TestACLFromExtraData(t *testing.T) {
 	require.False(t, known)
 	require.False(t, acl)
 
-	withACL := packCreatePayloadWithValues(t, payer, 1, []string{"foc/acl"}, []string{"true"})
+	withACL := packCreatePayloadWithValues(t, payer, 1, []string{MetadataKeyACL}, []string{DATASET_READ_RESTRICTED})
 	known, acl = ACLFromExtraData(withACL)
 	require.True(t, known)
 	require.True(t, acl)
 
-	folded := packCreatePayloadWithValues(t, payer, 1, []string{"foc/acl"}, []string{" TRUE "})
+	folded := packCreatePayloadWithValues(t, payer, 1, []string{MetadataKeyACL}, []string{" RESTRICTED "})
 	known, acl = ACLFromExtraData(folded)
 	require.True(t, known)
 	require.True(t, acl)
 
-	off := packCreatePayloadWithValues(t, payer, 1, []string{"foc/acl"}, []string{"false"})
+	off := packCreatePayloadWithValues(t, payer, 1, []string{MetadataKeyACL}, []string{"false"})
 	known, acl = ACLFromExtraData(off)
 	require.True(t, known)
 	require.False(t, acl)
 
-	other := packCreatePayloadWithValues(t, payer, 1, []string{"other"}, []string{"true"})
+	legacy := packCreatePayloadWithValues(t, payer, 1, []string{MetadataKeyACL}, []string{"true"})
+	known, acl = ACLFromExtraData(legacy)
+	require.True(t, known)
+	require.False(t, acl)
+
+	other := packCreatePayloadWithValues(t, payer, 1, []string{"other"}, []string{DATASET_READ_RESTRICTED})
 	known, acl = ACLFromExtraData(other)
 	require.True(t, known)
 	require.False(t, acl)

@@ -15,10 +15,13 @@ import (
 	"github.com/filecoin-project/curio/pdp/contract"
 )
 
-// MetadataKeyACL is the data set metadata key whose value "true" marks an ACL data set.
-const MetadataKeyACL = "foc/acl"
+// MetadataKeyACL is the data set metadata key for read access.
+const MetadataKeyACL = "read"
 
-// ACLFromExtraData reports whether create extraData sets foc/acl to true.
+// DATASET_READ_RESTRICTED is the read-metadata value that marks an ACL data set.
+const DATASET_READ_RESTRICTED = "restricted"
+
+// ACLFromExtraData reports whether create extraData sets read to restricted.
 // known is false when extraData is empty or cannot be decoded as FWSS create metadata.
 func ACLFromExtraData(extraData []byte) (known bool, acl bool) {
 	if len(extraData) == 0 {
@@ -31,24 +34,24 @@ func ACLFromExtraData(extraData []byte) (known bool, acl bool) {
 		return false, false
 	}
 
-	return true, metadataValueTrue(payload, MetadataKeyACL)
+	return true, verifyMetadataValue(payload, MetadataKeyACL, DATASET_READ_RESTRICTED)
 }
 
-// metadataValueTrue reports whether key's paired metadata value is the string "true".
+// verifyMetadataValue reports whether key's paired metadata value equals want, ignoring case and surrounding space.
 // The caller has already decoded the create payload.
-func metadataValueTrue(payload *FWSSCreateIdentity, key string) bool {
+func verifyMetadataValue(payload *FWSSCreateIdentity, key, want string) bool {
 	for i, k := range payload.MetadataKeys {
 		if k != key || i >= len(payload.MetadataValues) {
 			continue
 		}
-		if strings.EqualFold(strings.TrimSpace(payload.MetadataValues[i]), "true") {
+		if strings.EqualFold(strings.TrimSpace(payload.MetadataValues[i]), want) {
 			return true
 		}
 	}
 	return false
 }
 
-// ResolveDatasetACL returns the cached foc/acl intent for a data set.
+// ResolveDatasetACL returns the cached read-restricted intent for a data set.
 // If pdp_data_sets.acl is NULL, it reads chain metadata and persists the result.
 // Chain/read failures return an error so callers do not treat an unknown data set as public.
 func ResolveDatasetACL(
@@ -92,7 +95,8 @@ func readDatasetACL(ctx context.Context, db *harmonydb.DB, dataSetId uint64) (*b
 	return &v, nil
 }
 
-// fetchFromChainACL reads foc/acl from the data set listener. A missing key is false.
+// fetchFromChainACL reads the read metadata key from the data set listener.
+// A missing key, or a value other than restricted, is false.
 func fetchFromChainACL(ctx context.Context, ethClient ethchain.EthClient, dataSetId uint64) (bool, error) {
 	pdpVerifier, err := contract.NewPDPVerifierCaller(contract.ContractAddresses().PDPVerifier, ethClient)
 	if err != nil {
@@ -109,7 +113,7 @@ func fetchFromChainACL(ctx context.Context, ethClient ethchain.EthClient, dataSe
 	if err != nil {
 		return false, xerrors.Errorf("GetDataSetMetadataAtKey(%d, %s): %w", dataSetId, MetadataKeyACL, err)
 	}
-	return exists && strings.EqualFold(strings.TrimSpace(value), "true"), nil
+	return exists && strings.EqualFold(strings.TrimSpace(value), DATASET_READ_RESTRICTED), nil
 }
 
 // PersistDatasetACL stores a resolved acl value when the column is still NULL.

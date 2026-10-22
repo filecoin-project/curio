@@ -75,6 +75,19 @@ func (o *OpenPieceReader) ReadPiece(ctx context.Context, pc cid.Cid, rawSize int
 	return pr, nil
 }
 
+// HasPiece reports whether pc is in this hash space. The caller passes a
+// piece CID v2. A nil space is a miss. The check stats candidate folders.
+func (o *OpenPieceReader) HasPiece(ctx context.Context, pc cid.Cid) (bool, error) {
+	if o.space == nil {
+		return false, nil
+	}
+	holder, err := o.find(ctx, pc)
+	if err != nil {
+		return false, err
+	}
+	return holder != "", nil
+}
+
 // find returns the storage id of a disk that has pc, or "" when none does.
 // Every candidate is checked at once and the first hit wins, local disks
 // being the quickest to answer. A candidate that errors counts as a miss; the

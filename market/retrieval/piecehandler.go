@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/big"
 	"mime"
 	"net/http"
 	"net/url"
@@ -13,6 +14,7 @@ import (
 	"go.opencensus.io/stats"
 
 	"github.com/filecoin-project/curio/lib/cachedreader"
+	"github.com/filecoin-project/curio/lib/keysmith"
 	"github.com/filecoin-project/curio/lib/pieceprovider"
 	"github.com/filecoin-project/curio/market/retrieval/remoteblockstore"
 )
@@ -128,6 +130,22 @@ func (rp *Provider) handleDownload(w http.ResponseWriter, r *http.Request) {
 		_ = reader.Close()
 	}()
 
+	if err := authorizeACLRead(r, reader, pieceCid, rp.blockChain); err != nil {
+		if errors.Is(err, errBlockChainUnset) {
+			log.Warnw("acl download refused: blockchain is not configured", "piece", pieceCid)
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		if errors.Is(err, keysmith.ErrNoGrant) || errors.Is(err, keysmith.ErrInvalidGrant) || errors.Is(err, keysmith.ErrInvalidEnvelope) {
+			log.Debugw("acl download refused", "piece", pieceCid, "error", err)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		log.Errorw("acl download could not read the piece", "piece", pieceCid, "error", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
 	contentType, err := sniffContentType(reader)
 	if err != nil {
 		log.Errorf("error sniffing content type for piece CID %s: %s", pieceCid, err)
@@ -137,6 +155,26 @@ func (rp *Provider) handleDownload(w http.ResponseWriter, r *http.Request) {
 
 	setHeaders(w, pieceCid, contentType)
 	http.ServeContent(w, r, "", lastModified, io.NewSectionReader(reader, 0, int64(rawSize)))
+}
+
+var errBlockChainUnset = errors.New("blockchain is not configured")
+
+// authorizeACLRead checks the longest FOC grant on r against piece.
+// An ACL piece has a FEE envelope; the grant must reach that piece's labels.
+// The caller has an open reader; the envelope is read from the front and the offset is left unchanged.
+func authorizeACLRead(r *http.Request, reader io.ReaderAt, piece cid.Cid, blockChain *big.Int) error {
+	raw, err := keysmith.Credential(r)
+	if err != nil {
+		return err
+	}
+	if blockChain == nil {
+		return errBlockChainUnset
+	}
+	labels, err := keysmith.ReadEnvelopeLabelsAt(reader)
+	if err != nil {
+		return err
+	}
+	return keysmith.VerifyPresentation(raw, piece.Bytes(), labels.Piece(), blockChain, time.Now())
 }
 
 func sniffContentType(r io.ReaderAt) (string, error) {

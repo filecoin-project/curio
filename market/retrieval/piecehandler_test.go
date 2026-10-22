@@ -112,6 +112,11 @@ type aclFiles struct {
 	files map[cid.Cid][]byte
 }
 
+func (a *aclFiles) HasPiece(_ context.Context, pc cid.Cid) (bool, error) {
+	_, ok := a.files[pc]
+	return ok, nil
+}
+
 func (a *aclFiles) ReadPiece(_ context.Context, pc cid.Cid, _ int64) (storiface.Reader, error) {
 	data, ok := a.files[pc]
 	if !ok {
@@ -139,13 +144,13 @@ func TestHandleDownload(t *testing.T) {
 	body, err := io.ReadAll(res.Body)
 	require.NoError(t, err)
 	require.NoError(t, res.Body.Close())
-	require.Equal(t, http.StatusOK, res.StatusCode)
-	require.Equal(t, payload, body)
+	require.Equal(t, http.StatusUnauthorized, res.StatusCode)
+	require.Empty(t, body)
 
 	head, err := http.Head(srv.URL + "/download/" + v2.String())
 	require.NoError(t, err)
 	require.NoError(t, head.Body.Close())
-	require.Equal(t, http.StatusOK, head.StatusCode)
+	require.Equal(t, http.StatusUnauthorized, head.StatusCode)
 
 	miss, err := http.Get(srv.URL + "/download/" + v1.String())
 	require.NoError(t, err)
