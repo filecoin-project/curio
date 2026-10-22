@@ -116,6 +116,9 @@ customElements.define('storage-paths-list', class StoragePathsList extends LitEl
             color: var(--color-text-primary);
             word-break: break-all;
         }
+        a.mount-path {
+            color: var(--color-accent-fg);
+        }
         .mount-id {
             margin-top: 2px;
             font-size: 0.75em;
@@ -480,7 +483,13 @@ customElements.define('storage-paths-list', class StoragePathsList extends LitEl
                         ` : filtered.map(path => html`
                             <tr>
                                 <td>
-                                    <code class="mount-path">${path.LocalPath || '—'}</code>
+                                    ${this.isSkiff ? html`
+                                        <code class="mount-path">${path.LocalPath || '—'}</code>
+                                    ` : html`
+                                        <a class="mount-path" href="/pages/storage_path/?id=${encodeURIComponent(path.StorageID)}">
+                                            <code>${path.LocalPath || path.StorageID}</code>
+                                        </a>
+                                    `}
                                     <div class="mount-id">${path.StorageID?.substring(0, 8)}…</div>
                                 </td>
                                 <td>

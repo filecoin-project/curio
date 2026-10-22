@@ -18,6 +18,7 @@ if (isSkiff) {
         import('/win-stats.mjs'),
         import('/cc-scheduler.mjs'),
         import('/pipeline-porep.mjs'),
+        import('/pipeline-stats.mjs'),
         import('/cluster-tasks.mjs'),
         import('/ux/curio-ux.mjs'),
         import('/ux/components/Drawer.mjs'),
