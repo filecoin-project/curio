@@ -26,6 +26,8 @@ import (
 	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/ethchain"
+	"github.com/filecoin-project/curio/lib/hashfolder"
+	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/piecestore"
 	ipni_provider "github.com/filecoin-project/curio/market/ipni/ipni-provider"
 	"github.com/filecoin-project/curio/pdp/contract"
@@ -41,7 +43,16 @@ func httpServerError(w http.ResponseWriter, statusCode int, msg string, err erro
 		return
 	}
 	eid := uuid.New()
-	log.Errorf("%s [eid=%s]: %+v", msg, eid, err)
+	detail := msg
+	if err != nil {
+		detail = fmt.Sprintf("%s: %+v", msg, err)
+	}
+	// Client faults (4xx) are expected; keep an eid for support without ERROR noise.
+	if statusCode >= http.StatusInternalServerError {
+		log.Errorf("%s [eid=%s]", detail, eid)
+	} else {
+		log.Warnf("%s [eid=%s]", detail, eid)
+	}
 	http.Error(w, fmt.Sprintf("%s [eid: %s]", msg, eid), statusCode)
 }
 
@@ -71,6 +82,8 @@ type PDPService struct {
 	Auth
 	db      *harmonydb.DB
 	pieceIO piecestore.PieceIO
+	hs      *hashfolder.Cluster
+	local   *paths.Local
 
 	sender    ETHTxSender
 	ethClient ethchain.EthClient
@@ -98,7 +111,9 @@ func NewPDPService(
 	fc PDPServiceNodeApi,
 	sn ETHTxSender,
 	alertTask *alertmanager.AlertTask,
-	ipp *ipni_provider.Provider) *PDPService {
+	ipp *ipni_provider.Provider,
+	hs *hashfolder.Cluster,
+	local *paths.Local) *PDPService {
 	auth := &NullAuth{}
 	pullStore := NewDBPullStore(db)
 	pullValidator := NewEthCallValidator(ec, db)
@@ -107,6 +122,8 @@ func NewPDPService(
 		Auth:    auth,
 		db:      db,
 		pieceIO: pieceIO,
+		hs:      hs,
+		local:   local,
 
 		sender:    sn,
 		ethClient: ec,

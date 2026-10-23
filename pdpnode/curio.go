@@ -3,12 +3,16 @@ package pdpnode
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"reflect"
+
+	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/cuhttp/servicedeps"
 	curiodeps "github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/lib/chainsched"
+	"github.com/filecoin-project/curio/lib/pieceprovider"
 	"github.com/filecoin-project/curio/lib/piecestore"
 	pdpwallet "github.com/filecoin-project/curio/pdp/wallet"
 )
@@ -28,6 +32,21 @@ func Attach(
 		} else if !hasKey && cd.Alert != nil {
 			log.Warn("PDP signing key not configured")
 			cd.Alert.AddAlert("PDP wallet not configured. Create or assign a key on the PDP page.")
+		}
+	}
+
+	if cd.HashSpace == nil {
+		sa, err := curiodeps.StorageAuth(cd.Cfg.Apis.StorageRPCSecret)
+		if err != nil {
+			return xerrors.Errorf("storage auth: %w", err)
+		}
+		hs, err := NewHashSpace(ctx, cd.DB, cd.LocalStore, cd.Si, http.Header(sa))
+		if err != nil {
+			return xerrors.Errorf("hash space: %w", err)
+		}
+		cd.HashSpace = hs
+		if hs != nil && cd.CachedPieceReader != nil {
+			cd.CachedPieceReader.SetOpenPieceReader(pieceprovider.NewOpenPieceReader(hs))
 		}
 	}
 
