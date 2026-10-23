@@ -20,22 +20,22 @@ const (
 )
 
 // Labels are the foc fields carried in a FEE envelope's protected app_metadata.
-// Scope is optional; the other fields are required and Version is 1.
+// Groups is optional; the other fields are required and Version is 1.
 type Labels struct {
-	Version  int64
-	Owner    string
-	Keyspace string
-	Scope    string
-	HasScope bool
-	Salt     string
+	Version   int64
+	Owner     string
+	GroupKey  string
+	Groups    string
+	HasGroups bool
+	Salt      string
 }
 
 // Piece returns the labels a grant check compares against the envelope.
 func (l Labels) Piece() PieceLabels {
-	out := PieceLabels{Owner: l.Owner, Keyspace: l.Keyspace, Salt: l.Salt}
-	if l.HasScope {
-		scope := l.Scope
-		out.Scope = &scope
+	out := PieceLabels{Owner: l.Owner, GroupKey: l.GroupKey, Salt: l.Salt}
+	if l.HasGroups {
+		groups := l.Groups
+		out.Groups = &groups
 	}
 	return out
 }
@@ -131,7 +131,7 @@ func labelsFromItem(item []byte) (Labels, error) {
 	return labelsFromMetadata(meta)
 }
 
-// labelsFromMetadata requires foc/v, foc/own, foc/ks, and foc/salt. foc/scope may be absent.
+// labelsFromMetadata requires foc/v, foc/own, foc/groupKey, and foc/salt. foc/groups may be absent.
 func labelsFromMetadata(meta map[any]any) (Labels, error) {
 	version, ok := meta["foc/v"]
 	if !ok {
@@ -145,7 +145,7 @@ func labelsFromMetadata(meta map[any]any) (Labels, error) {
 	if err != nil {
 		return Labels{}, err
 	}
-	keyspace, err := requiredText(meta, "foc/ks")
+	groupKey, err := requiredText(meta, "foc/groupKey")
 	if err != nil {
 		return Labels{}, err
 	}
@@ -153,14 +153,14 @@ func labelsFromMetadata(meta map[any]any) (Labels, error) {
 	if err != nil {
 		return Labels{}, err
 	}
-	out := Labels{Version: 1, Owner: owner, Keyspace: keyspace, Salt: salt}
-	if raw, ok := meta["foc/scope"]; ok {
-		scope, ok := raw.(string)
-		if !ok || scope == "" {
-			return Labels{}, fmt.Errorf("%w: foc/scope must be a non-empty string", ErrInvalidEnvelope)
+	out := Labels{Version: 1, Owner: owner, GroupKey: groupKey, Salt: salt}
+	if raw, ok := meta["foc/groups"]; ok {
+		groups, ok := raw.(string)
+		if !ok || groups == "" {
+			return Labels{}, fmt.Errorf("%w: foc/groups must be a non-empty string", ErrInvalidEnvelope)
 		}
-		out.Scope = scope
-		out.HasScope = true
+		out.Groups = groups
+		out.HasGroups = true
 	}
 	return out, nil
 }

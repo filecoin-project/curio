@@ -41,12 +41,12 @@ func grantMessage(grant grantChain, link claimLink) map[string]any {
 		"v":                  big.NewInt(1),
 		"node":               link.node,
 		"owner":              grant.owner.Hex(),
-		"keyspace":           grant.keyspace,
+		"groupKey":           grant.groupKey,
 		"bearer":             link.bearer.Hex(),
 		"maxDepth":           big.NewInt(int64(link.maxDepth)),
 		blockChainField:      grant.blockChain,
 		"keyCommitment":      link.keyCommitment,
-		"keyspaceCommitment": grant.keyspaceCommitment,
+		"groupKeyCommitment": grant.groupKeyCommitment,
 		"expires":            big.NewInt(grant.expires),
 	}
 }
@@ -79,9 +79,9 @@ func encodePresentation(t *testing.T, grant grantChain, req readRequest) []byte 
 		}
 		if i == 0 {
 			m[2] = grant.owner.Bytes()
-			m[3] = grant.keyspace
+			m[3] = grant.groupKey
 			m[6] = grant.blockChain.Uint64()
-			m[10] = grant.keyspaceCommitment
+			m[10] = grant.groupKeyCommitment
 			m[11] = uint64(grant.expires)
 		}
 		links[i] = m
@@ -95,7 +95,7 @@ func encodePresentation(t *testing.T, grant grantChain, req readRequest) []byte 
 	return raw
 }
 
-func scopePtr(s string) *string { return &s }
+func groupsPtr(s string) *string { return &s }
 
 func TestVerifyPresentationMatchesKeysmith(t *testing.T) {
 	ownerKey := testKey(t, "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
@@ -106,7 +106,7 @@ func TestVerifyPresentationMatchesKeysmith(t *testing.T) {
 	a := crypto.PubkeyToAddress(aKey.PublicKey)
 	b := crypto.PubkeyToAddress(bKey.PublicKey)
 	stranger := crypto.PubkeyToAddress(strangerKey.PublicKey)
-	keyspace := common.Hex2Bytes("00112233445566778899aabbccddeeff")
+	groupKey := common.Hex2Bytes("00112233445566778899aabbccddeeff")
 	commitment := bytes16(0x11)
 	piece := []byte{0x01, 0x55, 0x91, 0x20, 0x24}
 	blockChain := new(big.Int).SetUint64(testBlockChain)
@@ -115,9 +115,9 @@ func TestVerifyPresentationMatchesKeysmith(t *testing.T) {
 	root := func(node string, bearer common.Address, depth int, exp int64) grantChain {
 		grant := grantChain{
 			owner:              owner,
-			keyspace:           keyspace,
+			groupKey:           groupKey,
 			blockChain:         blockChain,
-			keyspaceCommitment: commitment,
+			groupKeyCommitment: commitment,
 			expires:            exp,
 			links: []claimLink{{
 				node:          node,
@@ -145,26 +145,26 @@ func TestVerifyPresentationMatchesKeysmith(t *testing.T) {
 		return VerifyPresentation(raw, piece, labels, new(big.Int).SetUint64(network), time.Unix(at, 0))
 	}
 
-	team := root("scope:team", a, 1, expires)
-	two := delegate(team, aKey, "scope:team/alice", b, 0)
+	team := root("groups:team", a, 1, expires)
+	two := delegate(team, aKey, "groups:team/alice", b, 0)
 	alice := PieceLabels{
 		Owner:    owner.Hex(),
-		Keyspace: "0x" + common.Bytes2Hex(keyspace),
-		Scope:    scopePtr("team/alice"),
+		GroupKey: "0x" + common.Bytes2Hex(groupKey),
+		Groups:   groupsPtr("team/alice"),
 		Salt:     "0x000102030405060708090a0b0c0d0e0f",
 	}
 
 	require.NoError(t, check(present(two, bKey, piece, testNow+120), alice, testNow, testBlockChain))
 	notes := alice
-	notes.Scope = scopePtr("team/alice/notes")
+	notes.Groups = groupsPtr("team/alice/notes")
 	require.NoError(t, check(present(two, bKey, piece, testNow+120), notes, testNow, testBlockChain))
 
 	bob := alice
-	bob.Scope = scopePtr("team/bob")
+	bob.Groups = groupsPtr("team/bob")
 	require.ErrorContains(t, check(present(two, bKey, piece, testNow+120), bob, testNow, testBlockChain), "does not reach")
-	unscoped := alice
-	unscoped.Scope = nil
-	require.ErrorContains(t, check(present(two, bKey, piece, testNow+120), unscoped, testNow, testBlockChain), "does not reach")
+	noGroups := alice
+	noGroups.Groups = nil
+	require.ErrorContains(t, check(present(two, bKey, piece, testNow+120), noGroups, testNow, testBlockChain), "does not reach")
 	require.ErrorContains(t, check(present(two, aKey, piece, testNow+120), alice, testNow, testBlockChain), "not signed by the final bearer")
 	require.ErrorContains(t, check(present(two, bKey, piece, testNow-3600), alice, testNow, testBlockChain), "expired")
 	require.ErrorContains(t, check(present(two, bKey, piece, testNow+3600), alice, testNow, testBlockChain), "too long")
@@ -181,23 +181,23 @@ func TestVerifyPresentationMatchesKeysmith(t *testing.T) {
 	late := expires + 3600
 	require.ErrorContains(t, check(present(two, bKey, piece, late+120), alice, late, testBlockChain), "grant chain expired")
 
-	ungated := PieceLabels{Keyspace: alice.Keyspace, Salt: alice.Salt}
+	ungated := PieceLabels{GroupKey: alice.GroupKey, Salt: alice.Salt}
 	require.NoError(t, check(present(two, bKey, piece, testNow+120), ungated, testNow, testBlockChain))
 
-	forged := root("keyspace", a, 1, expires)
+	forged := root("groupKey", a, 1, expires)
 	forged.links[0].signature = signDigest(t, strangerKey, grantChain{
-		owner: stranger, keyspace: keyspace, blockChain: blockChain, keyspaceCommitment: commitment, expires: expires,
+		owner: stranger, groupKey: groupKey, blockChain: blockChain, groupKeyCommitment: commitment, expires: expires,
 		links: forged.links,
 	}, forged.links[0])
 	// The signature was made by the stranger over a message naming the real owner, so recovery is not the owner.
 	forged.links[0].signature = signDigest(t, strangerKey, forged, forged.links[0])
 	require.ErrorContains(t, check(present(forged, aKey, piece, testNow+120), ungated, testNow, testBlockChain), "not signed by the owner")
 
-	wide := delegate(team, aKey, "scope:other", b, 0)
+	wide := delegate(team, aKey, "groups:other", b, 0)
 	require.ErrorContains(t, check(present(wide, bKey, piece, testNow+120), alice, testNow, testBlockChain), "widens")
 
-	shallow := root("scope:team", a, 0, expires)
-	tooDeep := delegate(shallow, aKey, "scope:team/alice", b, 0)
+	shallow := root("groups:team", a, 0, expires)
+	tooDeep := delegate(shallow, aKey, "groups:team/alice", b, 0)
 	require.ErrorContains(t, check(present(tooDeep, bKey, piece, testNow+120), alice, testNow, testBlockChain), "maxDepth")
 }
 
@@ -206,12 +206,12 @@ func TestDecodePresentationRejectsMalformedLinks(t *testing.T) {
 	owner := crypto.PubkeyToAddress(ownerKey.PublicKey)
 	grant := grantChain{
 		owner:              owner,
-		keyspace:           bytes16(1),
+		groupKey:           bytes16(1),
 		blockChain:         new(big.Int).SetUint64(testBlockChain),
-		keyspaceCommitment: bytes16(2),
+		groupKeyCommitment: bytes16(2),
 		expires:            testNow + 100,
 		links: []claimLink{{
-			node: "keyspace", bearer: owner, maxDepth: 1, keyCommitment: bytes16(2),
+			node: "groupKey", bearer: owner, maxDepth: 1, keyCommitment: bytes16(2),
 		}},
 	}
 	grant.links[0].signature = signDigest(t, ownerKey, grant, grant.links[0])
@@ -229,7 +229,7 @@ func TestDecodePresentationRejectsMalformedLinks(t *testing.T) {
 	require.ErrorContains(t, VerifyPresentation(bad, []byte{1}, PieceLabels{}, grant.blockChain, testNowTime()), "unknown field")
 
 	delete(root, int64(12))
-	child := map[int64]any{0: uint64(1), 1: "scope:x", 2: owner.Bytes(), 4: owner.Bytes(), 5: uint64(0), 7: bytes16(3), 8: bytes16(4)}
+	child := map[int64]any{0: uint64(1), 1: "groups:x", 2: owner.Bytes(), 4: owner.Bytes(), 5: uint64(0), 7: bytes16(3), 8: bytes16(4)}
 	// signature length is wrong on purpose after we first check root-only.
 	bad, err = cbor.Marshal([]any{uint64(1), []any{root, child}, items[2]})
 	require.NoError(t, err)
