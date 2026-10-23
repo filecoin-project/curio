@@ -77,12 +77,20 @@ func TestSkiffCreateAddRetrieveLifecycle(t *testing.T) {
 	remote, err := paths.NewRemote(localStore, index, nil, 20, &paths.DefaultPartialFileHandler{})
 	require.NoError(t, err)
 
+	// Skiff places PDP bytes in open-pieces and serves /piece from there.
+	hs, err := NewHashSpace(ctx, db, localStore, index, nil)
+	require.NoError(t, err)
+	require.NotNil(t, hs)
+	t.Cleanup(func() { require.NoError(t, hs.Close()) })
+
 	cpr := cachedreader.NewCachedPieceReader(
 		db,
 		pieceprovider.NewSectorReader(remote, index),
 		pieceprovider.NewPieceParkReader(remote, index),
 		nil,
 	)
+	cpr.SetOpenPieceReader(pieceprovider.NewOpenPieceReader(hs))
+	cpr.SetACLPieceReader(pieceprovider.NewACLPieceReader(hs))
 
 	cfg := config.DefaultCurioConfig()
 	cfg.HTTP.DenylistServers = config.NewDynamic([]string{})
@@ -128,6 +136,8 @@ func TestSkiffCreateAddRetrieveLifecycle(t *testing.T) {
 		PieceIO:   piecestore.New(remote, localStore, index),
 		EthClient: stubEthClient{},
 		EthSender: mockSender,
+		HashSpace: hs,
+		Local:     localStore,
 	}, nil))
 
 	srv := httptest.NewServer(mux)

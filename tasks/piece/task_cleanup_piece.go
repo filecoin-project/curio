@@ -182,6 +182,8 @@ func (c *CleanupPieceTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.Ta
 		indIDs[i] = int64(id)
 	}
 
+	// Pieces moved into open-pieces have no piece-park file left; any node can
+	// drop their rows.
 	var acceptedIDs []harmonytask.TaskID
 	err = c.db.QueryRow(ctx, `SELECT COALESCE(array_agg(cleanup_task_id), '{}')::bigint[] AS cleanup_task_ids FROM 
 										(

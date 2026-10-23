@@ -3,6 +3,7 @@ package retrieval
 import (
 	"context"
 	"fmt"
+	"math/big"
 	"net/http"
 	"path"
 	"strconv"
@@ -46,16 +47,28 @@ var (
 )
 
 type Provider struct {
-	db  *harmonydb.DB
-	bs  *remoteblockstore.RemoteBlockstore
-	fr  *frisbii.HttpIpfs
-	cpr *cachedreader.CachedPieceReader
+	db         *harmonydb.DB
+	bs         *remoteblockstore.RemoteBlockstore
+	fr         *frisbii.HttpIpfs
+	cpr        *cachedreader.CachedPieceReader
+	blockChain *big.Int
+}
+
+// SetBlockChain records the blockchain FOC grants must name.
+// id is copied. A nil id leaves ACL downloads without a blockchain to check against.
+func (p *Provider) SetBlockChain(id *big.Int) {
+	if id == nil {
+		p.blockChain = nil
+		return
+	}
+	p.blockChain = new(big.Int).Set(id)
 }
 
 const (
-	piecePrefix = "/piece/"
-	ipfsPrefix  = "/ipfs/"
-	infoPage    = "/info"
+	piecePrefix    = "/piece/"
+	downloadPrefix = "/download/"
+	ipfsPrefix     = "/ipfs/"
+	infoPage       = "/info"
 )
 
 var RetrievalBlockCache = must.One(lru.NewARC[blockstore.MhString, blocks.Block](4096))
@@ -247,6 +260,8 @@ func Router(mux *chi.Mux, rp *Provider, df *denylist.Filter) {
 			r.Use(limiterMiddleware(pieceRequestLimiter))
 			r.Get(piecePrefix+"{cid}", rp.handleByPieceCid)
 			r.Head(piecePrefix+"{cid}", rp.handleByPieceCid)
+			r.Get(downloadPrefix+"{cid}", rp.handleDownload)
+			r.Head(downloadPrefix+"{cid}", rp.handleDownload)
 		})
 
 		// IPFS endpoints with denylist and limiter
