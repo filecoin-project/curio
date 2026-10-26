@@ -274,6 +274,100 @@ func TestHandlePull_BackpressureClientLimitAppliesNearGlobalReserve(t *testing.T
 	require.Equal(t, "60", rec.Header().Get("Retry-After"))
 }
 
+func TestHandlePull_PermanentAdmissionLimit(t *testing.T) {
+	limit := pullClientBorrowLimit()
+	tests := []struct {
+		name       string
+		pieceCount int
+		statusCode int
+	}{
+		{name: "at limit with multiple URLs", pieceCount: limit, statusCode: http.StatusOK},
+		{name: "above limit", pieceCount: limit + 1, statusCode: http.StatusBadRequest},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db, err := harmonydb.NewFromConfigWithITestID(t)
+			require.NoError(t, err)
+
+			ensurePullTestDataSet(t, db, testDataSetId, "public")
+			handler := NewPullHandler(&NullAuth{}, NewDBPullStore(db), &mockValidator{shouldPass: true}, db)
+			pieceCIDs := make([]string, tt.pieceCount)
+			for i := range pieceCIDs {
+				pieceCIDs[i] = generatedPieceCIDV2(t, i+40_000, 127)
+			}
+			pieces := pullPiecesFromCIDs(pieceCIDs)
+			for i := range pieces {
+				pieces[i].SourceURLs = append(pieces[i].SourceURLs, "https://backup.example/piece/"+pieces[i].PieceCid)
+			}
+
+			payer := common.HexToAddress("0x1111111111111111111111111111111111111111")
+			rec := submitPullStressRequest(t, handler, payer, 1, testDataSetId, pieces)
+			require.Equal(t, tt.statusCode, rec.Code, rec.Body.String())
+			require.Empty(t, rec.Header().Get("Retry-After"))
+
+			if tt.statusCode == http.StatusOK {
+				return
+			}
+			require.Contains(t, rec.Body.String(), fmt.Sprintf("A pull request can contain at most %d unique pieces.", limit))
+			require.NotContains(t, rec.Body.String(), "insert pull items")
+
+			var pullCount, itemCount int
+			err = db.QueryRow(t.Context(), `
+				SELECT (SELECT COUNT(*) FROM pdp_piece_pulls), COUNT(*)
+				FROM pdp_piece_pull_items
+			`).Scan(&pullCount, &itemCount)
+			require.NoError(t, err)
+			require.Zero(t, pullCount)
+			require.Zero(t, itemCount)
+		})
+	}
+}
+
+func TestDBPullStore_ExistingPullBypassesAdmissionLimit(t *testing.T) {
+	db, err := harmonydb.NewFromConfigWithITestID(t)
+	require.NoError(t, err)
+
+	ensurePullTestDataSet(t, db, testDataSetId, "public")
+	store := NewDBPullStore(db)
+	pull := &PullRecord{
+		Service:       "public",
+		ExtraDataHash: bytes.Repeat([]byte{1}, 32),
+		DataSetId:     testDataSetId,
+		ClientAddress: common.HexToAddress("0x1111111111111111111111111111111111111111").Hex(),
+	}
+	pieces := make([]PullPiece, pullClientBorrowLimit()+1)
+	for i := range pieces {
+		pieceCID := generatedPieceCIDV2(t, i+50_000, 127)
+		info, err := ParsePieceCidV2(pieceCID)
+		require.NoError(t, err)
+		pieces[i] = PullPiece{
+			CidV1:     info.CidV1,
+			RawSize:   info.RawSize,
+			SourceURL: "https://source.example/piece/" + pieceCID,
+		}
+	}
+
+	pullID, backpressure, err := store.CreatePullWithPieces(t.Context(), pull, pieces[:1])
+	require.NoError(t, err)
+	require.Nil(t, backpressure)
+	require.Positive(t, pullID)
+
+	existingID, backpressure, err := store.CreatePullWithPieces(t.Context(), pull, pieces)
+	require.NoError(t, err)
+	require.Nil(t, backpressure)
+	require.Equal(t, pullID, existingID)
+
+	var pullCount, itemCount int
+	err = db.QueryRow(t.Context(), `
+		SELECT (SELECT COUNT(*) FROM pdp_piece_pulls), COUNT(*)
+		FROM pdp_piece_pull_items
+	`).Scan(&pullCount, &itemCount)
+	require.NoError(t, err)
+	require.Equal(t, 1, pullCount)
+	require.Equal(t, 1, itemCount)
+}
+
 func generatedPieceCIDV2(t *testing.T, seed int, rawSize uint64) string {
 	t.Helper()
 
