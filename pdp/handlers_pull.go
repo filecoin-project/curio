@@ -441,6 +441,11 @@ func (h *PullHandler) HandlePull(w http.ResponseWriter, r *http.Request) {
 
 	pullID, backpressure, err := h.store.CreatePullWithPieces(ctx, pullRecord, pullPieces)
 	if err != nil {
+		if errors.Is(err, errPullTooManyPieces) {
+			msg := fmt.Sprintf("A pull request can contain at most %d unique pieces.", pullClientBorrowLimit())
+			httpServerError(w, http.StatusBadRequest, msg, err)
+			return
+		}
 		log.Errorw("failed to create pull record", "error", err)
 		httpServerError(w, http.StatusInternalServerError, "Internal error", err)
 		return

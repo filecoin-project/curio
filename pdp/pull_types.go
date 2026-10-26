@@ -167,8 +167,8 @@ func (r *PullRequest) Validate() error {
 		return err
 	}
 
-	// CID format is checked later by ParsePieceCidV2. Piece count is not capped
-	// here; the Filecoin message size is enforced later when packing addPieces.
+	// CID format is checked later by ParsePieceCidV2. Piece count is limited
+	// later by the addPieces message size and the per-request admission cap.
 	for _, source := range sources {
 		if err := ValidatePullSourceURL(source.SourceURL); err != nil {
 			return fmt.Errorf("piece %s: %w", source.PieceCid, err)
@@ -219,6 +219,8 @@ const (
 	pullRetryAfterMax               = 5 * time.Minute
 	pullRetryAfterStepPieces        = 10
 )
+
+var errPullTooManyPieces = errors.New("pull request has too many unique pieces")
 
 type PullBackpressure struct {
 	RetryAfter time.Duration
@@ -553,6 +555,10 @@ func (s *dbPullStore) enforceBackpressure(tx *harmonydb.Tx, pull *PullRecord, pi
 		seen[key] = struct{}{}
 		pieceCids = append(pieceCids, key.cid)
 		rawSizes = append(rawSizes, int64(key.rawSize))
+	}
+
+	if len(pieceCids) > pullClientBorrowLimit() {
+		return nil, errPullTooManyPieces
 	}
 
 	if len(pieceCids) == 0 {
