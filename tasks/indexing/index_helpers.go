@@ -12,6 +12,7 @@ import (
 	"github.com/ipfs/go-cid"
 	carv2 "github.com/ipld/go-car/v2"
 	"github.com/multiformats/go-varint"
+	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-data-segment/datasegment"
@@ -22,6 +23,25 @@ import (
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/mk20"
 )
+
+func startIndexWriters(addIndex, addAggregateIndex func() error) (*errgroup.Group, <-chan struct{}) {
+	var eg errgroup.Group
+	addFail := make(chan struct{})
+	stop := sync.OnceFunc(func() { close(addFail) })
+
+	eg.Go(func() error {
+		defer stop()
+		return addIndex()
+	})
+	if addAggregateIndex != nil {
+		eg.Go(func() error {
+			defer stop()
+			return addAggregateIndex()
+		})
+	}
+
+	return &eg, addFail
+}
 
 func parseDataSegmentIndex(unpaddedReader io.Reader) (datasegment.IndexData, error) {
 	const (

@@ -37,6 +37,7 @@ type ProofCacheStore interface {
 // *indexstore.IndexStore.
 type IndexCleaner interface {
 	RemoveIndexes(ctx context.Context, pieceCidv2 cid.Cid) error
+	RemoveAggregateIndex(ctx context.Context, aggregatePieceCid cid.Cid) error
 }
 
 // ParkedPieceStore opens raw parked piece data by park id. The repair task uses
