@@ -162,6 +162,44 @@ func TestAddAlertDetail(t *testing.T) {
 	require.Equal(t, got, details["Test"])
 }
 
+func TestWinningPostMissedBlockAlertedOnce(t *testing.T) {
+	ctx := context.Background()
+	db, err := harmonydb.NewFromConfigWithITestID(t)
+	require.NoError(t, err)
+
+	al := &alerts{ctx: ctx, db: db}
+	problem := winningPostMissedBlockProblem(6415710, "bafy2bzaceco6jguljea24vdqovtrl2ccctmtifceu2xerhhfsbch25w6sdyn4")
+
+	already, err := winningPostProblemAlreadyAlerted(al, problem)
+	require.NoError(t, err)
+	require.False(t, already)
+
+	_, err = db.Exec(ctx, `
+		INSERT INTO alert_history (alert_name, message, machine_name, sent_to_plugins, sent_at)
+		VALUES ($1, $2, NULL, TRUE, NOW())
+	`, Name_WinningPost, "Expected 48 WinningPost task and found 44 in DB. "+problem+" ")
+	require.NoError(t, err)
+
+	already, err = winningPostProblemAlreadyAlerted(al, problem)
+	require.NoError(t, err)
+	require.True(t, already)
+
+	other := winningPostMissedBlockProblem(6415711, "bafy2bzaceaotherblock")
+	already, err = winningPostProblemAlreadyAlerted(al, other)
+	require.NoError(t, err)
+	require.False(t, already)
+
+	_, err = db.Exec(ctx, `
+		INSERT INTO alert_history (alert_name, message, machine_name, sent_to_plugins, sent_at)
+		VALUES ($1, $2, NULL, TRUE, NOW())
+	`, Name_WindowPost, other)
+	require.NoError(t, err)
+
+	already, err = winningPostProblemAlreadyAlerted(al, other)
+	require.NoError(t, err)
+	require.False(t, already)
+}
+
 // testPlugin is a test plugin
 type testPlugin struct {
 	output string
