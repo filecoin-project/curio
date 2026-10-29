@@ -620,7 +620,7 @@ description: The default curio configuration
   # type: []string
   #CORSOrigins = []
 
-  # CSP sets the Content Security Policy for content served via the /piece/ retrieval endpoint.
+  # CSP sets the Content Security Policy for content served via the /public/ retrieval endpoint.
   # Valid values: "off", "self", "inline" (Default: "inline")
   # 
   # Since storage providers serve user-uploaded content on their domain, CSP helps control

@@ -1088,7 +1088,7 @@ This is required for third-party UI servers.
 			Name: "CSP",
 			Type: "string",
 
-			Comment: `CSP sets the Content Security Policy for content served via the /piece/ retrieval endpoint.
+			Comment: `CSP sets the Content Security Policy for content served via the /public/ retrieval endpoint.
 Valid values: "off", "self", "inline" (Default: "inline")
 
 Since storage providers serve user-uploaded content on their domain, CSP helps control
