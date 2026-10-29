@@ -97,6 +97,18 @@ func CurioHandler(
 		w.WriteHeader(http.StatusOK)
 	})
 	mux.PathPrefix("/remote").HandlerFunc(remote)
+	mux.PathPrefix("/hashspace/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !auth.HasPerm(r.Context(), nil, lapi.PermAdmin) {
+			w.WriteHeader(401)
+			_ = json.NewEncoder(w).Encode(struct{ Error string }{"unauthorized: missing admin permission"})
+			return
+		}
+		if dependencies.HashSpace == nil {
+			http.NotFound(w, r)
+			return
+		}
+		dependencies.HashSpace.ServeHTTP(w, r)
+	})
 	mux.Handle("/debug/metrics", metrics.Exporter())
 	mux.Handle("/debug/service-discovery", prometheusSD)
 	mux.PathPrefix("/").Handler(http.DefaultServeMux) // pprof

@@ -1,0 +1,581 @@
+package hashfolder
+
+import (
+	"bytes"
+	"encoding/hex"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/ipfs/go-cid"
+	"github.com/stretchr/testify/require"
+
+	commcid "github.com/filecoin-project/go-fil-commcid"
+
+	"github.com/filecoin-project/curio/lib/fs2"
+	"github.com/filecoin-project/curio/lib/hashspacesolver"
+)
+
+func TestWriterCloseAbortAndDoubleClose(t *testing.T) {
+	_, sp := loadOne(t, 1<<30)
+	c := mustPiece(t, 0x11)
+	payload := []byte("abcdefghij")
+
+	w, err := sp.WriteCID(c)
+	require.NoError(t, err)
+	n, err := w.Write(payload)
+	require.NoError(t, err)
+	require.Equal(t, len(payload), n)
+	require.NoError(t, w.Close())
+	require.NoError(t, w.Close())
+	require.Equal(t, int64(len(payload)), sp.Used())
+
+	aborted := mustPiece(t, 0x12)
+	aw, err := sp.WriteCID(aborted)
+	require.NoError(t, err)
+	_, err = aw.Write([]byte("nope"))
+	require.NoError(t, err)
+	require.NoError(t, aw.(interface{ Abort() error }).Abort())
+	require.Equal(t, int64(len(payload)), sp.Used())
+	final, err := piecePath(sp.disks[0].root, DIR_OPEN, mustHashHex(t, aborted))
+	require.NoError(t, err)
+	_, err = os.Stat(final)
+	require.ErrorIs(t, err, os.ErrNotExist)
+}
+
+func TestFlushPersistsUsed(t *testing.T) {
+	root, sp := loadOne(t, 1<<30)
+	body := []byte("persisted")
+	commit(t, sp, mustPiece(t, 0x33), body)
+	require.NoError(t, sp.Flush())
+
+	layout, err := readLayout(layoutPath(root, DIR_OPEN))
+	require.NoError(t, err)
+	require.Equal(t, int64(len(body)), layout.Used)
+	require.False(t, layout.CommittedAt.IsZero())
+}
+
+func TestWriteLeavesOnlyHashFiles(t *testing.T) {
+	root, sp := loadOne(t, 1<<30)
+	c := mustPiece(t, 0x34)
+	w, err := sp.WriteCID(c)
+	require.NoError(t, err)
+	_, err = w.Write([]byte("bytes"))
+	require.NoError(t, err)
+	final, err := piecePath(root, DIR_OPEN, mustHashHex(t, c))
+	require.NoError(t, err)
+	shard, err := os.ReadDir(filepath.Dir(final))
+	require.NoError(t, err)
+	require.Len(t, shard, 1)
+	require.Equal(t, filepath.Base(final), shard[0].Name())
+	require.NoError(t, w.Close())
+
+	top, err := os.ReadDir(filepath.Join(root, DIR_OPEN))
+	require.NoError(t, err)
+	for _, e := range top {
+		require.True(t, e.IsDir(), "non-shard entry %s", e.Name())
+	}
+}
+
+func TestReplaceShorterHashOn(t *testing.T) {
+	root, sp := loadOne(t, 1<<30)
+	c := mustPiece(t, 0x35)
+	hexHash := mustHashHex(t, c)
+	commit(t, sp, c, []byte("abc"))
+	require.Equal(t, int64(3), sp.Used())
+
+	w, existing, err := sp.ReplaceShorterHashOn(root, hexHash, 5)
+	require.NoError(t, err)
+	require.NotNil(t, w)
+	require.Zero(t, existing)
+	require.Zero(t, sp.Used())
+	_, _, err = sp.ReplaceShorterHashOn(root, hexHash, 5)
+	require.ErrorIs(t, err, errWriteInProgress)
+	_, ok, err := sp.StatCIDOn(root, c)
+	require.NoError(t, err)
+	require.False(t, ok)
+	_, err = sp.ReadCIDFileFrom(c)
+	require.ErrorIs(t, err, os.ErrNotExist)
+	require.ErrorIs(t, sp.DeleteCID(c), os.ErrNotExist)
+	_, err = w.Write([]byte("abcde"))
+	require.NoError(t, err)
+	require.NoError(t, w.Close())
+	require.Equal(t, int64(5), sp.Used())
+
+	for _, size := range []int64{5, 4} {
+		w, existing, err = sp.ReplaceShorterHashOn(root, hexHash, size)
+		require.NoError(t, err)
+		require.Nil(t, w)
+		require.Equal(t, int64(5), existing)
+	}
+	require.Equal(t, int64(5), sp.Used())
+}
+
+func TestLoadMovesLegacyLayoutAndDropsTemps(t *testing.T) {
+	root := t.TempDir()
+	full := strings.Repeat("0", HASH_BYTES*2)
+	require.NoError(t, writeLayout(root, DIR_OPEN, Layout{
+		Used:        5,
+		CommittedAt: time.Now().UTC(),
+		Ranges:      []HashRange{{Start: full, End: full}},
+	}))
+	require.NoError(t, os.Rename(layoutPath(root, DIR_OPEN), legacyLayoutPath(root, DIR_OPEN)))
+	shard := filepath.Join(root, DIR_OPEN, "ab")
+	require.NoError(t, os.MkdirAll(shard, 0o755))
+	stale := filepath.Join(shard, ".cdef.tmp")
+	require.NoError(t, os.WriteFile(stale, []byte("partial"), 0o644))
+	layoutTemp := filepath.Join(root, DIR_OPEN, "."+legacyLayoutFile+".tmp")
+	require.NoError(t, os.WriteFile(layoutTemp, []byte("{"), 0o644))
+
+	sp := mustLoad(t, DIR_OPEN, root)
+	require.Equal(t, int64(5), sp.Used())
+	for _, p := range []string{stale, layoutTemp} {
+		_, err := os.Stat(p)
+		require.ErrorIs(t, err, os.ErrNotExist, p)
+	}
+
+	require.NoError(t, sp.Flush())
+	_, err := os.Stat(legacyLayoutPath(root, DIR_OPEN))
+	require.ErrorIs(t, err, os.ErrNotExist)
+	layout, err := readLayout(layoutPath(root, DIR_OPEN))
+	require.NoError(t, err)
+	require.Equal(t, int64(5), layout.Used)
+}
+
+func TestFirstSetupSkipsPieceDenied(t *testing.T) {
+	a := t.TempDir()
+	b := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(a, sectorStoreFile), []byte(`{"MaxStorage":4000}`), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(b, sectorStoreFile), []byte(`{"MaxStorage":12000,"DenyTypes":["piece"]}`), 0o644))
+
+	st, err := FirstSetup([]Drive{{StorageID: "a", Root: a}, {StorageID: "b", Root: b}})
+	require.NoError(t, err)
+	require.Equal(t, []hashspacesolver.MountPoint{{FreeSpace: 4000, StorageID: "a"}, {FreeSpace: 12000, StorageID: "b"}}, st.MountPoints)
+	for _, sp := range st.HashSpaces {
+		require.Len(t, sp, 1)
+		require.Equal(t, "a", sp[0].StorageID)
+	}
+	for _, kind := range []string{DIR_OPEN, DIR_ACL} {
+		layout, err := readLayout(layoutPath(b, kind))
+		require.NoError(t, err)
+		require.Empty(t, layout.Ranges)
+	}
+}
+
+func TestFirstSetupArriveSkipsPieceDenied(t *testing.T) {
+	first := t.TempDir()
+	_, err := FirstSetup([]Drive{{StorageID: "first", Root: first, Capacity: 100}})
+	require.NoError(t, err)
+	second := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(second, sectorStoreFile), []byte(`{"DenyTypes":["piece"]}`), 0o644))
+	st, err := FirstSetup([]Drive{
+		{StorageID: "first", Root: first, Capacity: 100},
+		{StorageID: "second", Root: second, Capacity: 100},
+	})
+	require.NoError(t, err)
+	require.Equal(t, []hashspacesolver.MountPoint{{FreeSpace: 100, StorageID: "first"}, {FreeSpace: 100, StorageID: "second"}}, st.MountPoints)
+	for _, sp := range st.HashSpaces {
+		require.Len(t, sp, 1)
+		require.Equal(t, "first", sp[0].StorageID)
+	}
+}
+
+func TestReturnFileOnRestoresSource(t *testing.T) {
+	root, sp := loadOne(t, 1<<30)
+	c := mustPiece(t, 0x41)
+	body := []byte("adopt-me")
+	park := filepath.Join(root, "park")
+	require.NoError(t, os.WriteFile(park, body, 0o644))
+	n, err := sp.AdoptFileOn(root, c, park)
+	require.NoError(t, err)
+	require.Equal(t, int64(len(body)), n)
+	_, err = os.Stat(park)
+	require.ErrorIs(t, err, os.ErrNotExist)
+
+	require.NoError(t, sp.ReturnFileOn(root, c, park))
+	got, err := os.ReadFile(park)
+	require.NoError(t, err)
+	require.Equal(t, body, got)
+	require.Zero(t, sp.Used())
+	_, err = sp.ReadCIDFileFrom(c)
+	require.ErrorIs(t, err, os.ErrNotExist)
+}
+
+func TestWriteCIDExistingNoCounterChange(t *testing.T) {
+	_, sp := loadOne(t, 1<<30)
+	c := mustPiece(t, 0x21)
+	body := []byte("piece")
+	commit(t, sp, c, body)
+	used := sp.Used()
+
+	_, err := sp.WriteCID(c)
+	require.ErrorIs(t, err, os.ErrExist)
+	require.Equal(t, used, sp.Used())
+}
+
+func TestDeleteCIDSubtractsAndMissingDoesNotUnderflow(t *testing.T) {
+	_, sp := loadOne(t, 1<<30)
+	c := mustPiece(t, 0x22)
+	body := []byte("12345")
+	commit(t, sp, c, body)
+	require.Equal(t, int64(len(body)), sp.Used())
+
+	require.NoError(t, sp.DeleteCID(c))
+	require.Zero(t, sp.Used())
+
+	sp.disks[0].tracker.Set(50)
+	missing := mustPiece(t, 0x23)
+	err := sp.DeleteCID(missing)
+	require.ErrorIs(t, err, os.ErrNotExist)
+	require.Equal(t, int64(50), sp.Used())
+}
+
+func TestTwoSpacesUsedAreIndependent(t *testing.T) {
+	root := t.TempDir()
+	_, err := FirstSetup([]Drive{{StorageID: "root", Root: root, Capacity: 1 << 30}})
+	require.NoError(t, err)
+	openSp := mustLoad(t, DIR_OPEN, root)
+	aclSp := mustLoad(t, DIR_ACL, root)
+
+	commit(t, openSp, mustPiece(t, 0x01), []byte("open"))
+	commit(t, aclSp, mustPiece(t, 0x02), []byte("acl-data"))
+	require.Equal(t, int64(4), openSp.Used())
+	require.Equal(t, int64(8), aclSp.Used())
+
+	require.NoError(t, aclSp.DeleteCID(mustPiece(t, 0x02)))
+	require.Equal(t, int64(4), openSp.Used())
+	require.Zero(t, aclSp.Used())
+}
+
+func TestFirstSetupSeedsEveryDrive(t *testing.T) {
+	a := t.TempDir()
+	b := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(a, sectorStoreFile), []byte(`{"MaxStorage":4000}`), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(b, sectorStoreFile), []byte(`{"MaxStorage":12000}`), 0o644))
+
+	st, err := FirstSetup([]Drive{{StorageID: "a", Root: a}, {StorageID: "b", Root: b}})
+	require.NoError(t, err)
+	require.Equal(t, []hashspacesolver.MountPoint{{FreeSpace: 4000, StorageID: "a"}, {FreeSpace: 12000, StorageID: "b"}}, st.MountPoints)
+	require.NoError(t, hashspacesolver.Validate(st))
+
+	quarter := make([]byte, HASH_BYTES)
+	quarter[0] = 0x40
+	for _, sp := range st.HashSpaces {
+		require.Len(t, sp, 2)
+		require.ElementsMatch(t, []string{"a", "b"}, []string{sp[0].StorageID, sp[1].StorageID})
+		var sawQuarter, sawZero bool
+		for _, r := range sp {
+			start := r.StartHash
+			require.True(t, hashspacesolver.Contains(start, r.EndHash, r.EndHash))
+			if !bytes.Equal(start, r.EndHash) {
+				require.False(t, hashspacesolver.Contains(start, r.EndHash, start))
+			}
+			if isZeroHash(r.EndHash) {
+				sawZero = true
+			}
+			if bytes.Equal(r.EndHash, quarter) {
+				sawQuarter = true
+			}
+			owners := 0
+			for _, other := range sp {
+				if hashspacesolver.Contains(other.StartHash, other.EndHash, r.EndHash) {
+					owners++
+				}
+			}
+			require.Equal(t, 1, owners)
+		}
+		require.True(t, sawQuarter)
+		require.True(t, sawZero)
+	}
+
+	for _, root := range []string{a, b} {
+		for _, kind := range []string{DIR_OPEN, DIR_ACL} {
+			layout, err := readLayout(layoutPath(root, kind))
+			require.NoError(t, err)
+			require.Zero(t, layout.Used)
+			require.NotEmpty(t, layout.Ranges)
+			require.False(t, layout.CommittedAt.IsZero())
+		}
+	}
+}
+
+func TestFirstSetupArriveDoesNotReseed(t *testing.T) {
+	first := t.TempDir()
+	_, err := FirstSetup([]Drive{{StorageID: "first", Root: first, Capacity: 100}})
+	require.NoError(t, err)
+	second := t.TempDir()
+	st, err := FirstSetup([]Drive{
+		{StorageID: "first", Root: first, Capacity: 100},
+		{StorageID: "second", Root: second, Capacity: 100},
+	})
+	require.NoError(t, err)
+	require.Equal(t, []hashspacesolver.MountPoint{{FreeSpace: 100, StorageID: "first"}, {FreeSpace: 100, StorageID: "second"}}, st.MountPoints)
+	require.NoError(t, hashspacesolver.Validate(st))
+	require.Len(t, st.HashSpaces[0], 1)
+	require.Len(t, st.HashSpaces[1], 1)
+
+	fresh, err := readLayout(layoutPath(second, DIR_OPEN))
+	require.NoError(t, err)
+	require.Empty(t, fresh.Ranges)
+	require.Zero(t, fresh.Used)
+}
+
+func TestRestartKeepsUsedAndAddsOnlyNewerFiles(t *testing.T) {
+	root := t.TempDir()
+	space := filepath.Join(root, DIR_OPEN)
+	require.NoError(t, os.MkdirAll(space, 0o755))
+	full := strings.Repeat("0", HASH_BYTES*2)
+	require.NoError(t, writeLayout(root, DIR_OPEN, Layout{
+		Used:        100,
+		CommittedAt: time.Now().UTC().Add(-time.Hour),
+		Ranges:      []HashRange{{Start: full, End: full}},
+	}))
+	layoutInfo, err := os.Stat(layoutPath(root, DIR_OPEN))
+	require.NoError(t, err)
+	past := layoutInfo.ModTime().Add(-2 * time.Second)
+	future := layoutInfo.ModTime().Add(2 * time.Second)
+
+	oldShard := filepath.Join(space, "aa")
+	require.NoError(t, os.MkdirAll(oldShard, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(oldShard, "old"), bytes.Repeat([]byte{'o'}, 10), 0o644))
+	require.NoError(t, os.Chtimes(filepath.Join(oldShard, "old"), future, future))
+	require.NoError(t, os.Chtimes(oldShard, past, past))
+
+	newShard := filepath.Join(space, "bb")
+	require.NoError(t, os.MkdirAll(newShard, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(newShard, "stale"), bytes.Repeat([]byte{'s'}, 8), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(newShard, "fresh"), bytes.Repeat([]byte{'f'}, 7), 0o644))
+	require.NoError(t, os.Chtimes(filepath.Join(newShard, "stale"), past, past))
+	require.NoError(t, os.Chtimes(filepath.Join(newShard, "fresh"), future, future))
+	require.NoError(t, os.Chtimes(newShard, future, future))
+
+	sp := mustLoad(t, DIR_OPEN, root)
+	require.Equal(t, int64(107), sp.Used())
+}
+
+func TestSplitTwoDashMatchesFS2AndRange(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "ab"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "ab", "cdefc"), bytes.Repeat([]byte{'x'}, 42), 0o644))
+
+	res, err := fs2.SumFileSizesRange(dir, "abcdefa", "abcdefc", 0)
+	require.NoError(t, err)
+	require.Equal(t, int64(42), res.Bytes)
+	require.Equal(t, int64(1), res.Files)
+	require.True(t, hashspacesolver.Contains([]byte("abcdefa"), []byte("abcdefc"), []byte("abcdefc")))
+	require.False(t, hashspacesolver.Contains([]byte("abcdefc"), []byte("abcdefd"), []byte("abcdefc")))
+
+	c := mustPiece(t, 0x11)
+	hexHash := mustHashHex(t, c)
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, hexHash[:2]), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, hexHash[:2], hexHash[2:]), bytes.Repeat([]byte{'p'}, 5), 0o644))
+	low := hexHash[:len(hexHash)-1]
+	res, err = fs2.SumFileSizesRange(dir, low, hexHash, 0)
+	require.NoError(t, err)
+	require.Equal(t, int64(5), res.Bytes)
+	res, err = fs2.SumFileSizesRange(dir, hexHash, hexHash+"0", 0)
+	require.NoError(t, err)
+	require.Zero(t, res.Bytes)
+}
+
+func TestMultiRangeUsesFS2NotFolderUsed(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "ab"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "de"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "ab", "cdefc"), bytes.Repeat([]byte{'a'}, 42), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "de", "f0123"), bytes.Repeat([]byte{'m'}, 9), 0o644))
+
+	ranges := []HashRange{{Start: "a", End: "b"}, {Start: "c", End: "e"}}
+	sizes, err := sizesForRanges(dir, ranges, 999)
+	require.NoError(t, err)
+	require.Equal(t, []int64{42, 9}, sizes)
+
+	one, err := sizesForRanges(dir, ranges[:1], 999)
+	require.NoError(t, err)
+	require.Equal(t, []int64{999}, one)
+}
+
+func TestWriteCIDPlacesOnOwningDiskWithoutChmod(t *testing.T) {
+	low := t.TempDir()
+	high := t.TempDir()
+	lowEnd := hexHash(0x0f)
+	zero := hexHash(0x00)
+	for _, root := range []string{low, high} {
+		var ranges []HashRange
+		if root == low {
+			ranges = []HashRange{{Start: zero, End: lowEnd}}
+		} else {
+			ranges = []HashRange{{Start: lowEnd, End: zero}}
+		}
+		require.NoError(t, writeLayout(root, DIR_OPEN, Layout{
+			Used:        0,
+			CommittedAt: time.Now().UTC(),
+			Ranges:      ranges,
+		}))
+	}
+	sp := mustLoad(t, DIR_OPEN, low, high)
+
+	lowCID := mustPiece(t, 0x01)
+	highCID := mustPiece(t, 0x10)
+	commit(t, sp, lowCID, []byte("L"))
+	commit(t, sp, highCID, []byte("HH"))
+
+	lowPath, err := piecePath(low, DIR_OPEN, mustHashHex(t, lowCID))
+	require.NoError(t, err)
+	highPath, err := piecePath(high, DIR_OPEN, mustHashHex(t, highCID))
+	require.NoError(t, err)
+	_, err = os.Stat(lowPath)
+	require.NoError(t, err)
+	_, err = os.Stat(highPath)
+	require.NoError(t, err)
+	_, err = os.Stat(filepath.Join(high, DIR_OPEN, mustHashHex(t, lowCID)[:2], mustHashHex(t, lowCID)[2:]))
+	require.ErrorIs(t, err, os.ErrNotExist)
+
+	info, err := os.Stat(lowPath)
+	require.NoError(t, err)
+	require.Zero(t, info.Mode().Perm()&0o111)
+
+	f, err := sp.ReadCIDFileFrom(highCID)
+	require.NoError(t, err)
+	_, err = f.Seek(1, io.SeekStart)
+	require.NoError(t, err)
+	buf := make([]byte, 1)
+	_, err = f.Read(buf)
+	require.NoError(t, err)
+	require.Equal(t, []byte("H"), buf)
+	require.NoError(t, f.Close())
+
+	require.NoError(t, os.Remove(highPath))
+	require.NoError(t, os.MkdirAll(filepath.Dir(filepath.Join(low, DIR_OPEN, mustHashHex(t, highCID)[:2])), 0o755))
+	probed := filepath.Join(low, DIR_OPEN, mustHashHex(t, highCID)[:2], mustHashHex(t, highCID)[2:])
+	require.NoError(t, os.MkdirAll(filepath.Dir(probed), 0o755))
+	require.NoError(t, os.WriteFile(probed, []byte("HH"), 0o644))
+	f, err = sp.ReadCIDFileFrom(highCID)
+	require.NoError(t, err)
+	got, err := io.ReadAll(f)
+	require.NoError(t, err)
+	require.Equal(t, []byte("HH"), got)
+	require.NoError(t, f.Close())
+}
+
+func TestNoPublicMkdirChmodOrDiskUsage(t *testing.T) {
+	fset := token.NewFileSet()
+	entries, err := os.ReadDir(".")
+	require.NoError(t, err)
+	forbidden := map[string]struct{}{
+		"Mkdir": {}, "MkdirAll": {}, "Chmod": {}, "EnsureRoot": {},
+		"SetACL": {}, "Reserve": {}, "Solve": {}, "DiskUsage": {},
+	}
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		src, err := os.ReadFile(name)
+		require.NoError(t, err)
+		require.NotContains(t, string(src), "DiskUsage")
+		require.NotContains(t, string(src), "curio/lib/paths")
+		require.NotContains(t, string(src), "os.Chmod")
+		file, err := parser.ParseFile(fset, name, src, 0)
+		require.NoError(t, err)
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || !fn.Name.IsExported() {
+				continue
+			}
+			_, bad := forbidden[fn.Name.Name]
+			require.False(t, bad, name)
+		}
+	}
+}
+
+func TestPieceV1Rejected(t *testing.T) {
+	v2 := mustPiece(t, 0x15)
+	v1, _, err := commcid.PieceCidV1FromV2(v2)
+	require.NoError(t, err)
+	_, err = CIDHash(v1)
+	require.Error(t, err)
+}
+
+func TestWriteCIDPrefersMoveDestination(t *testing.T) {
+	src, dst := t.TempDir(), t.TempDir()
+	_, err := FirstSetup([]Drive{{StorageID: "src", Root: src, Capacity: 1 << 30}, {StorageID: "dst", Root: dst, Capacity: 1 << 30}})
+	require.NoError(t, err)
+	sp := mustLoad(t, DIR_OPEN, src, dst)
+
+	owned := []HashRange{{Start: hexHash(0x00), End: hexHash(0x30)}}
+	moving := []HashRange{{Start: hexHash(0x10), End: hexHash(0x20)}}
+	require.NoError(t, sp.SetIntervalsOn(src, 1, owned, nil))
+	require.NoError(t, sp.SetIntervalsOn(dst, 1, nil, moving))
+
+	inMove, outside := mustPiece(t, 0x11), mustPiece(t, 0x25)
+	commit(t, sp, inMove, []byte("moving"))
+	commit(t, sp, outside, []byte("settled"))
+
+	exists := func(root string, c cid.Cid) bool {
+		p, err := piecePath(root, DIR_OPEN, mustHashHex(t, c))
+		require.NoError(t, err)
+		_, err = os.Stat(p)
+		return err == nil
+	}
+	require.True(t, exists(dst, inMove), "a hash inside a move goes to the destination")
+	require.False(t, exists(src, inMove), "never to the source")
+	require.True(t, exists(src, outside), "a hash outside any move goes to the owner")
+	require.False(t, exists(dst, outside))
+}
+
+func loadOne(t *testing.T, cap int64) (string, *Space) {
+	t.Helper()
+	root := t.TempDir()
+	_, err := FirstSetup([]Drive{{StorageID: "root", Root: root, Capacity: cap}})
+	require.NoError(t, err)
+	return root, mustLoad(t, DIR_OPEN, root)
+}
+
+func mustLoad(t *testing.T, kind string, roots ...string) *Space {
+	t.Helper()
+	sp, err := Load(kind, roots)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sp.Close() })
+	return sp
+}
+
+func commit(t *testing.T, sp *Space, c cid.Cid, body []byte) {
+	t.Helper()
+	w, err := sp.WriteCID(c)
+	require.NoError(t, err)
+	_, err = w.Write(body)
+	require.NoError(t, err)
+	require.NoError(t, w.Close())
+}
+
+func mustPiece(t *testing.T, first byte) cid.Cid {
+	t.Helper()
+	digest := make([]byte, HASH_BYTES)
+	digest[0] = first & 0x3f
+	c, err := commcid.DataCommitmentToPieceCidv2(digest, 127)
+	require.NoError(t, err)
+	got, err := CIDHash(c)
+	require.NoError(t, err)
+	require.Equal(t, digest, got)
+	return c
+}
+
+func mustHashHex(t *testing.T, c cid.Cid) string {
+	t.Helper()
+	hexHash, _, err := cidHashHex(c)
+	require.NoError(t, err)
+	return hexHash
+}
+
+func hexHash(first byte) string {
+	b := make([]byte, HASH_BYTES)
+	b[0] = first
+	return hex.EncodeToString(b)
+}

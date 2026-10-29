@@ -310,7 +310,7 @@ func (p *ProcessDeletionsTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Ram: 1 << 20,
 		},
 		MaxFailures: 3,
-		RetryWait:   taskhelp.RetryWaitExp(5*time.Second, 2),
+		RetryWait:   taskhelp.RetryWaitExp(5 * time.Second),
 	}
 }
 
