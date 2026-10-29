@@ -818,12 +818,7 @@ func wnPostCheck(al *alerts) {
 			if strings.Contains(al.alertMap[Name].alertString, problem) {
 				continue
 			}
-			already, err := winningPostProblemAlreadyAlerted(al, problem)
-			if err != nil {
-				log.Errorf("checking existing winning post alert: %s", err)
-			} else if already {
-				continue
-			}
+			// not checking DB as duplicates when restarting is ok.
 			al.alertMap[Name].alertString += problem + " "
 		}
 	}
