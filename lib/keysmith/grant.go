@@ -83,12 +83,17 @@ func refuse(format string, args ...any) error {
 	return &refusal{reason: fmt.Sprintf(format, args...)}
 }
 
+// jsSpace is the regexp class of characters JavaScript's trim() removes. U+0085 is excluded; U+FEFF is included.
+const jsSpace = `\t\n\v\f\r \x{00a0}\x{1680}\x{2000}-\x{200a}\x{2028}\x{2029}\x{202f}\x{205f}\x{3000}\x{feff}`
+
 var (
 	secpN     = crypto.S256().Params().N
 	secpHalfN = new(big.Int).Rsh(crypto.S256().Params().N, 1)
 
 	saltPattern     = regexp.MustCompile(`^0x(?:[0-9a-f]{2})+$`)
 	keyspacePattern = regexp.MustCompile(`^0x[0-9a-f]{32}$`)
+	// jsEdgeSpace matches a leading or trailing run of jsSpace.
+	jsEdgeSpace = regexp.MustCompile(`^[` + jsSpace + `]+|[` + jsSpace + `]+$`)
 )
 
 var eip712Domain = []apitypes.Type{
@@ -326,26 +331,10 @@ func scopePath(path string) (string, error) {
 // scopeName canonicalises one scope segment. A segment that is empty, padded, or contains "/" is refused.
 func scopeName(name string) (string, error) {
 	normalised := norm.NFC.String(name)
-	if normalised == "" || jsTrim(normalised) != normalised || strings.Contains(normalised, "/") {
+	if normalised == "" || jsEdgeSpace.MatchString(normalised) || strings.Contains(normalised, "/") {
 		return "", refuse("A scope name must be non-empty, with no leading or trailing whitespace and no \"/\", got %s", jsonQuote(name))
 	}
 	return normalised, nil
-}
-
-// jsTrim removes the characters JavaScript's trim() removes. The caller passes one scope segment.
-func jsTrim(s string) string {
-	return strings.TrimFunc(s, isJSSpace)
-}
-
-// isJSSpace reports whether r is in JavaScript's trim set. U+0085 is not included; U+FEFF is.
-func isJSSpace(r rune) bool {
-	switch r {
-	case '\t', '\n', '\v', '\f', '\r', ' ',
-		'\u00a0', '\u1680', '\u2028', '\u2029', '\u202f', '\u205f', '\u3000', '\ufeff':
-		return true
-	default:
-		return r >= '\u2000' && r <= '\u200a'
-	}
 }
 
 // saltOf returns salt in the lowercase hex form Keysmith compares. The caller passes the text after "piece:".
