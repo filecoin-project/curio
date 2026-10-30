@@ -71,8 +71,8 @@ func (c *Cluster) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	sp := c.space(kind)
-	if sp == nil {
+	space := c.space(kind)
+	if space == nil {
 		http.NotFound(w, r)
 		return
 	}
@@ -84,7 +84,7 @@ func (c *Cluster) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet, http.MethodHead:
-		f, err := sp.openHashOn(root, hexHash)
+		f, err := space.openHashOn(root, hexHash)
 		if err != nil {
 			if os.IsNotExist(err) {
 				http.NotFound(w, r)
@@ -102,7 +102,7 @@ func (c *Cluster) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/octet-stream")
 		http.ServeContent(w, r, "", info.ModTime(), f)
 	case http.MethodPut:
-		n, existed, err := putHash(sp, root, hexHash, r.Body, r.ContentLength)
+		n, existed, err := putHash(space, root, hexHash, r.Body, r.ContentLength)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -117,7 +117,7 @@ func (c *Cluster) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	case http.MethodDelete:
-		if err := sp.deleteHashOn(root, hexHash); err != nil && !os.IsNotExist(err) {
+		if err := space.deleteHashOn(root, hexHash); err != nil && !os.IsNotExist(err) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -131,7 +131,7 @@ func (c *Cluster) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // putHash streams r into the piece file. With a known length, an existing
 // shorter file is a partial copy and is replaced. Otherwise an existing file
 // is left in place and its size returned with existed set.
-func putHash(sp *Space, root, hexHash string, r io.Reader, size int64) (int64, bool, error) {
+func putHash(space *Space, root, hexHash string, r io.Reader, size int64) (int64, bool, error) {
 	if r == nil {
 		r = bytes.NewReader(nil)
 	}
@@ -139,20 +139,20 @@ func putHash(sp *Space, root, hexHash string, r io.Reader, size int64) (int64, b
 	var err error
 	if size >= 0 {
 		var existing int64
-		w, existing, err = sp.ReplaceShorterHashOn(root, hexHash, size)
+		w, existing, err = space.ReplaceShorterHashOn(root, hexHash, size)
 		if err == nil && w == nil {
 			_, _ = io.Copy(io.Discard, r)
 			return existing, true, nil
 		}
 	} else {
-		w, err = sp.WriteHashOn(root, hexHash)
+		w, err = space.WriteHashOn(root, hexHash)
 	}
 	if err != nil {
 		if errors.Is(err, os.ErrExist) {
 			// The client is already streaming. Drain it so the 204 can be
 			// delivered instead of resetting the connection.
 			_, _ = io.Copy(io.Discard, r)
-			n, err := hashSize(sp, root, hexHash)
+			n, err := hashSize(space, root, hexHash)
 			return n, true, err
 		}
 		return 0, false, err
@@ -166,7 +166,7 @@ func putHash(sp *Space, root, hexHash string, r io.Reader, size int64) (int64, b
 	}
 	if err := w.Close(); err != nil {
 		if errors.Is(err, os.ErrExist) {
-			n, err := hashSize(sp, root, hexHash)
+			n, err := hashSize(space, root, hexHash)
 			return n, true, err
 		}
 		return 0, false, err
@@ -174,8 +174,8 @@ func putHash(sp *Space, root, hexHash string, r io.Reader, size int64) (int64, b
 	return n, false, nil
 }
 
-func hashSize(sp *Space, root, hexHash string) (int64, error) {
-	f, err := sp.openHashOn(root, hexHash)
+func hashSize(space *Space, root, hexHash string) (int64, error) {
+	f, err := space.openHashOn(root, hexHash)
 	if err != nil {
 		return 0, err
 	}

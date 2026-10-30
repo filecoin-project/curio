@@ -2,13 +2,20 @@ package retrieval
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/ipfs/go-cid"
 	"github.com/stretchr/testify/require"
+
+	commcid "github.com/filecoin-project/go-fil-commcid"
+
+	"github.com/filecoin-project/curio/lib/cachedreader"
+	"github.com/filecoin-project/curio/lib/storiface"
 )
 
 type sniffReaderAt struct {
@@ -93,4 +100,62 @@ func TestSetHeadersWritesQuotedETag(t *testing.T) {
 	setHeaders(w, pieceCid, "video/mp4")
 
 	require.Equal(t, `"`+pieceCid.String()+`"`, w.Header().Get("ETag"))
+}
+
+type byteReader struct {
+	*bytes.Reader
+}
+
+func (byteReader) Close() error { return nil }
+
+type aclFiles struct {
+	files map[cid.Cid][]byte
+}
+
+func (a *aclFiles) HasPiece(_ context.Context, pc cid.Cid) (bool, error) {
+	_, ok := a.files[pc]
+	return ok, nil
+}
+
+func (a *aclFiles) ReadPiece(_ context.Context, pc cid.Cid, _ int64) (storiface.Reader, error) {
+	data, ok := a.files[pc]
+	if !ok {
+		return nil, nil
+	}
+	return byteReader{bytes.NewReader(data)}, nil
+}
+
+func TestHandleDownload(t *testing.T) {
+	payload := bytes.Repeat([]byte("hello acl piece"), 10)
+	v1, err := cid.Decode("baga6ea4seaqomqafu276g53zko4k23xzh4h4uecjwicbmvhsuqi7o4bhthhm4aq")
+	require.NoError(t, err)
+	v2, err := commcid.PieceCidV2FromV1(v1, uint64(len(payload)))
+	require.NoError(t, err)
+
+	cpr := &cachedreader.CachedPieceReader{}
+	cpr.SetACLPieceReader(&aclFiles{files: map[cid.Cid][]byte{v2: payload}})
+	mux := chi.NewMux()
+	Router(mux, &Provider{cpr: cpr}, testDenyFilter())
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	res, err := http.Get(srv.URL + "/download/" + v2.String())
+	require.NoError(t, err)
+	body, err := io.ReadAll(res.Body)
+	require.NoError(t, err)
+	require.NoError(t, res.Body.Close())
+	require.Equal(t, http.StatusUnauthorized, res.StatusCode)
+	require.Equal(t, "FOC-Grant", res.Header.Get("WWW-Authenticate"))
+	require.Empty(t, body)
+
+	head, err := http.Head(srv.URL + "/download/" + v2.String())
+	require.NoError(t, err)
+	require.NoError(t, head.Body.Close())
+	require.Equal(t, http.StatusUnauthorized, head.StatusCode)
+	require.Equal(t, "FOC-Grant", head.Header.Get("WWW-Authenticate"))
+
+	miss, err := http.Get(srv.URL + "/download/" + v1.String())
+	require.NoError(t, err)
+	require.NoError(t, miss.Body.Close())
+	require.Equal(t, http.StatusNotFound, miss.StatusCode)
 }

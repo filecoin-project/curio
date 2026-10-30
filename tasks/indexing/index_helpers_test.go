@@ -2,6 +2,7 @@ package indexing
 
 import (
 	"bytes"
+	"database/sql"
 	"errors"
 	"io"
 	"math/bits"
@@ -99,6 +100,45 @@ func TestIndexPDPv0AggregateUsesSegmentCARRawSizesForChildPieceCIDV2(t *testing.
 
 	assertPDPv0ChildCID(t, subA, children[0])
 	assertPDPv0ChildCID(t, subB, children[1])
+}
+
+func TestEveryACLRestricted(t *testing.T) {
+	require.False(t, everyACLRestricted(nil))
+	require.True(t, everyACLRestricted([]sql.NullBool{{Bool: true, Valid: true}}))
+	require.True(t, everyACLRestricted([]sql.NullBool{
+		{Bool: true, Valid: true},
+		{Bool: true, Valid: true},
+	}))
+	require.False(t, everyACLRestricted([]sql.NullBool{{Valid: false}}))
+	require.False(t, everyACLRestricted([]sql.NullBool{{Bool: false, Valid: true}}))
+	require.False(t, everyACLRestricted([]sql.NullBool{
+		{Bool: true, Valid: true},
+		{Valid: false},
+	}))
+}
+
+func TestSkipSubpieceIndex(t *testing.T) {
+	require.False(t, skipSubpieceIndex(true, true, true))
+	require.False(t, skipSubpieceIndex(true, false, false))
+	require.True(t, skipSubpieceIndex(false, true, false))
+	require.False(t, skipSubpieceIndex(false, false, false))
+	require.True(t, skipSubpieceIndex(false, false, true))
+}
+
+func TestIndexPDPv0AggregateIndexesBlocksWithoutChildPieceCIDs(t *testing.T) {
+	subA := makeCARPiece(t, 384)
+	subB := makeCARPiece(t, 768)
+	aggregate := makeAggregatePiece(t, subA, subB)
+
+	recs := make(chan indexstore.Record, 128)
+	blocks, interrupted, err := IndexPDPv0(aggregate.pieceCIDV2, bytes.NewReader(aggregate.raw), aggregate.pieceSize, recs, nil, make(chan struct{}))
+	close(recs)
+	gotRecords := collectRecords(recs)
+
+	require.NoError(t, err)
+	require.False(t, interrupted)
+	require.NotZero(t, blocks)
+	require.Len(t, gotRecords, int(blocks))
 }
 
 func TestIndexPDPv0AggregateFailsWhenSegmentIsNotCAR(t *testing.T) {

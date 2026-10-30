@@ -283,12 +283,18 @@ func (t *RepairMissingPiecesTask) repairPiece(ctx context.Context, dataSetID int
 
 	// A parked_pieces row only records intent to store. Confirm the bytes are
 	// really there before claiming the piece is provable: either placed in
-	// open-pieces, or readable from piece-park.
+	// open-pieces or acl-pieces, or readable from piece-park.
 	placed := false
 	if t.hs != nil {
-		placed, err = t.hs.HasFile(ctx, info.CidV2)
+		placed, err = t.hs.Public.HasFile(ctx, info.CidV2)
 		if err != nil {
 			return false, xerrors.Errorf("failed to look up open piece for %s: %w", info.CidV2, err)
+		}
+		if !placed {
+			placed, err = t.hs.ACL.HasFile(ctx, info.CidV2)
+			if err != nil {
+				return false, xerrors.Errorf("failed to look up acl piece for %s: %w", info.CidV2, err)
+			}
 		}
 	}
 	if !placed {

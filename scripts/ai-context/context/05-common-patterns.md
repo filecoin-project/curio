@@ -77,6 +77,7 @@
 - Explicit terminal markers (`complete`, `failed`, `after_*_success`) and GC after terminalization.
 - Piece lifecycle indirection through `parked_piece_refs` instead of direct durable references to staging rows.
 - Clear separation of durable ledger tables from ephemeral pipeline tables.
+- Lower types receive only the fields they read and call upward through functions passed at init; the parent owns aggregate state and mutation.
 
 ## Patterns an AI should not introduce
 - Node-local authoritative queues, locks, or state machines that bypass DB coordination.
@@ -87,3 +88,4 @@
 - Hidden state progression inferred only from logs/timeouts without explicit DB state.
 - Destructive cleanup that removes canonical historical/business records needed for operations or auditability.
 - Changes that weaken uniqueness/ordering invariants around task ownership, nonce assignment, or pipeline identity keys.
+- A child type that holds its parent pointer, mutates the parent's fields, or receives a parent aggregate when it only needs a subset of that data.
