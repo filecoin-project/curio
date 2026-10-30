@@ -95,15 +95,17 @@ func (p *PDPService) handleCreateDataSetAndAddPieces(w http.ResponseWriter, r *h
 		httpServerError(w, http.StatusBadRequest, "Failed to process request: "+err.Error(), err)
 		return
 	}
-	if known, acl := ACLFromExtraData(extraDataBytes); known && acl {
-		if err := p.requireACLEnvelopes(workCtx, subPieceInfoMap); err != nil {
-			if errors.Is(err, keysmith.ErrInvalidEnvelope) {
-				httpServerError(w, http.StatusBadRequest, "Piece is missing a valid encryption envelope", err)
-				return
-			}
-			httpServerError(w, http.StatusInternalServerError, "Failed to read piece envelope", err)
+	if err := p.requireRestrictedPiecesForCreate(workCtx, extraDataBytes, subPieceInfoMap); err != nil {
+		if errors.Is(err, keysmith.ErrInvalidEnvelope) {
+			httpServerError(w, http.StatusBadRequest, "Piece is missing a valid encryption envelope", err)
 			return
 		}
+		if strings.Contains(err.Error(), "foc/ks") || strings.Contains(err.Error(), "extraData") {
+			httpServerError(w, http.StatusBadRequest, err.Error(), err)
+			return
+		}
+		httpServerError(w, http.StatusInternalServerError, "Failed to validate restricted pieces", err)
+		return
 	}
 
 	abiData, err := contract.PDPVerifierMetaData.GetAbi()
@@ -194,12 +196,10 @@ func (p *PDPService) handleCreateDataSetAndAddPieces(w http.ResponseWriter, r *h
 		return
 	}
 
-	if known, acl := ACLFromExtraData(extraDataBytes); known && acl {
-		if err := p.placePieceRefs(workCtx, subPieceInfoMap, true); err != nil {
-			log.Errorw("Failed to place ACL pieces for create-and-add", "error", err, "txHash", txHashLower)
-			httpPlaceError(w, err)
-			return
-		}
+	if err := p.placePieceRefs(workCtx, subPieceInfoMap); err != nil {
+		log.Errorw("Failed to place pieces for create-and-add", "error", err, "txHash", txHashLower)
+		httpPlaceError(w, err)
+		return
 	}
 
 	// Step 7: Respond with 201 Created and Location header
