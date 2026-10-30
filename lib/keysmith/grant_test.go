@@ -254,6 +254,25 @@ func TestDecodePresentationRejectsMalformedLinks(t *testing.T) {
 	require.ErrorContains(t, err, "A scope name must be non-empty")
 }
 
+func TestScopeName(t *testing.T) {
+	for _, r := range []rune{'\t', '\n', '\v', '\f', '\r', ' ', '\u00a0', '\u1680', '\u2000', '\u2005', '\u200a', '\u2028', '\u2029', '\u202f', '\u205f', '\u3000', '\ufeff'} {
+		pad := string(r)
+		_, err := scopeName(pad + "a")
+		require.ErrorContains(t, err, "A scope name must be non-empty")
+		_, err = scopeName("a" + pad)
+		require.ErrorContains(t, err, "A scope name must be non-empty")
+	}
+	for _, name := range []string{"a", "a b", "a\u0085", "a\u200bb"} {
+		got, err := scopeName(name)
+		require.NoError(t, err)
+		require.Equal(t, name, got)
+	}
+	for _, name := range []string{"", " ", "a/b", "/a"} {
+		_, err := scopeName(name)
+		require.ErrorContains(t, err, "A scope name must be non-empty")
+	}
+}
+
 func bytes16(fill byte) []byte {
 	b := make([]byte, 16)
 	for i := range b {
