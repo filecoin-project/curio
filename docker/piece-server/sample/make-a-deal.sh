@@ -2,7 +2,7 @@
 ###################################################################################
 # sample demo script for making a deal with curio mk12 client
 ###################################################################################
-set -e
+set -eo pipefail
 # colors
 cb="\e[1m"
 ci="\e[3m" 
@@ -34,7 +34,8 @@ printf "7. Then you need to calculate the commp and piece size for the generated
  : ${ci}sptool --actor t01000 toolbox mk12-client commp /var/lib/curio-client/data/sample.car${cn}\n\n"
 read -rsp $'Press any key to execute it...\n\n' -n1 key
 
-read COMMP_CID PIECE CAR < <(sptool --actor t01000 toolbox mk12-client commp /var/lib/curio-client/data/sample.car 2>/dev/null | awk -F': ' '/CID/ {cid=$2} /Piece/ {piece=$2} /Car/ {car=$2} END {print cid, piece, car}')
+COMMP_OUTPUT=$(sptool --actor t01000 toolbox mk12-client commp /var/lib/curio-client/data/sample.car)
+read -r COMMP_CID PIECE CAR < <(awk -F': ' '/CID/ {cid=$2} /Piece/ {piece=$2} /Car/ {car=$2} END {print cid, piece, car}' <<< "$COMMP_OUTPUT")
 cp /var/lib/curio-client/data/sample.car /var/lib/curio-client/data/$COMMP_CID.car
 
 printf "\n\nYes. We also have remembered these values:\n \
