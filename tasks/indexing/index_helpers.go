@@ -242,9 +242,10 @@ func IndexAggregate(pieceCid cid.Cid,
 //
 // For aggregate pieces, child piece CIDv2 values are built from each segment's
 // PieceCIDv1 plus the raw CAR length returned by IndexCAR for that segment.
-// Whole-piece CAR fallback is only used when the data segment index is absent
-// or unusable as an index. Reader/seek failures while trying to read the index
-// are treated as real errors and do not fall back.
+// A nil aggRecs still indexes those segment payloads into recs and records no
+// child piece CIDs. Whole-piece CAR fallback is only used when the data
+// segment index is absent or unusable as an index. Reader/seek failures while
+// trying to read the index are treated as real errors and do not fall back.
 func IndexPDPv0(pieceCid cid.Cid,
 	reader IndexReader,
 	size abi.PaddedPieceSize,
@@ -330,9 +331,10 @@ func parseDataSegments(reader IndexReader, size abi.PaddedPieceSize) ([]datasegm
 	return valid, nil
 }
 
-// indexSegments walks validated data segment entries and records aggregate
-// child mappings. The caller-provided segmentIndexer supplies the child CID and
-// handles any segment payload indexing needed for the specific aggregate type.
+// indexSegments walks validated data segment entries. The caller-provided
+// segmentIndexer supplies the child CID and indexes segment payloads. A nil
+// aggRecs skips child piece CID records; the caller has already validated
+// the segment list.
 func indexSegments(
 	reader IndexReader,
 	valid []datasegment.SegmentDesc,
@@ -340,9 +342,6 @@ func indexSegments(
 	addFail <-chan struct{},
 	indexSegment segmentIndexer) (int64, bool, error) {
 	var totalBlocks int64
-	if aggRecs == nil {
-		return 0, false, xerrors.Errorf("aggregate index records channel is nil")
-	}
 
 	for j, entry := range valid {
 		bufferSize := 4 << 20
@@ -361,6 +360,9 @@ func indexSegments(
 			return totalBlocks, true, nil
 		}
 		totalBlocks += b
+		if aggRecs == nil {
+			continue
+		}
 
 		select {
 		case aggRecs <- indexstore.Record{

@@ -113,6 +113,7 @@ func TestRetrievals(t *testing.T) {
 
 	dependencies := harness.Dependencies
 	dependencies.CachedPieceReader.SetOpenPieceReader(pieceprovider.NewOpenPieceReader(hs))
+	dependencies.CachedPieceReader.SetACLPieceReader(pieceprovider.NewACLPieceReader(hs))
 
 	baseURL := "http://" + baseCfg.HTTP.ListenAddress
 	helpers.WaitForHTTP(t, baseURL)

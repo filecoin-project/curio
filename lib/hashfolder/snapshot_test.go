@@ -54,15 +54,17 @@ func TestCandidates(t *testing.T) {
 	require.NoError(t, err)
 
 	c := &Cluster{roots: map[string]string{"local": "/l"}}
+	c.Public = c.newClusterSpace(DIR_OPEN)
+	c.ACL = c.newClusterSpace(DIR_ACL)
 
 	// No snapshot yet.
-	ls, err := c.Candidates(v2)
+	ls, err := c.Public.Candidates(v2)
 	require.NoError(t, err)
 	require.Empty(t, ls)
 
 	// A snapshot without ranges.
 	c.snap.Store(&mapSnapshot{})
-	ls, err = c.Candidates(v2)
+	ls, err = c.Public.Candidates(v2)
 	require.NoError(t, err)
 	require.Empty(t, ls)
 
@@ -71,12 +73,25 @@ func TestCandidates(t *testing.T) {
 		ranges:    []rangeRow{{EndHash: h(0x10), StorageID: "remote"}},
 		misplaced: []string{"local"},
 	})
-	ls, err = c.Candidates(v2)
+	ls, err = c.Public.Candidates(v2)
 	require.NoError(t, err)
 	require.Equal(t, []string{"local", "remote"}, ids(ls))
 
+	// acl-pieces ranges do not change open-pieces candidates.
+	c.snap.Store(&mapSnapshot{
+		ranges:    []rangeRow{{EndHash: h(0x10), StorageID: "open"}},
+		aclRanges: []rangeRow{{EndHash: h(0x10), StorageID: "acl"}},
+		misplaced: []string{"local"},
+	})
+	ls, err = c.Public.Candidates(v2)
+	require.NoError(t, err)
+	require.Equal(t, []string{"local", "open"}, ids(ls))
+	ls, err = c.ACL.Candidates(v2)
+	require.NoError(t, err)
+	require.Equal(t, []string{"local", "acl"}, ids(ls))
+
 	// Only piece CID v2 names a hash.
-	_, err = c.Candidates(v1)
+	_, err = c.Public.Candidates(v1)
 	require.Error(t, err)
 }
 

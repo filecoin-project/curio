@@ -2,6 +2,7 @@ package indexing
 
 import (
 	"context"
+	"database/sql"
 	"time"
 
 	"github.com/ipfs/go-cid"
@@ -106,14 +107,29 @@ func (P *PDPIndexingV0Task) Do(ctx context.Context, taskID harmonytask.TaskID, s
 		return true, nil
 	}
 
-	// Fetch with pcid2, it should automatically give us correct pieceReader
-	reader, _, err := P.cpr.GetSharedPieceReader(ctx, pcid2, false)
+	// A copy in open-pieces keeps child piece CID records. A piece that is
+	// only in acl-pieces still gets the block index. A piece in neither
+	// folder has not been placed, so the data set read flag decides.
+	inOpen, inACL, err := P.cpr.PieceInSpaces(ctx, pcid2)
+	if err != nil {
+		return false, xerrors.Errorf("checking piece hash spaces: %w", err)
+	}
+	var unplacedRestricted bool
+	if !inOpen && !inACL {
+		unplacedRestricted, err = unplacedPieceRestricted(ctx, P.db, task.ID)
+		if err != nil {
+			return false, err
+		}
+	}
+
+	reader, _, _, err := P.cpr.ReadPieceOrACL(ctx, pcid2, false)
 	if err != nil {
 		return false, xerrors.Errorf("getting piece reader: %w", err)
 	}
 	defer func() {
 		_ = reader.Close()
 	}()
+	skipAggregate := skipSubpieceIndex(inOpen, inACL, unplacedRestricted)
 
 	startTime := time.Now()
 
@@ -127,20 +143,25 @@ func (P *PDPIndexingV0Task) Do(ctx context.Context, taskID harmonytask.TaskID, s
 	addFail := make(chan struct{})
 	var interrupted bool
 
-	aggRecs := make(chan indexstore.Record, chanSize)
+	var aggRecs chan indexstore.Record
 	eg.Go(func() error {
 		defer close(addFail)
 		return P.indexStore.AddIndex(ctx, pcid2, recs)
 	})
-	eg.Go(func() error {
-		return P.indexStore.InsertAggregateIndex(ctx, pcid2, aggRecs)
-	})
+	if !skipAggregate {
+		aggRecs = make(chan indexstore.Record, chanSize)
+		eg.Go(func() error {
+			return P.indexStore.InsertAggregateIndex(ctx, pcid2, aggRecs)
+		})
+	}
 
 	blocks, interrupted, err = IndexPDPv0(pcid2, reader, task.PieceSize, recs, aggRecs, addFail)
 	if err != nil {
 		// Indexing itself failed, stop early
 		close(recs) // still safe to close, AddIndex will exit on channel close
-		close(aggRecs)
+		if aggRecs != nil {
+			close(aggRecs)
+		}
 		// wait for AddIndex goroutine to finish cleanly
 		_ = eg.Wait()
 		return false, xerrors.Errorf("indexing failed: %w", err)
@@ -148,7 +169,9 @@ func (P *PDPIndexingV0Task) Do(ctx context.Context, taskID harmonytask.TaskID, s
 
 	// Close the channel
 	close(recs)
-	close(aggRecs)
+	if aggRecs != nil {
+		close(aggRecs)
+	}
 
 	// Wait till AddIndex is finished
 	err = eg.Wait()
@@ -167,6 +190,70 @@ func (P *PDPIndexingV0Task) Do(ctx context.Context, taskID harmonytask.TaskID, s
 	log.Infow("Piece indexed", "piece_cid", task.PieceCID, "id", task.ID, "blocks", blocks, "blocks_per_second", blocksPerSecond)
 
 	return true, nil
+}
+
+// skipSubpieceIndex omits child piece CID records when the piece is only in
+// acl-pieces. A copy in open-pieces keeps them. unplacedRestricted is the
+// data set read flag for a piece found in neither folder.
+func skipSubpieceIndex(inOpen, inACL, unplacedRestricted bool) bool {
+	if inOpen {
+		return false
+	}
+	if inACL {
+		return true
+	}
+	return unplacedRestricted
+}
+
+// unplacedPieceRestricted reports whether every data set linked to this piece
+// has acl TRUE. The caller passes pdp_piecerefs.id and has found the piece in
+// neither hash folder. FALSE and NULL are public. No linked data set is public.
+func unplacedPieceRestricted(ctx context.Context, db *harmonydb.DB, pdpPieceRef int64) (bool, error) {
+	var rows []struct {
+		ACL sql.NullBool `db:"acl"`
+	}
+	err := db.Select(ctx, &rows, `
+		SELECT ds.acl
+		FROM pdp_data_sets ds
+		WHERE ds.id IN (
+			SELECT a.data_set FROM pdp_data_set_piece_adds a
+			WHERE a.pdp_pieceref = $1 AND a.data_set IS NOT NULL
+			UNION
+			SELECT p.data_set FROM pdp_data_set_pieces p
+			WHERE p.pdp_pieceref = $1
+			UNION
+			SELECT fp.data_set_id
+			FROM pdp_piecerefs pr
+			JOIN pdp_piece_pull_items fi ON fi.parked_piece_ref = pr.piece_ref
+			JOIN pdp_piece_pulls fp ON fp.id = fi.fetch_id
+			WHERE pr.id = $1 AND fp.data_set_id <> 0
+		)
+		OR ds.create_message_hash IN (
+			SELECT a.add_message_hash FROM pdp_data_set_piece_adds a
+			WHERE a.pdp_pieceref = $1 AND a.data_set IS NULL
+		)`, pdpPieceRef)
+	if err != nil {
+		return false, xerrors.Errorf("reading data set acl for piece ref %d: %w", pdpPieceRef, err)
+	}
+	acls := make([]sql.NullBool, len(rows))
+	for i := range rows {
+		acls[i] = rows[i].ACL
+	}
+	return everyACLRestricted(acls), nil
+}
+
+// everyACLRestricted is true only when each acl value is TRUE. An empty list,
+// FALSE, or NULL is public. The caller collected ds.acl for one piece.
+func everyACLRestricted(acls []sql.NullBool) bool {
+	if len(acls) == 0 {
+		return false
+	}
+	for _, acl := range acls {
+		if !acl.Valid || !acl.Bool {
+			return false
+		}
+	}
+	return true
 }
 
 func (P *PDPIndexingV0Task) recordCompletion(ctx context.Context, taskID harmonytask.TaskID, id int64, needsIPNI bool) error {

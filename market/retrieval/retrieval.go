@@ -3,6 +3,7 @@ package retrieval
 import (
 	"context"
 	"fmt"
+	"math/big"
 	"net/http"
 	"path"
 	"strconv"
@@ -46,17 +47,29 @@ var (
 )
 
 type Provider struct {
-	db  *harmonydb.DB
-	bs  *remoteblockstore.RemoteBlockstore
-	fr  *frisbii.HttpIpfs
-	cpr *cachedreader.CachedPieceReader
+	db         *harmonydb.DB
+	bs         *remoteblockstore.RemoteBlockstore
+	fr         *frisbii.HttpIpfs
+	cpr        *cachedreader.CachedPieceReader
+	blockChain *big.Int
+}
+
+// SetBlockChain records the blockchain FOC grants must name.
+// id is copied. A nil id leaves ACL downloads without a blockchain to check against.
+func (p *Provider) SetBlockChain(id *big.Int) {
+	if id == nil {
+		p.blockChain = nil
+		return
+	}
+	p.blockChain = new(big.Int).Set(id)
 }
 
 const (
-	piecePrefix  = "/piece/"
-	publicPrefix = "/public/"
-	ipfsPrefix   = "/ipfs/"
-	infoPage     = "/info"
+	piecePrefix    = "/piece/"
+	publicPrefix   = "/public/"
+	downloadPrefix = "/download/"
+	ipfsPrefix     = "/ipfs/"
+	infoPage       = "/info"
 )
 
 var RetrievalBlockCache = must.One(lru.NewARC[blockstore.MhString, blocks.Block](4096))
@@ -242,12 +255,14 @@ func Router(mux *chi.Mux, rp *Provider, df *denylist.Filter) {
 	mux.Group(func(r chi.Router) {
 		r.Use(metricsMiddleware)
 
-		// Canonical piece retrieval
+		// Canonical piece retrieval. /download/ serves acl-pieces.
 		r.Group(func(r chi.Router) {
 			r.Use(denylist.Middleware(df))
 			r.Use(limiterMiddleware(pieceRequestLimiter))
 			r.Get(publicPrefix+"{cid}", rp.handleByPieceCid)
 			r.Head(publicPrefix+"{cid}", rp.handleByPieceCid)
+			r.Get(downloadPrefix+"{cid}", rp.handleDownload)
+			r.Head(downloadPrefix+"{cid}", rp.handleDownload)
 		})
 
 		// Legacy /piece/{cid} redirects to /public/{cid}
