@@ -2,7 +2,6 @@ package indexing
 
 import (
 	"bytes"
-	"database/sql"
 	"errors"
 	"io"
 	"math/bits"
@@ -100,21 +99,6 @@ func TestIndexPDPv0AggregateUsesSegmentCARRawSizesForChildPieceCIDV2(t *testing.
 
 	assertPDPv0ChildCID(t, subA, children[0])
 	assertPDPv0ChildCID(t, subB, children[1])
-}
-
-func TestEveryACLRestricted(t *testing.T) {
-	require.False(t, everyACLRestricted(nil))
-	require.True(t, everyACLRestricted([]sql.NullBool{{Bool: true, Valid: true}}))
-	require.True(t, everyACLRestricted([]sql.NullBool{
-		{Bool: true, Valid: true},
-		{Bool: true, Valid: true},
-	}))
-	require.False(t, everyACLRestricted([]sql.NullBool{{Valid: false}}))
-	require.False(t, everyACLRestricted([]sql.NullBool{{Bool: false, Valid: true}}))
-	require.False(t, everyACLRestricted([]sql.NullBool{
-		{Bool: true, Valid: true},
-		{Valid: false},
-	}))
 }
 
 func TestSkipSubpieceIndex(t *testing.T) {

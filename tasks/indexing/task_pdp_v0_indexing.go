@@ -2,7 +2,6 @@ package indexing
 
 import (
 	"context"
-	"database/sql"
 	"time"
 
 	"github.com/ipfs/go-cid"
@@ -109,14 +108,14 @@ func (P *PDPIndexingV0Task) Do(ctx context.Context, taskID harmonytask.TaskID, s
 
 	// A copy in open-pieces keeps child piece CID records. A piece that is
 	// only in acl-pieces still gets the block index. A piece in neither
-	// folder has not been placed, so the data set read flag decides.
+	// folder has not been placed, so the piece restricted flag decides.
 	inOpen, inACL, err := P.cpr.PieceInSpaces(ctx, pcid2)
 	if err != nil {
 		return false, xerrors.Errorf("checking piece hash spaces: %w", err)
 	}
 	var unplacedRestricted bool
 	if !inOpen && !inACL {
-		unplacedRestricted, err = unplacedPieceRestricted(ctx, P.db, task.ID)
+		unplacedRestricted, err = pieceRefRestricted(ctx, P.db, task.ID)
 		if err != nil {
 			return false, err
 		}
@@ -194,7 +193,7 @@ func (P *PDPIndexingV0Task) Do(ctx context.Context, taskID harmonytask.TaskID, s
 
 // skipSubpieceIndex omits child piece CID records when the piece is only in
 // acl-pieces. A copy in open-pieces keeps them. unplacedRestricted is the
-// data set read flag for a piece found in neither folder.
+// piece restricted flag for a piece found in neither folder.
 func skipSubpieceIndex(inOpen, inACL, unplacedRestricted bool) bool {
 	if inOpen {
 		return false
@@ -205,55 +204,15 @@ func skipSubpieceIndex(inOpen, inACL, unplacedRestricted bool) bool {
 	return unplacedRestricted
 }
 
-// unplacedPieceRestricted reports whether every data set linked to this piece
-// has acl TRUE. The caller passes pdp_piecerefs.id and has found the piece in
-// neither hash folder. FALSE and NULL are public. No linked data set is public.
-func unplacedPieceRestricted(ctx context.Context, db *harmonydb.DB, pdpPieceRef int64) (bool, error) {
-	var rows []struct {
-		ACL sql.NullBool `db:"acl"`
-	}
-	err := db.Select(ctx, &rows, `
-		SELECT ds.acl
-		FROM pdp_data_sets ds
-		WHERE ds.id IN (
-			SELECT a.data_set FROM pdp_data_set_piece_adds a
-			WHERE a.pdp_pieceref = $1 AND a.data_set IS NOT NULL
-			UNION
-			SELECT p.data_set FROM pdp_data_set_pieces p
-			WHERE p.pdp_pieceref = $1
-			UNION
-			SELECT fp.data_set_id
-			FROM pdp_piecerefs pr
-			JOIN pdp_piece_pull_items fi ON fi.parked_piece_ref = pr.piece_ref
-			JOIN pdp_piece_pulls fp ON fp.id = fi.fetch_id
-			WHERE pr.id = $1 AND fp.data_set_id <> 0
-		)
-		OR ds.create_message_hash IN (
-			SELECT a.add_message_hash FROM pdp_data_set_piece_adds a
-			WHERE a.pdp_pieceref = $1 AND a.data_set IS NULL
-		)`, pdpPieceRef)
+// pieceRefRestricted reports whether pdp_piecerefs.restricted is true.
+// The caller passes pdp_piecerefs.id and has found the piece in neither hash folder.
+func pieceRefRestricted(ctx context.Context, db *harmonydb.DB, pdpPieceRef int64) (bool, error) {
+	var restricted bool
+	err := db.QueryRow(ctx, `SELECT restricted FROM pdp_piecerefs WHERE id = $1`, pdpPieceRef).Scan(&restricted)
 	if err != nil {
-		return false, xerrors.Errorf("reading data set acl for piece ref %d: %w", pdpPieceRef, err)
+		return false, xerrors.Errorf("reading pdp_piecerefs.restricted for %d: %w", pdpPieceRef, err)
 	}
-	acls := make([]sql.NullBool, len(rows))
-	for i := range rows {
-		acls[i] = rows[i].ACL
-	}
-	return everyACLRestricted(acls), nil
-}
-
-// everyACLRestricted is true only when each acl value is TRUE. An empty list,
-// FALSE, or NULL is public. The caller collected ds.acl for one piece.
-func everyACLRestricted(acls []sql.NullBool) bool {
-	if len(acls) == 0 {
-		return false
-	}
-	for _, acl := range acls {
-		if !acl.Valid || !acl.Bool {
-			return false
-		}
-	}
-	return true
+	return restricted, nil
 }
 
 func (P *PDPIndexingV0Task) recordCompletion(ctx context.Context, taskID harmonytask.TaskID, id int64, needsIPNI bool) error {
