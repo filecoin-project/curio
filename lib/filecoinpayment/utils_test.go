@@ -64,15 +64,31 @@ func TestRailNeedsSettlement(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "active rail due after settlement interval",
+			name: "active rail inside lockup horizon is not due",
 			rail: PaymentsRailView{
 				SettledUpTo:  new(big.Int).SetUint64(current - uint64(builtin.EpochsInDay*8)),
+				LockupPeriod: big.NewInt(builtin.EpochsInDay * 30),
+			},
+			want: false,
+		},
+		{
+			name: "active rail past lockup horizon is due",
+			rail: PaymentsRailView{
+				SettledUpTo:  new(big.Int).SetUint64(current - uint64(builtin.EpochsInDay*29) - 1),
 				LockupPeriod: big.NewInt(builtin.EpochsInDay * 30),
 			},
 			want: true,
 		},
 		{
-			name: "active rail not due before settlement interval",
+			name: "active rail at lockup horizon is not yet due",
+			rail: PaymentsRailView{
+				SettledUpTo:  new(big.Int).SetUint64(current - uint64(builtin.EpochsInDay*29)),
+				LockupPeriod: big.NewInt(builtin.EpochsInDay * 30),
+			},
+			want: false,
+		},
+		{
+			name: "active rail settled recently is not due",
 			rail: PaymentsRailView{
 				SettledUpTo:  new(big.Int).SetUint64(current - uint64(builtin.EpochsInDay)),
 				LockupPeriod: big.NewInt(builtin.EpochsInDay * 30),
@@ -93,6 +109,55 @@ func TestRailNeedsSettlement(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := railNeedsSettlement(tt.rail, current); got != tt.want {
 				t.Fatalf("railNeedsSettlement = %t, want %t", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDeferredSettleGas(t *testing.T) {
+	t.Cleanup(func() { pruneDeferredSettleGas(nil) })
+
+	if deferredSettleGasKnown(7, big.NewInt(100), big.NewInt(3)) {
+		t.Fatal("unrecorded rail reported known")
+	}
+
+	recordDeferredSettleGas(7, big.NewInt(100), big.NewInt(3))
+	if !deferredSettleGasKnown(7, big.NewInt(100), big.NewInt(3)) {
+		t.Fatal("recorded rail not known")
+	}
+	if deferredSettleGasKnown(7, big.NewInt(100), big.NewInt(4)) {
+		t.Fatal("queue growth must require a new estimate")
+	}
+	if deferredSettleGasKnown(7, big.NewInt(200), big.NewInt(3)) {
+		t.Fatal("settlement progress must require a new estimate")
+	}
+
+	recordDeferredSettleGas(8, big.NewInt(100), big.NewInt(1))
+	pruneDeferredSettleGas(map[int64]struct{}{8: {}})
+	if deferredSettleGasKnown(7, big.NewInt(100), big.NewInt(3)) {
+		t.Fatal("unseen rail not pruned")
+	}
+	if !deferredSettleGasKnown(8, big.NewInt(100), big.NewInt(1)) {
+		t.Fatal("seen rail pruned")
+	}
+}
+
+func TestIsActiveRail(t *testing.T) {
+	tests := []struct {
+		name string
+		rail PaymentsRailView
+		want bool
+	}{
+		{name: "active with zero end epoch", rail: PaymentsRailView{SettledUpTo: big.NewInt(1), EndEpoch: big.NewInt(0)}, want: true},
+		{name: "active with nil end epoch", rail: PaymentsRailView{SettledUpTo: big.NewInt(1)}, want: true},
+		{name: "terminated", rail: PaymentsRailView{SettledUpTo: big.NewInt(1), EndEpoch: big.NewInt(100)}, want: false},
+		{name: "missing settledUpTo", rail: PaymentsRailView{}, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isActiveRail(tt.rail); got != tt.want {
+				t.Fatalf("isActiveRail = %t, want %t", got, tt.want)
 			}
 		})
 	}
