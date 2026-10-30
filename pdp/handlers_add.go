@@ -22,7 +22,9 @@ import (
 	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/keysmith"
 	"github.com/filecoin-project/curio/pdp/contract"
+	"github.com/filecoin-project/curio/tasks/openpieces"
 )
 
 type SubPieceEntry struct {
@@ -45,7 +47,9 @@ type SubPieceInfo struct {
 	PaddedSize     abi.PaddedPieceSize
 	RawSize        uint64 // RawSize is the size of the piece with no padding applied
 	PDPPieceRefID  int64
+	PieceRef       int64 // parked_piece_refs.ref_id
 	SubPieceOffset uint64
+	Restricted     bool
 }
 
 func (p *PDPService) transformAddPiecesRequest(ctx context.Context, serviceLabel string, pieces []AddPieceRequest) ([]PieceData, map[string]*SubPieceInfo, error) {
@@ -93,7 +97,7 @@ func (p *PDPService) transformAddPiecesRequest(ctx context.Context, serviceLabel
 		// Step 4: Get pdp_piecerefs matching all subPiece cids + make sure those refs belong to serviceLabel
 		rows, err := tx.Query(`
             SELECT ppr.piece_cid, ppr.id AS pdp_pieceref_id, ppr.piece_ref,
-                   pp.piece_padded_size, pp.piece_raw_size
+                   pp.piece_padded_size, pp.piece_raw_size, ppr.restricted
             FROM pdp_piecerefs ppr
             JOIN parked_piece_refs pprf ON pprf.ref_id = ppr.piece_ref
             JOIN parked_pieces pp ON pp.id = pprf.piece_id
@@ -111,8 +115,9 @@ func (p *PDPService) transformAddPiecesRequest(ctx context.Context, serviceLabel
 			var pdpPieceRefID, pieceRefID int64
 			var piecePaddedSize uint64
 			var pieceRawSize uint64
+			var restricted bool
 
-			err := rows.Scan(&pieceCIDStr, &pdpPieceRefID, &pieceRefID, &piecePaddedSize, &pieceRawSize)
+			err := rows.Scan(&pieceCIDStr, &pdpPieceRefID, &pieceRefID, &piecePaddedSize, &pieceRawSize, &restricted)
 			if err != nil {
 				return false, err
 			}
@@ -131,7 +136,9 @@ func (p *PDPService) transformAddPiecesRequest(ctx context.Context, serviceLabel
 				PaddedSize:     abi.PaddedPieceSize(piecePaddedSize),
 				RawSize:        pieceRawSize,
 				PDPPieceRefID:  pdpPieceRefID,
+				PieceRef:       pieceRefID,
 				SubPieceOffset: 0, // Will compute offset later
+				Restricted:     restricted,
 			}
 
 			foundSubPieces[pieceCIDStr] = struct{}{}
@@ -402,7 +409,7 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 		data,
 	)
 
-	// Step 8: Resolve indexing intent from cached pdp_data_sets.ipfs_indexing (chain-fill if NULL).
+	// Step 8: Resolve indexing from cached pdp_data_sets columns (chain-fill if NULL).
 	mustIndex, err := ResolveDatasetIPFSIndexing(workCtx, p.db, p.ethClient, dataSetIdUint64)
 	if err != nil {
 		log.Errorw("Failed to resolve indexing requirements", "error", err, "dataSetId", dataSetId)
@@ -411,6 +418,18 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 	}
 	if mustIndex {
 		log.Infow("Data set has withIPFSIndexing enabled, pieces will be indexed", "dataSetId", dataSetId)
+	}
+	if err := p.requireRestrictedPiecesForDataset(workCtx, dataSetIdUint64, subPieceInfoMap); err != nil {
+		if errors.Is(err, keysmith.ErrInvalidEnvelope) {
+			httpServerError(w, http.StatusBadRequest, "Piece is missing a valid encryption envelope", err)
+			return
+		}
+		if strings.Contains(err.Error(), "has no foc/ks") || strings.Contains(err.Error(), "does not match") {
+			httpServerError(w, http.StatusBadRequest, err.Error(), err)
+			return
+		}
+		httpServerError(w, http.StatusInternalServerError, "Failed to validate restricted pieces", err)
+		return
 	}
 
 	// Step 9: Send the transaction
@@ -485,6 +504,12 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	if err := p.placePieceRefs(workCtx, subPieceInfoMap); err != nil {
+		log.Errorw("Failed to place added pieces", "error", err, "txHash", txHashLower)
+		httpPlaceError(w, err)
+		return
+	}
+
 	// Step 10: Respond with 201 Created
 	w.Header().Set("Location", path.Join("/pdp/data-sets", dataSetIdStr, "pieces/added", txHashLower))
 	w.WriteHeader(http.StatusCreated)
@@ -524,6 +549,26 @@ func (p *PDPService) insertPieceAdds(txdb *harmonydb.Tx, dataSetId *uint64, txHa
 			if n != 1 {
 				return fmt.Errorf("expected 1 row to be inserted into pdp_data_set_piece_adds, got %d", n)
 			}
+		}
+	}
+	return nil
+}
+
+// placePieceRefs copies each parked piece into the hash space its restricted
+// flag requires. The caller has committed the piece-add rows. Place reads
+// pdp_piecerefs.restricted set at finalize.
+func (p *PDPService) placePieceRefs(ctx context.Context, infos map[string]*SubPieceInfo) error {
+	seen := map[int64]struct{}{}
+	for _, info := range infos {
+		if info == nil || info.PieceRef == 0 {
+			continue
+		}
+		if _, ok := seen[info.PieceRef]; ok {
+			continue
+		}
+		seen[info.PieceRef] = struct{}{}
+		if err := openpieces.Place(ctx, p.db, p.hs, p.local, p.pieceIO, info.PieceRef); err != nil {
+			return err
 		}
 	}
 	return nil

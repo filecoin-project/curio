@@ -96,7 +96,10 @@ func readHasExtraByte(r io.Reader) (bool, error) {
 	}
 }
 
-func (p *PDPService) placeRef(ctx context.Context, pieceRef int64) error {
+func (p *PDPService) placeRef(ctx context.Context, pieceRef int64, restricted bool) error {
+	if restricted {
+		return openpieces.PlaceACL(ctx, p.db, p.hs, p.local, p.pieceIO, pieceRef)
+	}
 	return openpieces.Place(ctx, p.db, p.hs, p.local, p.pieceIO, pieceRef)
 }
 
@@ -104,11 +107,11 @@ func needsSaveCache(rawSize int64) bool {
 	return PadPieceSize(rawSize) > int64(proof.MIN_PADDED_PIECE_SIZE_FOR_CACHE)
 }
 
-func insertPDPReference(tx *harmonydb.Tx, service, pieceCID string, pieceRef, rawSize int64) error {
+func insertPDPReference(tx *harmonydb.Tx, service, pieceCID string, pieceRef, rawSize int64, restricted bool) error {
 	n, err := tx.Exec(`
-		INSERT INTO pdp_piecerefs (service, piece_cid, piece_ref, created_at, needs_save_cache)
-		VALUES ($1, $2, $3, NOW(), $4)
-	`, service, pieceCID, pieceRef, needsSaveCache(rawSize))
+		INSERT INTO pdp_piecerefs (service, piece_cid, piece_ref, created_at, needs_save_cache, restricted)
+		VALUES ($1, $2, $3, NOW(), $4, $5)
+	`, service, pieceCID, pieceRef, needsSaveCache(rawSize), restricted)
 	if err != nil {
 		return fmt.Errorf("failed to insert pdp_piecerefs: %w", err)
 	}
@@ -118,11 +121,22 @@ func insertPDPReference(tx *harmonydb.Tx, service, pieceCID string, pieceRef, ra
 	return nil
 }
 
+// uploadRestricted reads the restricted intent stashed on a direct-upload row.
+func uploadRestricted(tx *harmonydb.Tx, uploadID string) (bool, error) {
+	var restricted bool
+	err := tx.QueryRow(`SELECT restricted FROM pdp_piece_uploads WHERE id = $1`, uploadID).Scan(&restricted)
+	if err != nil {
+		return false, fmt.Errorf("reading pdp_piece_uploads.restricted: %w", err)
+	}
+	return restricted, nil
+}
+
 type parkedPieceClaim struct {
 	parkedPieceID int64
 	pieceRefID    int64
 	created       bool
 	complete      bool
+	restricted    bool
 }
 
 // claimParkedPiece returns a per-upload ref to the active long-term parked
@@ -173,6 +187,10 @@ func (p *PDPService) claimDirectUpload(ctx context.Context, uploadID, service, p
 		}
 
 		if claim.complete {
+			restricted, err := uploadRestricted(tx, uploadID)
+			if err != nil {
+				return false, err
+			}
 			n, err := tx.Exec(`DELETE FROM pdp_piece_uploads WHERE id = $1 AND piece_ref IS NULL`, uploadID)
 			if err != nil {
 				return false, fmt.Errorf("failed to consume upload UUID: %w", err)
@@ -180,9 +198,10 @@ func (p *PDPService) claimDirectUpload(ctx context.Context, uploadID, service, p
 			if n != 1 {
 				return false, errUploadClaimed
 			}
-			if err := insertPDPReference(tx, service, pieceCID, claim.pieceRefID, rawSize); err != nil {
+			if err := insertPDPReference(tx, service, pieceCID, claim.pieceRefID, rawSize, restricted); err != nil {
 				return false, err
 			}
+			claim.restricted = restricted
 			return true, nil
 		}
 
@@ -207,7 +226,7 @@ func (p *PDPService) claimDirectUpload(ctx context.Context, uploadID, service, p
 		return parkedPieceClaim{}, errors.New("failed to commit direct upload claim")
 	}
 	if claim.complete {
-		if err := p.placeRef(ctx, claim.pieceRefID); err != nil {
+		if err := p.placeRef(ctx, claim.pieceRefID, claim.restricted); err != nil {
 			return parkedPieceClaim{}, err
 		}
 	}
@@ -359,6 +378,7 @@ func (p *PDPService) completeStreamingUpload(ctx context.Context, uploadID, serv
 }
 
 func (p *PDPService) finalizeDirectUpload(ctx context.Context, uploadID, service, pieceCID string, claim parkedPieceClaim, rawSize int64) error {
+	var restricted bool
 	committed, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
 		n, err := tx.Exec(`
 			UPDATE parked_pieces
@@ -372,7 +392,11 @@ func (p *PDPService) finalizeDirectUpload(ctx context.Context, uploadID, service
 			return false, fmt.Errorf("failed to mark parked piece complete: expected 1 row, got %d", n)
 		}
 
-		if err := insertPDPReference(tx, service, pieceCID, claim.pieceRefID, rawSize); err != nil {
+		restricted, err = uploadRestricted(tx, uploadID)
+		if err != nil {
+			return false, err
+		}
+		if err := insertPDPReference(tx, service, pieceCID, claim.pieceRefID, rawSize, restricted); err != nil {
 			return false, err
 		}
 		return true, nil
@@ -383,10 +407,10 @@ func (p *PDPService) finalizeDirectUpload(ctx context.Context, uploadID, service
 	if !committed {
 		return errors.New("failed to commit direct upload completion")
 	}
-	if err := p.placeRef(ctx, claim.pieceRefID); err != nil {
+	if err := p.placeRef(ctx, claim.pieceRefID, restricted); err != nil {
 		return err
 	}
-	// Drop the upload only after the piece is in open-pieces, so a retry of
+	// Drop the upload only after the piece is in its hash space, so a retry of
 	// this request can place again if the copy failed.
 	n, err := p.db.Exec(ctx, `DELETE FROM pdp_piece_uploads WHERE id = $1 AND piece_ref = $2`, uploadID, claim.pieceRefID)
 	if err != nil {
@@ -625,11 +649,13 @@ func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		PieceCID string `json:"pieceCid"`
 		Notify   string `json:"notify,omitempty"`
+		Read     string `json:"read,omitempty"`
 	}
 	if err = json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httpServerError(w, http.StatusBadRequest, "Invalid request body: "+err.Error(), err)
 		return
 	}
+	restricted := pieceRestrictedFromRead(req.Read)
 	pieceInfo, err := ParsePieceCidV2(req.PieceCID)
 	if err != nil {
 		httpServerError(w, http.StatusBadRequest, "Invalid request body: invalid pieceCid: "+err.Error(), err)
@@ -685,7 +711,7 @@ func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 			}
 			log.Debugw("[handlePiecePost] -- new parked piece ref", "parkedPieceRefID", parkedPieceRefID, "pieceCidV1", pieceCidV1)
 
-			if err := insertPDPReference(tx, serviceID, pieceCidV1.String(), parkedPieceRefID, int64(size)); err != nil {
+			if err := insertPDPReference(tx, serviceID, pieceCidV1.String(), parkedPieceRefID, int64(size), restricted); err != nil {
 				return false, err
 			}
 			log.Debugw("[handlePiecePost] -- new pdp_piecerefs", "parkedPieceRefID", parkedPieceRefID, "pieceCidV1", pieceCidV1)
@@ -700,9 +726,9 @@ func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 		uploadUUID = uuid.New()
 
 		_, err = tx.Exec(`
-       INSERT INTO pdp_piece_uploads (id, service, piece_cid, notify_url, check_hash_codec, check_hash, check_size)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-   `, uploadUUID.String(), serviceID, pieceCidV1.String(), req.Notify, multicodec.Sha2_256Trunc254Padded.String(), dmh.Digest, size)
+       INSERT INTO pdp_piece_uploads (id, service, piece_cid, notify_url, check_hash_codec, check_hash, check_size, restricted)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+   `, uploadUUID.String(), serviceID, pieceCidV1.String(), req.Notify, multicodec.Sha2_256Trunc254Padded.String(), dmh.Digest, size, restricted)
 		if err != nil {
 			return false, fmt.Errorf("failed to store upload request in database: %w", err)
 		}
@@ -719,8 +745,8 @@ func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if responseStatus == http.StatusOK {
-		if err := p.placeRef(ctx, placedRef); err != nil {
-			httpServerError(w, http.StatusInternalServerError, "Failed to place piece in open-pieces", err)
+		if err := p.placeRef(ctx, placedRef, restricted); err != nil {
+			httpPlaceError(w, err)
 			return
 		}
 	}
@@ -779,9 +805,10 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Debugw("[handlePieceUpload] -- upload lookup done", "uploadUUID", uploadUUID)
 	// A non-null ref is an active direct-write claim, or a finalize that
-	// published the PDP ref and then failed while copying into open-pieces.
+	// published the PDP ref and then failed while copying into its hash space.
 	if pieceRef.Valid {
 		var published bool
+		var restricted bool
 		err = p.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pdp_piecerefs WHERE piece_ref = $1)`, pieceRef.Int64).Scan(&published)
 		if err != nil {
 			httpServerError(w, http.StatusInternalServerError, "Database error", err)
@@ -791,8 +818,13 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 			httpServerError(w, http.StatusConflict, "Data has already been uploaded", err)
 			return
 		}
-		if err := p.placeRef(ctx, pieceRef.Int64); err != nil {
-			httpServerError(w, http.StatusInternalServerError, "Failed to place piece in open-pieces", err)
+		err = p.db.QueryRow(ctx, `SELECT restricted FROM pdp_piecerefs WHERE piece_ref = $1`, pieceRef.Int64).Scan(&restricted)
+		if err != nil {
+			httpServerError(w, http.StatusInternalServerError, "Database error", err)
+			return
+		}
+		if err := p.placeRef(ctx, pieceRef.Int64, restricted); err != nil {
+			httpPlaceError(w, err)
 			return
 		}
 		if _, err := p.db.Exec(ctx, `DELETE FROM pdp_piece_uploads WHERE id = $1 AND piece_ref = $2`, uploadUUID.String(), pieceRef.Int64); err != nil {
@@ -1115,11 +1147,13 @@ func (p *PDPService) handleFinalizeStreamingUpload(w http.ResponseWriter, r *htt
 	var req struct {
 		PieceCID string `json:"pieceCid"`
 		Notify   string `json:"notify,omitempty"`
+		Read     string `json:"read,omitempty"`
 	}
 	if err = json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httpServerError(w, http.StatusBadRequest, "Invalid request body: "+err.Error(), err)
 		return
 	}
+	restricted := pieceRestrictedFromRead(req.Read)
 
 	// Parse PieceCID v2 from API (strictly requires v2 format)
 	pieceInfo, err := ParsePieceCidV2(req.PieceCID)
@@ -1176,8 +1210,8 @@ func (p *PDPService) handleFinalizeStreamingUpload(w http.ResponseWriter, r *htt
 
 	comm, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		n, err := tx.Exec(`
-			INSERT INTO pdp_piecerefs (service, piece_cid, piece_ref, created_at, needs_save_cache)
-			SELECT su.service, su.piece_cid, su.piece_ref, NOW(), $4
+			INSERT INTO pdp_piecerefs (service, piece_cid, piece_ref, created_at, needs_save_cache, restricted)
+			SELECT su.service, su.piece_cid, su.piece_ref, NOW(), $4, $5
 			FROM pdp_piece_streaming_uploads su
 			JOIN parked_piece_refs ppr ON ppr.ref_id = su.piece_ref
 			JOIN parked_pieces pp ON pp.id = ppr.piece_id
@@ -1186,7 +1220,7 @@ func (p *PDPService) handleFinalizeStreamingUpload(w http.ResponseWriter, r *htt
 			  AND su.piece_ref = $3
 			  AND su.complete = TRUE
 			  AND pp.complete = TRUE
-		`, uploadUUID.String(), serviceID, pref, needsSaveCache(int64(rawSize)))
+		`, uploadUUID.String(), serviceID, pref, needsSaveCache(int64(rawSize)), restricted)
 		if err != nil {
 			return false, fmt.Errorf("failed to create PDP piece reference: %w", err)
 		}
@@ -1216,8 +1250,8 @@ func (p *PDPService) handleFinalizeStreamingUpload(w http.ResponseWriter, r *htt
 		httpServerError(w, http.StatusInternalServerError, "Failed to process piece upload", err)
 		return
 	}
-	if err := p.placeRef(ctx, pref); err != nil {
-		httpServerError(w, http.StatusInternalServerError, "Failed to place piece in open-pieces", err)
+	if err := p.placeRef(ctx, pref, restricted); err != nil {
+		httpPlaceError(w, err)
 		return
 	}
 	w.WriteHeader(http.StatusOK)

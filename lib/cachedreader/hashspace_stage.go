@@ -13,10 +13,12 @@ import (
 	"github.com/filecoin-project/curio/market/indexstore"
 )
 
-// OpenReader reads pieces placed in the open-pieces hash space. It returns
-// nil, nil when no disk that may hold the piece has it.
+// OpenReader reads pieces placed in one hash space. ReadPiece returns nil, nil
+// when no disk that may hold the piece has it. HasPiece stats the folder and
+// does not open the file.
 type OpenReader interface {
 	ReadPiece(ctx context.Context, pc cid.Cid, rawSize int64) (storiface.Reader, error)
+	HasPiece(ctx context.Context, pc cid.Cid) (bool, error)
 }
 
 // aggregateFinder lists the aggregates that contain a piece, with the
@@ -55,6 +57,72 @@ func (cpr *CachedPieceReader) SetOpenPieceReader(r OpenReader) {
 		return
 	}
 	cpr.openPieceReader.Store(&openReaderBox{r: r})
+}
+
+// SetACLPieceReader makes /download read acl-pieces. A nil reader clears it.
+func (cpr *CachedPieceReader) SetACLPieceReader(r OpenReader) {
+	if r == nil {
+		cpr.aclPieceReader.Store(nil)
+		return
+	}
+	cpr.aclPieceReader.Store(&openReaderBox{r: r})
+}
+
+// ReadACLPiece opens pc from acl-pieces. It returns a nil reader when the
+// piece is not there. A v2 CID needs no SQL. A v1 CID costs one raw-size lookup.
+func (cpr *CachedPieceReader) ReadACLPiece(ctx context.Context, pc cid.Cid) (storiface.Reader, uint64, error) {
+	box := cpr.aclPieceReader.Load()
+	if box == nil {
+		return nil, 0, nil
+	}
+	v2, rawSize, ok := cpr.hashspaceKey(ctx, pc)
+	if !ok {
+		return nil, 0, nil
+	}
+	reader, err := box.r.ReadPiece(ctx, v2, int64(rawSize))
+	if err != nil {
+		return nil, 0, err
+	}
+	return reader, rawSize, nil
+}
+
+// ReadPieceOrACL opens pc for indexing and IPNI block retrieval. The shared
+// reader is tried first. An acl-pieces hit sets fromACL. A miss of both
+// returns the shared-reader error. /piece/ does not call this, so an acl-only
+// piece is not served there.
+// This disregards authentication in providing access, so the caller must check.
+func (cpr *CachedPieceReader) ReadPieceOrACL(ctx context.Context, pc cid.Cid, retrieval bool) (storiface.Reader, uint64, bool, error) {
+	reader, size, err := cpr.GetSharedPieceReader(ctx, pc, retrieval)
+	if err == nil {
+		return reader, size, false, nil
+	}
+	aclReader, aclSize, aclErr := cpr.ReadACLPiece(ctx, pc)
+	if aclErr != nil {
+		return nil, 0, false, aclErr
+	}
+	if aclReader == nil {
+		return nil, 0, false, err
+	}
+	return aclReader, aclSize, true, nil
+}
+
+// PieceInSpaces reports whether pc is in open-pieces and in acl-pieces.
+// The caller passes a piece CID v2. Each answer is a stat of that folder.
+func (cpr *CachedPieceReader) PieceInSpaces(ctx context.Context, pc cid.Cid) (inOpen, inACL bool, err error) {
+	inOpen, err = piecePresent(cpr.openPieceReader.Load(), ctx, pc)
+	if err != nil {
+		return false, false, err
+	}
+	inACL, err = piecePresent(cpr.aclPieceReader.Load(), ctx, pc)
+	return inOpen, inACL, err
+}
+
+// piecePresent stats pc in one installed reader. A nil reader is a miss.
+func piecePresent(box *openReaderBox, ctx context.Context, pc cid.Cid) (bool, error) {
+	if box == nil {
+		return false, nil
+	}
+	return box.r.HasPiece(ctx, pc)
 }
 
 func (cpr *CachedPieceReader) hasCachedReader(pieceCid cid.Cid) bool {

@@ -90,6 +90,7 @@ func TestSkiffCreateAddRetrieveLifecycle(t *testing.T) {
 		nil,
 	)
 	cpr.SetOpenPieceReader(pieceprovider.NewOpenPieceReader(hs))
+	cpr.SetACLPieceReader(pieceprovider.NewACLPieceReader(hs))
 
 	cfg := config.DefaultCurioConfig()
 	cfg.HTTP.DenylistServers = config.NewDynamic([]string{})
@@ -153,11 +154,12 @@ func TestSkiffCreateAddRetrieveLifecycle(t *testing.T) {
 	createTxHash := strings.TrimPrefix(createLoc, "/pdp/data-sets/created/")
 
 	const dataSetID uint64 = 4242
-	// ipfs_indexing is resolved at create/watch time from extraData (or chain backfill).
-	// This fixture has no FWSS create metadata and a stub eth client, so set it explicitly.
+	// ipfs_indexing and acl are resolved at create/watch time from extraData (or chain
+	// backfill). This fixture has no FWSS create metadata and a stub eth client, so set
+	// both explicitly to avoid add-pieces falling through to eth CallContract.
 	_, err = db.Exec(ctx, `
-		INSERT INTO pdp_data_sets (id, create_message_hash, service, proving_period, challenge_window, init_ready, ipfs_indexing)
-		VALUES ($1, $2, 'public', 100, 10, FALSE, FALSE)`,
+		INSERT INTO pdp_data_sets (id, create_message_hash, service, proving_period, challenge_window, init_ready, ipfs_indexing, acl)
+		VALUES ($1, $2, 'public', 100, 10, FALSE, FALSE, FALSE)`,
 		int64(dataSetID), createTxHash)
 	require.NoError(t, err)
 

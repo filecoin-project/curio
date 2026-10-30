@@ -31,3 +31,4 @@ Rules:
 - Phrase them as stable guidance
 - Do not include one-off frustrations unless they imply a durable preference
 - Go comments stay brief. In production code, every unexported function and method is documented with what it does and the conditions a caller must already have established. If the function checks its own inputs, say so instead of inventing a precondition. Do not restate the body, and do not comment only to explain the latest diff. Test helpers are exempt.
+- Keep this encapsulation rule in Go preferences: a lower type does not hold its parent and does not mutate the parent's variables; an effect on the parent is a function passed at initialization. Pass a lower type only the data it reads, not the parent's aggregate when it uses one field.

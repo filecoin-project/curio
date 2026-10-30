@@ -29,9 +29,9 @@ func PlaceOpenPiece(t *testing.T, ctx context.Context, hs *hashfolder.Cluster, p
 
 	digest, err := hashfolder.CIDHash(piece.PieceCIDV2)
 	require.NoError(t, err)
-	target, err := hs.Target(ctx, digest)
+	target, err := hs.Public.Target(ctx, digest)
 	require.NoError(t, err)
-	n, err := hs.WriteLocal(target, piece.PieceCIDV2, bytes.NewReader(piece.CarBytes[:piece.RawSize]))
+	n, err := hs.Public.WriteLocal(target, piece.PieceCIDV2, bytes.NewReader(piece.CarBytes[:piece.RawSize]))
 	require.NoError(t, err)
 	require.Equal(t, piece.RawSize, n)
 }
@@ -40,7 +40,7 @@ func PlaceOpenPiece(t *testing.T, ctx context.Context, hs *hashfolder.Cluster, p
 func RequireNotInOpenPieces(t *testing.T, ctx context.Context, hs *hashfolder.Cluster, piece PieceFixture) {
 	t.Helper()
 
-	has, err := hs.HasFile(ctx, piece.PieceCIDV2)
+	has, err := hs.Public.HasFile(ctx, piece.PieceCIDV2)
 	require.NoError(t, err)
 	require.False(t, has, "piece %s must not be in open-pieces", piece.PieceCIDV2)
 }

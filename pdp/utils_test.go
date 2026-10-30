@@ -13,9 +13,14 @@ import (
 
 func packCreatePayload(t *testing.T, payer common.Address, clientDataSetId int64, keys []string) []byte {
 	t.Helper()
+	values := make([]string, len(keys))
+	return packCreatePayloadWithValues(t, payer, clientDataSetId, keys, values)
+}
+
+func packCreatePayloadWithValues(t *testing.T, payer common.Address, clientDataSetId int64, keys, values []string) []byte {
+	t.Helper()
 	args, err := createPayloadArgs()
 	require.NoError(t, err)
-	values := make([]string, len(keys))
 	payload, err := args.Pack(payer, big.NewInt(clientDataSetId), keys, values, []byte("sig"))
 	require.NoError(t, err)
 	return payload
@@ -75,6 +80,52 @@ func TestCreateIdentityFromPDPCalldata_CreateDataSetAndAddPieces(t *testing.T) {
 	require.NoError(t, err)
 	_, err = CreateIdentityFromPDPCalldata(existing)
 	require.Error(t, err)
+}
+
+func TestPieceRestrictedFromRead(t *testing.T) {
+	require.True(t, pieceRestrictedFromRead("restricted"))
+	require.True(t, pieceRestrictedFromRead(" RESTRICTED "))
+	require.False(t, pieceRestrictedFromRead(""))
+	require.False(t, pieceRestrictedFromRead("true"))
+	require.False(t, pieceRestrictedFromRead("public"))
+}
+
+func TestKeyspaceFromExtraData(t *testing.T) {
+	payer := common.HexToAddress("0x1111111111111111111111111111111111111111")
+	ks := "0x00112233445566778899aabbccddeeff"
+
+	known, hasKS := KeyspaceFromExtraData(nil)
+	require.False(t, known)
+	require.False(t, hasKS)
+
+	withKS := packCreatePayloadWithValues(t, payer, 1, []string{MetadataKeyKeyspace}, []string{ks})
+	known, hasKS = KeyspaceFromExtraData(withKS)
+	require.True(t, known)
+	require.True(t, hasKS)
+
+	padded := packCreatePayloadWithValues(t, payer, 1, []string{MetadataKeyKeyspace}, []string{" " + ks + " "})
+	known, hasKS = KeyspaceFromExtraData(padded)
+	require.True(t, known)
+	require.True(t, hasKS)
+
+	empty := packCreatePayloadWithValues(t, payer, 1, []string{MetadataKeyKeyspace}, []string{"  "})
+	known, hasKS = KeyspaceFromExtraData(empty)
+	require.True(t, known)
+	require.False(t, hasKS)
+
+	legacyRead := packCreatePayloadWithValues(t, payer, 1, []string{"read"}, []string{"restricted"})
+	known, hasKS = KeyspaceFromExtraData(legacyRead)
+	require.True(t, known)
+	require.False(t, hasKS)
+
+	other := packCreatePayloadWithValues(t, payer, 1, []string{"other"}, []string{ks})
+	known, hasKS = KeyspaceFromExtraData(other)
+	require.True(t, known)
+	require.False(t, hasKS)
+
+	known, hasKS = KeyspaceFromExtraData([]byte{0xde, 0xad})
+	require.False(t, known)
+	require.False(t, hasKS)
 }
 
 func TestIPFSIndexingFromExtraData(t *testing.T) {

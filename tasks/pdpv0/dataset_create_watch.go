@@ -118,13 +118,19 @@ func processDataSetCreate(ctx context.Context, db *harmonydb.DB, psc DataSetCrea
 		log.Infow("Resolved data set IPFS indexing intent from create extra_data",
 			"txHash", psc.CreateMessageHash, "dataSetId", dataSetId, "ipfsIndexing", ipfsIndexing)
 	}
+	var hasKeyspaceArg any
+	if known, hasKS := pdp.KeyspaceFromExtraData(psc.ExtraData); known {
+		hasKeyspaceArg = hasKS
+		log.Infow("Resolved data set keyspace intent from create extra_data",
+			"txHash", psc.CreateMessageHash, "dataSetId", dataSetId, "hasKeyspace", hasKS)
+	}
 
 	comm, err := db.BeginTransaction(ctx, func(tx *harmonyquery.Tx) (commit bool, err error) {
 		// Insert a new entry into pdp_data_sets
 		n, err := tx.Exec(`
-        INSERT INTO pdp_data_sets (id, create_message_hash, service, proving_period, challenge_window, ipfs_indexing)
-        VALUES ($1, $2, $3, $4, $5, $6)
-    `, dataSetId, psc.CreateMessageHash, psc.Service, provingPeriod, challengeWindow, ipfsIndexingArg)
+        INSERT INTO pdp_data_sets (id, create_message_hash, service, proving_period, challenge_window, ipfs_indexing, has_keyspace)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+    `, dataSetId, psc.CreateMessageHash, psc.Service, provingPeriod, challengeWindow, ipfsIndexingArg, hasKeyspaceArg)
 		if err != nil {
 			return false, xerrors.Errorf("failed to insert data set %d for tx %+v: %w", dataSetId, psc, err)
 		}

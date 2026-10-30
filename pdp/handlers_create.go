@@ -17,6 +17,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/keysmith"
 	"github.com/filecoin-project/curio/pdp/contract"
 )
 
@@ -92,6 +93,18 @@ func (p *PDPService) handleCreateDataSetAndAddPieces(w http.ResponseWriter, r *h
 	if err != nil {
 		log.Warnf("Failed to process AddPieces request data: %+v", err)
 		httpServerError(w, http.StatusBadRequest, "Failed to process request: "+err.Error(), err)
+		return
+	}
+	if err := p.requireRestrictedPiecesForCreate(workCtx, extraDataBytes, subPieceInfoMap); err != nil {
+		if errors.Is(err, keysmith.ErrInvalidEnvelope) {
+			httpServerError(w, http.StatusBadRequest, "Piece is missing a valid encryption envelope", err)
+			return
+		}
+		if strings.Contains(err.Error(), "foc/ks") || strings.Contains(err.Error(), "extraData") {
+			httpServerError(w, http.StatusBadRequest, err.Error(), err)
+			return
+		}
+		httpServerError(w, http.StatusInternalServerError, "Failed to validate restricted pieces", err)
 		return
 	}
 
@@ -180,6 +193,12 @@ func (p *PDPService) handleCreateDataSetAndAddPieces(w http.ResponseWriter, r *h
 	if !comm {
 		log.Error("Failed to commit database transaction")
 		httpServerError(w, http.StatusInternalServerError, "Internal server error", err)
+		return
+	}
+
+	if err := p.placePieceRefs(workCtx, subPieceInfoMap); err != nil {
+		log.Errorw("Failed to place pieces for create-and-add", "error", err, "txHash", txHashLower)
+		httpPlaceError(w, err)
 		return
 	}
 

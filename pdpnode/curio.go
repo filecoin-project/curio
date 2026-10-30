@@ -36,17 +36,17 @@ func Attach(
 	}
 
 	if cd.HashSpace == nil {
-		sa, err := curiodeps.StorageAuth(cd.Cfg.Apis.StorageRPCSecret)
-		if err != nil {
-			return xerrors.Errorf("storage auth: %w", err)
-		}
-		hs, err := NewHashSpace(ctx, cd.DB, cd.LocalStore, cd.Si, http.Header(sa))
+		secret := cd.Cfg.Apis.StorageRPCSecret
+		hs, err := NewHashSpace(ctx, cd.DB, cd.LocalStore, cd.Si, func() (http.Header, error) {
+			return curiodeps.StorageAuth(secret)
+		})
 		if err != nil {
 			return xerrors.Errorf("hash space: %w", err)
 		}
 		cd.HashSpace = hs
 		if hs != nil && cd.CachedPieceReader != nil {
 			cd.CachedPieceReader.SetOpenPieceReader(pieceprovider.NewOpenPieceReader(hs))
+			cd.CachedPieceReader.SetACLPieceReader(pieceprovider.NewACLPieceReader(hs))
 		}
 	}
 

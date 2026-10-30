@@ -2,6 +2,10 @@ package hashfolder
 
 import (
 	"context"
+	"encoding/hex"
+	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -51,6 +55,34 @@ func startClaimEngine(t *testing.T, db *harmonydb.DB) {
 	t.Cleanup(engine.GracefullyTerminate)
 }
 
+// pieceDrive is a temp root that accepts piece park, capped at maxStorage.
+func pieceDrive(t *testing.T, id string, maxStorage int64) LocalDrive {
+	t.Helper()
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, sectorStoreFile), fmt.Appendf(nil, `{"MaxStorage":%d}`, maxStorage), 0o644))
+	return LocalDrive{StorageID: id, Root: root}
+}
+
+func openPieceHash(tag byte) string {
+	var sum [HASH_BYTES]byte
+	sum[0] = tag
+	return hex.EncodeToString(sum[:])
+}
+
+// writeOpenBytes writes an n-byte file into root's open-pieces folder.
+// tag selects the hash so two files on one root do not collide. The folder
+// has no layout yet, so migratePiecePark sums the file into a claim.
+func writeOpenBytes(t *testing.T, root string, tag byte, n int64) {
+	t.Helper()
+	p, err := piecePath(root, DIR_OPEN, openPieceHash(tag))
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
+	f, err := os.Create(p)
+	require.NoError(t, err)
+	require.NoError(t, f.Truncate(n))
+	require.NoError(t, f.Close())
+}
+
 // restartClaim joins claimRoot into a cluster that already has owner, then
 // starts again after the claim flag has been rewritten off the layout. The
 // pending row is the only record of the claim on the second start.
@@ -78,15 +110,20 @@ func TestClaimPendingConsumedWhenSatisfied(t *testing.T) {
 	db := testDB(t)
 	t.Cleanup(harmonytask.SetEngineForTest(nil))
 
-	owner := LocalDrive{StorageID: "owner", Root: t.TempDir()}
-	claim := LocalDrive{StorageID: "claim", Root: t.TempDir()}
-	// The claim holds every folder byte, so its share is already met.
-	writeClaim(t, claim.Root, 1_000_000)
+	const (
+		diskCap = int64(4_000_000)
+		held    = int64(1_000_000)
+	)
+	owner := pieceDrive(t, "owner", diskCap)
+	claim := pieceDrive(t, "claim", diskCap)
+	// The claim folder holds every piece byte, so its share is already met.
+	// migratePiecePark writes the claim from those files when the disk joins.
+	writeOpenBytes(t, claim.Root, 0x11, held)
 
 	c := restartClaim(t, db, owner, claim)
 	var used int64
 	require.NoError(t, db.QueryRow(ctx, `SELECT used_open FROM hash_space_disk WHERE storage_id = $1`, claim.StorageID).Scan(&used))
-	require.Equal(t, int64(1_000_000), used)
+	require.Equal(t, held, used)
 
 	startClaimEngine(t, db)
 	require.NoError(t, c.reevaluate(ctx))
@@ -104,19 +141,22 @@ func TestClaimPendingKeptWhileStepPlanned(t *testing.T) {
 	db := testDB(t)
 	t.Cleanup(harmonytask.SetEngineForTest(nil))
 
-	owner := LocalDrive{StorageID: "owner", Root: t.TempDir()}
-	claim := LocalDrive{StorageID: "claim", Root: t.TempDir()}
-	writeClaim(t, claim.Root, 1)
+	const diskCap = int64(20_000_000)
+	owner := pieceDrive(t, "owner", diskCap)
+	claim := pieceDrive(t, "claim", diskCap)
 
-	// Seed the owner, then give its layout real bytes before the claim joins
-	// so the published range size is what the solver can move.
+	// Seed the owner, then write bytes through its open-pieces space so the
+	// layout records the file. The claim folder holds one byte, under its
+	// share, and gains its claim layout from migratePiecePark when it joins.
 	first, err := NewCluster(ctx, db, []LocalDrive{owner}, nil)
 	require.NoError(t, err)
-	require.NoError(t, first.Close())
-	layout, err := readLayout(layoutPath(owner.Root, DIR_OPEN))
+	w, err := first.space(DIR_OPEN).WriteHashOn(owner.Root, openPieceHash(0x22))
 	require.NoError(t, err)
-	layout.Used = 8_000_000
-	require.NoError(t, writeLayout(owner.Root, DIR_OPEN, layout))
+	_, err = w.Write(make([]byte, 8_000_000))
+	require.NoError(t, err)
+	require.NoError(t, w.Close())
+	require.NoError(t, first.Close())
+	writeOpenBytes(t, claim.Root, 0x11, 1)
 
 	joined, err := NewCluster(ctx, db, []LocalDrive{owner, claim}, nil)
 	require.NoError(t, err)
