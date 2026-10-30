@@ -1,6 +1,6 @@
 // Package openpieces moves PDP pieces between piece-park and the cluster
-// hash spaces. Public pieces go to open-pieces. Pieces in a data set whose
-// read metadata is restricted go to acl-pieces.
+// hash spaces. Public pieces go to open-pieces. Pieces uploaded with
+// read=restricted go to acl-pieces.
 package openpieces
 
 import (
@@ -46,25 +46,24 @@ type parkedPiece struct {
 }
 
 // Place copies the PDP piece for parked piece ref pieceRef into open-pieces,
-// or into acl-pieces when one of its data sets is read-restricted. After it
-// returns nil, a client can read the piece from that hash space. A nil cluster
-// means this node has not joined the hash space, and placement is skipped.
-// When a hash_space_delete row is present the bytes are left in piece-park.
+// or into acl-pieces when pdp_piecerefs.restricted is true. After it returns
+// nil, a client can read the piece from that hash space. A nil cluster means
+// this node has not joined the hash space, and placement is skipped. When a
+// hash_space_delete row is present the bytes are left in piece-park.
 func Place(ctx context.Context, db *harmonydb.DB, hs *hashfolder.Cluster, local *paths.Local, pieceIO piecestore.PieceIO, pieceRef int64) error {
 	return place(ctx, db, hs, local, pieceIO, pieceRef, false)
 }
 
 // PlaceACL copies the piece into acl-pieces. The caller has established that
-// the piece belongs to a data set whose read metadata is restricted, including
-// when that data set row is not linked to the piece yet. An open-pieces copy
-// is removed unless the piece is also in a data set whose acl flag is not true.
+// the piece was uploaded with read=restricted. An open-pieces copy is removed.
 func PlaceACL(ctx context.Context, db *harmonydb.DB, hs *hashfolder.Cluster, local *paths.Local, pieceIO piecestore.PieceIO, pieceRef int64) error {
 	return place(ctx, db, hs, local, pieceIO, pieceRef, true)
 }
 
 // place writes pieceRef into the hash spaces it belongs in. forceACL puts it
-// in acl-pieces even when no data set row is linked yet. The caller has a
-// cluster or has passed a nil cluster, which skips the work.
+// in acl-pieces even when the restricted column is not yet visible to a
+// concurrent reader. The caller has a cluster or has passed a nil cluster,
+// which skips the work.
 func place(ctx context.Context, db *harmonydb.DB, hs *hashfolder.Cluster, local *paths.Local, pieceIO piecestore.PieceIO, pieceRef int64, forceACL bool) error {
 	if hs == nil {
 		return nil
@@ -91,18 +90,13 @@ func place(ctx context.Context, db *harmonydb.DB, hs *hashfolder.Cluster, local 
 
 	wantACL := forceACL
 	if !wantACL {
-		wantACL, err = pieceInACL(ctx, db, pieceRef)
+		wantACL, err = pieceRestricted(ctx, db, pieceRef)
 		if err != nil {
 			return err
 		}
 	}
-	public, err := pieceSharesPublic(ctx, db, pieceRef)
-	if err != nil {
-		return err
-	}
-	// A piece with no data set yet is public. An ACL piece stays in open-pieces
-	// only when another data set is not ACL.
-	wantOpen := !wantACL || public
+	// Restricted pieces never stay in open-pieces.
+	wantOpen := !wantACL
 
 	ensure := func(space *hashfolder.ClusterSpace) error {
 		placed, err := space.HasFile(ctx, pc)
@@ -252,75 +246,15 @@ func requireEnvelope(ctx context.Context, pieceIO piecestore.PieceIO, parkedID i
 	return nil
 }
 
-// pieceInACL reports whether pieceRef belongs to a data set whose read
-// metadata is restricted. pieceRef is parked_piece_refs.ref_id.
-func pieceInACL(ctx context.Context, db *harmonydb.DB, pieceRef int64) (bool, error) {
-	return pieceDatasetACL(ctx, db, pieceRef, true)
-}
-
-// pieceSharesPublic reports whether pieceRef also belongs to a data set whose
-// acl flag is not true. A NULL flag counts as public. pieceRef is
-// parked_piece_refs.ref_id.
-func pieceSharesPublic(ctx context.Context, db *harmonydb.DB, pieceRef int64) (bool, error) {
-	return pieceDatasetACL(ctx, db, pieceRef, false)
-}
-
-// pieceDatasetACL matches data sets linked to pieceRef. wantTrue selects
-// acl IS TRUE; otherwise it selects acl IS NOT TRUE.
-func pieceDatasetACL(ctx context.Context, db *harmonydb.DB, pieceRef int64, wantTrue bool) (bool, error) {
-	var found bool
-	var err error
-	if wantTrue {
-		err = db.QueryRow(ctx, `
-		SELECT EXISTS (
-			SELECT 1 FROM pdp_piecerefs pr
-			JOIN pdp_data_set_piece_adds a ON a.pdp_pieceref = pr.id
-			JOIN pdp_data_sets ds ON ds.id = a.data_set
-			WHERE pr.piece_ref = $1 AND ds.acl IS TRUE
-			UNION ALL
-			SELECT 1 FROM pdp_piecerefs pr
-			JOIN pdp_data_set_piece_adds a ON a.pdp_pieceref = pr.id
-			JOIN pdp_data_sets ds ON ds.create_message_hash = a.add_message_hash
-			WHERE pr.piece_ref = $1 AND a.data_set IS NULL AND ds.acl IS TRUE
-			UNION ALL
-			SELECT 1 FROM pdp_piecerefs pr
-			JOIN pdp_data_set_pieces p ON p.pdp_pieceref = pr.id
-			JOIN pdp_data_sets ds ON ds.id = p.data_set
-			WHERE pr.piece_ref = $1 AND ds.acl IS TRUE
-			UNION ALL
-			SELECT 1 FROM pdp_piece_pull_items fi
-			JOIN pdp_piece_pulls fp ON fp.id = fi.fetch_id
-			JOIN pdp_data_sets ds ON ds.id = fp.data_set_id
-			WHERE fi.parked_piece_ref = $1 AND ds.acl IS TRUE
-		)`, pieceRef).Scan(&found)
-	} else {
-		err = db.QueryRow(ctx, `
-		SELECT EXISTS (
-			SELECT 1 FROM pdp_piecerefs pr
-			JOIN pdp_data_set_piece_adds a ON a.pdp_pieceref = pr.id
-			JOIN pdp_data_sets ds ON ds.id = a.data_set
-			WHERE pr.piece_ref = $1 AND ds.acl IS NOT TRUE
-			UNION ALL
-			SELECT 1 FROM pdp_piecerefs pr
-			JOIN pdp_data_set_piece_adds a ON a.pdp_pieceref = pr.id
-			JOIN pdp_data_sets ds ON ds.create_message_hash = a.add_message_hash
-			WHERE pr.piece_ref = $1 AND a.data_set IS NULL AND ds.acl IS NOT TRUE
-			UNION ALL
-			SELECT 1 FROM pdp_piecerefs pr
-			JOIN pdp_data_set_pieces p ON p.pdp_pieceref = pr.id
-			JOIN pdp_data_sets ds ON ds.id = p.data_set
-			WHERE pr.piece_ref = $1 AND ds.acl IS NOT TRUE
-			UNION ALL
-			SELECT 1 FROM pdp_piece_pull_items fi
-			JOIN pdp_piece_pulls fp ON fp.id = fi.fetch_id
-			JOIN pdp_data_sets ds ON ds.id = fp.data_set_id
-			WHERE fi.parked_piece_ref = $1 AND ds.acl IS NOT TRUE
-		)`, pieceRef).Scan(&found)
-	}
+// pieceRestricted reports whether pieceRef was uploaded with read=restricted.
+// pieceRef is parked_piece_refs.ref_id.
+func pieceRestricted(ctx context.Context, db *harmonydb.DB, pieceRef int64) (bool, error) {
+	var restricted bool
+	err := db.QueryRow(ctx, `SELECT restricted FROM pdp_piecerefs WHERE piece_ref = $1`, pieceRef).Scan(&restricted)
 	if err != nil {
-		return false, xerrors.Errorf("checking data set acl for piece ref %d: %w", pieceRef, err)
+		return false, xerrors.Errorf("reading pdp_piecerefs.restricted for piece ref %d: %w", pieceRef, err)
 	}
-	return found, nil
+	return restricted, nil
 }
 
 // pieceCidV2 is the piece CID v2 of a PDP piece CID v1 and its raw size.

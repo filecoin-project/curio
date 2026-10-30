@@ -439,22 +439,22 @@ func ensureDataSetRow(ctx context.Context, db *harmonydb.DB, eth ethchain.EthCli
 	if known, ipfsIndexing := pdp.IPFSIndexingFromExtraData(extraData); known {
 		ipfsIndexingArg = ipfsIndexing
 	}
-	var aclArg any
-	if known, acl := pdp.ACLFromExtraData(extraData); known {
-		aclArg = acl
+	var hasKeyspaceArg any
+	if known, hasKS := pdp.KeyspaceFromExtraData(extraData); known {
+		hasKeyspaceArg = hasKS
 	}
 
 	n, err := db.Exec(ctx, `
-		INSERT INTO pdp_data_sets (id, create_message_hash, service, proving_period, challenge_window, ipfs_indexing, acl)
+		INSERT INTO pdp_data_sets (id, create_message_hash, service, proving_period, challenge_window, ipfs_indexing, has_keyspace)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		ON CONFLICT (id) DO NOTHING
-	`, dataSetId, normalizeTxHash(wait.TxHash), service, provingPeriod, challengeWindow, ipfsIndexingArg, aclArg)
+	`, dataSetId, normalizeTxHash(wait.TxHash), service, provingPeriod, challengeWindow, ipfsIndexingArg, hasKeyspaceArg)
 	if err != nil {
 		return xerrors.Errorf("inserting pdp_data_sets %d: %w", dataSetId, err)
 	}
 	if n == 1 {
 		log.Infow("inserted pdp_data_sets row from clientNonces recovery",
-			"txHash", wait.TxHash, "dataSetId", dataSetId, "service", service, "ipfsIndexing", ipfsIndexingArg, "acl", aclArg)
+			"txHash", wait.TxHash, "dataSetId", dataSetId, "service", service, "ipfsIndexing", ipfsIndexingArg, "hasKeyspace", hasKeyspaceArg)
 	}
 	if ipfsIndexingArg == true {
 		// Persist path also repairs missed needs_indexing flags for create-and-add races.
