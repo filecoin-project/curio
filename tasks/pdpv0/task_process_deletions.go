@@ -101,7 +101,8 @@ func NewProcessDeletionsTask(db *harmonydb.DB, ethClient ethchain.EthClient, fil
 			JOIN pdp_data_sets ds ON ds.id = d.data_set
 			WHERE d.task_id IS NULL
 			  AND d.msg_hash IS NULL
-			  AND (ds.prove_at_epoch + ds.challenge_window) <= $1
+			  AND ((ds.prove_at_epoch + ds.challenge_window) <= $1
+			       OR (ds.prove_at_epoch IS NULL AND ds.init_ready))
 			ORDER BY d.data_set
 			LIMIT $2
 		`, currentHeight, processDeletionsScheduleLimit)
