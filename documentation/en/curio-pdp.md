@@ -43,7 +43,7 @@ Release builds are on Docker Hub as **`filecoin/curio-pdp`**:
 | `filecoin/curio-pdp:<version>` / `:latest` | Mainnet |
 | `filecoin/curio-pdp:<version>-calibnet` / `:calibnet` | Calibration |
 
-Set `SKIFF_IMAGE` in `docker/skiff/.env` (or the environment) to one of these tags. Do not use `:dev` unless you are [building locally](#how-its-built).
+The bundled `docker/skiff/.env` defaults to `filecoin/curio-pdp:latest` for mainnet. Set `SKIFF_IMAGE` in `.env` (or the environment) to pin a release or select calibration. Use `:dev` only when [building locally](#how-its-built).
 
 ***
 
@@ -58,11 +58,7 @@ git clone https://github.com/filecoin-project/curio.git
 cd curio/docker/skiff
 ```
 
-Point the stack at a published image. In `.env`:
-
-```bash
-SKIFF_IMAGE=filecoin/curio-pdp:latest
-```
+The bundled `.env` selects the published mainnet image and stores data under `./data/`. No edits are needed for the default startup. To use different disks or an external chain node, [configure `.env`](#3-configure-dockerskiffenv-optional) before starting.
 
 Start:
 
@@ -135,7 +131,7 @@ You can also bind extra slow-disk directories under `SKIFF_STORAGE` on the host 
 
 ```bash
 # Lotus on the Docker host (macOS / Windows / Linux with host-gateway)
-FULLNODE_API_INFO=/ip4/host.docker.internal/tcp/1234/http
+FULLNODE_API_INFO=/dns4/host.docker.internal/tcp/1234/http
 
 # Lotus on another host on your LAN
 FULLNODE_API_INFO=/ip4/192.168.1.50/tcp/1234/http
@@ -332,7 +328,7 @@ make curio-pdp          # native binary (synonym: make skiff)
 make calibnet-curio-pdp
 ```
 
-Local compose without a published tag uses `filecoin/curio-pdp:dev`.
+The bundled `.env` and Compose defaults use the published mainnet image. The `make skiff/up` and `make skiff/calibnet/up` targets build and select their local `:dev` and `:calibnet-dev` images explicitly.
 
 ### Native binary (optional)
 

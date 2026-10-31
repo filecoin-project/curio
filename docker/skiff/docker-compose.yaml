@@ -87,7 +87,7 @@ services:
 
   skiff:
     container_name: skiff
-    image: ${SKIFF_IMAGE:-filecoin/curio-pdp:dev}
+    image: ${SKIFF_IMAGE:-filecoin/curio-pdp:latest}
     build:
       context: ../..
       dockerfile: docker/skiff/Dockerfile
