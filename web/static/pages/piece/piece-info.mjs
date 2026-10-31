@@ -6,6 +6,7 @@ import '/ux/message.mjs';
 import '/ux/epoch.mjs';
 import { formatDate } from '/lib/dateutil.mjs';
 import { loadingBlock, loadingStyles } from '/lib/loading.mjs';
+import { getUIVariant } from '/lib/ui-variant.mjs';
 
 customElements.define('piece-info', class PieceInfoElement extends LitElement {
     static properties = {
@@ -21,6 +22,7 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
         this.mk12DealData = [];
         this.pieceParkStates = null;
         this.refDetails = {};
+        this.variant = null;
         this.loadData();
     }
 
@@ -28,10 +30,14 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
         try {
             const params = new URLSearchParams(window.location.search);
             const pieceCid = params.get('id');
+            this.variant = await getUIVariant();
 
             // Fetch piece info
             this.data = await RPCCall('PieceInfo', [pieceCid]);
-            this.DealData = await RPCCall('PieceDealDetail', [pieceCid]);
+            if (this.variant === 'skiff') {
+                this.data.deals = this.data.deals.filter((item) => item.sp_id === -1 || item.sp_id === -2);
+            }
+            this.DealData = await RPCCall(this.variant === 'skiff' ? 'PDPPieceDealDetail' : 'PieceDealDetail', [pieceCid]);
             this.pieceParkStates = await RPCCall('PieceParkStates', [pieceCid]);
 
             // TODO SNAP/POREP pipelines
@@ -44,6 +50,9 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
     }
 
     handleRemove(uuid) {
+        if (this.variant !== 'curio') {
+            return;
+        }
         if (confirm('Are you sure you want to remove the deal pipeline?')) {
             RPCCall('DealPipelineRemove', [uuid])
                 .then(() => {
@@ -59,7 +68,8 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
 
     async findRefDetails(ref) {
         try {
-            const entries = await RPCCall('FindEntriesByDataURL', [`pieceref:${ref.ref_id}`]);
+            const variant = await getUIVariant();
+            const entries = await RPCCall(variant === 'skiff' ? 'PDPFindEntriesByDataURL' : 'FindEntriesByDataURL', [`pieceref:${ref.ref_id}`]);
             this.refDetails[ref.ref_id] = entries;
             this.requestUpdate();
         } catch (error) {
@@ -132,13 +142,14 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
                         <td>
                             ${item.mk20
                                     ? html`<a href="/pages/mk20-deal/?id=${item.id}">${item.id}</a>`
-                                    : html`<a href="/pages/mk12-deal/?id=${item.id}">${item.id}</a>`}
+                                    : this.variant === 'curio' ? html`<a href="/pages/mk12-deal/?id=${item.id}">${item.id}</a>` : item.id}
                         </td>
-                        <td>${item.boost_deal ? 'Boost' : (item.legacy_deal ? 'Legacy' : 'DDO')}</td>
+                        <td>${item.sp_id < 0 ? 'PDP' : item.boost_deal ? 'Boost' : (item.legacy_deal ? 'Legacy' : 'DDO')}</td>
                         <td>${item.miner}</td>
                         <td>${item.chain_deal_id}</td>
                         <td>
-                            ${item.sector > 0 ? html`<a href="/pages/sector/?sp=${item.miner}&id=${item.sector}">${item.sector}</a></td>`: "NA" }
+                            ${this.variant === 'curio' && item.sector > 0 ? html`<a href="/pages/sector/?sp=${item.miner}&id=${item.sector}">${item.sector}</a>` : "NA"}
+                        </td>
                         <td>
                             ${item.offset.Valid ? item.offset.int64 : html`NA`}
                         </td>
@@ -151,7 +162,7 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
 
             ${this.pieceParkStates ? this.renderPieceParkStates() : ''}
 
-            ${this.DealData?.mk12?.length > 0 ? html`
+            ${this.variant === 'curio' && this.DealData?.mk12?.length > 0 ? html`
                 <h2>Related MK12 Deals</h2>
                 ${this.DealData.mk12.map((entry) => html`
                     <h3>Deal ${entry.deal.uuid}</h3>
@@ -377,7 +388,7 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
                                                                 <td>${item.boost_deal ? 'Boost' : (item.legacy_deal ? 'Legacy' : 'DDO')}</td>
                                                                 <td>${item.miner}</td>
                                                                 <td>${item.chain_deal_id}</td>
-                                                                <td><a href="/pages/sector/?sp=${item.miner}&id=${item.sector}">${item.sector}</a></td>
+                                                                <td>${this.variant === 'curio' && item.sector > 0 ? html`<a href="/pages/sector/?sp=${item.miner}&id=${item.sector}">${item.sector}</a>` : 'N/A'}</td>
                                                                 <td>${item.offset}</td>
                                                                 <td>${this.toHumanBytes(item.length)}</td>
                                                                 <td>${this.toHumanBytes(item.raw_size)}</td>
@@ -389,7 +400,7 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
                                         `;
                             }
                         })()}
-                        ${entry.mk20_ddo_pipeline ? html`
+                        ${this.variant === 'curio' && entry.mk20_ddo_pipeline ? html`
                             <tr><th colspan="2"><h5 style="color: var(--color-warning-main)">DDO PIPELINE ACTIVE</h5></th></tr>
                             <tr>
                                 <td>Controls</td>
@@ -458,15 +469,9 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
                                     ${entry.mk20_ddo_pipeline.indexing_task_id.Valid ? html`<task-status .taskId=${entry.mk20_ddo_pipeline.indexing_task_id.Int64}></task-status>` : 'N/A'}
                                 </td>
                             </tr>
-                        ` : html`<tr><td>No DDO Pipeline Data</td><td></td></tr>`}
+                        ` : this.variant === 'curio' ? html`<tr><td>No DDO Pipeline Data</td><td></td></tr>` : ''}
                         ${entry.mk20_pdp_pipeline ? html`
                             <tr><th colspan="2"><h5 style="color: var(--color-warning-main)">PDP PIPELINE ACTIVE</h5></th></tr>
-                            <tr>
-                                <td>Controls</td>
-                                <td>
-                                    <button class="btn btn-warning btn-sm" @click=${() => this.handleRemove(entry.deal.deal.identifier)}>REMOVE</button>
-                                </td>
-                            </tr>
                             <tr><td>Created At</td><td>${formatDate(entry.mk20_pdp_pipeline.created_at)}</td></tr>
                             <tr><td>Piece CID</td><td>${entry.mk20_pdp_pipeline.piece_cid_v2}</td></tr>
                             <tr><td>Should Index</td><td>${this.renderNullableYesNo(entry.mk20_pdp_pipeline.indexing)}</td></tr>
