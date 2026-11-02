@@ -123,7 +123,7 @@ services:
 
   yugabyte:
     container_name: yugabyte
-    image: yugabytedb/yugabyte:2024.1.0.0-b129
+    image: yugabytedb/yugabyte:2026.1.1.1-b2
     init: true
     environment:
       - TINI_SUBREAPER=true
