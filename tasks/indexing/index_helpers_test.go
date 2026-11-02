@@ -2,6 +2,7 @@ package indexing
 
 import (
 	"bytes"
+	"database/sql"
 	"errors"
 	"io"
 	"math/bits"
@@ -107,6 +108,21 @@ func TestSkipSubpieceIndex(t *testing.T) {
 	require.True(t, skipSubpieceIndex(false, true, false))
 	require.False(t, skipSubpieceIndex(false, false, false))
 	require.True(t, skipSubpieceIndex(false, false, true))
+}
+
+func TestEveryACLRestricted(t *testing.T) {
+	require.False(t, everyACLRestricted(nil))
+	require.True(t, everyACLRestricted([]sql.NullInt32{{Int32: 1, Valid: true}}))
+	require.True(t, everyACLRestricted([]sql.NullInt32{
+		{Int32: 1, Valid: true},
+		{Int32: 1, Valid: true},
+	}))
+	require.False(t, everyACLRestricted([]sql.NullInt32{{Valid: false}}))
+	require.False(t, everyACLRestricted([]sql.NullInt32{{Int32: 0, Valid: true}}))
+	require.False(t, everyACLRestricted([]sql.NullInt32{
+		{Int32: 1, Valid: true},
+		{Valid: false},
+	}))
 }
 
 func TestIndexPDPv0AggregateIndexesBlocksWithoutChildPieceCIDs(t *testing.T) {
