@@ -225,9 +225,9 @@ This should output `1048576`.
 ### ⚙️ Install Yugabyte
 
 ```sh
-wget https://software.yugabyte.com/releases/2.25.1.0/yugabyte-2.25.1.0-b381-linux-x86_64.tar.gz
-tar xvfz yugabyte-2.25.1.0-b381-linux-x86_64.tar.gz
-cd yugabyte-2.25.1.0
+wget https://software.yugabyte.com/releases/2025.2.7.0/yugabyte-2025.2.7.0-b107-linux-x86_64.tar.gz
+tar xvfz yugabyte-2025.2.7.0-b107-linux-x86_64.tar.gz
+cd yugabyte-2025.2.7.0
 ./bin/post_install.sh
 ```
 

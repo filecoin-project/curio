@@ -245,7 +245,7 @@ func (P *PDPIPNITask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOw
 
 	var lnk ipld.Link
 
-	if pinfo.Payload {
+	if pinfo.Payload() {
 		chk := chunker.NewInitialChunker()
 		offset := multihash.Multihash{0}
 		ostr := offset.String()
@@ -317,7 +317,7 @@ func (P *PDPIPNITask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOw
 		}
 
 		var md []byte
-		if pinfo.Payload {
+		if pinfo.Payload() {
 			mds := metadata.IpfsGatewayHttp{}
 			mdb, err := mds.MarshalBinary()
 			if err != nil {
@@ -572,7 +572,7 @@ func (P *PDPIPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTask
 			if p.AnnouncePayload && !p.AnnouncedPayload {
 				pi := &types.PdpIpniContext{
 					PieceCID: pcid,
-					Payload:  true,
+					Flags:    types.PDP_IPNI_FLAG_PAYLOAD,
 				}
 
 				iContext, err := pi.Marshal()
@@ -618,7 +618,6 @@ func (P *PDPIPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTask
 			if p.Announce && !p.Announced {
 				pi := &types.PdpIpniContext{
 					PieceCID: pcid,
-					Payload:  false,
 				}
 
 				iContext, err := pi.Marshal()
