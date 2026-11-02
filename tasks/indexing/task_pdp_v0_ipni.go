@@ -3,6 +3,7 @@ package indexing
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"errors"
 	"strings"
 	"time"
@@ -35,21 +36,30 @@ import (
 
 const (
 	PDP_v0_SP_ID = -2 // This is the SP ID for PDP in the IPNI table
+
+	// ipniACLSecured is pdp_data_sets.acl = 1 (read metadata restricted).
+	ipniACLSecured = 1
 )
 
+// DatasetACLResolver returns whether a data set is read-restricted (acl = 1),
+// resolving and persisting a NULL column from chain metadata when needed.
+type DatasetACLResolver func(ctx context.Context, dataSetId uint64) (bool, error)
+
 type PDPV0IPNITask struct {
-	db  *harmonydb.DB
-	cfg *config.CurioConfig
-	max taskhelp.Limiter
-	idx *indexstore.IndexStore
+	db         *harmonydb.DB
+	cfg        *config.CurioConfig
+	max        taskhelp.Limiter
+	idx        *indexstore.IndexStore
+	resolveACL DatasetACLResolver
 }
 
-func NewPDPV0IPNITask(db *harmonydb.DB, cfg *config.CurioConfig, max taskhelp.Limiter, idx *indexstore.IndexStore) *PDPV0IPNITask {
+func NewPDPV0IPNITask(db *harmonydb.DB, cfg *config.CurioConfig, max taskhelp.Limiter, idx *indexstore.IndexStore, resolveACL DatasetACLResolver) *PDPV0IPNITask {
 	return &PDPV0IPNITask{
-		db:  db,
-		cfg: cfg,
-		max: max,
-		idx: idx,
+		db:         db,
+		cfg:        cfg,
+		max:        max,
+		idx:        idx,
+		resolveACL: resolveACL,
 	}
 }
 
@@ -125,9 +135,18 @@ func (P *PDPV0IPNITask) Do(ctx context.Context, taskID harmonytask.TaskID, still
 		return false, xerrors.Errorf("marshaling metadata: %w", err)
 	}
 
+	flags := types.PDP_IPNI_FLAG_PAYLOAD
+	encrypted, err := P.pieceEncrypted(ctx, task.ID)
+	if err != nil {
+		return false, err
+	}
+	if encrypted {
+		flags |= types.PDP_IPNI_FLAG_ENCRYPTED
+	}
+
 	pi := &types.PdpIpniContext{
 		PieceCID: pcidV2,
-		Flags:    types.PDP_IPNI_FLAG_PAYLOAD,
+		Flags:    flags,
 	}
 
 	iContext, err := pi.Marshal()
@@ -291,6 +310,58 @@ func (P *PDPV0IPNITask) Do(ctx context.Context, taskID harmonytask.TaskID, still
 		}
 	}
 	return false, xerrors.Errorf("failed to publish piece to IPNI after %d attempts", ipniHeadCASRetries)
+}
+
+// pieceEncrypted reports whether any data set linked to this pdp_piecerefs.id
+// has acl = 1. Linked data sets with acl still NULL are resolved from chain
+// before the decision so a secured data set is not advertised without the bit.
+func (P *PDPV0IPNITask) pieceEncrypted(ctx context.Context, pdpPieceRef int64) (bool, error) {
+	var rows []struct {
+		ID  int64         `db:"id"`
+		ACL sql.NullInt32 `db:"acl"`
+	}
+	err := P.db.Select(ctx, &rows, `
+		SELECT ds.id, ds.acl
+		FROM pdp_data_sets ds
+		WHERE ds.id IN (
+			SELECT a.data_set FROM pdp_data_set_piece_adds a
+			WHERE a.pdp_pieceref = $1 AND a.data_set IS NOT NULL
+			UNION
+			SELECT p.data_set FROM pdp_data_set_pieces p
+			WHERE p.pdp_pieceref = $1
+			UNION
+			SELECT fp.data_set_id
+			FROM pdp_piecerefs pr
+			JOIN pdp_piece_pull_items fi ON fi.parked_piece_ref = pr.piece_ref
+			JOIN pdp_piece_pulls fp ON fp.id = fi.fetch_id
+			WHERE pr.id = $1 AND fp.data_set_id <> 0
+		)
+		OR ds.create_message_hash IN (
+			SELECT a.add_message_hash FROM pdp_data_set_piece_adds a
+			WHERE a.pdp_pieceref = $1 AND a.data_set IS NULL
+		)`, pdpPieceRef)
+	if err != nil {
+		return false, xerrors.Errorf("reading data set acl for piece ref %d: %w", pdpPieceRef, err)
+	}
+	for _, row := range rows {
+		if row.ACL.Valid {
+			if int(row.ACL.Int32) == ipniACLSecured {
+				return true, nil
+			}
+			continue
+		}
+		if P.resolveACL == nil {
+			return false, xerrors.Errorf("data set %d acl is unresolved and no resolver is configured", row.ID)
+		}
+		secured, err := P.resolveACL(ctx, uint64(row.ID))
+		if err != nil {
+			return false, err
+		}
+		if secured {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (P *PDPV0IPNITask) recordCompletion(tx *harmonydb.Tx, taskID harmonytask.TaskID, id int64) error {

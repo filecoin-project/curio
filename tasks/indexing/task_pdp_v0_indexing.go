@@ -2,6 +2,7 @@ package indexing
 
 import (
 	"context"
+	"database/sql"
 	"time"
 
 	"github.com/ipfs/go-cid"
@@ -20,6 +21,9 @@ import (
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/tasks/tasknames"
 )
+
+// datasetACLSecured is pdp_data_sets.acl = 1 (metadata read=restricted).
+const datasetACLSecured = 1
 
 type PDPIndexingV0Task struct {
 	db                *harmonydb.DB
@@ -105,20 +109,21 @@ func (P *PDPIndexingV0Task) Do(ctx context.Context, taskID harmonytask.TaskID, s
 		return true, nil
 	}
 
-	// A copy in open-pieces keeps child piece CID records. A piece that is
-	// only in acl-pieces still gets the block index. A piece in neither
-	// folder has not been placed, so the piece restricted flag decides.
+	// Restricted data sets are opaque ciphertext: no child piece CIDs. A copy
+	// in open-pieces still gets them. A piece in neither folder uses linked
+	// data set acl = 1 to decide.
 	inOpen, inACL, err := P.cpr.PieceInSpaces(ctx, pcid2)
 	if err != nil {
 		return false, xerrors.Errorf("checking piece hash spaces: %w", err)
 	}
 	var unplacedRestricted bool
 	if !inOpen && !inACL {
-		unplacedRestricted, err = pieceRefRestricted(ctx, P.db, task.ID)
+		unplacedRestricted, err = unplacedPieceRestricted(ctx, P.db, task.ID)
 		if err != nil {
 			return false, err
 		}
 	}
+	skipAggregate := skipSubpieceIndex(inOpen, inACL, unplacedRestricted)
 
 	reader, _, _, err := P.cpr.ReadPieceOrACL(ctx, pcid2, false)
 	if err != nil {
@@ -127,7 +132,6 @@ func (P *PDPIndexingV0Task) Do(ctx context.Context, taskID harmonytask.TaskID, s
 	defer func() {
 		_ = reader.Close()
 	}()
-	skipAggregate := skipSubpieceIndex(inOpen, inACL, unplacedRestricted)
 
 	startTime := time.Now()
 
@@ -189,9 +193,10 @@ func (P *PDPIndexingV0Task) Do(ctx context.Context, taskID harmonytask.TaskID, s
 	return true, nil
 }
 
-// skipSubpieceIndex omits child piece CID records when the piece is only in
-// acl-pieces. A copy in open-pieces keeps them. unplacedRestricted is the
-// piece restricted flag for a piece found in neither folder.
+// skipSubpieceIndex omits child piece CID records for restricted data sets.
+// Those pieces are encrypted end-to-end; there is no key and no subpiece to
+// index. A copy in open-pieces keeps them. unplacedRestricted is true when
+// every linked data set has acl = 1 and the piece is in neither hash folder.
 func skipSubpieceIndex(inOpen, inACL, unplacedRestricted bool) bool {
 	if inOpen {
 		return false
@@ -202,15 +207,55 @@ func skipSubpieceIndex(inOpen, inACL, unplacedRestricted bool) bool {
 	return unplacedRestricted
 }
 
-// pieceRefRestricted reports whether pdp_piecerefs.restricted is true.
-// The caller passes pdp_piecerefs.id and has found the piece in neither hash folder.
-func pieceRefRestricted(ctx context.Context, db *harmonydb.DB, pdpPieceRef int64) (bool, error) {
-	var restricted bool
-	err := db.QueryRow(ctx, `SELECT restricted FROM pdp_piecerefs WHERE id = $1`, pdpPieceRef).Scan(&restricted)
-	if err != nil {
-		return false, xerrors.Errorf("reading pdp_piecerefs.restricted for %d: %w", pdpPieceRef, err)
+// unplacedPieceRestricted reports whether every data set linked to this piece
+// has acl = 1. The caller passes pdp_piecerefs.id and has found the piece in
+// neither hash folder. 0, NULL, or no linked data set is public.
+func unplacedPieceRestricted(ctx context.Context, db *harmonydb.DB, pdpPieceRef int64) (bool, error) {
+	var rows []struct {
+		ACL sql.NullInt32 `db:"acl"`
 	}
-	return restricted, nil
+	err := db.Select(ctx, &rows, `
+		SELECT ds.acl
+		FROM pdp_data_sets ds
+		WHERE ds.id IN (
+			SELECT a.data_set FROM pdp_data_set_piece_adds a
+			WHERE a.pdp_pieceref = $1 AND a.data_set IS NOT NULL
+			UNION
+			SELECT p.data_set FROM pdp_data_set_pieces p
+			WHERE p.pdp_pieceref = $1
+			UNION
+			SELECT fp.data_set_id
+			FROM pdp_piecerefs pr
+			JOIN pdp_piece_pull_items fi ON fi.parked_piece_ref = pr.piece_ref
+			JOIN pdp_piece_pulls fp ON fp.id = fi.fetch_id
+			WHERE pr.id = $1 AND fp.data_set_id <> 0
+		)
+		OR ds.create_message_hash IN (
+			SELECT a.add_message_hash FROM pdp_data_set_piece_adds a
+			WHERE a.pdp_pieceref = $1 AND a.data_set IS NULL
+		)`, pdpPieceRef)
+	if err != nil {
+		return false, xerrors.Errorf("reading data set acl for piece ref %d: %w", pdpPieceRef, err)
+	}
+	acls := make([]sql.NullInt32, len(rows))
+	for i := range rows {
+		acls[i] = rows[i].ACL
+	}
+	return everyACLRestricted(acls), nil
+}
+
+// everyACLRestricted is true only when each acl value is 1. An empty list,
+// NULL, or any other value is public. The caller collected ds.acl for one piece.
+func everyACLRestricted(acls []sql.NullInt32) bool {
+	if len(acls) == 0 {
+		return false
+	}
+	for _, acl := range acls {
+		if !acl.Valid || int(acl.Int32) != datasetACLSecured {
+			return false
+		}
+	}
+	return true
 }
 
 func (P *PDPIndexingV0Task) recordCompletion(ctx context.Context, taskID harmonytask.TaskID, id int64, needsIPNI bool) error {

@@ -12,6 +12,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/resources/ffigpu"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/chainsched"
+	pdpsvc "github.com/filecoin-project/curio/pdp"
 	"github.com/filecoin-project/curio/tasks/dbmaint"
 	"github.com/filecoin-project/curio/tasks/gc"
 	"github.com/filecoin-project/curio/tasks/indexing"
@@ -122,7 +123,9 @@ func buildPDPTasks(ctx context.Context, d *Deps, chainSched *chainsched.CurioCha
 		indexing.NewPDPIndexingTask(db, d.IndexStore, d.CachedPieceReader, cfg, idxMax),
 		indexing.NewPDPIPNITask(db, cfg, idxMax, d.IndexStore),
 		indexing.NewPDPV0IndexingTask(db, d.IndexStore, d.CachedPieceReader, cfg, idxMax),
-		indexing.NewPDPV0IPNITask(db, cfg, idxMax, d.IndexStore),
+		indexing.NewPDPV0IPNITask(db, cfg, idxMax, d.IndexStore, func(ctx context.Context, dataSetId uint64) (bool, error) {
+			return pdpsvc.ResolveDatasetACL(ctx, db, ethClient, dataSetId)
+		}),
 	)
 
 	if pdponly {

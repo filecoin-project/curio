@@ -159,7 +159,7 @@ func TestSkiffCreateAddRetrieveLifecycle(t *testing.T) {
 	// both explicitly to avoid add-pieces falling through to eth CallContract.
 	_, err = db.Exec(ctx, `
 		INSERT INTO pdp_data_sets (id, create_message_hash, service, proving_period, challenge_window, init_ready, ipfs_indexing, acl)
-		VALUES ($1, $2, 'public', 100, 10, FALSE, FALSE, FALSE)`,
+		VALUES ($1, $2, 'public', 100, 10, FALSE, FALSE, 0)`,
 		int64(dataSetID), createTxHash)
 	require.NoError(t, err)
 

@@ -15,157 +15,118 @@ import (
 	"github.com/filecoin-project/curio/pdp/contract"
 )
 
-// MetadataKeyKeyspace is the data set metadata key for the FOC keyspace id.
-const MetadataKeyKeyspace = "foc/ks"
+// MetadataKeyACL is the data set metadata key for read access.
+const MetadataKeyACL = "read"
 
-// MetadataKeyRead is the piece-upload JSON field for read access intent.
-const MetadataKeyRead = "read"
+// DATASET_READ_RESTRICTED is the read-metadata value that marks an ACL data set.
+const DATASET_READ_RESTRICTED = "restricted"
 
-// PieceReadRestricted is the read value that marks a piece for acl-pieces.
-const PieceReadRestricted = "restricted"
+// ACL_SECURED is the pdp_data_sets.acl value for a read-restricted data set.
+const ACL_SECURED = 1
 
-// pieceRestrictedFromRead reports whether a piece upload's read field is restricted.
-func pieceRestrictedFromRead(read string) bool {
-	return strings.EqualFold(strings.TrimSpace(read), PieceReadRestricted)
-}
+// ACL_PUBLIC is the pdp_data_sets.acl value once resolved and not restricted.
+const ACL_PUBLIC = 0
 
-// KeyspaceFromExtraData reports whether create extraData includes a non-empty foc/ks value.
+// ACLFromExtraData reports whether create extraData sets read to restricted.
 // known is false when extraData is empty or cannot be decoded as FWSS create metadata.
-// hasKeyspace is true when foc/ks is present and non-empty after trim.
-func KeyspaceFromExtraData(extraData []byte) (known bool, hasKeyspace bool) {
-	ks, known := keyspaceValueFromExtraData(extraData)
-	return known, ks != ""
-}
-
-// keyspaceValueFromExtraData returns the foc/ks metadata value from create extraData.
-// known is false when extraData is empty or cannot be decoded.
-func keyspaceValueFromExtraData(extraData []byte) (keyspace string, known bool) {
+func ACLFromExtraData(extraData []byte) (known bool, acl bool) {
 	if len(extraData) == 0 {
-		return "", false
+		return false, false
 	}
 
-	payload, err := DecodeFWSSCreateIdentityFromExtraData(extraData)
+	id, err := DecodeFWSSCreateIdentity(extraData)
 	if err != nil {
-		log.Debugw("Failed to decode extraData for keyspace", "error", err)
-		return "", false
+		log.Debugw("Failed to decode extraData for ACL intent", "error", err)
+		return false, false
 	}
 
-	return metadataValue(payload, MetadataKeyKeyspace), true
+	return true, id.ReadRestricted()
 }
 
-// metadataValue returns the trimmed metadata value for key, or "" when absent.
-// The caller has already decoded the create payload.
-func metadataValue(payload *FWSSCreateIdentity, key string) string {
-	for i, k := range payload.MetadataKeys {
-		if k != key || i >= len(payload.MetadataValues) {
-			continue
-		}
-		return strings.TrimSpace(payload.MetadataValues[i])
-	}
-	return ""
-}
-
-// ResolveDatasetHasKeyspace returns the cached has_keyspace flag for a data set.
-// If pdp_data_sets.has_keyspace is NULL, it reads chain metadata and persists the result.
-// Chain/read failures return an error so callers do not treat an unknown data set as public-only.
-func ResolveDatasetHasKeyspace(
+// ResolveDatasetACL returns whether the data set is read-restricted (acl = 1).
+// If pdp_data_sets.acl is NULL, it reads chain metadata and persists 1 or 0.
+// Chain/read failures return an error so callers do not treat an unknown data set as public.
+func ResolveDatasetACL(
 	ctx context.Context,
 	db *harmonydb.DB,
 	ethClient ethchain.EthClient,
 	dataSetId uint64,
 ) (bool, error) {
-	cached, err := readDatasetHasKeyspace(ctx, db, dataSetId)
+	acl, err := readDatasetACL(ctx, db, dataSetId)
 	if err != nil {
 		return false, err
 	}
-	if cached != nil {
-		return *cached, nil
+	if acl != nil {
+		return *acl == ACL_SECURED, nil
 	}
 
-	hasKS, err := fetchHasKeyspaceFromChain(ctx, ethClient, dataSetId)
+	isACL, err := fetchFromChainACL(ctx, ethClient, dataSetId)
 	if err != nil {
 		return false, err
 	}
-	if err := PersistDatasetHasKeyspace(ctx, db, dataSetId, hasKS); err != nil {
+	if err := PersistDatasetACL(ctx, db, dataSetId, isACL); err != nil {
 		return false, err
 	}
-	return hasKS, nil
+	return isACL, nil
 }
 
-// ResolveDatasetKeyspace returns the foc/ks value for a data set from chain metadata.
-// An empty string means the data set has no keyspace.
-func ResolveDatasetKeyspace(
-	ctx context.Context,
-	ethClient ethchain.EthClient,
-	dataSetId uint64,
-) (string, error) {
-	return fetchKeyspaceFromChain(ctx, ethClient, dataSetId)
-}
-
-// readDatasetHasKeyspace returns the stored flag. A nil bool means the column is still NULL.
-func readDatasetHasKeyspace(ctx context.Context, db *harmonydb.DB, dataSetId uint64) (*bool, error) {
-	var hasKS sql.NullBool
-	err := db.QueryRow(ctx, `SELECT has_keyspace FROM pdp_data_sets WHERE id = $1`, dataSetId).Scan(&hasKS)
+// readDatasetACL returns the stored integer. A nil int means the column is still NULL.
+func readDatasetACL(ctx context.Context, db *harmonydb.DB, dataSetId uint64) (*int, error) {
+	var acl sql.NullInt32
+	err := db.QueryRow(ctx, `SELECT acl FROM pdp_data_sets WHERE id = $1`, dataSetId).Scan(&acl)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, xerrors.Errorf("data set %d not found", dataSetId)
 	}
 	if err != nil {
-		return nil, xerrors.Errorf("reading pdp_data_sets.has_keyspace for %d: %w", dataSetId, err)
+		return nil, xerrors.Errorf("reading pdp_data_sets.acl for %d: %w", dataSetId, err)
 	}
-	if !hasKS.Valid {
+	if !acl.Valid {
 		return nil, nil
 	}
-	v := hasKS.Bool
+	v := int(acl.Int32)
 	return &v, nil
 }
 
-// fetchHasKeyspaceFromChain reports whether the data set listener has a non-empty foc/ks value.
-func fetchHasKeyspaceFromChain(ctx context.Context, ethClient ethchain.EthClient, dataSetId uint64) (bool, error) {
-	ks, err := fetchKeyspaceFromChain(ctx, ethClient, dataSetId)
-	if err != nil {
-		return false, err
-	}
-	return ks != "", nil
-}
-
-// fetchKeyspaceFromChain reads the foc/ks metadata key from the data set listener.
-func fetchKeyspaceFromChain(ctx context.Context, ethClient ethchain.EthClient, dataSetId uint64) (string, error) {
+// fetchFromChainACL reads the read metadata key from the data set listener.
+// A missing key, or a value other than restricted, is false.
+func fetchFromChainACL(ctx context.Context, ethClient ethchain.EthClient, dataSetId uint64) (bool, error) {
 	pdpVerifier, err := contract.NewPDPVerifierCaller(contract.ContractAddresses().PDPVerifier, ethClient)
 	if err != nil {
-		return "", xerrors.Errorf("instantiate PDPVerifier: %w", err)
+		return false, xerrors.Errorf("instantiate PDPVerifier: %w", err)
 	}
 
 	setID := new(big.Int).SetUint64(dataSetId)
 	listenerAddr, err := pdpVerifier.GetDataSetListener(contract.EthCallOpts(ctx), setID)
 	if err != nil {
-		return "", xerrors.Errorf("GetDataSetListener(%d): %w", dataSetId, err)
+		return false, xerrors.Errorf("GetDataSetListener(%d): %w", dataSetId, err)
 	}
 
-	exists, value, err := contract.GetDataSetMetadataAtKey(ctx, listenerAddr, ethClient, setID, MetadataKeyKeyspace)
+	exists, value, err := contract.GetDataSetMetadataAtKey(ctx, listenerAddr, ethClient, setID, MetadataKeyACL)
 	if err != nil {
-		return "", xerrors.Errorf("GetDataSetMetadataAtKey(%d, %s): %w", dataSetId, MetadataKeyKeyspace, err)
+		return false, xerrors.Errorf("GetDataSetMetadataAtKey(%d, %s): %w", dataSetId, MetadataKeyACL, err)
 	}
-	if !exists {
-		return "", nil
-	}
-	return strings.TrimSpace(value), nil
+	return exists && strings.EqualFold(strings.TrimSpace(value), DATASET_READ_RESTRICTED), nil
 }
 
-// PersistDatasetHasKeyspace stores a resolved has_keyspace value when the column is still NULL.
-func PersistDatasetHasKeyspace(ctx context.Context, db *harmonydb.DB, dataSetId uint64, hasKeyspace bool) error {
+// PersistDatasetACL stores a resolved acl value as 1 or 0 when the column is still NULL.
+func PersistDatasetACL(ctx context.Context, db *harmonydb.DB, dataSetId uint64, acl bool) error {
+	value := ACL_PUBLIC
+	if acl {
+		value = ACL_SECURED
+	}
 	_, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
 		n, err := tx.Exec(`
 			UPDATE pdp_data_sets
-			SET has_keyspace = $1
-			WHERE id = $2 AND has_keyspace IS NULL
-		`, hasKeyspace, dataSetId)
+			SET acl = $1
+			WHERE id = $2 AND acl IS NULL
+		`, value, dataSetId)
 		if err != nil {
-			return false, xerrors.Errorf("updating pdp_data_sets.has_keyspace for %d: %w", dataSetId, err)
+			return false, xerrors.Errorf("updating pdp_data_sets.acl for %d: %w", dataSetId, err)
 		}
 		if n == 0 {
-			var stored sql.NullBool
-			if err := tx.QueryRow(`SELECT has_keyspace FROM pdp_data_sets WHERE id = $1`, dataSetId).Scan(&stored); err != nil {
-				return false, xerrors.Errorf("re-reading pdp_data_sets.has_keyspace for %d: %w", dataSetId, err)
+			var stored sql.NullInt32
+			if err := tx.QueryRow(`SELECT acl FROM pdp_data_sets WHERE id = $1`, dataSetId).Scan(&stored); err != nil {
+				return false, xerrors.Errorf("re-reading pdp_data_sets.acl for %d: %w", dataSetId, err)
 			}
 		}
 		return true, nil

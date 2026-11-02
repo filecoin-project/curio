@@ -36,18 +36,18 @@ func packCombinedExtraData(t *testing.T, createPayload, addPayload []byte) []byt
 	return extra
 }
 
-func TestDecodeFWSSCreateIdentityFromExtraData_CombinedAndBare(t *testing.T) {
+func TestDecodeFWSSCreateIdentity_CombinedAndBare(t *testing.T) {
 	payer := common.HexToAddress("0x1111111111111111111111111111111111111111")
 	createPayload := packCreatePayload(t, payer, 42, []string{"withIPFSIndexing"})
 
 	combined := packCombinedExtraData(t, createPayload, []byte{0x01})
-	got, err := DecodeFWSSCreateIdentityFromExtraData(combined)
+	got, err := DecodeFWSSCreateIdentity(combined)
 	require.NoError(t, err)
 	require.Equal(t, payer, got.Payer)
 	require.Equal(t, int64(42), got.ClientDataSetId.Int64())
 	require.Equal(t, []string{"withIPFSIndexing"}, got.MetadataKeys)
 
-	gotBare, err := DecodeFWSSCreateIdentityFromExtraData(createPayload)
+	gotBare, err := DecodeFWSSCreateIdentity(createPayload)
 	require.NoError(t, err)
 	require.Equal(t, payer, gotBare.Payer)
 	require.Equal(t, int64(42), gotBare.ClientDataSetId.Int64())
@@ -82,50 +82,41 @@ func TestCreateIdentityFromPDPCalldata_CreateDataSetAndAddPieces(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestPieceRestrictedFromRead(t *testing.T) {
-	require.True(t, pieceRestrictedFromRead("restricted"))
-	require.True(t, pieceRestrictedFromRead(" RESTRICTED "))
-	require.False(t, pieceRestrictedFromRead(""))
-	require.False(t, pieceRestrictedFromRead("true"))
-	require.False(t, pieceRestrictedFromRead("public"))
-}
-
-func TestKeyspaceFromExtraData(t *testing.T) {
+func TestACLFromExtraData(t *testing.T) {
 	payer := common.HexToAddress("0x1111111111111111111111111111111111111111")
-	ks := "0x00112233445566778899aabbccddeeff"
 
-	known, hasKS := KeyspaceFromExtraData(nil)
+	known, acl := ACLFromExtraData(nil)
 	require.False(t, known)
-	require.False(t, hasKS)
+	require.False(t, acl)
 
-	withKS := packCreatePayloadWithValues(t, payer, 1, []string{MetadataKeyKeyspace}, []string{ks})
-	known, hasKS = KeyspaceFromExtraData(withKS)
+	withACL := packCreatePayloadWithValues(t, payer, 1, []string{MetadataKeyACL}, []string{DATASET_READ_RESTRICTED})
+	known, acl = ACLFromExtraData(withACL)
 	require.True(t, known)
-	require.True(t, hasKS)
+	require.True(t, acl)
 
-	padded := packCreatePayloadWithValues(t, payer, 1, []string{MetadataKeyKeyspace}, []string{" " + ks + " "})
-	known, hasKS = KeyspaceFromExtraData(padded)
+	folded := packCreatePayloadWithValues(t, payer, 1, []string{MetadataKeyACL}, []string{" RESTRICTED "})
+	known, acl = ACLFromExtraData(folded)
 	require.True(t, known)
-	require.True(t, hasKS)
+	require.True(t, acl)
 
-	empty := packCreatePayloadWithValues(t, payer, 1, []string{MetadataKeyKeyspace}, []string{"  "})
-	known, hasKS = KeyspaceFromExtraData(empty)
+	off := packCreatePayloadWithValues(t, payer, 1, []string{MetadataKeyACL}, []string{"false"})
+	known, acl = ACLFromExtraData(off)
 	require.True(t, known)
-	require.False(t, hasKS)
+	require.False(t, acl)
 
-	legacyRead := packCreatePayloadWithValues(t, payer, 1, []string{"read"}, []string{"restricted"})
-	known, hasKS = KeyspaceFromExtraData(legacyRead)
+	legacy := packCreatePayloadWithValues(t, payer, 1, []string{MetadataKeyACL}, []string{"true"})
+	known, acl = ACLFromExtraData(legacy)
 	require.True(t, known)
-	require.False(t, hasKS)
+	require.False(t, acl)
 
-	other := packCreatePayloadWithValues(t, payer, 1, []string{"other"}, []string{ks})
-	known, hasKS = KeyspaceFromExtraData(other)
+	other := packCreatePayloadWithValues(t, payer, 1, []string{"other"}, []string{DATASET_READ_RESTRICTED})
+	known, acl = ACLFromExtraData(other)
 	require.True(t, known)
-	require.False(t, hasKS)
+	require.False(t, acl)
 
-	known, hasKS = KeyspaceFromExtraData([]byte{0xde, 0xad})
+	known, acl = ACLFromExtraData([]byte{0xde, 0xad})
 	require.False(t, known)
-	require.False(t, hasKS)
+	require.False(t, acl)
 }
 
 func TestIPFSIndexingFromExtraData(t *testing.T) {

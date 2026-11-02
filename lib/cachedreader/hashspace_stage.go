@@ -2,6 +2,7 @@ package cachedreader
 
 import (
 	"context"
+	"fmt"
 	"io"
 
 	"github.com/ipfs/go-cid"
@@ -86,15 +87,38 @@ func (cpr *CachedPieceReader) ReadACLPiece(ctx context.Context, pc cid.Cid) (sto
 	return reader, rawSize, nil
 }
 
-// ReadPieceOrACL opens pc for indexing and IPNI block retrieval. The shared
-// reader is tried first. An acl-pieces hit sets fromACL. A miss of both
-// returns the shared-reader error. /piece/ does not call this, so an acl-only
-// piece is not served there.
+// ReadPieceOrACL opens pc for indexing and IPNI block retrieval. A piece that
+// is only in acl-pieces is read from there and never asks YCQL for parent
+// aggregates: restricted data sets are opaque ciphertext with no subpieces.
+// A copy in open-pieces uses the shared reader. /piece/ does not call this, so
+// an acl-only piece is not served there.
 // This disregards authentication in providing access, so the caller must check.
 func (cpr *CachedPieceReader) ReadPieceOrACL(ctx context.Context, pc cid.Cid, retrieval bool) (storiface.Reader, uint64, bool, error) {
+	spacePC := pc
+	if v2, _, ok := cpr.hashspaceKey(ctx, pc); ok {
+		spacePC = v2
+	}
+	inOpen, inACL, err := cpr.PieceInSpaces(ctx, spacePC)
+	if err != nil {
+		return nil, 0, false, err
+	}
+	if inACL && !inOpen {
+		aclReader, aclSize, aclErr := cpr.ReadACLPiece(ctx, pc)
+		if aclErr != nil {
+			return nil, 0, false, aclErr
+		}
+		if aclReader == nil {
+			return nil, 0, false, fmt.Errorf("acl piece %s not found", pc)
+		}
+		return aclReader, aclSize, true, nil
+	}
+
 	reader, size, err := cpr.GetSharedPieceReader(ctx, pc, retrieval)
 	if err == nil {
 		return reader, size, false, nil
+	}
+	if !inACL {
+		return nil, 0, false, err
 	}
 	aclReader, aclSize, aclErr := cpr.ReadACLPiece(ctx, pc)
 	if aclErr != nil {
