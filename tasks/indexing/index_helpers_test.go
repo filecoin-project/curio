@@ -22,6 +22,7 @@ import (
 	"github.com/filecoin-project/curio/lib/testutils"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/mk20"
+	"github.com/filecoin-project/curio/pdp/pieceacl"
 )
 
 func TestIndexCARReturnsRawLengthAndFirstBlockRecord(t *testing.T) {
@@ -111,18 +112,16 @@ func TestSkipSubpieceIndex(t *testing.T) {
 }
 
 func TestEveryACLRestricted(t *testing.T) {
-	require.False(t, everyACLRestricted(nil))
-	require.True(t, everyACLRestricted([]sql.NullInt32{{Int32: 1, Valid: true}}))
-	require.True(t, everyACLRestricted([]sql.NullInt32{
-		{Int32: 1, Valid: true},
-		{Int32: 1, Valid: true},
-	}))
-	require.False(t, everyACLRestricted([]sql.NullInt32{{Valid: false}}))
-	require.False(t, everyACLRestricted([]sql.NullInt32{{Int32: 0, Valid: true}}))
-	require.False(t, everyACLRestricted([]sql.NullInt32{
-		{Int32: 1, Valid: true},
-		{Valid: false},
-	}))
+	secured := pieceacl.Link{ID: 1, ACL: sql.NullInt32{Int32: pieceacl.Secured, Valid: true}}
+	public0 := pieceacl.Link{ID: 2, ACL: sql.NullInt32{Int32: 0, Valid: true}}
+	unresolved := pieceacl.Link{ID: 3, ACL: sql.NullInt32{Valid: false}}
+
+	require.False(t, pieceacl.EverySecured(nil))
+	require.True(t, pieceacl.EverySecured([]pieceacl.Link{secured}))
+	require.True(t, pieceacl.EverySecured([]pieceacl.Link{secured, secured}))
+	require.False(t, pieceacl.EverySecured([]pieceacl.Link{unresolved}))
+	require.False(t, pieceacl.EverySecured([]pieceacl.Link{public0}))
+	require.False(t, pieceacl.EverySecured([]pieceacl.Link{secured, unresolved}))
 }
 
 func TestIndexPDPv0AggregateIndexesBlocksWithoutChildPieceCIDs(t *testing.T) {

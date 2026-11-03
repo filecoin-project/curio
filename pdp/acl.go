@@ -13,6 +13,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/pdp/contract"
+	"github.com/filecoin-project/curio/pdp/pieceacl"
 )
 
 // MetadataKeyACL is the data set metadata key for read access.
@@ -22,7 +23,7 @@ const MetadataKeyACL = "read"
 const DATASET_READ_RESTRICTED = "restricted"
 
 // ACL_SECURED is the pdp_data_sets.acl value for a read-restricted data set.
-const ACL_SECURED = 1
+const ACL_SECURED = pieceacl.Secured
 
 // ACL_PUBLIC is the pdp_data_sets.acl value once resolved and not restricted.
 const ACL_PUBLIC = 0

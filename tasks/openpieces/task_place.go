@@ -21,6 +21,7 @@ import (
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/piecestore"
 	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/pdp/pieceacl"
 )
 
 // errPlacementAborted means the PDP ref disappeared while the bytes were
@@ -255,71 +256,21 @@ func requireEnvelope(ctx context.Context, pieceIO piecestore.PieceIO, parkedID i
 // pieceInACL reports whether pieceRef belongs to a data set with acl = 1.
 // pieceRef is parked_piece_refs.ref_id.
 func pieceInACL(ctx context.Context, db *harmonydb.DB, pieceRef int64) (bool, error) {
-	return pieceDatasetACL(ctx, db, pieceRef, true)
+	links, err := pieceacl.ByParkedPieceRef(ctx, db, pieceRef)
+	if err != nil {
+		return false, err
+	}
+	return pieceacl.AnySecured(links), nil
 }
 
 // pieceSharesPublic reports whether pieceRef also belongs to a data set whose
 // acl is not 1. NULL and 0 count as public. pieceRef is parked_piece_refs.ref_id.
 func pieceSharesPublic(ctx context.Context, db *harmonydb.DB, pieceRef int64) (bool, error) {
-	return pieceDatasetACL(ctx, db, pieceRef, false)
-}
-
-// pieceDatasetACL matches data sets linked to pieceRef. wantTrue selects
-// acl = 1; otherwise it selects acl IS DISTINCT FROM 1.
-func pieceDatasetACL(ctx context.Context, db *harmonydb.DB, pieceRef int64, wantTrue bool) (bool, error) {
-	var found bool
-	var err error
-	if wantTrue {
-		err = db.QueryRow(ctx, `
-		SELECT EXISTS (
-			SELECT 1 FROM pdp_piecerefs pr
-			JOIN pdp_data_set_piece_adds a ON a.pdp_pieceref = pr.id
-			JOIN pdp_data_sets ds ON ds.id = a.data_set
-			WHERE pr.piece_ref = $1 AND ds.acl = 1
-			UNION ALL
-			SELECT 1 FROM pdp_piecerefs pr
-			JOIN pdp_data_set_piece_adds a ON a.pdp_pieceref = pr.id
-			JOIN pdp_data_sets ds ON ds.create_message_hash = a.add_message_hash
-			WHERE pr.piece_ref = $1 AND a.data_set IS NULL AND ds.acl = 1
-			UNION ALL
-			SELECT 1 FROM pdp_piecerefs pr
-			JOIN pdp_data_set_pieces p ON p.pdp_pieceref = pr.id
-			JOIN pdp_data_sets ds ON ds.id = p.data_set
-			WHERE pr.piece_ref = $1 AND ds.acl = 1
-			UNION ALL
-			SELECT 1 FROM pdp_piece_pull_items fi
-			JOIN pdp_piece_pulls fp ON fp.id = fi.fetch_id
-			JOIN pdp_data_sets ds ON ds.id = fp.data_set_id
-			WHERE fi.parked_piece_ref = $1 AND ds.acl = 1
-		)`, pieceRef).Scan(&found)
-	} else {
-		err = db.QueryRow(ctx, `
-		SELECT EXISTS (
-			SELECT 1 FROM pdp_piecerefs pr
-			JOIN pdp_data_set_piece_adds a ON a.pdp_pieceref = pr.id
-			JOIN pdp_data_sets ds ON ds.id = a.data_set
-			WHERE pr.piece_ref = $1 AND ds.acl IS DISTINCT FROM 1
-			UNION ALL
-			SELECT 1 FROM pdp_piecerefs pr
-			JOIN pdp_data_set_piece_adds a ON a.pdp_pieceref = pr.id
-			JOIN pdp_data_sets ds ON ds.create_message_hash = a.add_message_hash
-			WHERE pr.piece_ref = $1 AND a.data_set IS NULL AND ds.acl IS DISTINCT FROM 1
-			UNION ALL
-			SELECT 1 FROM pdp_piecerefs pr
-			JOIN pdp_data_set_pieces p ON p.pdp_pieceref = pr.id
-			JOIN pdp_data_sets ds ON ds.id = p.data_set
-			WHERE pr.piece_ref = $1 AND ds.acl IS DISTINCT FROM 1
-			UNION ALL
-			SELECT 1 FROM pdp_piece_pull_items fi
-			JOIN pdp_piece_pulls fp ON fp.id = fi.fetch_id
-			JOIN pdp_data_sets ds ON ds.id = fp.data_set_id
-			WHERE fi.parked_piece_ref = $1 AND ds.acl IS DISTINCT FROM 1
-		)`, pieceRef).Scan(&found)
-	}
+	links, err := pieceacl.ByParkedPieceRef(ctx, db, pieceRef)
 	if err != nil {
-		return false, xerrors.Errorf("checking data set acl for piece ref %d: %w", pieceRef, err)
+		return false, err
 	}
-	return found, nil
+	return pieceacl.AnyPublic(links), nil
 }
 
 // pieceCidV2 is the piece CID v2 of a PDP piece CID v1 and its raw size.

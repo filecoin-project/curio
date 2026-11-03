@@ -2,7 +2,6 @@ package indexing
 
 import (
 	"context"
-	"database/sql"
 	"time"
 
 	"github.com/ipfs/go-cid"
@@ -20,11 +19,9 @@ import (
 	"github.com/filecoin-project/curio/lib/cachedreader"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/market/indexstore"
+	"github.com/filecoin-project/curio/pdp/pieceacl"
 	"github.com/filecoin-project/curio/tasks/tasknames"
 )
-
-// datasetACLSecured is pdp_data_sets.acl = 1 (metadata read=restricted).
-const datasetACLSecured = 1
 
 type PDPIndexingV0Task struct {
 	db                *harmonydb.DB
@@ -213,51 +210,11 @@ func skipSubpieceIndex(inOpen, inACL, unplacedRestricted bool) bool {
 // has acl = 1. The caller passes pdp_piecerefs.id and has found the piece in
 // neither hash folder. 0, NULL, or no linked data set is public.
 func unplacedPieceRestricted(ctx context.Context, db *harmonydb.DB, pdpPieceRef int64) (bool, error) {
-	var rows []struct {
-		ACL sql.NullInt32 `db:"acl"`
-	}
-	err := db.Select(ctx, &rows, `
-		SELECT ds.acl
-		FROM pdp_data_sets ds
-		WHERE ds.id IN (
-			SELECT a.data_set FROM pdp_data_set_piece_adds a
-			WHERE a.pdp_pieceref = $1 AND a.data_set IS NOT NULL
-			UNION
-			SELECT p.data_set FROM pdp_data_set_pieces p
-			WHERE p.pdp_pieceref = $1
-			UNION
-			SELECT fp.data_set_id
-			FROM pdp_piecerefs pr
-			JOIN pdp_piece_pull_items fi ON fi.parked_piece_ref = pr.piece_ref
-			JOIN pdp_piece_pulls fp ON fp.id = fi.fetch_id
-			WHERE pr.id = $1 AND fp.data_set_id <> 0
-		)
-		OR ds.create_message_hash IN (
-			SELECT a.add_message_hash FROM pdp_data_set_piece_adds a
-			WHERE a.pdp_pieceref = $1 AND a.data_set IS NULL
-		)`, pdpPieceRef)
+	links, err := pieceacl.ByPDPPieceRefID(ctx, db, pdpPieceRef)
 	if err != nil {
-		return false, xerrors.Errorf("reading data set acl for piece ref %d: %w", pdpPieceRef, err)
+		return false, err
 	}
-	acls := make([]sql.NullInt32, len(rows))
-	for i := range rows {
-		acls[i] = rows[i].ACL
-	}
-	return everyACLRestricted(acls), nil
-}
-
-// everyACLRestricted is true only when each acl value is 1. An empty list,
-// NULL, or any other value is public. The caller collected ds.acl for one piece.
-func everyACLRestricted(acls []sql.NullInt32) bool {
-	if len(acls) == 0 {
-		return false
-	}
-	for _, acl := range acls {
-		if !acl.Valid || int(acl.Int32) != datasetACLSecured {
-			return false
-		}
-	}
-	return true
+	return pieceacl.EverySecured(links), nil
 }
 
 func (P *PDPIndexingV0Task) recordCompletion(ctx context.Context, taskID harmonytask.TaskID, id int64, needsIPNI bool) error {
