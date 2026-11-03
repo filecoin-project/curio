@@ -167,10 +167,19 @@ func (*saveCacheTestSection) Close() error { return nil }
 
 func insertSaveCachePiece(t *testing.T, db *harmonydb.DB, pcid cid.Cid, taskID harmonytask.TaskID) int64 {
 	t.Helper()
-	pcidV1, rawSize, err := commcid.PieceCidV1FromV2(pcid)
+	pcidV1, _, err := commcid.PieceCidV1FromV2(pcid)
+	require.NoError(t, err)
+	return insertSaveCachePieceAs(t, db, pcid, pcidV1, taskID)
+}
+
+// insertSaveCachePieceAs parks the piece pcid names under storedCID, its v1
+// or its v2 CID.
+func insertSaveCachePieceAs(t *testing.T, db *harmonydb.DB, pcid, storedCID cid.Cid, taskID harmonytask.TaskID) int64 {
+	t.Helper()
+	_, rawSize, err := commcid.PieceCidV1FromV2(pcid)
 	require.NoError(t, err)
 	fixture := newNotifyUploadFixture("save-cache")
-	fixture.pieceCID = pcidV1.String()
+	fixture.pieceCID = storedCID.String()
 	insertParkedPiece(t, db, &fixture, true, false, nil)
 	_, err = db.Exec(t.Context(), `UPDATE parked_pieces SET piece_raw_size = $1, piece_padded_size = $2 WHERE id = $3`, rawSize, abi.UnpaddedPieceSize(rawSize).Padded(), fixture.parkedPiece)
 	require.NoError(t, err)
@@ -232,6 +241,26 @@ func TestSaveCacheValidatesBeforeCompletion(t *testing.T) {
 			require.Equal(t, !tc.wantError, taskCleared)
 		})
 	}
+}
+
+func TestSaveCacheBuildsTheLayerForAPieceParkedUnderItsV2CID(t *testing.T) {
+	db, err := harmonydb.NewFromConfigWithITestID(t)
+	require.NoError(t, err)
+	pcid, _ := zeroCacheLayer(t, 64<<20)
+	const taskID = harmonytask.TaskID(760)
+	id := insertSaveCachePieceAs(t, db, pcid, pcid, taskID) // stored as v2
+	store := &saveCacheTestStore{}
+	reader := &saveCacheTestReader{rawSize: uint64(abi.PaddedPieceSize(64 << 20).Unpadded())}
+
+	done, err := NewTaskPDPSaveCache(db, reader, store).Do(t.Context(), taskID, func() bool { return true })
+
+	require.NoError(t, err)
+	require.True(t, done)
+	require.NoError(t, validatePDPCacheLayer(pcid, commp.SnapshotLayerIndex(PaddedReadSize), store.nodes))
+	var needsCache bool
+	err = db.QueryRow(t.Context(), `SELECT needs_save_cache FROM pdp_piecerefs WHERE id = $1`, id).Scan(&needsCache)
+	require.NoError(t, err)
+	require.False(t, needsCache)
 }
 
 func TestSaveCacheSkips32MiBPaddedPiece(t *testing.T) {
