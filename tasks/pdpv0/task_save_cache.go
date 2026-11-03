@@ -18,6 +18,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
+	"github.com/filecoin-project/curio/lib/commcidv2"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/lib/proof"
 	"github.com/filecoin-project/curio/market/indexstore"
@@ -65,15 +66,9 @@ func (t *TaskPDPSaveCache) Do(ctx context.Context, taskID harmonytask.TaskID, st
 
 	log.Debugw("PDPv0_SaveCache starting", "taskID", taskID, "pieceCID", task.PieceCID, "rawSize", task.RawSize)
 
-	pcidV1, err := cid.Parse(task.PieceCID)
+	pcidV1, pcidV2, err := saveCachePieceCIDs(task.PieceCID, task.RawSize)
 	if err != nil {
-		return false, xerrors.Errorf("failed to parse piece cid: %w", err)
-	}
-
-	// Construct v2 CID from v1 + raw size (needed for Cassandra cache layer keying)
-	pcidV2, err := commcid.PieceCidV2FromV1(pcidV1, task.RawSize)
-	if err != nil {
-		return false, xerrors.Errorf("failed to construct piece cid v2: %w", err)
+		return false, err
 	}
 
 	paddedSize := padreader.PaddedSize(task.RawSize).Padded()
@@ -164,6 +159,34 @@ func (t *TaskPDPSaveCache) Do(ctx context.Context, taskID harmonytask.TaskID, st
 
 	log.Debugw("PDPv0_SaveCache complete", "taskID", taskID, "pieceCID", task.PieceCID)
 	return true, nil
+}
+
+// saveCachePieceCIDs returns the v1 and v2 forms of pdp_piecerefs.piece_cid.
+// Curio parks pieces under their v1 CID; an embedder may park them under v2,
+// which already carries the payload size, so a v2 CID is checked against the
+// parked raw size instead of being rebuilt from it. The cache layer is keyed
+// by the v2 CID.
+func saveCachePieceCIDs(pieceCid string, rawSize uint64) (v1, v2 cid.Cid, err error) {
+	pcid, err := cid.Parse(pieceCid)
+	if err != nil {
+		return cid.Undef, cid.Undef, xerrors.Errorf("failed to parse piece cid: %w", err)
+	}
+	if !commcidv2.IsPieceCidV2(pcid) {
+		// Construct v2 CID from v1 + raw size (needed for Cassandra cache layer keying)
+		v2, err = commcid.PieceCidV2FromV1(pcid, rawSize)
+		if err != nil {
+			return cid.Undef, cid.Undef, xerrors.Errorf("failed to construct piece cid v2: %w", err)
+		}
+		return pcid, v2, nil
+	}
+	v1, payloadSize, err := commcid.PieceCidV1FromV2(pcid)
+	if err != nil {
+		return cid.Undef, cid.Undef, xerrors.Errorf("failed to derive piece cid v1: %w", err)
+	}
+	if payloadSize != rawSize {
+		return cid.Undef, cid.Undef, xerrors.Errorf("piece cid v2 payload size %d does not match raw size %d", payloadSize, rawSize)
+	}
+	return v1, pcid, nil
 }
 
 // validatePDPCacheLayer checks the complete snapshot against the piece commitment

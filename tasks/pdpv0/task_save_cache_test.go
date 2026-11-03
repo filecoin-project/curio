@@ -1,6 +1,7 @@
 package pdpv0
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -167,10 +168,19 @@ func (*saveCacheTestSection) Close() error { return nil }
 
 func insertSaveCachePiece(t *testing.T, db *harmonydb.DB, pcid cid.Cid, taskID harmonytask.TaskID) int64 {
 	t.Helper()
-	pcidV1, rawSize, err := commcid.PieceCidV1FromV2(pcid)
+	pcidV1, _, err := commcid.PieceCidV1FromV2(pcid)
+	require.NoError(t, err)
+	return insertSaveCachePieceAs(t, db, pcid, pcidV1, taskID)
+}
+
+// insertSaveCachePieceAs parks the piece pcid names under storedCID, its v1
+// or its v2 CID.
+func insertSaveCachePieceAs(t *testing.T, db *harmonydb.DB, pcid, storedCID cid.Cid, taskID harmonytask.TaskID) int64 {
+	t.Helper()
+	_, rawSize, err := commcid.PieceCidV1FromV2(pcid)
 	require.NoError(t, err)
 	fixture := newNotifyUploadFixture("save-cache")
-	fixture.pieceCID = pcidV1.String()
+	fixture.pieceCID = storedCID.String()
 	insertParkedPiece(t, db, &fixture, true, false, nil)
 	_, err = db.Exec(t.Context(), `UPDATE parked_pieces SET piece_raw_size = $1, piece_padded_size = $2 WHERE id = $3`, rawSize, abi.UnpaddedPieceSize(rawSize).Padded(), fixture.parkedPiece)
 	require.NoError(t, err)
@@ -232,6 +242,26 @@ func TestSaveCacheValidatesBeforeCompletion(t *testing.T) {
 			require.Equal(t, !tc.wantError, taskCleared)
 		})
 	}
+}
+
+func TestSaveCacheBuildsTheLayerForAPieceParkedUnderItsV2CID(t *testing.T) {
+	db, err := harmonydb.NewFromConfigWithITestID(t)
+	require.NoError(t, err)
+	pcid, _ := zeroCacheLayer(t, 64<<20)
+	const taskID = harmonytask.TaskID(760)
+	id := insertSaveCachePieceAs(t, db, pcid, pcid, taskID) // stored as v2
+	store := &saveCacheTestStore{}
+	reader := &saveCacheTestReader{rawSize: uint64(abi.PaddedPieceSize(64 << 20).Unpadded())}
+
+	done, err := NewTaskPDPSaveCache(db, reader, store).Do(t.Context(), taskID, func() bool { return true })
+
+	require.NoError(t, err)
+	require.True(t, done)
+	require.NoError(t, validatePDPCacheLayer(pcid, commp.SnapshotLayerIndex(PaddedReadSize), store.nodes))
+	var needsCache bool
+	err = db.QueryRow(t.Context(), `SELECT needs_save_cache FROM pdp_piecerefs WHERE id = $1`, id).Scan(&needsCache)
+	require.NoError(t, err)
+	require.False(t, needsCache)
 }
 
 func TestSaveCacheSkips32MiBPaddedPiece(t *testing.T) {
@@ -430,4 +460,51 @@ func TestGenerateProofsContinuesAfterMissingCacheWithoutPartialResult(t *testing
 	for i, generated := range proofs {
 		require.True(t, proof.VerifyProof(generated.Leaf, generated.Proof, [32]byte(commitment), uint64(i)))
 	}
+}
+
+// testPieceCIDs returns the v1 and v2 piece CIDs of an arbitrary commitment
+// for a payload of rawSize bytes.
+func testPieceCIDs(t *testing.T, rawSize uint64) (v1, v2 cid.Cid) {
+	t.Helper()
+	commitment := bytes.Repeat([]byte{0x11}, 32)
+	commitment[31] &= 0x3f // a valid commitment is a field element
+	v1, err := commcid.DataCommitmentV1ToCID(commitment)
+	require.NoError(t, err)
+	v2, err = commcid.PieceCidV2FromV1(v1, rawSize)
+	require.NoError(t, err)
+	return v1, v2
+}
+
+func TestSaveCachePieceCIDs_BuildsTheV2CIDFromAV1PieceCID(t *testing.T) {
+	v1, v2 := testPieceCIDs(t, 1000)
+
+	gotV1, gotV2, err := saveCachePieceCIDs(v1.String(), 1000)
+
+	require.NoError(t, err)
+	require.Equal(t, []cid.Cid{v1, v2}, []cid.Cid{gotV1, gotV2})
+}
+
+func TestSaveCachePieceCIDs_AcceptsAV2PieceCID(t *testing.T) {
+	v1, v2 := testPieceCIDs(t, 1000)
+
+	gotV1, gotV2, err := saveCachePieceCIDs(v2.String(), 1000)
+
+	require.NoError(t, err)
+	require.Equal(t, []cid.Cid{v1, v2}, []cid.Cid{gotV1, gotV2})
+}
+
+func TestSaveCachePieceCIDs_RefusesAV2PieceCIDForAnotherPayloadSize(t *testing.T) {
+	_, v2 := testPieceCIDs(t, 1000)
+
+	_, _, err := saveCachePieceCIDs(v2.String(), 900) // the parked piece is 900 bytes, the CID says 1000
+
+	require.ErrorContains(t, err, "piece cid v2 payload size 1000 does not match raw size 900")
+}
+
+func TestSaveCachePieceCIDs_RefusesACIDThatIsNotAPieceCID(t *testing.T) {
+	notAPiece, err := cid.V1Builder{Codec: cid.Raw, MhType: 0x12}.Sum([]byte("any-data")) // sha2-256 over raw bytes
+
+	require.NoError(t, err)
+	_, _, err = saveCachePieceCIDs(notAPiece.String(), 1000)
+	require.ErrorContains(t, err, "failed to construct piece cid v2")
 }
