@@ -3,7 +3,6 @@ package indexing
 import (
 	"context"
 	"crypto/rand"
-	"database/sql"
 	"errors"
 	"strings"
 	"time"
@@ -31,14 +30,12 @@ import (
 	"github.com/filecoin-project/curio/market/ipni/chunker"
 	"github.com/filecoin-project/curio/market/ipni/ipniculib"
 	"github.com/filecoin-project/curio/market/ipni/types"
+	"github.com/filecoin-project/curio/pdp/pieceacl"
 	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 const (
 	PDP_v0_SP_ID = -2 // This is the SP ID for PDP in the IPNI table
-
-	// ipniACLSecured is pdp_data_sets.acl = 1 (read metadata restricted).
-	ipniACLSecured = 1
 )
 
 // DatasetACLResolver returns whether a data set is read-restricted (acl = 1),
@@ -316,44 +313,21 @@ func (P *PDPV0IPNITask) Do(ctx context.Context, taskID harmonytask.TaskID, still
 // has acl = 1. Linked data sets with acl still NULL are resolved from chain
 // before the decision so a secured data set is not advertised without the bit.
 func (P *PDPV0IPNITask) pieceEncrypted(ctx context.Context, pdpPieceRef int64) (bool, error) {
-	var rows []struct {
-		ID  int64         `db:"id"`
-		ACL sql.NullInt32 `db:"acl"`
-	}
-	err := P.db.Select(ctx, &rows, `
-		SELECT ds.id, ds.acl
-		FROM pdp_data_sets ds
-		WHERE ds.id IN (
-			SELECT a.data_set FROM pdp_data_set_piece_adds a
-			WHERE a.pdp_pieceref = $1 AND a.data_set IS NOT NULL
-			UNION
-			SELECT p.data_set FROM pdp_data_set_pieces p
-			WHERE p.pdp_pieceref = $1
-			UNION
-			SELECT fp.data_set_id
-			FROM pdp_piecerefs pr
-			JOIN pdp_piece_pull_items fi ON fi.parked_piece_ref = pr.piece_ref
-			JOIN pdp_piece_pulls fp ON fp.id = fi.fetch_id
-			WHERE pr.id = $1 AND fp.data_set_id <> 0
-		)
-		OR ds.create_message_hash IN (
-			SELECT a.add_message_hash FROM pdp_data_set_piece_adds a
-			WHERE a.pdp_pieceref = $1 AND a.data_set IS NULL
-		)`, pdpPieceRef)
+	links, err := pieceacl.ByPDPPieceRefID(ctx, P.db, pdpPieceRef)
 	if err != nil {
-		return false, xerrors.Errorf("reading data set acl for piece ref %d: %w", pdpPieceRef, err)
+		return false, err
 	}
-	for _, row := range rows {
-		if row.ACL.Valid {
-			if int(row.ACL.Int32) == ipniACLSecured {
+	for _, link := range links {
+		if link.ACL.Valid {
+			if int(link.ACL.Int32) == pieceacl.Secured {
 				return true, nil
 			}
 			continue
 		}
 		if P.resolveACL == nil {
-			return false, xerrors.Errorf("data set %d acl is unresolved and no resolver is configured", row.ID)
+			return false, xerrors.Errorf("data set %d acl is unresolved and no resolver is configured", link.ID)
 		}
-		secured, err := P.resolveACL(ctx, uint64(row.ID))
+		secured, err := P.resolveACL(ctx, uint64(link.ID))
 		if err != nil {
 			return false, err
 		}
