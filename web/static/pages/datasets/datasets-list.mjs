@@ -68,6 +68,21 @@ function ownerContactLine(payer) {
   return payer ? `owner (payer ${payer})` : 'dataset owner (if known)'
 }
 
+function atRiskContactNote(item) {
+  const owner = ownerContactLine(item?.payer)
+  const when = formatDeleteDate(item)
+  if (item?.status === 'grace') {
+    return `Contact the ${owner} to bring payments current before deletion on ${when}.`
+  }
+  if (item?.status === 'pending_delete') {
+    return `Pending deletion on ${when}. Contact the ${owner}.`
+  }
+  if (item?.status === 'terminating') {
+    return `Service termination is confirmed. Scheduled for deletion on ${when}. Contact the ${owner}. Payment will not stop that.`
+  }
+  return `Scheduled for deletion on ${when}. Contact the ${owner}.`
+}
+
 customElements.define('pdp-datasets-list', class PdpDatasetsList extends LitElement {
   static properties = {
     items: { type: Array },
@@ -552,11 +567,11 @@ customElements.define('pdp-datasets-list', class PdpDatasetsList extends LitElem
 
       <div class="view-tabs">
         <button type="button" class="view-tab ${this.viewMode === 'all' ? 'active' : ''}" @click=${() => this.setViewMode('all')}>All</button>
-        <button type="button" class="view-tab ${this.viewMode === 'payment' ? 'active' : ''}" @click=${() => this.setViewMode('payment')}>Payment grace</button>
+        <button type="button" class="view-tab ${this.viewMode === 'payment' ? 'active' : ''}" @click=${() => this.setViewMode('payment')}>At risk</button>
       </div>
 
       ${this.viewMode === 'all' ? html`<p class="hint">${SEARCH_HINT}</p>` : html`
-        <p class="hint">Datasets ≥100 KiB with unpaid payment rails or pending deletion. Contact the dataset owner to bring payments current before the deletion date.</p>
+        <p class="hint">Datasets of at least 100 KiB in payment grace, with service termination confirmed, or pending deletion.</p>
       `}
 
       ${this.viewMode === 'all' ? html`
@@ -585,7 +600,7 @@ customElements.define('pdp-datasets-list', class PdpDatasetsList extends LitElem
         : ''}
 
       ${!this.loadError && this.items.length === 0 && !this.scanning && !this.loading
-        ? html`<p class="hint">${this.viewMode === 'payment' ? 'No datasets in payment grace or deletion.' : 'No datasets found.'}</p>`
+        ? html`<p class="hint">${this.viewMode === 'payment' ? 'No datasets in payment grace, with termination confirmed, or pending deletion.' : 'No datasets found.'}</p>`
         : this.items.length > 0 ? html`
           <table class="table table-dark table-striped table-sm">
             <thead>
@@ -628,7 +643,7 @@ customElements.define('pdp-datasets-list', class PdpDatasetsList extends LitElem
                   <td>${reasonLabel(ds.reason)}</td>
                   <td>
                     <div>${formatDeleteDate(ds)}</div>
-                    <p class="at-risk-note">Contact the ${ownerContactLine(ds.payer)} to bring it current before deletion on ${formatDeleteDate(ds)}.</p>
+                    <p class="at-risk-note">${atRiskContactNote(ds)}</p>
                   </td>
                 </tr>
               ` : html`

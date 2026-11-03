@@ -116,11 +116,26 @@ function formatAtRiskDeleteDate(atRisk) {
   return 'the scheduled deletion date'
 }
 
+function atRiskBannerTitle(atRisk) {
+  switch (atRisk?.status) {
+    case 'grace': return 'Payment grace'
+    case 'terminating': return 'Service termination'
+    case 'pending_delete': return 'Pending deletion'
+    default: return 'Payment status'
+  }
+}
+
 function atRiskBannerMessage(atRisk) {
   const owner = atRisk?.payer ? `owner (payer ${atRisk.payer})` : 'dataset owner (if known)'
   const deleteDate = formatAtRiskDeleteDate(atRisk)
   if (atRisk?.status === 'grace') {
     return `Contact the ${owner} to bring payments current before deletion on ${deleteDate}.`
+  }
+  if (atRisk?.status === 'pending_delete') {
+    return `This dataset is pending deletion on ${deleteDate}. Contact the ${owner}.`
+  }
+  if (atRisk?.status === 'terminating') {
+    return `Service termination is confirmed. Scheduled for deletion on ${deleteDate}. Contact the ${owner}. Payment will not stop that.`
   }
   return `This dataset is scheduled for deletion on ${deleteDate}. Contact the ${owner}.`
 }
@@ -333,7 +348,7 @@ customElements.define('pdp-dataset-detail', class PdpDatasetDetail extends LitEl
 
       ${d.paymentAtRisk?.atRisk ? html`
         <div class="payment-at-risk-banner">
-          <strong>Payment grace / pending deletion</strong>
+          <strong>${atRiskBannerTitle(d.paymentAtRisk)}</strong>
           ${atRiskBannerMessage(d.paymentAtRisk)}
         </div>
       ` : ''}
