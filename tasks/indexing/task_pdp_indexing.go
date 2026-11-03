@@ -8,7 +8,6 @@ import (
 	"github.com/ipfs/go-cid"
 	"github.com/oklog/ulid"
 	"github.com/yugabyte/pgx/v5"
-	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/deps/config"
@@ -145,22 +144,20 @@ func (P *PDPIndexingTask) Do(ctx context.Context, taskID harmonytask.TaskID, sti
 	recs := make(chan indexstore.Record, chanSize)
 	var blocks int64
 
-	var eg errgroup.Group
-	addFail := make(chan struct{})
 	var interrupted bool
 
-	eg.Go(func() error {
-		defer close(addFail)
-		return P.indexStore.AddIndex(ctx, pcid2, recs)
-	})
-
 	aggRecs := make(chan indexstore.Record, chanSize)
+	var addAggregateIndex func() error
+	if len(subPieces) > 0 {
+		addAggregateIndex = func() error {
+			return P.indexStore.InsertAggregateIndex(ctx, pcid2, aggRecs)
+		}
+	}
+	eg, addFail := startIndexWriters(func() error {
+		return P.indexStore.AddIndex(ctx, pcid2, recs)
+	}, addAggregateIndex)
 
 	if len(subPieces) > 0 {
-		eg.Go(func() error {
-			return P.indexStore.InsertAggregateIndex(ctx, pcid2, aggRecs)
-		})
-
 		blocks, interrupted, err = IndexAggregate(pcid2, reader, pi.Size, subPieces, recs, aggRecs, addFail)
 	} else {
 		_, blocks, interrupted, err = IndexCAR(reader, 4<<20, recs, addFail)

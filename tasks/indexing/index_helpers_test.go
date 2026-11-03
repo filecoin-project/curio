@@ -7,6 +7,7 @@ import (
 	"math/bits"
 	"os"
 	"testing"
+	"testing/synctest"
 
 	"github.com/ipfs/go-cid"
 	carv2 "github.com/ipld/go-car/v2"
@@ -22,6 +23,83 @@ import (
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/mk20"
 )
+
+func TestAggregateWriterFailureUnblocksIndexing(t *testing.T) {
+	subPiece := makeCARPiece(t, 384)
+	aggregate := makeAggregatePiece(t, subPiece, subPiece, subPiece, subPiece)
+	subPieces := make([]mk20.DataSource, 4)
+	for i := range subPieces {
+		subPieces[i] = mk20.DataSource{
+			PieceCID: subPiece.pieceCIDV2,
+			Format:   mk20.PieceDataFormat{Car: &mk20.FormatCar{}},
+		}
+	}
+
+	tests := []struct {
+		name  string
+		pdpv0 bool
+	}{
+		{name: "MK20 and PDPv1", pdpv0: false},
+		{name: "PDPv0", pdpv0: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				recs := make(chan indexstore.Record, 1)
+				aggRecs := make(chan indexstore.Record, 1)
+				abort := make(chan struct{})
+				writeErr := errors.New("aggregate index write failed")
+				payloadRecords := 0
+				eg, addFail := startIndexWriters(func() error {
+					for {
+						select {
+						case _, ok := <-recs:
+							if !ok {
+								return nil
+							}
+							payloadRecords++
+						case <-abort:
+							return nil
+						}
+					}
+				}, func() error {
+					<-aggRecs
+					return writeErr
+				})
+
+				done := make(chan struct{})
+				var interrupted bool
+				var indexErr, waitErr error
+				go func() {
+					reader := bytes.NewReader(aggregate.raw)
+					if tt.pdpv0 {
+						_, interrupted, indexErr = IndexPDPv0(aggregate.pieceCIDV2, reader, aggregate.pieceSize, recs, aggRecs, addFail)
+					} else {
+						_, interrupted, indexErr = IndexAggregate(aggregate.pieceCIDV2, reader, aggregate.pieceSize, subPieces, recs, aggRecs, addFail)
+					}
+					close(recs)
+					close(aggRecs)
+					waitErr = eg.Wait()
+					close(done)
+				}()
+
+				synctest.Wait()
+				select {
+				case <-done:
+				default:
+					// Release and join the blocked producer before failing the test.
+					close(abort)
+					<-done
+					t.Fatal("indexing remained blocked after the aggregate writer failed")
+				}
+				require.NoError(t, indexErr)
+				require.True(t, interrupted)
+				require.ErrorIs(t, waitErr, writeErr)
+				require.Positive(t, payloadRecords)
+			})
+		})
+	}
+}
 
 func TestIndexCARReturnsRawLengthAndFirstBlockRecord(t *testing.T) {
 	piece := makeCARPiece(t, 512)
