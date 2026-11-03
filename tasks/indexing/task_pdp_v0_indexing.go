@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/ipfs/go-cid"
-	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
 
 	commcid "github.com/filecoin-project/go-fil-commcid"
@@ -139,21 +138,20 @@ func (P *PDPIndexingV0Task) Do(ctx context.Context, taskID harmonytask.TaskID, s
 	recs := make(chan indexstore.Record, chanSize)
 	var blocks int64
 
-	var eg errgroup.Group
-	addFail := make(chan struct{})
 	var interrupted bool
 
+	// A nil aggregate writer leaves aggRecs nil, so IndexPDPv0 records no child piece CIDs.
 	var aggRecs chan indexstore.Record
-	eg.Go(func() error {
-		defer close(addFail)
-		return P.indexStore.AddIndex(ctx, pcid2, recs)
-	})
+	var addAggregate func() error
 	if !skipAggregate {
 		aggRecs = make(chan indexstore.Record, chanSize)
-		eg.Go(func() error {
+		addAggregate = func() error {
 			return P.indexStore.InsertAggregateIndex(ctx, pcid2, aggRecs)
-		})
+		}
 	}
+	eg, addFail := startIndexWriters(func() error {
+		return P.indexStore.AddIndex(ctx, pcid2, recs)
+	}, addAggregate)
 
 	blocks, interrupted, err = IndexPDPv0(pcid2, reader, task.PieceSize, recs, aggRecs, addFail)
 	if err != nil {

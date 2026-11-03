@@ -69,6 +69,56 @@ function formatAlertRange(firstAt, lastAt, count) {
   return `last ${last} · first ${first}`
 }
 
+function normalizeAtRiskCounts(result) {
+  const grace = Number(result?.grace ?? 0)
+  const terminating = Number(result?.terminating ?? 0)
+  const pendingDelete = Number(result?.pendingDelete ?? 0)
+  const total = Number(result?.total ?? (grace + terminating + pendingDelete))
+  return { grace, terminating, pendingDelete, total }
+}
+
+function paymentAtRiskTitle(counts) {
+  const kinds = [counts.grace, counts.terminating, counts.pendingDelete].filter((n) => n > 0).length
+  if (kinds !== 1) return 'Payment status'
+  if (counts.grace > 0) return 'Payment Grace'
+  if (counts.terminating > 0) return 'Service Termination'
+  return 'Pending Deletion'
+}
+
+function paymentAtRiskLines(counts) {
+  const lines = []
+  if (counts.grace === 1) {
+    lines.push('1 dataset is in payment grace. Contact the owner to bring payments current before deletion.')
+  } else if (counts.grace > 1) {
+    lines.push(`${counts.grace} datasets are in payment grace. Contact the owners to bring payments current before deletion.`)
+  }
+  if (counts.terminating === 1) {
+    lines.push('1 dataset has service termination confirmed and is waiting for its deletion date. Payment will not stop that.')
+  } else if (counts.terminating > 1) {
+    lines.push(`${counts.terminating} datasets have service termination confirmed and are waiting for a deletion date. Payment will not stop that.`)
+  }
+  if (counts.pendingDelete === 1) {
+    lines.push('1 dataset is pending deletion.')
+  } else if (counts.pendingDelete > 1) {
+    lines.push(`${counts.pendingDelete} datasets are pending deletion.`)
+  }
+  const other = counts.total - counts.grace - counts.terminating - counts.pendingDelete
+  if (other === 1) {
+    lines.push('1 dataset is at risk of deletion.')
+  } else if (other > 1) {
+    lines.push(`${other} datasets are at risk of deletion.`)
+  }
+  return lines
+}
+
+function paymentAtRiskLinkLabel(counts) {
+  const onlyGrace = counts.grace > 0
+    && counts.terminating === 0
+    && counts.pendingDelete === 0
+    && counts.total === counts.grace
+  return onlyGrace ? 'View payment grace datasets' : 'View these datasets'
+}
+
 customElements.define('pdp-overview', class PdpOverview extends LitElement {
   static properties = {
     summary: { type: Object },
@@ -83,7 +133,7 @@ customElements.define('pdp-overview', class PdpOverview extends LitElement {
     financialLoading: { type: Boolean },
     financialError: { type: String },
     chartReady: { type: Boolean },
-    atRiskCount: { type: Number },
+    atRiskCounts: { type: Object },
     atRiskStatus: { type: String },
   }
 
@@ -101,7 +151,7 @@ customElements.define('pdp-overview', class PdpOverview extends LitElement {
     this.financialLoading = true
     this.financialError = null
     this.chartReady = false
-    this.atRiskCount = 0
+    this.atRiskCounts = null
     this.atRiskStatus = 'loading'
     this._chart = null
     this._loadPromise = null
@@ -175,8 +225,8 @@ customElements.define('pdp-overview', class PdpOverview extends LitElement {
       this.requestUpdate()
       this.renderWalletAside()
     })
-    const atRiskP = RPCCall('PDPDataSetAtRiskCount').then((count) => {
-      this.atRiskCount = count ?? 0
+    const atRiskP = RPCCall('PDPDataSetAtRiskCount').then((counts) => {
+      this.atRiskCounts = normalizeAtRiskCounts(counts)
       this.atRiskStatus = 'ok'
       this.requestUpdate()
     }).catch((e) => {
@@ -601,20 +651,20 @@ customElements.define('pdp-overview', class PdpOverview extends LitElement {
 
   renderPaymentAtRiskAlerts() {
     if (this.atRiskStatus === 'loading') return ''
-    if (this.atRiskStatus === 'error' || this.atRiskCount <= 0) return ''
+    const counts = this.atRiskCounts
+    if (this.atRiskStatus === 'error' || !counts || counts.total <= 0) return ''
 
-    const label = this.atRiskCount === 1
-      ? '1 dataset in payment grace / pending deletion'
-      : `${this.atRiskCount} datasets in payment grace / pending deletion`
+    const lines = paymentAtRiskLines(counts)
+    if (!lines.length) return ''
 
     return html`
       <div class="proving-alerts">
-        <p class="proving-alerts-title">Payment Grace</p>
+        <p class="proving-alerts-title">${paymentAtRiskTitle(counts)}</p>
         <ul class="proving-alerts-list">
-          <li>${label}. Contact dataset owners to bring payments current before deletion.</li>
+          ${lines.map((line) => html`<li>${line}</li>`)}
         </ul>
         <p class="proving-alerts-foot">
-          <a href="/pages/datasets/?risk=payment">View payment grace datasets</a>
+          <a href="/pages/datasets/?risk=payment">${paymentAtRiskLinkLabel(counts)}</a>
         </p>
       </div>
     `

@@ -4,15 +4,22 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
+	"github.com/ipfs/go-cid"
 	"github.com/oklog/ulid"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
+	commcid "github.com/filecoin-project/go-fil-commcid"
+
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
+	"github.com/filecoin-project/curio/lib/commcidv2"
 	"github.com/filecoin-project/curio/market/mk20"
+	"github.com/filecoin-project/curio/tasks/indexing"
 )
 
 // MK20PDPPipeline represents a record from market_mk20_PDP_pipeline table
@@ -58,6 +65,141 @@ type MK20PDPDealList struct {
 	PieceCidV2 NullString `db:"piece_cid_v2" json:"piece_cid_v2"`
 	Processed  bool       `db:"processed" json:"processed"`
 	Error      NullString `db:"error" json:"error"`
+}
+
+type PDPPieceDealEntry struct {
+	Deal     *MK20StorageDeal `json:"deal"`
+	Pipeline *MK20PDPPipeline `json:"mk20_pdp_pipeline,omitempty"`
+}
+
+type PDPPieceDealDetail struct {
+	MK20 []PDPPieceDealEntry `json:"mk20"`
+}
+
+func (a *WebRPC) PDPPieceDealDetail(ctx context.Context, pieceCID string) (*PDPPieceDealDetail, error) {
+	piece, err := cid.Parse(pieceCID)
+	if err != nil {
+		return nil, err
+	}
+	pieceCIDs := []string{piece.String()}
+	if !commcidv2.IsPieceCidV2(piece) {
+		var sizes []struct {
+			RawSize uint64 `db:"raw_size"`
+		}
+		err = a.Deps.DB.Select(ctx, &sizes, `
+			SELECT piece_raw_size AS raw_size FROM parked_pieces
+			WHERE piece_cid = $1 AND piece_raw_size >= 127
+			UNION
+			SELECT raw_size FROM market_piece_deal
+			WHERE piece_cid = $1 AND raw_size >= 127 AND sp_id = $2
+		`, piece.String(), indexing.PDP_v1_SP_ID)
+		if err != nil {
+			return nil, xerrors.Errorf("getting PDP piece raw sizes: %w", err)
+		}
+		for _, size := range sizes {
+			v2, err := commcid.PieceCidV2FromV1(piece, size.RawSize)
+			if err != nil {
+				return nil, xerrors.Errorf("getting PDP piece CID v2: %w", err)
+			}
+			pieceCIDs = append(pieceCIDs, v2.String())
+		}
+	}
+
+	ret := &PDPPieceDealDetail{MK20: []PDPPieceDealEntry{}}
+	var deals []mk20.DBDeal
+	err = a.Deps.DB.Select(ctx, &deals, `
+		SELECT id, client, data, ddo_v1, retrieval_v1, pdp_v1
+		FROM market_mk20_deal
+		WHERE piece_cid_v2 = ANY($1) AND jsonb_typeof(pdp_v1) = 'object'
+		ORDER BY created_at, id`, pieceCIDs)
+	if err != nil {
+		return nil, xerrors.Errorf("getting PDP piece deals: %w", err)
+	}
+	if len(deals) == 0 {
+		return ret, nil
+	}
+
+	ids := make([]string, len(deals))
+	for i := range deals {
+		ids[i] = deals[i].Identifier
+	}
+	var pipelines []MK20PDPPipeline
+	err = a.Deps.DB.Select(ctx, &pipelines, `
+		SELECT created_at, id, client, piece_cid_v2, indexing, announce, announce_payload,
+			downloaded, commp_task_id, after_commp, deal_aggregation, aggr_index,
+			agg_task_id, aggregated, add_piece_task_id, after_add_piece, after_add_piece_msg,
+			save_cache_task_id, after_save_cache, indexing_created_at, indexing_task_id,
+			indexed, complete
+		FROM pdp_pipeline
+		WHERE id = ANY($1) AND piece_cid_v2 = ANY($2)
+		ORDER BY id, aggr_index`, ids, pieceCIDs)
+	if err != nil {
+		return nil, xerrors.Errorf("getting PDP piece pipelines: %w", err)
+	}
+	pipelinesByDeal := make(map[string][]*MK20PDPPipeline)
+	for i := range pipelines {
+		pipeline := &pipelines[i]
+		pipelinesByDeal[pipeline.ID] = append(pipelinesByDeal[pipeline.ID], pipeline)
+	}
+	for _, dbDeal := range deals {
+		deal, err := mk20StorageDealFromDB(dbDeal)
+		if err != nil {
+			return nil, err
+		}
+		matching := pipelinesByDeal[dbDeal.Identifier]
+		if len(matching) == 0 {
+			ret.MK20 = append(ret.MK20, PDPPieceDealEntry{Deal: deal})
+			continue
+		}
+		for _, pipeline := range matching {
+			ret.MK20 = append(ret.MK20, PDPPieceDealEntry{Deal: deal, Pipeline: pipeline})
+		}
+	}
+	return ret, nil
+}
+
+func (a *WebRPC) PDPFindEntriesByDataURL(ctx context.Context, dataURL string) ([]PieceParkRefEntry, error) {
+	entries := []PieceParkRefEntry{}
+	if !strings.HasPrefix(dataURL, "pieceref:") {
+		return entries, nil
+	}
+	refID, err := strconv.ParseInt(strings.TrimPrefix(dataURL, "pieceref:"), 10, 64)
+	if err != nil {
+		return nil, xerrors.Errorf("invalid piece reference: %w", err)
+	}
+	rows, err := a.Deps.DB.Query(ctx, `
+		SELECT 'pdp_piecerefs', $2::BIGINT, piece_cid, NULL::TEXT
+		FROM pdp_piecerefs WHERE piece_ref = $1
+		UNION ALL
+		SELECT 'pdp_pipeline', $3::BIGINT, piece_cid_v2, id
+		FROM pdp_pipeline WHERE piece_ref = $1
+		UNION ALL
+		SELECT 'pdp_dataset_piece', $3::BIGINT, piece_cid_v2, add_deal_id
+		FROM pdp_dataset_piece WHERE piece_ref = $1
+	`, refID, indexing.PDP_v0_SP_ID, indexing.PDP_v1_SP_ID)
+	if err != nil {
+		return nil, xerrors.Errorf("getting PDP piece references: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var entry PieceParkRefEntry
+		var dealID NullString
+		if err := rows.Scan(&entry.TableName, &entry.SpID, &entry.PieceCID, &dealID); err != nil {
+			return nil, err
+		}
+		if dealID.Valid {
+			entry.DealUUID = &dealID.String
+		}
+		entry.Addr = "PDP V1"
+		if entry.SpID == indexing.PDP_v0_SP_ID {
+			entry.Addr = "PDP V0"
+		}
+		entries = append(entries, entry)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return entries, nil
 }
 
 func (a *WebRPC) MK20PDPStorageDeals(ctx context.Context, limit int, offset int) ([]*MK20PDPDealList, error) {
