@@ -126,12 +126,15 @@ func deleteReason(deleteOverlay DeletePipelineOverlay, proving ProvingOverlay) s
 }
 
 // Classify derives UI/task status from rail view and local overlays.
+// nothingOwed is ActiveRailOwesNothing for this rail: empty rails are not
+// settled, so a stale settledUpTo is not an unpaid gap.
 func Classify(
 	currentEpoch uint64,
 	view filecoinpayment.PaymentsRailView,
 	payer string,
 	deleteOverlay DeletePipelineOverlay,
 	proving ProvingOverlay,
+	nothingOwed bool,
 ) Snapshot {
 	out := Snapshot{
 		Payer:  payer,
@@ -168,7 +171,7 @@ func Classify(
 		return out
 	}
 
-	if lockupExhausted(view, currentEpoch) && railLive(view) {
+	if !nothingOwed && lockupExhausted(view, currentEpoch) && railLive(view) {
 		out.Reason = ReasonUnpaidGrace
 		out.Status = StatusGrace
 		out.ProjectedDeleteEpoch = EstimatedDeleteEpoch(view.SettledUpTo, view.LockupPeriod)

@@ -117,28 +117,57 @@ func TestRailNeedsSettlement(t *testing.T) {
 func TestDeferredSettleGas(t *testing.T) {
 	t.Cleanup(func() { pruneDeferredSettleGas(nil) })
 
-	if deferredSettleGasKnown(7, big.NewInt(100), big.NewInt(3)) {
+	if deferredSettleGasKnown(7, big.NewInt(100), big.NewInt(3), big.NewInt(500)) {
 		t.Fatal("unrecorded rail reported known")
 	}
 
-	recordDeferredSettleGas(7, big.NewInt(100), big.NewInt(3))
-	if !deferredSettleGasKnown(7, big.NewInt(100), big.NewInt(3)) {
+	recordDeferredSettleGas(7, big.NewInt(100), big.NewInt(3), big.NewInt(500))
+	if !deferredSettleGasKnown(7, big.NewInt(100), big.NewInt(3), big.NewInt(500)) {
 		t.Fatal("recorded rail not known")
 	}
-	if deferredSettleGasKnown(7, big.NewInt(100), big.NewInt(4)) {
+	if deferredSettleGasKnown(7, big.NewInt(100), big.NewInt(4), big.NewInt(500)) {
 		t.Fatal("queue growth must require a new estimate")
 	}
-	if deferredSettleGasKnown(7, big.NewInt(200), big.NewInt(3)) {
+	if deferredSettleGasKnown(7, big.NewInt(200), big.NewInt(3), big.NewInt(500)) {
 		t.Fatal("settlement progress must require a new estimate")
 	}
+	if deferredSettleGasKnown(7, big.NewInt(100), big.NewInt(3), big.NewInt(600)) {
+		t.Fatal("a later settle target must require a new estimate")
+	}
 
-	recordDeferredSettleGas(8, big.NewInt(100), big.NewInt(1))
+	recordDeferredSettleGas(8, big.NewInt(100), big.NewInt(1), big.NewInt(500))
 	pruneDeferredSettleGas(map[int64]struct{}{8: {}})
-	if deferredSettleGasKnown(7, big.NewInt(100), big.NewInt(3)) {
+	if deferredSettleGasKnown(7, big.NewInt(100), big.NewInt(3), big.NewInt(500)) {
 		t.Fatal("unseen rail not pruned")
 	}
-	if !deferredSettleGasKnown(8, big.NewInt(100), big.NewInt(1)) {
+	if !deferredSettleGasKnown(8, big.NewInt(100), big.NewInt(1), big.NewInt(500)) {
 		t.Fatal("seen rail pruned")
+	}
+}
+
+func TestActiveRailOwesNothing(t *testing.T) {
+	active := PaymentsRailView{SettledUpTo: big.NewInt(1), PaymentRate: big.NewInt(0)}
+	if !ActiveRailOwesNothing(active, big.NewInt(0)) {
+		t.Fatal("zero rate and empty queue owes nothing")
+	}
+	if !ActiveRailOwesNothing(active, nil) {
+		t.Fatal("nil queue is empty")
+	}
+	active.PaymentRate = nil
+	if !ActiveRailOwesNothing(active, big.NewInt(0)) {
+		t.Fatal("missing rate and empty queue owes nothing")
+	}
+	active.PaymentRate = big.NewInt(0)
+	if ActiveRailOwesNothing(active, big.NewInt(2)) {
+		t.Fatal("queued rate changes can still be owed")
+	}
+	active.PaymentRate = big.NewInt(5)
+	if ActiveRailOwesNothing(active, big.NewInt(0)) {
+		t.Fatal("positive rate is owed")
+	}
+	terminated := PaymentsRailView{SettledUpTo: big.NewInt(1), EndEpoch: big.NewInt(10), PaymentRate: big.NewInt(0)}
+	if ActiveRailOwesNothing(terminated, big.NewInt(0)) {
+		t.Fatal("terminated rail is not an empty active rail")
 	}
 }
 

@@ -16,27 +16,29 @@ var MAX_DEFERRED_SETTLE_GAS = uint64(buildconstants.BlockGasLimit / 5)
 type deferredSettleKey struct {
 	settledUpTo string
 	queueSize   string
+	target      string
 }
 
-// deferredSettleGas remembers rails whose settlement gas was last estimated
-// below MAX_DEFERRED_SETTLE_GAS. The estimate only needs refreshing once the
-// rail settles or its rate-change queue grows.
+// deferredSettleGas remembers rails whose last settleRail estimate stayed
+// under MAX_DEFERRED_SETTLE_GAS. Re-estimate when settledUpTo, the queue
+// length, or the settle target changes. The target can advance while the
+// queue length stays the same and pull queued changes into the settlement.
 var deferredSettleGas = struct {
 	sync.Mutex
 	m map[int64]deferredSettleKey
 }{m: make(map[int64]deferredSettleKey)}
 
-func deferredSettleGasKnown(railID int64, settledUpTo, queueSize *big.Int) bool {
+func deferredSettleGasKnown(railID int64, settledUpTo, queueSize, target *big.Int) bool {
 	deferredSettleGas.Lock()
 	defer deferredSettleGas.Unlock()
 	k, ok := deferredSettleGas.m[railID]
-	return ok && k == deferredSettleKey{settledUpTo: settledUpTo.String(), queueSize: queueSize.String()}
+	return ok && k == deferredSettleKey{settledUpTo: settledUpTo.String(), queueSize: queueSize.String(), target: target.String()}
 }
 
-func recordDeferredSettleGas(railID int64, settledUpTo, queueSize *big.Int) {
+func recordDeferredSettleGas(railID int64, settledUpTo, queueSize, target *big.Int) {
 	deferredSettleGas.Lock()
 	defer deferredSettleGas.Unlock()
-	deferredSettleGas.m[railID] = deferredSettleKey{settledUpTo: settledUpTo.String(), queueSize: queueSize.String()}
+	deferredSettleGas.m[railID] = deferredSettleKey{settledUpTo: settledUpTo.String(), queueSize: queueSize.String(), target: target.String()}
 }
 
 func pruneDeferredSettleGas(seen map[int64]struct{}) {

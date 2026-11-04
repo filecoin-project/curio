@@ -24,7 +24,7 @@ func railView(settled, lockup, end int64) filecoinpayment.PaymentsRailView {
 
 func TestClassify_FundedRail(t *testing.T) {
 	view := railView(1000, builtin.EpochsInDay*30, 0)
-	snap := Classify(1100, view, "0xabc", DeletePipelineOverlay{}, ProvingOverlay{})
+	snap := Classify(1100, view, "0xabc", DeletePipelineOverlay{}, ProvingOverlay{}, false)
 	require.Equal(t, StatusOK, snap.Status)
 	require.Empty(t, snap.Reason)
 }
@@ -33,7 +33,7 @@ func TestClassify_UnpaidGrace(t *testing.T) {
 	lockup := int64(builtin.EpochsInDay * 30)
 	view := railView(1000, lockup, 0)
 	current := uint64(1000 + lockup + 1)
-	snap := Classify(current, view, "0xabc", DeletePipelineOverlay{}, ProvingOverlay{})
+	snap := Classify(current, view, "0xabc", DeletePipelineOverlay{}, ProvingOverlay{}, false)
 	require.Equal(t, StatusGrace, snap.Status)
 	require.Equal(t, ReasonUnpaidGrace, snap.Reason)
 	require.NotNil(t, snap.GraceStartEpoch)
@@ -46,9 +46,36 @@ func TestClassify_PastAutoTerminateThreshold(t *testing.T) {
 	lockup := int64(builtin.EpochsInDay * 30)
 	view := railView(1000, lockup, 0)
 	current := uint64(1000 + lockup + TemporaryDefaultGraceInEpochs + 1)
-	snap := Classify(current, view, "0xabc", DeletePipelineOverlay{}, ProvingOverlay{})
+	snap := Classify(current, view, "0xabc", DeletePipelineOverlay{}, ProvingOverlay{}, false)
 	require.Equal(t, StatusGrace, snap.Status)
 	require.Equal(t, ReasonPaymentDefault, snap.Reason)
+}
+
+func TestClassify_EmptyRailNotUnpaid(t *testing.T) {
+	lockup := int64(builtin.EpochsInDay * 30)
+	view := railView(1000, lockup, 0)
+	view.PaymentRate = big.NewInt(0)
+	current := uint64(1000 + lockup + TemporaryDefaultGraceInEpochs + 1)
+	snap := Classify(current, view, "0xabc", DeletePipelineOverlay{}, ProvingOverlay{}, true)
+	require.Equal(t, StatusOK, snap.Status)
+	require.Empty(t, snap.Reason)
+	require.Nil(t, snap.ProjectedDeleteEpoch)
+	require.False(t, IsAtRisk(snap, current))
+}
+
+func TestClassify_EmptyRailKeepsPipelineDeletion(t *testing.T) {
+	epoch := int64(5000)
+	view := railView(1000, builtin.EpochsInDay*30, 0)
+	view.PaymentRate = big.NewInt(0)
+	snap := Classify(4000, view, "0xabc", DeletePipelineOverlay{
+		InPipeline:              true,
+		ServiceTerminationEpoch: &epoch,
+		DeletionAllowed:         true,
+	}, ProvingOverlay{}, true)
+	require.Equal(t, StatusPendingDelete, snap.Status)
+	require.Equal(t, ReasonPaymentDefault, snap.Reason)
+	require.Equal(t, epoch, *snap.ProjectedDeleteEpoch)
+	require.True(t, IsAtRisk(snap, 4000))
 }
 
 func TestClassify_DeletePipelineWithEpoch(t *testing.T) {
@@ -59,7 +86,7 @@ func TestClassify_DeletePipelineWithEpoch(t *testing.T) {
 		AfterTerminateService:   true,
 		ServiceTerminationEpoch: &epoch,
 		DeletionAllowed:         true,
-	}, ProvingOverlay{})
+	}, ProvingOverlay{}, false)
 	require.Equal(t, StatusPendingDelete, snap.Status)
 	require.Equal(t, ReasonPaymentDefault, snap.Reason)
 	require.Equal(t, epoch, *snap.ProjectedDeleteEpoch)
@@ -71,7 +98,7 @@ func TestClassify_ClientRequestedTerminationPendingEpoch(t *testing.T) {
 		InPipeline:            true,
 		ClientRequested:       true,
 		AfterTerminateService: true,
-	}, ProvingOverlay{})
+	}, ProvingOverlay{}, false)
 	require.Equal(t, StatusTerminating, snap.Status)
 	require.Equal(t, ReasonClientRequested, snap.Reason)
 	require.True(t, snap.DeleteDatePending)
@@ -84,7 +111,7 @@ func TestClassify_ProvingFailureReason(t *testing.T) {
 	snap := Classify(8000, view, "0xabc", DeletePipelineOverlay{
 		InPipeline:              true,
 		ServiceTerminationEpoch: &epoch,
-	}, ProvingOverlay{UnrecoverableFailureEpoch: &failure})
+	}, ProvingOverlay{UnrecoverableFailureEpoch: &failure}, false)
 	require.Equal(t, ReasonProvingFailure, snap.Reason)
 }
 
@@ -118,7 +145,7 @@ func TestIsAtRisk_GraceBeforeProjectedDelete(t *testing.T) {
 	lockup := int64(builtin.EpochsInDay * 30)
 	view := railView(1000, lockup, 0)
 	current := uint64(1000 + lockup + 1)
-	snap := Classify(current, view, "0xabc", DeletePipelineOverlay{}, ProvingOverlay{})
+	snap := Classify(current, view, "0xabc", DeletePipelineOverlay{}, ProvingOverlay{}, false)
 	require.True(t, IsAtRisk(snap, current))
 
 	past := uint64(*snap.ProjectedDeleteEpoch + 1)

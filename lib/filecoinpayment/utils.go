@@ -131,13 +131,15 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchai
 					return xerrors.Errorf("failed to get rate change queue size for rail %s: %w", railID.String(), err)
 				}
 				queueEmpty := queueSize == nil || queueSize.Sign() == 0
-				if !hasRate && queueEmpty {
+				if ActiveRailOwesNothing(view, queueSize) {
 					// Nothing is owed; Pay skips the zero-rate gap when the rate next rises.
 					continue
 				}
 				if !lockupDue {
-					// Without queued rate changes, waiting does not grow settlement gas.
-					if queueEmpty || deferredSettleGasKnown(rail.Int64(), view.SettledUpTo, queueSize) {
+					// An empty queue does not grow settlement gas while waiting.
+					// A non-empty queue still needs the resolver target: that target
+					// can advance and include queued changes without the queue growing.
+					if queueEmpty {
 						continue
 					}
 					gasCheckQueue = queueSize
@@ -161,6 +163,9 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchai
 			continue
 		}
 		if target.Cmp(view.SettledUpTo) <= 0 && !IsTerminatedRailFinalizationTarget(view, target) {
+			continue
+		}
+		if gasCheckQueue != nil && deferredSettleGasKnown(rail.Int64(), view.SettledUpTo, gasCheckQueue, target) {
 			continue
 		}
 
@@ -204,7 +209,7 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchai
 				continue
 			}
 			if !early {
-				recordDeferredSettleGas(detail.railId.Int64(), detail.settledUpTo, detail.queueSize)
+				recordDeferredSettleGas(detail.railId.Int64(), detail.settledUpTo, detail.queueSize, detail.target)
 				continue
 			}
 			log.Infow("settling before lockup horizon due to settlement gas", "railID", detail.railId.String(), "queueSize", detail.queueSize.String())
@@ -334,6 +339,19 @@ func railNeedsSettlement(rail PaymentsRailView, current uint64) bool {
 
 func isActiveRail(rail PaymentsRailView) bool {
 	return rail.SettledUpTo != nil && (rail.EndEpoch == nil || rail.EndEpoch.Sign() <= 0)
+}
+
+// ActiveRailOwesNothing reports whether an active rail has a zero payment rate
+// and an empty rate-change queue. Filecoin Pay skips that zero-rate gap when
+// the rate next rises, so settledUpTo can stay behind without anything owed.
+func ActiveRailOwesNothing(rail PaymentsRailView, queueSize *big.Int) bool {
+	if !isActiveRail(rail) {
+		return false
+	}
+	if rail.PaymentRate != nil && rail.PaymentRate.Sign() > 0 {
+		return false
+	}
+	return queueSize == nil || queueSize.Sign() == 0
 }
 
 // IsTerminatedRailFinalizationTarget reports whether settling to target can be
