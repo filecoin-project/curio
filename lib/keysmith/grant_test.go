@@ -46,7 +46,7 @@ func grantMessage(grant grantChain, link claimLink) map[string]any {
 		blockChainField:      grant.blockChain,
 		"keyCommitment":      link.keyCommitment,
 		"keyspaceCommitment": grant.keyspaceCommitment,
-		"expires":            big.NewInt(grant.expires),
+		"expires":            big.NewInt(link.expires),
 	}
 }
 
@@ -82,6 +82,8 @@ func encodePresentation(t *testing.T, grant grantChain, req readRequest) []byte 
 			m[6] = grant.blockChain.Uint64()
 			m[10] = grant.keyspaceCommitment
 			m[11] = uint64(grant.expires)
+		} else if link.expires != grant.links[i-1].expires {
+			m[11] = uint64(link.expires)
 		}
 		links[i] = m
 	}
@@ -123,13 +125,17 @@ func TestVerifyPresentation(t *testing.T) {
 				bearer:        bearer,
 				maxDepth:      depth,
 				keyCommitment: commitment,
+				expires:       exp,
 			}},
 		}
 		grant.links[0].signature = signDigest(t, ownerKey, grant, grant.links[0])
 		return grant
 	}
 	delegate := func(grant grantChain, signer *ecdsa.PrivateKey, node string, bearer common.Address, depth int) grantChain {
-		link := claimLink{node: node, bearer: bearer, maxDepth: depth, keyCommitment: bytes16(0x22)}
+		link := claimLink{
+			node: node, bearer: bearer, maxDepth: depth, keyCommitment: bytes16(0x22),
+			expires: grant.links[len(grant.links)-1].expires,
+		}
 		link.signature = signDigest(t, signer, grant, link)
 		grant.links = append(append([]claimLink{}, grant.links...), link)
 		return grant
@@ -210,6 +216,34 @@ func TestVerifyPresentation(t *testing.T) {
 	decomposed.Scope = scopePtr("team/alice/cafe\u0301")
 	nfc := delegate(team, aKey, "scope:team/alice/caf\u00e9", b, 0)
 	require.NoError(t, check(present(nfc, bKey, piece, testNow+120), decomposed, testNow, testBlockChain))
+
+	soon := delegate(team, aKey, "scope:team/alice", b, 0)
+	soon.links[1].expires = testNow + 3600
+	soon.links[1].signature = signDigest(t, aKey, soon, soon.links[1])
+	require.NoError(t, check(present(soon, bKey, piece, testNow+120), alice, testNow, testBlockChain))
+	require.ErrorContains(t, check(present(soon, bKey, piece, testNow+120), alice, testNow+3600+120, testBlockChain), "The chain expired")
+
+	longer := delegate(team, aKey, "scope:team/alice", b, 0)
+	longer.links[1].expires = expires + 1
+	longer.links[1].signature = signDigest(t, aKey, longer, longer.links[1])
+	require.ErrorContains(t, check(present(longer, bKey, piece, testNow+120), alice, testNow, testBlockChain), "extends")
+
+	same := delegate(team, aKey, "scope:team/alice", b, 0)
+	var decoded any
+	require.NoError(t, presDec.Unmarshal(present(same, bKey, piece, testNow+120), &decoded))
+	items := decoded.([]any)
+	items[1].([]any)[1].(map[any]any)[uint64(11)] = uint64(expires)
+	stated, err := presEnc.Marshal(items)
+	require.NoError(t, err)
+	require.NoError(t, check(stated, alice, testNow, testBlockChain))
+
+	held := root("scope:team", a, 2, expires)
+	held = delegate(held, aKey, "scope:team/alice", b, 1)
+	held.links[1].expires = testNow + 3600
+	held.links[1].signature = signDigest(t, aKey, held, held.links[1])
+	held = delegate(held, bKey, "scope:team/alice/notes", a, 0)
+	require.NoError(t, check(present(held, aKey, piece, testNow+120), notes, testNow, testBlockChain))
+	require.ErrorContains(t, check(present(held, aKey, piece, testNow+3600+240), notes, testNow+3600+120, testBlockChain), "The chain expired")
 }
 
 func TestDealbotRootReadsAnotherOwnersPiece(t *testing.T) {
@@ -229,6 +263,7 @@ func TestDealbotRootReadsAnotherOwnersPiece(t *testing.T) {
 		expires:            testNow + 86400,
 		links: []claimLink{{
 			node: "keyspace", bearer: bearer, maxDepth: 0, keyCommitment: bytes16(2),
+			expires: testNow + 86400,
 		}},
 	}
 	grant.links[0].signature = signDigest(t, ownerKey, grant, grant.links[0])
@@ -257,6 +292,7 @@ func TestDealbotRootReadsAnotherOwnersPiece(t *testing.T) {
 	scoped := grant
 	scoped.links = []claimLink{{
 		node: "scope:team", bearer: bearer, maxDepth: 0, keyCommitment: bytes16(2),
+		expires: grant.expires,
 	}}
 	scoped.links[0].signature = signDigest(t, ownerKey, scoped, scoped.links[0])
 	scopedRaw := encodePresentation(t, scoped, req)
@@ -282,6 +318,7 @@ func TestDecodePresentationRejectsMalformedLinks(t *testing.T) {
 		expires:            testNow + 100,
 		links: []claimLink{{
 			node: "keyspace", bearer: owner, maxDepth: 1, keyCommitment: bytes16(2),
+			expires: testNow + 100,
 		}},
 	}
 	grant.links[0].signature = signDigest(t, ownerKey, grant, grant.links[0])

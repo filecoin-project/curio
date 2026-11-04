@@ -68,6 +68,7 @@ type claimLink struct {
 	maxDepth      int
 	keyCommitment []byte
 	signature     []byte
+	expires       int64
 }
 
 type grantChain struct {
@@ -212,9 +213,8 @@ func verifyGrantChain(grant grantChain, piece *PieceLabels, now time.Time) (Veri
 	if len(links) < 1 || len(links) > maxGrantChainLength {
 		return VerifiedClaim{}, refuse("A chain has 1 to %d links", maxGrantChainLength)
 	}
-	if grant.expires < now.Unix()-clockSkew {
-		when := time.Unix(grant.expires, 0).UTC().Format("2006-01-02T15:04:05.000Z")
-		return VerifiedClaim{}, refuse("The chain expired at %s", when)
+	if err := chainExpired(grant.expires, now); err != nil {
+		return VerifiedClaim{}, err
 	}
 	root := links[0]
 	if root.node == "keyspace" && !bytes.Equal(root.keyCommitment, grant.keyspaceCommitment) {
@@ -238,16 +238,23 @@ func verifyGrantChain(grant grantChain, piece *PieceLabels, now time.Time) (Veri
 		if err := checkStep(links[i-1], links[i], piece, i); err != nil {
 			return VerifiedClaim{}, err
 		}
+		if err := chainExpired(links[i].expires, now); err != nil {
+			return VerifiedClaim{}, err
+		}
 	}
 	last := links[len(links)-1]
 	return VerifiedClaim{Owner: grant.owner, Node: last.node, Bearer: last.bearer, keyspace: grant.keyspace}, nil
 }
 
-// checkStep requires the child to be no wider than its parent and within the parent's depth.
+// checkStep requires the child to be no wider than its parent, no later than its
+// parent's expiry, and within the parent's depth.
 // piece may be nil; a piece node then fails. index is the child's position in the chain.
 func checkStep(parent, child claimLink, piece *PieceLabels, index int) error {
 	if parent.maxDepth < 1 || child.maxDepth > parent.maxDepth-1 {
 		return refuse("Link %d exceeds link %d's maxDepth", index, index-1)
+	}
+	if child.expires > parent.expires {
+		return refuse("Link %d extends link %d's expiry", index, index-1)
 	}
 	var narrower bool
 	switch {
@@ -396,7 +403,7 @@ func recoverLink(grant grantChain, link claimLink) (common.Address, error) {
 		blockChainField:      grant.blockChain,
 		"keyCommitment":      link.keyCommitment,
 		"keyspaceCommitment": grant.keyspaceCommitment,
-		"expires":            big.NewInt(grant.expires),
+		"expires":            big.NewInt(link.expires),
 	})
 	if err != nil {
 		return common.Address{}, err
@@ -483,7 +490,17 @@ func normalSignature(sig []byte) ([]byte, error) {
 	return out, nil
 }
 
-var rootOnly = map[int64]bool{2: true, 3: true, 6: true, 10: true, 11: true}
+var rootOnly = map[int64]bool{2: true, 3: true, 6: true, 10: true}
+
+// chainExpired refuses an expiry before now. The caller passes one link's expiry.
+// clockSkew seconds of lateness are still accepted.
+func chainExpired(expires int64, now time.Time) error {
+	if expires >= now.Unix()-clockSkew {
+		return nil
+	}
+	when := time.Unix(expires, 0).UTC().Format("2006-01-02T15:04:05.000Z")
+	return refuse("The chain expired at %s", when)
+}
 
 // decodePresentation reads a version-1 presentation. The bytes must be the
 // core deterministic encoding of that value.
@@ -532,6 +549,68 @@ func isVersion1(v any) bool {
 }
 
 // decodeGrantChain reads the root-first link array. Root-only fields on a later link are rejected.
+//
+// A chain of two links: the owner grants scope:team, and that bearer narrows it to
+// scope:team/alice. Integer keys are the CBOR fields. Field 9 is an optional
+// unsigned pieceCid and may appear on any link.
+//
+//	first link {
+//	  0:  1                    v
+//	  1:  "scope:team"         node
+//	  2:  <20 bytes>           owner
+//	  3:  <16 bytes>           keyspace
+//	  4:  <20 bytes>           bearer
+//	  5:  1                    maxDepth
+//	  6:  314159               chainId
+//	  7:  <16 bytes>           keyCommitment
+//	  8:  <65 bytes>           signature, low s, v = 27 or 28
+//	  10: <16 bytes>           keyspaceCommitment
+//	  11: 1800604800           expires, unix seconds
+//	}
+//
+// Every link is signed as the same EIP-712 ReadGrant. The domain is name
+// "FOC Encryption", version "1", with no chain id. The first link is signed by
+// owner. Link i is signed by link i-1's bearer. node, bearer, maxDepth, and
+// keyCommitment come from the link being signed. owner, keyspace, chainId, and
+// keyspaceCommitment come from the first link. expires is this link's field 11
+// when the link carries one, and otherwise the previous link's expiry. A later
+// link's expiry must be its parent's or earlier.
+//
+//	signed for the first link {
+//	  v:                  1
+//	  node:               "scope:team"
+//	  owner:              <20 bytes>
+//	  keyspace:           <16 bytes>
+//	  bearer:             <20 bytes>
+//	  maxDepth:           1
+//	  chainId:            314159
+//	  keyCommitment:      <16 bytes>
+//	  keyspaceCommitment: <16 bytes>
+//	  expires:            1800604800
+//	}
+//
+//	next link, expiry brought forward {
+//	  0:  1
+//	  1:  "scope:team/alice"   node
+//	  4:  <20 bytes>           bearer
+//	  5:  0                    maxDepth
+//	  7:  <16 bytes>           keyCommitment
+//	  8:  <65 bytes>           signature
+//	  11: 1800086400           expires, optional
+//	}
+//
+//	signed for the next link {
+//	  v:                  1
+//	  node:               "scope:team/alice"  // this link
+//	  owner:              <20 bytes>          // first link
+//	  keyspace:           <16 bytes>          // first link
+//	  bearer:             <20 bytes>          // this link
+//	  maxDepth:           0                   // this link
+//	  chainId:            314159              // first link
+//	  keyCommitment:      <16 bytes>          // this link
+//	  keyspaceCommitment: <16 bytes>          // first link
+//	  expires:            1800086400          // this link, or the parent's when 11 is omitted
+//	}
 func decodeGrantChain(value any) (grantChain, error) {
 	items, ok := value.([]any)
 	if !ok || len(items) < 1 || len(items) > maxGrantChainLength {
@@ -607,6 +686,18 @@ func decodeGrantChain(value any) (grantChain, error) {
 		if err != nil {
 			return grantChain{}, err
 		}
+		exp := int64(expires)
+		if i > 0 {
+			if _, ok := lookup(m, 11); ok {
+				n, err := uintField(m, 11, fmt.Sprintf("Link %d's expiry", i))
+				if err != nil {
+					return grantChain{}, err
+				}
+				exp = int64(n)
+			} else {
+				exp = links[i-1].expires
+			}
+		}
 		sig, err := signatureField(m, 8, fmt.Sprintf("Link %d's signature", i))
 		if err != nil {
 			return grantChain{}, err
@@ -622,6 +713,7 @@ func decodeGrantChain(value any) (grantChain, error) {
 			maxDepth:      int(depth),
 			keyCommitment: keyCommitment,
 			signature:     sig,
+			expires:       exp,
 		}
 	}
 	return grantChain{
