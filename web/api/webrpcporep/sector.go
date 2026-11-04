@@ -1694,12 +1694,13 @@ type SectorExpManagerPreset struct {
 	TopUpCountLowWaterMark  *int64 `json:"top_up_count_low_water_mark" db:"top_up_count_low_water_mark"`
 	TopUpCountHighWaterMark *int64 `json:"top_up_count_high_water_mark" db:"top_up_count_high_water_mark"`
 	CC                      *bool  `json:"cc" db:"cc"`
-	DropClaims              bool   `json:"drop_claims" db:"drop_claims"`
 }
 
 func (a *PoRep) SectorExpManagerPresets(ctx context.Context) ([]SectorExpManagerPreset, error) {
 	var presets []SectorExpManagerPreset
-	err := a.Deps.DB.Select(ctx, &presets, `SELECT * FROM sectors_exp_manager_presets ORDER BY name`)
+	err := a.Deps.DB.Select(ctx, &presets, `SELECT name, action_type, info_bucket_above_days, info_bucket_below_days,
+		target_expiration_days, max_candidate_days, top_up_count_low_water_mark,
+		top_up_count_high_water_mark, cc FROM sectors_exp_manager_presets ORDER BY name`)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to query sector expiration manager presets: %w", err)
 	}
@@ -1711,11 +1712,11 @@ func (a *PoRep) SectorExpManagerPresetAdd(ctx context.Context, preset SectorExpM
 		INSERT INTO sectors_exp_manager_presets 
 		(name, action_type, info_bucket_above_days, info_bucket_below_days, 
 		 target_expiration_days, max_candidate_days, 
-		 top_up_count_low_water_mark, top_up_count_high_water_mark, cc, drop_claims)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+		 top_up_count_low_water_mark, top_up_count_high_water_mark, cc)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
 		preset.Name, preset.ActionType, preset.InfoBucketAboveDays, preset.InfoBucketBelowDays,
 		preset.TargetExpirationDays, preset.MaxCandidateDays,
-		preset.TopUpCountLowWaterMark, preset.TopUpCountHighWaterMark, preset.CC, preset.DropClaims)
+		preset.TopUpCountLowWaterMark, preset.TopUpCountHighWaterMark, preset.CC)
 	if err != nil {
 		return xerrors.Errorf("failed to add sector expiration manager preset: %w", err)
 	}
@@ -1728,11 +1729,11 @@ func (a *PoRep) SectorExpManagerPresetUpdate(ctx context.Context, preset SectorE
 		SET action_type = $2, info_bucket_above_days = $3, info_bucket_below_days = $4,
 		    target_expiration_days = $5, max_candidate_days = $6,
 		    top_up_count_low_water_mark = $7, top_up_count_high_water_mark = $8, 
-		    cc = $9, drop_claims = $10
+		    cc = $9
 		WHERE name = $1`,
 		preset.Name, preset.ActionType, preset.InfoBucketAboveDays, preset.InfoBucketBelowDays,
 		preset.TargetExpirationDays, preset.MaxCandidateDays,
-		preset.TopUpCountLowWaterMark, preset.TopUpCountHighWaterMark, preset.CC, preset.DropClaims)
+		preset.TopUpCountLowWaterMark, preset.TopUpCountHighWaterMark, preset.CC)
 	if err != nil {
 		return xerrors.Errorf("failed to update sector expiration manager preset: %w", err)
 	}

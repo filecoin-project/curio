@@ -55,7 +55,6 @@ type MK12API interface {
 	StateDealProviderCollateralBounds(context.Context, abi.PaddedPieceSize, bool, types.TipSetKey) (api.DealCollateralBounds, error)
 	StateMarketBalance(context.Context, address.Address, types.TipSetKey) (api.MarketBalance, error)
 	StateMinerInfo(context.Context, address.Address, types.TipSetKey) (api.MinerInfo, error)
-	StateVerifiedClientStatus(ctx context.Context, addr address.Address, tsk types.TipSetKey) (*abi.StoragePower, error)
 	StateLookupID(context.Context, address.Address, types.TipSetKey) (address.Address, error)
 	WalletSign(context.Context, address.Address, []byte) (*crypto.Signature, error)
 	ctladdr.NodeApi
