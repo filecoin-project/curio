@@ -365,6 +365,7 @@ type FSPDPOffering struct {
 	Location                 string `json:"location"`
 	PaymentTokenAddress      string `json:"payment_token_address"`
 	CapacityGiB              int64  `json:"capacity_gib"`
+	ContactEmail             string `json:"contact_email"`
 }
 
 // fsMinCapacityGiB is the smallest storage capacity a provider can advertise.
@@ -408,6 +409,8 @@ func capabilitiesToOffering(keys []string, values [][]byte) (*FSPDPOffering, map
 			if offering.CapacityGiB == 0 { // capacityGiB wins if both are present
 				offering.CapacityGiB = new(big.Int).SetBytes(value).Int64() * 1024
 			}
+		case contract.CapContactEmail:
+			offering.ContactEmail = string(value)
 		default:
 			// Custom capability - encode for safe round-trip through JSON/browser
 			customCaps[key] = contract.EncodeCapabilityForDisplay(value)
@@ -504,7 +507,28 @@ func (a *WebRPC) FSRegistryStatus(ctx context.Context) (*FSRegistryStatus, error
 	}, nil
 }
 
-func (a *WebRPC) FSRegister(ctx context.Context, name, description, location string, capacityGiB int64) error {
+// validateContactEmail checks an optional contact email for on-chain capability limits.
+// Empty input is allowed and returns "". Non-empty values must be at most 128 bytes,
+// contain one @, and have no spaces.
+func validateContactEmail(contactEmail string) (string, error) {
+	email := strings.TrimSpace(contactEmail)
+	if email == "" {
+		return "", nil
+	}
+	if len(email) > 128 {
+		return "", fmt.Errorf("contact email cannot be longer than 128 characters")
+	}
+	if strings.ContainsAny(email, " \t\r\n") {
+		return "", fmt.Errorf("contact email cannot contain spaces")
+	}
+	at := strings.IndexByte(email, '@')
+	if at <= 0 || at != strings.LastIndexByte(email, '@') || at == len(email)-1 {
+		return "", fmt.Errorf("contact email must contain a single @ with local and domain parts")
+	}
+	return email, nil
+}
+
+func (a *WebRPC) FSRegister(ctx context.Context, name, description, location string, capacityGiB int64, contactEmail string) error {
 	if name == "" {
 		return fmt.Errorf("name cannot be empty")
 	}
@@ -526,6 +550,11 @@ func (a *WebRPC) FSRegister(ctx context.Context, name, description, location str
 
 	if capacityGiB < fsMinCapacityGiB {
 		return xerrors.Errorf("storage capacity must be at least %d GiB", fsMinCapacityGiB)
+	}
+
+	contactEmail, err := validateContactEmail(contactEmail)
+	if err != nil {
+		return err
 	}
 
 	pdpAddress, err := a.getPDPAddress(ctx)
@@ -591,6 +620,7 @@ func (a *WebRPC) FSRegister(ctx context.Context, name, description, location str
 		Location:                 location,
 		PaymentTokenAddress:      tokenAddress,
 		CapacityGiB:              big.NewInt(capacityGiB),
+		ContactEmail:             contactEmail,
 	}
 
 	err = contract.FSRegister(ctx, a.Deps.DB, eclient, name, description, offering, nil)
@@ -678,6 +708,14 @@ func (a *WebRPC) FSUpdatePDP(ctx context.Context, pdpOffering *FSPDPOffering, ca
 		return fmt.Errorf("storage capacity must be at least %d GiB", fsMinCapacityGiB)
 	}
 
+	contactEmail, err := validateContactEmail(pdpOffering.ContactEmail)
+	if err != nil {
+		return err
+	}
+	if capabilities != nil {
+		delete(capabilities, contract.CapContactEmail)
+	}
+
 	pdpAddress, err := a.getPDPAddress(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get PDP address: %w", err)
@@ -729,6 +767,7 @@ func (a *WebRPC) FSUpdatePDP(ctx context.Context, pdpOffering *FSPDPOffering, ca
 	currentOffering.ServiceURL = pdpOffering.ServiceURL
 	currentOffering.Location = pdpOffering.Location
 	currentOffering.CapacityGiB = pdpOffering.CapacityGiB
+	currentOffering.ContactEmail = contactEmail
 
 	if currentOffering.MinPieceSizeInBytes < 127 {
 		return fmt.Errorf("minimum piece size must be at least 127 bytes")
@@ -779,6 +818,7 @@ func (a *WebRPC) FSUpdatePDP(ctx context.Context, pdpOffering *FSPDPOffering, ca
 		Location:                 currentOffering.Location,
 		PaymentTokenAddress:      tokenAddress,
 		CapacityGiB:              big.NewInt(currentOffering.CapacityGiB),
+		ContactEmail:             currentOffering.ContactEmail,
 	}
 
 	hash, err := contract.FSUpdatePDPService(ctx, a.Deps.DB, eclient, offering, capabilities)

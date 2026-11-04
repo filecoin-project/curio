@@ -18,13 +18,12 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
         description: { type: String },
         location: { type: String },
         capacityGiB: { type: String },
+        contactEmail: { type: String },
 
         // PDP update state
         pdpServiceURL: { type: String },
         pdpIpniPiece: { type: Boolean },
         pdpIpniIpfs: { type: Boolean },
-        pdpLocation: { type: String },
-        pdpCapacityGiB: { type: String },
 
         // deregister confirmation input
         deregisterConfirmation: { type: String },
@@ -93,13 +92,12 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
         this.description = '';
         this.location = '';
         this.capacityGiB = '';
+        this.contactEmail = '';
 
         // PDP update state
         this.pdpServiceURL = '';
         this.pdpIpniPiece = true;
         this.pdpIpniIpfs = true;
-        this.pdpLocation = '';
-        this.pdpCapacityGiB = '';
 
         this.capabilities = {};
 
@@ -147,6 +145,7 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
         this.description = '';
         this.location = '';
         this.capacityGiB = '';
+        this.contactEmail = '';
         this.showRegisterModal = true;
     }
     closeRegister() { this.showRegisterModal = false; }
@@ -164,6 +163,7 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
         const description = this.description.trim();
         const location = this.location.trim();
         const capacityGiB = this.parsePositiveInteger(this.capacityGiB);
+        const contactEmail = this.contactEmail.trim();
 
         if (!name || !description || !location) {
             alert('Please fill all fields (name, description, location, storage capacity).');
@@ -180,7 +180,7 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
         }
 
         try {
-            await RPCCall('FSRegister', [name, description, location, capacityGiB]);
+            await RPCCall('FSRegister', [name, description, location, capacityGiB, contactEmail]);
             this.showRegisterModal = false;
             await this.loadStatus();
             alert('Provider registered successfully. Please wait for the 5 epochs to see the updated status.');
@@ -274,8 +274,9 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
         this.pdpServiceURL = pdp.service_url || '';
         this.pdpIpniPiece = pdp.ipni_piece || false;
         this.pdpIpniIpfs = pdp.ipni_ipfs || false;
-        this.pdpLocation = pdp.location || '';
-        this.pdpCapacityGiB = String(pdp.capacity_gib || '');
+        this.location = pdp.location || '';
+        this.capacityGiB = String(pdp.capacity_gib || '');
+        this.contactEmail = pdp.contact_email || '';
         this.capabilities = this.status?.capabilities || {};
         this.showUpdatePDPModal = true;
     }
@@ -293,11 +294,12 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
     async submitUpdatePDP(e) {
         e.preventDefault();
 
-        const capacityGiB = this.parsePositiveInteger(this.pdpCapacityGiB);
+        const capacityGiB = this.parsePositiveInteger(this.capacityGiB);
         const pdpOffering = {
             service_url: this.pdpServiceURL.trim(),
-            location: this.pdpLocation.trim(),
+            location: this.location.trim(),
             capacity_gib: capacityGiB,
+            contact_email: this.contactEmail.trim(),
         };
 
         // Validate location format
@@ -327,6 +329,42 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
         }
     }
 
+    // Shared PDP contract fields used by register and update offering forms.
+    // includeServiceURL is true for updates; registration derives the URL from HTTP config.
+    renderPDPContractFields({ includeServiceURL = false } = {}) {
+        return html`
+            ${includeServiceURL ? html`
+                <div class="mb-3">
+                    <label class="form-label">Service URL</label>
+                    <input
+                            class="form-control"
+                            .value=${this.pdpServiceURL}
+                            @input=${e => this.pdpServiceURL = e.target.value}
+                            required
+                    />
+                </div>
+            ` : ''}
+            <div class="mb-3">
+                <label class="form-label">Location</label>
+                <input class="form-control" .value=${this.location}
+                       @input=${e => this.location = e.target.value} required />
+                <div class="form-text text-warning">Location must be in format "C=US;ST=California;L=San Francisco"</div>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Storage Capacity (GiB)</label>
+                <input class="form-control" type="number" min="100" step="1" .value=${this.capacityGiB}
+                       @input=${e => this.capacityGiB = e.target.value} required />
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Contact info (email)</label>
+                <input class="form-control" type="email" .value=${this.contactEmail}
+                       @input=${e => this.contactEmail = e.target.value}
+                       placeholder="optional" />
+                <div class="form-text text-muted">Optional. Posted on-chain as capability key contactEmail so Filecoin Onchain Cloud (FOC) development can share updates with you.</div>
+            </div>
+        `;
+    }
+
     renderKV(label, value) {
         return html`
             <tr>
@@ -352,6 +390,7 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
                 ${this.renderKV('Service URL', pdp.service_url)}
                 ${this.renderKV('Storage Capacity (GiB)', pdp.capacity_gib)}
                 ${this.renderKV('Location', pdp.location)}
+                ${this.renderKV('Contact info (email)', pdp.contact_email)}
                 ${this.renderKV('Capabilities', this.renderCapabilities(capabilities))}
                 </tbody>
             </table>
@@ -443,17 +482,7 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
                                         <textarea class="form-control" rows="3" .value=${this.description}
                                                   @input=${e=>this.description=e.target.value} required></textarea>
                                     </div>
-                                    <div class="mb-3">
-                                        <label class="form-label">Location</label>
-                                        <input class="form-control" .value=${this.location}
-                                               @input=${e=>this.location=e.target.value} required />
-                                        <div class="form-text text-warning">Location must be in format "C=US;ST=California;L=San Francisco"</div>
-                                    </div>
-                                    <div class="mb-3">
-                                        <label class="form-label">Storage Capacity (GiB)</label>
-                                        <input class="form-control" type="number" min="100" step="1" .value=${this.capacityGiB}
-                                               @input=${e=>this.capacityGiB=e.target.value} required />
-                                    </div>
+                                    ${this.renderPDPContractFields()}
                                 </div>
                                 <div class="modal-footer">
                                     <button type="button" class="btn btn-secondary" @click=${this.closeRegister}>Cancel</button>
@@ -502,52 +531,22 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
                             </div>
                             <form @submit=${this.submitUpdatePDP}>
                                 <div class="modal-body">
+                                    ${this.renderPDPContractFields({ includeServiceURL: true })}
                                     <div class="mb-3">
-                                        <label class="form-label">Service URL</label>
-                                        <input
-                                                class="form-control"
-                                                .value=${this.pdpServiceURL}
-                                                @input=${e => this.pdpServiceURL = e.target.value}
-                                                required
-                                        />
+                                        <label class="form-label">Capabilities</label>
+                                        <button type="button" class="btn btn-sm btn-primary mb-2" @click=${this.addCapability}>Add Capability</button>
+                                        <ul class="list-group">
+                                            ${Object.entries(this.capabilities).map(([key, value]) => html`
+                                                <li class="list-group-item capability-item">
+                                                    <span class="capability-item-text"><strong>${key}</strong>: ${value}</span>
+                                                    <span class="capability-item-actions">
+                                                        <button type="button" class="btn btn-sm btn-warning" @click=${() => this.editCapability(key)}>Edit</button>
+                                                        <button type="button" class="btn btn-sm btn-danger" @click=${() => this.removeCapability(key)}>Remove</button>
+                                                    </span>
+                                                </li>
+                                            `)}
+                                        </ul>
                                     </div>
-                                    <div class="mb-3">
-                                        <label class="form-label">Location</label>
-                                        <input
-                                                class="form-control"
-                                                .value=${this.pdpLocation}
-                                                @input=${e => this.pdpLocation = e.target.value}
-                                                required
-                                        />
-                                        <div class="form-text text-warning">Location must be in format "C=US;ST=California;L=San Francisco"</div>
-                                    </div>
-                                    <div class="mb-3">
-                                        <label class="form-label">Storage Capacity (GiB)</label>
-                                        <input
-                                                class="form-control"
-                                                type="number"
-                                                min="100"
-                                                step="1"
-                                                .value=${this.pdpCapacityGiB}
-                                                @input=${e => this.pdpCapacityGiB = e.target.value}
-                                                required
-                                        />
-                                    </div>
-                                </div>
-                                <div class="mb-3">
-                                    <label class="form-label">Capabilities</label>
-                                    <button type="button" class="btn btn-sm btn-primary mb-2" @click=${this.addCapability}>Add Capability</button>
-                                    <ul class="list-group">
-                                        ${Object.entries(this.capabilities).map(([key, value]) => html`
-                                            <li class="list-group-item capability-item">
-                                                <span class="capability-item-text"><strong>${key}</strong>: ${value}</span>
-                                                <span class="capability-item-actions">
-                                                    <button type="button" class="btn btn-sm btn-warning" @click=${() => this.editCapability(key)}>Edit</button>
-                                                    <button type="button" class="btn btn-sm btn-danger" @click=${() => this.removeCapability(key)}>Remove</button>
-                                                </span>
-                                            </li>
-                                        `)}
-                                    </ul>
                                 </div>
                                 <div class="modal-footer">
                                     <button type="button" class="btn btn-secondary me-2" @click=${this.closeUpdatePDP}>Cancel</button>

@@ -565,7 +565,8 @@ A new node shows **This provider is not registered.** Select **Register Provider
 | Name | ≤ 128 chars |
 | Description | ≤ 256 chars |
 | Location | e.g. `C=US;ST=California;L=San Francisco` (only `C=` is required) |
-| Storage Capacity (TiB) | your available storage capacity in TiB (whole number) |
+| Storage Capacity (GiB) | your available storage capacity in GiB (whole number, at least 100) |
+| Contact info (email) | optional; posted on-chain as capability key `contactEmail` so FOC development can share updates with you |
 
 Select **Register** to submit the registration to the on-chain registry. Wait about 5 epochs, then refresh the page to see the provider's current status.
 
@@ -596,7 +597,8 @@ Registration publishes a default PDP offering (1 MiB–64 GiB pieces, IPNI enabl
 | --- | --- |
 | Service URL | `https://your-domain.com` (your PDP node's public HTTPS endpoint) |
 | Location | e.g. `C=US;ST=California;L=San Francisco` (only `C=` is required) |
-| Storage Capacity (TiB) | your available storage capacity in TiB (whole number) |
+| Storage Capacity (GiB) | your available storage capacity in GiB (whole number, at least 100) |
+| Contact info (email) | optional; posted on-chain as capability key `contactEmail` so FOC development can share updates with you (clear the field to remove it) |
 
 Then use **Add Capability** to add the following key/value pair:
 
@@ -606,7 +608,7 @@ Then use **Add Capability** to add the following key/value pair:
 
 Select **Update PDP** to submit your offering to the on-chain FWSS contract.
 
-You can revisit **Update PDP Offering** at any time to change the Service URL, location, storage capacity, or custom capabilities.
+You can revisit **Update PDP Offering** at any time to change the Service URL, location, storage capacity, contact email, or custom capabilities.
 
 ***
 

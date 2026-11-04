@@ -149,6 +149,48 @@ func TestOfferingToCapabilities_AdditionalHex(t *testing.T) {
 	}
 }
 
+func TestOfferingToCapabilities_ContactEmail(t *testing.T) {
+	base := PDPOfferingData{
+		ServiceURL:               "https://pdp.example.com",
+		MinPieceSizeInBytes:      big.NewInt(32),
+		MaxPieceSizeInBytes:      big.NewInt(64),
+		StoragePricePerTibPerDay: big.NewInt(6000),
+		MinProvingPeriodInEpochs: big.NewInt(30),
+		Location:                 "C=US",
+		PaymentTokenAddress:      common.HexToAddress("0x0000000000004946c0e9F43F4Dee607b0eF1fA1c"),
+	}
+
+	keys, values, err := OfferingToCapabilities(base, nil)
+	if err != nil {
+		t.Fatalf("OfferingToCapabilities: %v", err)
+	}
+	for _, key := range keys {
+		if key == CapContactEmail {
+			t.Fatalf("expected contactEmail omitted when blank")
+		}
+	}
+
+	withEmail := base
+	withEmail.ContactEmail = "  ops@example.com  "
+	keys, values, err = OfferingToCapabilities(withEmail, nil)
+	if err != nil {
+		t.Fatalf("OfferingToCapabilities: %v", err)
+	}
+	found := false
+	for i, key := range keys {
+		if key != CapContactEmail {
+			continue
+		}
+		found = true
+		if !bytes.Equal(values[i], []byte("ops@example.com")) {
+			t.Fatalf("contactEmail value: got %q want %q", values[i], "ops@example.com")
+		}
+	}
+	if !found {
+		t.Fatalf("expected contactEmail when set")
+	}
+}
+
 func TestShouldHexEncodeCapability(t *testing.T) {
 	tests := []struct {
 		name    string
