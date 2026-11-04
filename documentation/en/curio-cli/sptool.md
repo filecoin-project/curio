@@ -381,7 +381,6 @@ OPTIONS:
    --new-expiration value  try to extend selected sectors to this epoch, ignoring extension
    --only-cc               only extend CC sectors (useful for making sector ready for snap upgrade) (default: false)
    --no-cc                 don't extend CC sectors (exclusive with --only-cc) (default: false)
-   --drop-claims           drop claims for sectors that can be extended, but only by dropping some of their verified power claims (default: false)
    --tolerance value       don't try to extend sectors by fewer than this number of epochs, defaults to 7 days (default: 20160)
    --max-fee value         use up to this amount of FIL for one message. pass this flag to avoid message congestion. (default: "0")
    --max-sectors value     the maximum number of sectors contained in each message (default: 500)
@@ -918,7 +917,6 @@ OPTIONS:
    --duration value                               duration of the deal in epochs (default: 518400)
    --market-address value                         market contract address of the deal
    --market-deal-id value                         market deal ID (default: 0)
-   --allocation value                             allocation id of the deal (default: 0)
    --indexing                                     indicates that an deal should be indexed (default: true)
    --wallet value                                 wallet address to be used to initiate the deal
    --announce                                     indicates that deal should be announced to the IPNI(Network Indexer) (default: true)

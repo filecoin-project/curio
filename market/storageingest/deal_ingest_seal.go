@@ -17,7 +17,6 @@ import (
 	"github.com/filecoin-project/go-bitfield"
 	"github.com/filecoin-project/go-padreader"
 	"github.com/filecoin-project/go-state-types/abi"
-	verifregtypes "github.com/filecoin-project/go-state-types/builtin/v9/verifreg"
 	"github.com/filecoin-project/go-state-types/dline"
 	"github.com/filecoin-project/go-state-types/network"
 
@@ -46,10 +45,6 @@ type PieceIngesterApi interface {
 	StateMinerInfo(context.Context, address.Address, types.TipSetKey) (api.MinerInfo, error)
 	StateMinerAllocated(ctx context.Context, a address.Address, key types.TipSetKey) (*bitfield.BitField, error)
 	StateNetworkVersion(ctx context.Context, key types.TipSetKey) (network.Version, error)
-	StateGetAllocation(ctx context.Context, clientAddr address.Address, allocationId verifregtypes.AllocationId, tsk types.TipSetKey) (*verifregtypes.Allocation, error)
-	StateGetAllocationForPendingDeal(ctx context.Context, dealId abi.DealID, tsk types.TipSetKey) (*verifregtypes.Allocation, error)
-	StateGetAllocationIdForPendingDeal(ctx context.Context, dealId abi.DealID, tsk types.TipSetKey) (verifregtypes.AllocationId, error)
-	StateLookupID(context.Context, address.Address, types.TipSetKey) (address.Address, error)
 	StateSectorGetInfo(ctx context.Context, maddr address.Address, sectorNumber abi.SectorNumber, tsk types.TipSetKey) (*miner.SectorOnChainInfo, error)
 
 	StateSectorPartition(ctx context.Context, maddr address.Address, sectorNumber abi.SectorNumber, tok types.TipSetKey) (*miner.SectorLocation, error)
@@ -69,7 +64,6 @@ type openSector struct {
 	earliestStartEpoch abi.ChainEpoch
 	index              int64
 	openedAt           *time.Time
-	latestEndEpoch     abi.ChainEpoch
 	pieces             []pieceInfo
 }
 
@@ -88,12 +82,6 @@ type PieceIngester struct {
 	minerDetails         map[int64]*mdetails
 	maxWaitTime          *config.Dynamic[time.Duration]
 	expectedSealDuration abi.ChainEpoch
-}
-
-type verifiedDeal struct {
-	isVerified bool
-	tmin       abi.ChainEpoch
-	tmax       abi.ChainEpoch
 }
 
 func NewPieceIngester(ctx context.Context, db *harmonydb.DB, api PieceIngesterApi, miners []address.Address, cfg *config.CurioConfig) (*PieceIngester, error) {
@@ -266,51 +254,12 @@ func (p *PieceIngester) AllocatePieceToSector(ctx context.Context, tx *harmonydb
 		return nil, nil, xerrors.Errorf("json.Marshal(header): %w", err)
 	}
 
-	head, err := p.api.ChainHead(ctx)
-	if err != nil {
-		return nil, nil, xerrors.Errorf("getting chain head: %w", err)
-	}
-	nv, err := p.api.StateNetworkVersion(ctx, head.Key())
-	if err != nil {
-		return nil, nil, xerrors.Errorf("getting network version: %w", err)
-	}
-
-	// TODO(NV29): Remove allocation lookups and verifiedDeal plumbing once pre-NV29 support is dropped.
-	var vd verifiedDeal
 	if piece.DealProposal != nil {
-		vd.isVerified = nv < network.Version29 && piece.DealProposal.VerifiedDeal
-		if vd.isVerified {
-			alloc, err := p.api.StateGetAllocationForPendingDeal(ctx, piece.DealID, head.Key())
-			if err != nil {
-				return nil, nil, xerrors.Errorf("getting pending allocation for deal %d: %w", piece.DealID, err)
-			}
-			if alloc == nil {
-				return nil, nil, xerrors.Errorf("no allocation found for deal %d: %w", piece.DealID, err)
-			}
-			vd.tmin = alloc.TermMin
-			vd.tmax = alloc.TermMax
-		}
 		propJson, err = json.Marshal(piece.DealProposal)
 		if err != nil {
 			return nil, nil, xerrors.Errorf("json.Marshal(piece.DealProposal): %w", err)
 		}
 	} else {
-		vd.isVerified = nv < network.Version29 && piece.PieceActivationManifest.VerifiedAllocationKey != nil
-		if vd.isVerified {
-			client, err := address.NewIDAddress(uint64(piece.PieceActivationManifest.VerifiedAllocationKey.Client))
-			if err != nil {
-				return nil, nil, xerrors.Errorf("getting client address from actor ID: %w", err)
-			}
-			alloc, err := p.api.StateGetAllocation(ctx, client, verifregtypes.AllocationId(piece.PieceActivationManifest.VerifiedAllocationKey.ID), head.Key())
-			if err != nil {
-				return nil, nil, xerrors.Errorf("getting allocation details for %d: %w", piece.PieceActivationManifest.VerifiedAllocationKey.ID, err)
-			}
-			if alloc == nil {
-				return nil, nil, xerrors.Errorf("no allocation found for ID %d: %w", piece.PieceActivationManifest.VerifiedAllocationKey.ID, err)
-			}
-			vd.tmin = alloc.TermMin
-			vd.tmax = alloc.TermMax
-		}
 		propJson, err = json.Marshal(piece.PieceActivationManifest)
 		if err != nil {
 			return nil, nil, xerrors.Errorf("json.Marshal(piece.PieceActivationManifest): %w", err)
@@ -323,7 +272,7 @@ func (p *PieceIngester) AllocatePieceToSector(ctx context.Context, tx *harmonydb
 	}
 
 	// Try to allocate the piece to an open sector
-	allocated, ret, err := p.allocateToExisting(tx, maddr, piece, psize, rawSize, source, dataHdrJson, propJson, vd)
+	allocated, ret, err := p.allocateToExisting(tx, maddr, piece, psize, rawSize, source, dataHdrJson, propJson)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -366,7 +315,8 @@ func (p *PieceIngester) AllocatePieceToSector(ctx context.Context, tx *harmonydb
 	return &n, &p.minerDetails[mid].sealProof, nil
 }
 
-func (p *PieceIngester) allocateToExisting(tx *harmonydb.Tx, maddr address.Address, piece lpiece.PieceDealInfo, psize abi.PaddedPieceSize, rawSize int64, source url.URL, dataHdrJson, propJson []byte, vd verifiedDeal) (bool, *abi.SectorNumber, error) {
+// allocateToExisting adds a size-validated piece to an open sector for a configured miner.
+func (p *PieceIngester) allocateToExisting(tx *harmonydb.Tx, maddr address.Address, piece lpiece.PieceDealInfo, psize abi.PaddedPieceSize, rawSize int64, source url.URL, dataHdrJson, propJson []byte) (bool, *abi.SectorNumber, error) {
 	var ret abi.SectorNumber
 	var allocated bool
 	var rerr error
@@ -389,16 +339,6 @@ func (p *PieceIngester) allocateToExisting(tx *harmonydb.Tx, maddr address.Addre
 			continue
 		}
 		if sec.currentSize+psize <= abi.PaddedPieceSize(p.minerDetails[p.addToID[maddr]].sectorSize) {
-			// TODO(NV29): Remove allocation term constraints once pre-NV29 support is dropped.
-			if vd.isVerified {
-				sectorLifeTime := sec.latestEndEpoch - sec.earliestStartEpoch
-				// Allocation's TMin must fit in sector and TMax should be at least sector lifetime or more
-				// Based on https://github.com/filecoin-project/builtin-actors/blob/a0e34d22665ac8c84f02fea8a099216f29ffaeeb/actors/verifreg/src/lib.rs#L1071-L1086
-				if sectorLifeTime <= vd.tmin && sectorLifeTime >= vd.tmax {
-					continue
-				}
-			}
-
 			ret = sec.number
 
 			// Insert market deal to DB for the sector
@@ -448,7 +388,6 @@ type pieceDetails struct {
 	Cid        string              `db:"piece_cid"`
 	Size       abi.PaddedPieceSize `db:"piece_size"`
 	StartEpoch abi.ChainEpoch      `db:"deal_start_epoch"`
-	EndEpoch   abi.ChainEpoch      `db:"deal_end_epoch"`
 	Index      int64               `db:"piece_index"`
 	CreatedAt  sql.NullTime        `db:"created_at"`
 }
@@ -464,7 +403,6 @@ func (p *PieceIngester) getOpenSectors(tx *harmonydb.Tx, mid int64) ([]*openSect
 						piece_size,
 						piece_index,
 						COALESCE(direct_start_epoch, f05_deal_start_epoch, 0) AS deal_start_epoch,
-						COALESCE(direct_end_epoch, f05_deal_end_epoch, 0) AS deal_end_epoch,
 						created_at
 					FROM
 						open_sector_pieces
@@ -478,13 +416,6 @@ func (p *PieceIngester) getOpenSectors(tx *harmonydb.Tx, mid int64) ([]*openSect
 
 	getStartEpoch := func(new abi.ChainEpoch, cur abi.ChainEpoch) abi.ChainEpoch {
 		if cur > 0 && cur < new {
-			return cur
-		}
-		return new
-	}
-
-	getEndEpoch := func(new abi.ChainEpoch, cur abi.ChainEpoch) abi.ChainEpoch {
-		if cur > 0 && cur > new {
 			return cur
 		}
 		return new
@@ -508,7 +439,6 @@ func (p *PieceIngester) getOpenSectors(tx *harmonydb.Tx, mid int64) ([]*openSect
 				earliestStartEpoch: getStartEpoch(pi.StartEpoch, 0),
 				index:              pi.Index,
 				openedAt:           &pi.CreatedAt.Time,
-				latestEndEpoch:     getEndEpoch(pi.EndEpoch, 0),
 				pieces: []pieceInfo{
 					{
 						cid:  pi.Cid,
@@ -520,7 +450,6 @@ func (p *PieceIngester) getOpenSectors(tx *harmonydb.Tx, mid int64) ([]*openSect
 		}
 		sector.currentSize += pi.Size
 		sector.earliestStartEpoch = getStartEpoch(pi.StartEpoch, sector.earliestStartEpoch)
-		sector.latestEndEpoch = getEndEpoch(pi.EndEpoch, sector.earliestStartEpoch)
 		if sector.index < pi.Index {
 			sector.index = pi.Index
 		}

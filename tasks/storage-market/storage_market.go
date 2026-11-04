@@ -23,7 +23,6 @@ import (
 
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
-	"github.com/filecoin-project/go-state-types/builtin/v13/verifreg"
 	"github.com/filecoin-project/go-state-types/builtin/v9/market"
 
 	"github.com/filecoin-project/curio/build"
@@ -851,6 +850,7 @@ func (d *CurioStorageDealMarket) addPSDTask(ctx context.Context) error {
 	return nil
 }
 
+// ingestDeal assigns a ready MK12 or historical direct deal to a sector transactionally.
 func (d *CurioStorageDealMarket) ingestDeal(ctx context.Context, deal MK12Pipeline) error {
 	var sector *abi.SectorNumber
 
@@ -891,15 +891,6 @@ func (d *CurioStorageDealMarket) ingestDeal(ctx context.Context, deal MK12Pipeli
 				return false, xerrors.Errorf("UUID: %s: %w", deal.UUID, err)
 			}
 
-			clientAddr, err := address.NewFromString(dbdeal.Client)
-			if err != nil {
-				return false, xerrors.Errorf("UUID: %s: %w", deal.UUID, err)
-			}
-			clientId, err := address.IDFromAddress(clientAddr)
-			if err != nil {
-				return false, xerrors.Errorf("UUID: %s: %w", deal.UUID, err)
-			}
-
 			pdi = piece.PieceDealInfo{
 				DealSchedule: piece.DealSchedule{
 					StartEpoch: abi.ChainEpoch(dbdeal.StartEpoch),
@@ -908,11 +899,6 @@ func (d *CurioStorageDealMarket) ingestDeal(ctx context.Context, deal MK12Pipeli
 				PieceActivationManifest: &lminer.PieceActivationManifest{
 					CID:  pcid,
 					Size: abi.PaddedPieceSize(dbdeal.PieceSize),
-					VerifiedAllocationKey: &lminer.VerifiedAllocationKey{
-						Client: abi.ActorID(clientId),
-						ID:     verifreg.AllocationId(dbdeal.AllocationID),
-					},
-					Notify: nil,
 				},
 				KeepUnsealed: dbdeal.FastRetrieval,
 			}
