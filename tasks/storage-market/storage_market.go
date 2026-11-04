@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"reflect"
 	"runtime"
 	"strconv"
 	"strings"
@@ -266,40 +265,38 @@ func (d *CurioStorageDealMarket) signalNextMK20(ctx context.Context, id string) 
 func (d *CurioStorageDealMarket) StartMarket(ctx context.Context) error {
 	var err error
 
-	d.MK12Handler, err = mk12.NewMK12Handler(d.miners.Get(), d.db, d.si, d.api, d.cfg, d.as, d.bp)
+	d.MK12Handler, err = mk12.NewMK12Handler(d.miners, d.db, d.si, d.api, d.cfg, d.as, d.bp)
 	if err != nil {
 		return err
 	}
 	if d.MK12Handler != nil {
 		d.MK12Handler.OnDealInserted = d.WakeDealPoller
-	}
-	prevMiners := d.miners.Get()
-
-	if d.MK12Handler != nil {
-		for _, miner := range d.miners.Get() { // Not Dynamic for MK12
-			_, err = d.MK12Handler.GetAsk(ctx, miner)
-			if err != nil {
-				if strings.Contains(err.Error(), "no ask found") {
-					if build.BuildType != build.BuildMainnet && build.BuildType != build.BuildCalibnet {
-						err = d.MK12Handler.SetAsk(ctx, abi.NewTokenAmount(0), abi.NewTokenAmount(0), miner, legacytypes.MinPieceSize(abi.PaddedPieceSize(128)), legacytypes.MaxPieceSize(abi.PaddedPieceSize(8<<20)))
-						if err != nil {
-							return xerrors.Errorf("failed to set ask for miner %s: %w", miner, err)
-						}
-					} else {
-						err = d.MK12Handler.SetAsk(ctx, abi.NewTokenAmount(45211226852), abi.NewTokenAmount(0), miner)
-						if err != nil {
-							return xerrors.Errorf("failed to set ask for miner %s: %w", miner, err)
-						}
-					}
-				} else {
+		ensureAsks := func() error {
+			for _, miner := range d.miners.Get() {
+				_, err := d.MK12Handler.GetAsk(ctx, miner)
+				if err == nil {
+					continue
+				}
+				if !strings.Contains(err.Error(), "no ask found") {
 					return xerrors.Errorf("failed to get miner ask %s: %w", miner, err)
 				}
+				if build.BuildType != build.BuildMainnet && build.BuildType != build.BuildCalibnet {
+					err = d.MK12Handler.SetAsk(ctx, abi.NewTokenAmount(0), abi.NewTokenAmount(0), miner, legacytypes.MinPieceSize(abi.PaddedPieceSize(128)), legacytypes.MaxPieceSize(abi.PaddedPieceSize(8<<20)))
+				} else {
+					err = d.MK12Handler.SetAsk(ctx, abi.NewTokenAmount(45211226852), abi.NewTokenAmount(0), miner)
+				}
+				if err != nil {
+					return xerrors.Errorf("failed to set ask for miner %s: %w", miner, err)
+				}
 			}
+			return nil
+		}
+		if err := ensureAsks(); err != nil {
+			return err
 		}
 		d.miners.OnChange(func() {
-			newMiners := d.miners.Get()
-			if !reflect.DeepEqual(prevMiners, newMiners) {
-				log.Errorf("Miners changed from %d to %d. . Restart required for Market 1.2 Ingest to work.", len(prevMiners), len(newMiners))
+			if err := ensureAsks(); err != nil {
+				log.Errorf("failed to ensure MK12 asks after miner change: %s", err)
 			}
 		})
 	}
@@ -312,22 +309,14 @@ func (d *CurioStorageDealMarket) StartMarket(ctx context.Context) error {
 		d.MK20Handler.OnDealInserted = d.WakeDealPoller
 	}
 
-	if len(prevMiners) > 0 {
-		if d.cfg.Ingest.DoSnap {
-			d.pin, err = storageingest.NewPieceIngesterSnap(ctx, d.db, d.api, prevMiners, d.cfg)
-		} else {
-			d.pin, err = storageingest.NewPieceIngester(ctx, d.db, d.api, prevMiners, d.cfg)
-		}
-		if err != nil {
-			return err
-		}
+	if d.cfg.Ingest.DoSnap {
+		d.pin, err = storageingest.NewPieceIngesterSnap(ctx, d.db, d.api, d.miners, d.cfg)
+	} else {
+		d.pin, err = storageingest.NewPieceIngester(ctx, d.db, d.api, d.miners, d.cfg)
 	}
-	d.miners.OnChange(func() {
-		newMiners := d.miners.Get()
-		if len(prevMiners) != len(newMiners) && (len(prevMiners) == 0 || len(newMiners) == 0) {
-			log.Errorf("Miners changed from %d to %d. . Restart required for Market Ingest to work.", len(prevMiners), len(newMiners))
-		}
-	})
+	if err != nil {
+		return err
+	}
 	d.wakePollLoopCtx = ctx
 	go d.runPoller(ctx)
 

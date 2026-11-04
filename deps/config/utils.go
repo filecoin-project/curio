@@ -92,7 +92,7 @@ func RepairStoredEmptyDynamicTables(ctx context.Context, db *harmonydb.DB) ([]st
 			if _, err := tx.Exec(`INSERT INTO harmony_config_history (title, config) VALUES ($1, $2)`, title, text); err != nil {
 				return false, xerrors.Errorf("history snapshot for %s: %w", title, err)
 			}
-			if _, err := tx.Exec(`UPDATE harmony_config SET config=$1 WHERE title=$2`, fixed, title); err != nil {
+			if _, err := tx.Exec(`UPDATE harmony_config SET config=$1, timestamp=NOW() WHERE title=$2`, fixed, title); err != nil {
 				return false, xerrors.Errorf("updating layer %s: %w", title, err)
 			}
 			return true, nil
