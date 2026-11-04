@@ -290,8 +290,7 @@ customElements.define('sector-exp-manager', class SectorExpManager extends LitEl
                 max_candidate_days: 21,
                 top_up_count_low_water_mark: null,
                 top_up_count_high_water_mark: null,
-                cc: null,
-                drop_claims: false
+                cc: null
             };
         }
         this.showPresetModal = true;
@@ -314,8 +313,6 @@ customElements.define('sector-exp-manager', class SectorExpManager extends LitEl
         } else if (field === 'cc') {
             // Convert to boolean or null
             this.formData[field] = value === '' ? null : (value === 'true');
-        } else if (field === 'drop_claims') {
-            this.formData[field] = value;
         } else {
             this.formData[field] = value;
         }
@@ -513,18 +510,6 @@ customElements.define('sector-exp-manager', class SectorExpManager extends LitEl
                                     <option value="false">Deal sectors only</option>
                                 </select>
                             </div>
-
-                            <div class="form-group">
-                                <div class="form-check">
-                                    <input 
-                                        type="checkbox" 
-                                        id="drop_claims"
-                                        ?checked="${this.formData.drop_claims}"
-                                        @change="${(e) => this.handleFormChange('drop_claims', e.target.checked)}"
-                                    />
-                                    <label for="drop_claims">Drop Claims</label>
-                                </div>
-                            </div>
                         </div>
                         <div class="modal-footer">
                             <button type="button" class="btn btn-secondary" @click="${this.closePresetModal}">Cancel</button>
@@ -540,7 +525,6 @@ customElements.define('sector-exp-manager', class SectorExpManager extends LitEl
 
     renderPresetDescription(preset) {
         const sectorFilter = preset.cc === true ? '(CC only)' : preset.cc === false ? '(Deals only)' : '(All)';
-        const claimsInfo = preset.drop_claims ? ' Drop claims.' : '';
         
         if (preset.action_type === 'extend') {
             return html`
@@ -548,7 +532,7 @@ customElements.define('sector-exp-manager', class SectorExpManager extends LitEl
                     If any sector expires in ${preset.info_bucket_above_days}–${preset.info_bucket_below_days} days, 
                     extend all sectors expiring within ${preset.info_bucket_above_days}–${preset.max_candidate_days || 0} days 
                     to ${preset.target_expiration_days || 0} days from now.
-                    ${sectorFilter}${claimsInfo}
+                    ${sectorFilter}
                 </div>
             `;
         } else {
@@ -557,7 +541,7 @@ customElements.define('sector-exp-manager', class SectorExpManager extends LitEl
                     If sector count in ${preset.info_bucket_above_days}–${preset.info_bucket_below_days} days 
                     falls below ${preset.top_up_count_low_water_mark || 0}, 
                     top up to ${preset.top_up_count_high_water_mark || 0} sectors.
-                    ${sectorFilter}${claimsInfo}
+                    ${sectorFilter}
                 </div>
             `;
         }

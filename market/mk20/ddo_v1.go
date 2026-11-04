@@ -17,7 +17,6 @@ import (
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/builtin/v16/verifreg"
-	"github.com/filecoin-project/go-state-types/network"
 
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -86,16 +85,9 @@ func (d *DDOV1) Validate(ctx context.Context, db *harmonydb.DB, cfg *config.MK20
 		return ErrProductValidationFailed, xerrors.Errorf("provider is disabled")
 	}
 
-	if d.AllocationId != nil {
-		if *d.AllocationId == verifreg.NoAllocationID {
-			return ErrProductValidationFailed, xerrors.Errorf("incorrect allocation id")
-		}
-	}
-
-	if d.AllocationId == nil {
-		if d.Duration < 518400 {
-			return ErrDurationTooShort, xerrors.Errorf("duration must be at least 518400")
-		}
+	// Previously accepted allocation deals retain their original duration rules.
+	if d.AllocationId == nil && d.Duration < 518400 {
+		return ErrDurationTooShort, xerrors.Errorf("duration must be at least 518400")
 	}
 
 	if d.MarketAddress != "" {
@@ -123,7 +115,7 @@ func (d *DDOV1) Validate(ctx context.Context, db *harmonydb.DB, cfg *config.MK20
 	return Ok, nil
 }
 
-func (d *DDOV1) VerifyMarketDeal(ctx context.Context, db *harmonydb.DB, eth ethchain.EthClient, deal *Deal, nv network.Version) (DealCode, error) {
+func (d *DDOV1) VerifyMarketDeal(ctx context.Context, db *harmonydb.DB, eth ethchain.EthClient, deal *Deal) (DealCode, error) {
 	if d.MarketAddress == "" {
 		return Ok, nil
 	}
@@ -166,38 +158,9 @@ func (d *DDOV1) VerifyMarketDeal(ctx context.Context, db *harmonydb.DB, eth ethc
 		return ErrMarketNotEnabled, xerrors.Errorf("unsupported market interface version %v: expected 1", version)
 	}
 
-	// Match on-chain values with local deal values.
-	localProviderID, err := address.IDFromAddress(d.Provider)
+	mdeal, err := d.marketDealView(deal)
 	if err != nil {
-		return ErrProductValidationFailed, xerrors.Errorf("invalid provider for market verification: %w", err)
-	}
-
-	startEpoch := new(big.Int).SetUint64(0)
-	if d.StartEpoch != nil {
-		startEpoch = new(big.Int).SetUint64(uint64(*d.StartEpoch))
-	}
-
-	localClient, err := localClientIDBytes(deal.Client)
-	if err != nil {
-		return ErrProductValidationFailed, xerrors.Errorf("invalid client for market verification: %w", err)
-	}
-
-	alloc := new(big.Int)
-	// TODO(NV29): Always pass zero once pre-NV29 support is dropped.
-	if nv < network.Version29 && d.AllocationId != nil {
-		alloc.SetUint64(uint64(*d.AllocationId))
-	}
-
-	mdeal := mk20contract.ICurioDealViewV1CurioDealView{
-		DealId:          new(big.Int).SetUint64(*d.MarketDealID),
-		State:           mk20contract.DealStatusOpen,
-		ProviderActorId: new(big.Int).SetUint64(localProviderID),
-		ClientId:        localClient,
-		PieceCidV2:      deal.Data.PieceCID.Bytes(),
-		StartEpoch:      startEpoch,
-		Duration:        new(big.Int).SetUint64(uint64(d.Duration)),
-		AllocationId:    alloc,
-		FinalizedEpoch:  new(big.Int).SetUint64(0),
+		return ErrProductValidationFailed, err
 	}
 
 	seal, err := market.VerifyDeal(&bind.CallOpts{Context: ctx}, mdeal)
@@ -213,6 +176,37 @@ func (d *DDOV1) VerifyMarketDeal(ctx context.Context, db *harmonydb.DB, eth ethc
 	}
 
 	return Ok, nil
+}
+
+// marketDealView constructs the V1 contract payload without changing stored allocation data.
+// The caller must have checked that deal.Data and d.MarketDealID are non-nil.
+func (d *DDOV1) marketDealView(deal *Deal) (mk20contract.ICurioDealViewV1CurioDealView, error) {
+	localProviderID, err := address.IDFromAddress(d.Provider)
+	if err != nil {
+		return mk20contract.ICurioDealViewV1CurioDealView{}, xerrors.Errorf("invalid provider for market verification: %w", err)
+	}
+
+	startEpoch := new(big.Int).SetUint64(0)
+	if d.StartEpoch != nil {
+		startEpoch = new(big.Int).SetUint64(uint64(*d.StartEpoch))
+	}
+
+	localClient, err := localClientIDBytes(deal.Client)
+	if err != nil {
+		return mk20contract.ICurioDealViewV1CurioDealView{}, xerrors.Errorf("invalid client for market verification: %w", err)
+	}
+
+	return mk20contract.ICurioDealViewV1CurioDealView{
+		DealId:          new(big.Int).SetUint64(*d.MarketDealID),
+		State:           mk20contract.DealStatusOpen,
+		ProviderActorId: new(big.Int).SetUint64(localProviderID),
+		ClientId:        localClient,
+		PieceCidV2:      deal.Data.PieceCID.Bytes(),
+		StartEpoch:      startEpoch,
+		Duration:        new(big.Int).SetUint64(uint64(d.Duration)),
+		AllocationId:    new(big.Int),
+		FinalizedEpoch:  new(big.Int).SetUint64(0),
+	}, nil
 }
 
 func isDealNotFoundRevert(err error) bool {

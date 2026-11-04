@@ -26,7 +26,6 @@ import (
 	miner2 "github.com/filecoin-project/go-state-types/builtin/v13/miner"
 	miner19 "github.com/filecoin-project/go-state-types/builtin/v19/miner"
 	"github.com/filecoin-project/go-state-types/builtin/v9/market"
-	"github.com/filecoin-project/go-state-types/network"
 
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/lib/curiochain"
@@ -141,8 +140,6 @@ func (c *cfg) getSectors(w http.ResponseWriter, r *http.Request) {
 	minerToAddr := map[int64]address.Address{}
 	head, err := c.Chain.ChainHead(r.Context())
 	apihelper.OrHTTPFail(w, err)
-	nv, err := c.Chain.StateNetworkVersion(r.Context(), head.Key())
-	apihelper.OrHTTPFail(w, err)
 	minerSizes := map[int64]abi.SectorSize{}
 
 	type sectorID struct {
@@ -191,11 +188,9 @@ func (c *cfg) getSectors(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for minerID, maddr := range minerToAddr {
-		if nv >= network.Version29 {
-			info, err := c.Chain.StateMinerInfo(r.Context(), maddr, head.Key())
-			apihelper.OrHTTPFail(w, err)
-			minerSizes[minerID] = info.SectorSize
-		}
+		info, err := c.Chain.StateMinerInfo(r.Context(), maddr, head.Key())
+		apihelper.OrHTTPFail(w, err)
+		minerSizes[minerID] = info.SectorSize
 		onChainInfo, err := c.getCachedSectorInfo(w, r, maddr, head.Key())
 		apihelper.OrHTTPFail(w, err)
 		for _, chainy := range onChainInfo {
@@ -323,13 +318,12 @@ func (c *cfg) getSectors(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// TODO(NV29): Remove verified-piece power estimates and always use full-sector QA
-	// for pending sectors once pre-NV29 support is dropped; retain legacy on-chain power reporting.
 	// Add deal details to sectors which are not on chain
 	for i := range sectors {
 		if !sectors[i].IsOnChain {
 			var pi []piece
-			dw, vp := .0, .0
+			dw := .0
+			vp := float64(minerSizes[sectors[i].MinerID]) * verifiedPowerGainMul
 			f05, ddo := 0, 0
 
 			// Find if there are any deals for this sector
@@ -345,25 +339,15 @@ func (c *cfg) getSectors(w http.ResponseWriter, r *http.Request) {
 						var prop *market.DealProposal
 						apihelper.OrHTTPFail(w, json.Unmarshal(p.Proposal, &prop))
 						dw += float64(prop.PieceSize)
-						if prop.VerifiedDeal {
-							vp += float64(prop.PieceSize) * verifiedPowerGainMul
-						}
 						f05++
 					}
 					if p.Manifest != nil {
 						var pam *miner.PieceActivationManifest
 						apihelper.OrHTTPFail(w, json.Unmarshal(p.Manifest, &pam))
 						dw += float64(pam.Size)
-						if pam.VerifiedAllocationKey != nil {
-							vp += float64(pam.Size) * verifiedPowerGainMul
-						}
 						ddo++
 					}
 				}
-			}
-			sectors[i].IsFilPlus = nv < network.Version29 && vp > 0
-			if nv >= network.Version29 {
-				vp = float64(minerSizes[sectors[i].MinerID]) * verifiedPowerGainMul
 			}
 			if dw > 0 {
 				sectors[i].DealWeight = units.BytesSize(dw)

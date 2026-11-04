@@ -20,7 +20,6 @@ import (
 	"github.com/filecoin-project/go-jsonrpc/auth"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/big"
-	verifregtypes "github.com/filecoin-project/go-state-types/builtin/v9/verifreg"
 	"github.com/filecoin-project/go-state-types/crypto"
 	"github.com/filecoin-project/go-state-types/dline"
 	"github.com/filecoin-project/go-state-types/network"
@@ -148,12 +147,6 @@ type CurioChainRPCMethods struct {
 	StateDealProviderCollateralBounds func(p0 context.Context, p1 abi.PaddedPieceSize, p2 bool, p3 types.TipSetKey) (api.DealCollateralBounds, error) ``
 
 	StateGetActor func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (*types.Actor, error) ``
-
-	StateGetAllocation func(p0 context.Context, p1 address.Address, p2 verifregtypes.AllocationId, p3 types.TipSetKey) (*verifregtypes.Allocation, error) ``
-
-	StateGetAllocationForPendingDeal func(p0 context.Context, p1 abi.DealID, p2 types.TipSetKey) (*verifregtypes.Allocation, error) ``
-
-	StateGetAllocationIdForPendingDeal func(p0 context.Context, p1 abi.DealID, p2 types.TipSetKey) (verifregtypes.AllocationId, error) ``
 
 	StateGetBeaconEntry func(p0 context.Context, p1 abi.ChainEpoch) (*types.BeaconEntry, error) ``
 
@@ -763,39 +756,6 @@ func (s *CurioChainRPCStruct) StateGetActor(p0 context.Context, p1 address.Addre
 
 func (s *CurioChainRPCStub) StateGetActor(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (*types.Actor, error) {
 	return nil, ErrNotSupported
-}
-
-func (s *CurioChainRPCStruct) StateGetAllocation(p0 context.Context, p1 address.Address, p2 verifregtypes.AllocationId, p3 types.TipSetKey) (*verifregtypes.Allocation, error) {
-	if s.Internal.StateGetAllocation == nil {
-		return nil, ErrNotSupported
-	}
-	return s.Internal.StateGetAllocation(p0, p1, p2, p3)
-}
-
-func (s *CurioChainRPCStub) StateGetAllocation(p0 context.Context, p1 address.Address, p2 verifregtypes.AllocationId, p3 types.TipSetKey) (*verifregtypes.Allocation, error) {
-	return nil, ErrNotSupported
-}
-
-func (s *CurioChainRPCStruct) StateGetAllocationForPendingDeal(p0 context.Context, p1 abi.DealID, p2 types.TipSetKey) (*verifregtypes.Allocation, error) {
-	if s.Internal.StateGetAllocationForPendingDeal == nil {
-		return nil, ErrNotSupported
-	}
-	return s.Internal.StateGetAllocationForPendingDeal(p0, p1, p2)
-}
-
-func (s *CurioChainRPCStub) StateGetAllocationForPendingDeal(p0 context.Context, p1 abi.DealID, p2 types.TipSetKey) (*verifregtypes.Allocation, error) {
-	return nil, ErrNotSupported
-}
-
-func (s *CurioChainRPCStruct) StateGetAllocationIdForPendingDeal(p0 context.Context, p1 abi.DealID, p2 types.TipSetKey) (verifregtypes.AllocationId, error) {
-	if s.Internal.StateGetAllocationIdForPendingDeal == nil {
-		return *new(verifregtypes.AllocationId), ErrNotSupported
-	}
-	return s.Internal.StateGetAllocationIdForPendingDeal(p0, p1, p2)
-}
-
-func (s *CurioChainRPCStub) StateGetAllocationIdForPendingDeal(p0 context.Context, p1 abi.DealID, p2 types.TipSetKey) (verifregtypes.AllocationId, error) {
-	return *new(verifregtypes.AllocationId), ErrNotSupported
 }
 
 func (s *CurioChainRPCStruct) StateGetBeaconEntry(p0 context.Context, p1 abi.ChainEpoch) (*types.BeaconEntry, error) {

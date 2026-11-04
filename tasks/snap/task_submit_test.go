@@ -9,7 +9,6 @@ import (
 
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/big"
-	"github.com/filecoin-project/go-state-types/network"
 
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/types"
@@ -32,8 +31,6 @@ func TestCalculateSectorCollateralPower(t *testing.T) {
 
 	tests := []struct {
 		name           string
-		nv             network.Version
-		verifiedSize   uint64
 		verifiedWeight int64
 		flags          miner.SectorOnChainInfoFlags
 		wantSize       uint64
@@ -41,53 +38,25 @@ func TestCalculateSectorCollateralPower(t *testing.T) {
 		wantCollateral int64
 	}{
 		{
-			name:           "NV28 unverified pieces",
-			nv:             network.Version28,
-			wantCalls:      1,
-			wantCollateral: 660,
-		},
-		{
-			name:           "NV28 verified pieces",
-			nv:             network.Version28,
-			verifiedSize:   512,
-			wantSize:       512,
-			wantCalls:      1,
-			wantCollateral: 660,
-		},
-		{
-			name:           "NV29 legacy 1x power requests full size",
-			nv:             network.Version29,
+			name:           "legacy 1x power requests full size",
 			wantSize:       2048,
 			wantCalls:      1,
 			wantCollateral: 660,
 		},
 		{
-			name:           "NV29 legacy partial power requests full size",
-			nv:             network.Version29,
-			verifiedSize:   512,
+			name:           "legacy partial power requests full size",
 			verifiedWeight: 512000,
 			wantSize:       2048,
 			wantCalls:      1,
 			wantCollateral: 660,
 		},
 		{
-			name:  "NV29 full QA flag skips estimate",
-			nv:    network.Version29,
+			name:  "full QA flag skips estimate",
 			flags: miner.FULL_QA_POWER,
 		},
 		{
-			name:           "NV29 legacy full weight skips estimate",
-			nv:             network.Version29,
+			name:           "legacy full weight skips estimate",
 			verifiedWeight: 614400,
-		},
-		{
-			name:           "NV28 legacy full weight still estimates pledge",
-			nv:             network.Version28,
-			verifiedSize:   512,
-			verifiedWeight: 614400,
-			wantSize:       512,
-			wantCalls:      1,
-			wantCollateral: 660,
 		},
 	}
 
@@ -114,7 +83,7 @@ func TestCalculateSectorCollateralPower(t *testing.T) {
 				InitialPledge:      big.NewInt(400),
 			}
 
-			collateral, err := task.calculateSectorCollateral(context.Background(), info, ts, tt.nv, tt.verifiedSize)
+			collateral, err := task.calculateSectorCollateral(context.Background(), info, ts)
 			require.NoError(t, err)
 			require.Equal(t, tt.wantCalls, calls)
 			require.Equal(t, big.NewInt(tt.wantCollateral), collateral)
@@ -155,7 +124,7 @@ func TestCalculateSectorCollateralDelta(t *testing.T) {
 				InitialPledge:      big.NewInt(tt.initial),
 			}
 
-			collateral, err := task.calculateSectorCollateral(context.Background(), info, &types.TipSet{}, network.Version29, 0)
+			collateral, err := task.calculateSectorCollateral(context.Background(), info, &types.TipSet{})
 			if tt.apiErr != nil {
 				require.ErrorIs(t, err, tt.apiErr)
 				return

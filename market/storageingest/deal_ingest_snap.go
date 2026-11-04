@@ -17,9 +17,6 @@ import (
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/builtin"
 	miner2 "github.com/filecoin-project/go-state-types/builtin/v13/miner"
-	verifreg13 "github.com/filecoin-project/go-state-types/builtin/v13/verifreg"
-	"github.com/filecoin-project/go-state-types/builtin/v9/verifreg"
-	"github.com/filecoin-project/go-state-types/network"
 
 	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps/config"
@@ -28,13 +25,12 @@ import (
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/market"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
-	verifregtypes "github.com/filecoin-project/lotus/chain/actors/builtin/verifreg"
 	"github.com/filecoin-project/lotus/chain/types"
 	lpiece "github.com/filecoin-project/lotus/storage/pipeline/piece"
 )
 
 const IdealEndEpochBuffer = 2 * builtin.EpochsInDay
-const MaxEndEpochBufferUnverified = 180 * builtin.EpochsInDay
+const MAX_END_EPOCH_BUFFER = 180 * builtin.EpochsInDay
 
 // assuming that snap takes up to 20min to get to submitting the message we want to avoid sectors from deadlines which will
 // become immutable in the next 20min (40 epochs)
@@ -53,6 +49,10 @@ type PieceIngesterSnap struct {
 }
 
 func NewPieceIngesterSnap(ctx context.Context, db *harmonydb.DB, api PieceIngesterApi, miners *config.Dynamic[[]address.Address], cfg *config.CurioConfig) (*PieceIngesterSnap, error) {
+	if len(miners.Get()) == 0 {
+		return nil, xerrors.Errorf("no miners provided")
+	}
+
 	addToID := config.NewDynamic(make(map[address.Address]int64))
 	minerDetails := config.NewDynamic(make(map[int64]*mdetails))
 	idToAddr := config.NewDynamic(make(map[abi.ActorID]address.Address))
@@ -215,46 +215,16 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, tx *harmo
 	if err != nil {
 		return nil, nil, xerrors.Errorf("getting chain head: %w", err)
 	}
-	nv, err := p.api.StateNetworkVersion(ctx, head.Key())
-	if err != nil {
-		return nil, nil, xerrors.Errorf("getting network version: %w", err)
-	}
-
-	var vd verifiedDeal
 	if piece.DealProposal != nil {
-		// For snap we convert f05 deals to DDO
-		// TODO(NV29): Remove pending-deal allocation lookup once pre-NV29 support is dropped.
-		var vac *miner2.VerifiedAllocationKey
-		if nv < network.Version29 {
-			alloc, err := p.api.StateGetAllocationIdForPendingDeal(ctx, piece.DealID, head.Key())
-			if err != nil {
-				return nil, nil, xerrors.Errorf("getting allocation for deal %d: %w", piece.DealID, err)
-			}
-			clid, err := p.api.StateLookupID(ctx, piece.DealProposal.Client, head.Key())
-			if err != nil {
-				return nil, nil, xerrors.Errorf("getting client address for deal %d: %w", piece.DealID, err)
-			}
-			clientId, err := address.IDFromAddress(clid)
-			if err != nil {
-				return nil, nil, xerrors.Errorf("getting client address for deal %d: %w", piece.DealID, err)
-			}
-			if alloc != verifreg.NoAllocationID {
-				vac = &miner2.VerifiedAllocationKey{
-					Client: abi.ActorID(clientId),
-					ID:     verifreg13.AllocationId(alloc),
-				}
-			}
-		}
-
+		// Preserve market activation notifications when converting historical deals to DDO.
 		payload, err := cborutil.Dump(piece.DealID)
 		if err != nil {
 			return nil, nil, xerrors.Errorf("serializing deal id: %w", err)
 		}
 
 		piece.PieceActivationManifest = &miner.PieceActivationManifest{
-			CID:                   piece.PieceCID(),
-			Size:                  piece.DealProposal.PieceSize,
-			VerifiedAllocationKey: vac,
+			CID:  piece.PieceCID(),
+			Size: piece.DealProposal.PieceSize,
 			Notify: []miner2.DataActivationNotification{
 				{
 					Address: market.Address,
@@ -268,25 +238,7 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, tx *harmo
 		piece.PublishCid = nil
 	}
 
-	maxExpiration := int64(piece.DealSchedule.EndEpoch) + MaxEndEpochBufferUnverified
-	// TODO(NV29): Remove allocation lookup and expiration override once pre-NV29 support is dropped.
-	vd.isVerified = nv < network.Version29 && piece.PieceActivationManifest.VerifiedAllocationKey != nil
-	if vd.isVerified {
-		client, err := address.NewIDAddress(uint64(piece.PieceActivationManifest.VerifiedAllocationKey.Client))
-		if err != nil {
-			return nil, nil, xerrors.Errorf("getting client address from actor ID: %w", err)
-		}
-		alloc, err := p.api.StateGetAllocation(ctx, client, verifregtypes.AllocationId(piece.PieceActivationManifest.VerifiedAllocationKey.ID), head.Key())
-		if err != nil {
-			return nil, nil, xerrors.Errorf("getting allocation details for %d: %w", piece.PieceActivationManifest.VerifiedAllocationKey.ID, err)
-		}
-		if alloc == nil {
-			return nil, nil, xerrors.Errorf("no allocation found for ID %d: %w", piece.PieceActivationManifest.VerifiedAllocationKey.ID, err)
-		}
-		vd.tmin = alloc.TermMin
-		vd.tmax = alloc.TermMax
-		maxExpiration = int64(head.Height() + alloc.TermMax)
-	}
+	maxExpiration := int64(piece.DealSchedule.EndEpoch) + MAX_END_EPOCH_BUFFER
 	propJson, err = json.Marshal(piece.PieceActivationManifest)
 	if err != nil {
 		return nil, nil, xerrors.Errorf("json.Marshal(piece.PieceActivationManifest): %w", err)
@@ -304,7 +256,7 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, tx *harmo
 	}
 
 	// Try to allocate the piece to an open sector
-	allocated, ret, sp, err := p.allocateToExisting(ctx, tx, maddr, mid, details, piece, psize, rawSize, source, dataHdrJson, propJson, vd, head)
+	allocated, ret, sp, err := p.allocateToExisting(ctx, tx, maddr, mid, details, piece, psize, rawSize, source, dataHdrJson, propJson, head)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -338,7 +290,7 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, tx *harmo
 	// select sectors_meta where is_cc = true
 	// now we have a list of all sectors that are CC
 	// We're selecting the best sector for *this* piece, not any other / pending pieces (like lotus-miner, which made this logic needlessly complex)
-	// We want a sector with an expiration above the piece expiration but below termMax
+	// We want a sector with an expiration above the piece expiration and within the end-epoch buffer
 	// Ideally we want the sector expiration te be a day or two above the deal expiration, so that it can accomodate other deals with slightly longer expirations
 	// Nice to have: use preloaded sectors
 
@@ -489,7 +441,8 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, tx *harmo
 	return new(abi.SectorNumber(uint64(candidate.Sector))), new(abi.RegisteredSealProof(candidate.RegSealProof)), nil
 }
 
-func (p *PieceIngesterSnap) allocateToExisting(ctx context.Context, tx *harmonydb.Tx, maddr address.Address, mid int64, details *mdetails, piece lpiece.PieceDealInfo, psize abi.PaddedPieceSize, rawSize int64, source url.URL, dataHdrJson, propJson []byte, vd verifiedDeal, head *types.TipSet) (bool, *abi.SectorNumber, *abi.RegisteredSealProof, error) {
+// allocateToExisting adds a size-validated piece to an open snap sector for a configured miner.
+func (p *PieceIngesterSnap) allocateToExisting(ctx context.Context, tx *harmonydb.Tx, maddr address.Address, mid int64, details *mdetails, piece lpiece.PieceDealInfo, psize abi.PaddedPieceSize, rawSize int64, source url.URL, dataHdrJson, propJson []byte, head *types.TipSet) (bool, *abi.SectorNumber, *abi.RegisteredSealProof, error) {
 	var ret abi.SectorNumber
 	var retSp abi.RegisteredSealProof
 	var allocated bool
@@ -520,21 +473,6 @@ func (p *PieceIngesterSnap) allocateToExisting(ctx context.Context, tx *harmonyd
 			}
 			if piece.DealSchedule.EndEpoch > si.Expiration {
 				continue
-			}
-
-			// TODO(NV29): Remove allocation term constraints once pre-NV29 support is dropped.
-			if vd.isVerified {
-				sectorLifeTime := si.Expiration - head.Height()
-				if sectorLifeTime < 0 {
-					log.Errorw("sector lifetime is negative", "sector", sec.number, "miner", maddr, "lifetime", sectorLifeTime)
-					continue
-				}
-
-				// Allocation's TMin must fit in sector and TMax should be at least sector lifetime or more
-				// Based on https://github.com/filecoin-project/builtin-actors/blob/a0e34d22665ac8c84f02fea8a099216f29ffaeeb/actors/verifreg/src/lib.rs#L1071-L1086
-				if sectorLifeTime <= vd.tmin && sectorLifeTime >= vd.tmax {
-					continue
-				}
 			}
 
 			ret = sec.number
@@ -574,7 +512,6 @@ func (p *PieceIngesterSnap) getOpenSectors(tx *harmonydb.Tx, mid int64) ([]*open
 						piece_size,
 						piece_index,
 						COALESCE(direct_start_epoch, f05_deal_start_epoch, 0) AS deal_start_epoch,
-						COALESCE(direct_end_epoch, f05_deal_end_epoch, 0) AS deal_end_epoch,
 						created_at
 					FROM
 						open_sector_pieces
@@ -588,13 +525,6 @@ func (p *PieceIngesterSnap) getOpenSectors(tx *harmonydb.Tx, mid int64) ([]*open
 
 	getStartEpoch := func(new abi.ChainEpoch, cur abi.ChainEpoch) abi.ChainEpoch {
 		if cur > 0 && cur < new {
-			return cur
-		}
-		return new
-	}
-
-	getEndEpoch := func(new abi.ChainEpoch, cur abi.ChainEpoch) abi.ChainEpoch {
-		if cur > 0 && cur > new {
 			return cur
 		}
 		return new
@@ -618,7 +548,6 @@ func (p *PieceIngesterSnap) getOpenSectors(tx *harmonydb.Tx, mid int64) ([]*open
 				earliestStartEpoch: getStartEpoch(pi.StartEpoch, 0),
 				index:              pi.Index,
 				openedAt:           &pi.CreatedAt.Time,
-				latestEndEpoch:     getEndEpoch(pi.EndEpoch, 0),
 				pieces: []pieceInfo{
 					{
 						cid:  pi.Cid,
@@ -630,7 +559,6 @@ func (p *PieceIngesterSnap) getOpenSectors(tx *harmonydb.Tx, mid int64) ([]*open
 		}
 		sector.currentSize += pi.Size
 		sector.earliestStartEpoch = getStartEpoch(pi.StartEpoch, sector.earliestStartEpoch)
-		sector.latestEndEpoch = getEndEpoch(pi.EndEpoch, sector.earliestStartEpoch)
 		if sector.index < pi.Index {
 			sector.index = pi.Index
 		}
