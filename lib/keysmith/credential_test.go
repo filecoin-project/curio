@@ -35,4 +35,16 @@ func TestCredentialUsesLongestPresentSource(t *testing.T) {
 	req = httptest.NewRequest("GET", "/download/piece", nil)
 	_, err = Credential(req)
 	require.ErrorIs(t, err, ErrNoGrant)
+
+	req = httptest.NewRequest("GET", "/download/piece", nil)
+	req.Header.Set("Authorization", "Bearer "+long)
+	req.Header.Set("Cookie", "FOC Grant="+short)
+	token, err := GrantToken(req)
+	require.NoError(t, err)
+	require.Equal(t, short, token)
+
+	req = httptest.NewRequest("GET", "/download/piece", nil)
+	req.Header.Set("Authorization", "Bearer "+long)
+	_, err = GrantToken(req)
+	require.ErrorIs(t, err, ErrNoGrant)
 }

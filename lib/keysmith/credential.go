@@ -22,21 +22,24 @@ const (
 	grantCookieEsc = "FOC%20Grant"
 )
 
-// Credential returns the longest FOC grant token on r.
+// Credential returns the longest FOC grant on r, decoded.
 // A missing Authorization header, basic-auth password, or cookie is skipped.
-// The Authorization value is used when it is not HTTP basic auth. Basic auth
-// contributes its password only when the user is "FOC Grant" or "FOC%20Grant".
+// The Authorization value is used when it is not HTTP basic auth and not Bearer.
+// Basic auth contributes its password only when the user is "FOC Grant" or "FOC%20Grant".
 func Credential(r *http.Request) ([]byte, error) {
-	var candidates []string
-	if auth := r.Header.Get("Authorization"); auth != "" && !strings.HasPrefix(strings.ToLower(auth), "basic ") {
-		candidates = append(candidates, auth)
+	token, err := GrantToken(r)
+	if err != nil {
+		return nil, err
 	}
-	if user, pass, ok := r.BasicAuth(); ok && pass != "" && (user == grantUser || user == grantUserEsc) {
-		candidates = append(candidates, pass)
-	}
-	candidates = append(candidates, grantCookies(r)...)
+	return decodeToken(token)
+}
+
+// GrantToken returns the longest FOC grant token on r, still base64url-encoded.
+// Bearer is not a grant. A request with none of the FOC sources is ErrNoGrant.
+func GrantToken(r *http.Request) (string, error) {
+	candidates := grantCandidates(r)
 	if len(candidates) == 0 {
-		return nil, ErrNoGrant
+		return "", ErrNoGrant
 	}
 	best := candidates[0]
 	for _, c := range candidates[1:] {
@@ -44,7 +47,37 @@ func Credential(r *http.Request) ([]byte, error) {
 			best = c
 		}
 	}
-	return decodeToken(best)
+	return normalizeGrantToken(best)
+}
+
+// grantCandidates lists FOC grant strings on r. Bearer is omitted.
+// The caller picks the longest and decodes it.
+func grantCandidates(r *http.Request) []string {
+	var candidates []string
+	if auth := r.Header.Get("Authorization"); auth != "" {
+		scheme := strings.ToLower(auth)
+		if !strings.HasPrefix(scheme, "basic ") && !strings.HasPrefix(scheme, "bearer ") {
+			candidates = append(candidates, auth)
+		}
+	}
+	if user, pass, ok := r.BasicAuth(); ok && pass != "" && (user == grantUser || user == grantUserEsc) {
+		candidates = append(candidates, pass)
+	}
+	candidates = append(candidates, grantCookies(r)...)
+	return candidates
+}
+
+// normalizeGrantToken strips the FOC-Grant scheme and checks the token decodes.
+// The caller has already chosen this candidate.
+func normalizeGrantToken(s string) (string, error) {
+	s = strings.TrimSpace(s)
+	if rest, ok := strings.CutPrefix(s, grantPrefix); ok {
+		s = strings.TrimSpace(rest)
+	}
+	if _, err := decodeToken(s); err != nil {
+		return "", err
+	}
+	return s, nil
 }
 
 // grantCookies reads an FOC Grant cookie from the parsed cookies and the raw
