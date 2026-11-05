@@ -45,11 +45,12 @@ const (
 
 	// Optional PDP keys, including advertised storage capacity, are documented in ServiceProviderRegistry.sol:
 	// https://github.com/FilOzone/filecoin-services/blob/main/service_contracts/src/ServiceProviderRegistry.sol#L22
-	CapIpniPiece   = "ipniPiece"
-	CapIpniIpfs    = "ipniIpfs"
-	CapIpniPeerID  = "ipniPeerId"
-	CapCapacityGiB = "capacityGiB"
-	CapCapacityTiB = "capacityTiB" // legacy: whole TiB only; read for older registrations, no longer written
+	CapIpniPiece    = "ipniPiece"
+	CapIpniIpfs     = "ipniIpfs"
+	CapIpniPeerID   = "ipniPeerId"
+	CapCapacityGiB  = "capacityGiB"
+	CapCapacityTiB  = "capacityTiB" // legacy: whole TiB only; read for older registrations, no longer written
+	CapContactEmail = "contactEmail"
 
 	// CapIpniPeerIDDeprecated is the old key for the IPNI peer ID. It was incorrectly cased
 	// and does not match the suggested key in the ServiceProviderRegistry contract. New
@@ -88,6 +89,7 @@ type PDPOfferingData struct {
 	Location                 string
 	PaymentTokenAddress      common.Address
 	CapacityGiB              *mbig.Int
+	ContactEmail             string
 }
 
 func encodeBigIntCapability(i *mbig.Int) []byte {
@@ -146,6 +148,11 @@ func OfferingToCapabilities(offering PDPOfferingData, additionalCaps map[string]
 	if offering.CapacityGiB != nil {
 		keys = append(keys, CapCapacityGiB)
 		values = append(values, encodeBigIntCapability(offering.CapacityGiB))
+	}
+
+	if email := strings.TrimSpace(offering.ContactEmail); email != "" {
+		keys = append(keys, CapContactEmail)
+		values = append(values, []byte(email))
 	}
 
 	// Add custom capabilities
