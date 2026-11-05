@@ -408,7 +408,18 @@ func resolveFromChainWithClients(
 		}
 	}
 
-	snap := Classify(currentEpoch, view, payer, deleteOverlay, overlays.prove)
+	// Active zero-rate rails are not settled, so settledUpTo can lag. The queue
+	// must be empty before that lag is treated as nothing owed.
+	nothingOwed := false
+	if view.SettledUpTo != nil && (view.EndEpoch == nil || view.EndEpoch.Sign() <= 0) && (view.PaymentRate == nil || view.PaymentRate.Sign() == 0) {
+		queueSize, queueErr := clients.payments.GetRateChangeQueueSize(contract.EthCallOpts(ctx), info.PdpRailId)
+		if queueErr != nil {
+			return Snapshot{}, xerrors.Errorf("GetRateChangeQueueSize %s: %w", info.PdpRailId, queueErr)
+		}
+		nothingOwed = filecoinpayment.ActiveRailOwesNothing(view, queueSize)
+	}
+
+	snap := Classify(currentEpoch, view, payer, deleteOverlay, overlays.prove, nothingOwed)
 	snap.DataSetID = dataSetID
 	if info.PdpRailId != nil && info.PdpRailId.Sign() > 0 {
 		railID := info.PdpRailId.Int64()
