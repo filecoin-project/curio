@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/filecoin-project/curio/lib/keysmith"
+	"github.com/filecoin-project/curio/lib/pieceprovider"
 	"github.com/filecoin-project/curio/lib/storiface"
 )
 
@@ -44,6 +45,12 @@ func (p *PDPService) requireACLEnvelope(ctx context.Context, info *SubPieceInfo)
 		if p.aclCopyExists(ctx, info) {
 			return nil
 		}
+		// An upload is placed into open-pieces before any data set claims it, and its park file is then gone.
+		if open, openErr := p.openPiecesReader(ctx, info); openErr == nil && open != nil {
+			defer func() { _ = open.Close() }()
+			_, err := keysmith.ReadEnvelopeLabelsAt(open)
+			return err
+		}
 		return fmt.Errorf("reading parked piece %d: %w", parkedID, err)
 	}
 	defer func() { _ = rc.Close() }()
@@ -60,6 +67,18 @@ func httpPlaceError(w http.ResponseWriter, err error) {
 		return
 	}
 	httpServerError(w, http.StatusInternalServerError, "Failed to place piece in hash space", err)
+}
+
+// openPiecesReader opens this piece's open-pieces copy. It returns nil, nil when there is none.
+func (p *PDPService) openPiecesReader(ctx context.Context, info *SubPieceInfo) (storiface.Reader, error) {
+	if p.hs == nil {
+		return nil, nil
+	}
+	parsed, err := PieceCidV2FromV1(info.PieceCIDv1, info.RawSize)
+	if err != nil {
+		return nil, err
+	}
+	return pieceprovider.NewOpenPieceReader(p.hs).ReadPiece(ctx, parsed.CidV2, int64(info.RawSize))
 }
 
 // aclCopyExists reports whether this piece is already stored in acl-pieces.
