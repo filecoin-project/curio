@@ -50,7 +50,7 @@ func UpsertBaseConfig(ctx context.Context, db *harmonydb.DB, cfg *config.CurioCo
 		return err
 	}
 
-	_, err = db.Exec(ctx, `INSERT INTO harmony_config (title, config) VALUES ($1, $2) ON CONFLICT (title) DO UPDATE SET config = $2`, "base", encoded)
+	_, err = db.Exec(ctx, `INSERT INTO harmony_config (title, config) VALUES ($1, $2) ON CONFLICT (title) DO UPDATE SET config = $2, timestamp = NOW()`, "base", encoded)
 	if err != nil {
 		return xerrors.Errorf("upsert base config: %w", err)
 	}

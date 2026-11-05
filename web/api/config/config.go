@@ -224,8 +224,9 @@ func (c *cfg) setLayer(w http.ResponseWriter, r *http.Request) {
 		apihelper.OrHTTPFail(w, err)
 	}
 
-	//Write the TOML to the database
-	_, err = c.DB.Exec(context.Background(), `INSERT INTO harmony_config (title, config) VALUES ($1, $2) ON CONFLICT (title) DO UPDATE SET config = $2`, layer, configStr)
+	// Write the TOML to the database. timestamp is also bumped by the
+	// harmony_config_touch_timestamp trigger so EnableChangeDetection reloads Dynamics.
+	_, err = c.DB.Exec(context.Background(), `INSERT INTO harmony_config (title, config) VALUES ($1, $2) ON CONFLICT (title) DO UPDATE SET config = $2, timestamp = NOW()`, layer, configStr)
 	apihelper.OrHTTPFail(w, err)
 }
 

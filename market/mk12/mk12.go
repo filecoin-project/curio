@@ -61,14 +61,13 @@ type MK12API interface {
 }
 
 type MK12 struct {
-	miners       []address.Address
+	miners       *config.Dynamic[[]address.Address]
 	db           *harmonydb.DB
 	api          MK12API
 	si           paths.SectorIndex
 	cfg          *config.CurioConfig
-	sm           map[address.Address]abi.SectorSize
 	as           *multictladdr.MultiAddressSelector
-	cidGravity   map[address.Address]string
+	cidGravity   *config.Dynamic[map[address.Address]string]
 	backpressure *backpressure.CachedBackPressure
 
 	// OnDealInserted is called after a deal is successfully committed to the
@@ -84,7 +83,7 @@ type validationError struct {
 }
 
 func NewMK12Handler(
-	miners []address.Address,
+	miners *config.Dynamic[[]address.Address],
 	db *harmonydb.DB,
 	si paths.SectorIndex,
 	mapi MK12API,
@@ -92,37 +91,36 @@ func NewMK12Handler(
 	as *multictladdr.MultiAddressSelector,
 	bp *lazy.Lazy[*backpressure.CachedBackPressure],
 ) (*MK12, error) {
-	ctx := context.Background()
-
-	sm := make(map[address.Address]abi.SectorSize)
-
-	for _, m := range miners {
-		info, err := mapi.StateMinerInfo(ctx, m, types.EmptyTSK)
-		if err != nil {
-			return nil, xerrors.Errorf("getting miner info: %w", err)
+	cidGravity := config.NewDynamic(make(map[address.Address]string))
+	rebuildCIDGravity := func() error {
+		cgMap := make(map[address.Address]string)
+		liveMiners := miners.Get()
+		if len(cfg.Market.StorageMarketConfig.MK12.CIDGravityTokens) > 0 {
+			for _, token := range cfg.Market.StorageMarketConfig.MK12.CIDGravityTokens {
+				st := strings.SplitN(token, ":", 2)
+				m, err := address.NewFromString(st[0])
+				if err != nil {
+					return xerrors.Errorf("invalid miner in CIDGravity token: %w", err)
+				}
+				if st[1] == "" || len(st[1]) == 0 {
+					return xerrors.Errorf("invalid CIDGravity token for miner %s: %s", m.String(), st[1])
+				}
+				if lo.Contains(liveMiners, m) {
+					cgMap[m] = st[1]
+				}
+			}
 		}
-		if _, ok := sm[m]; !ok {
-			sm[m] = info.SectorSize
-		}
+		cidGravity.Set(cgMap)
+		return nil
 	}
-
-	cgMap := make(map[address.Address]string)
-
-	if len(cfg.Market.StorageMarketConfig.MK12.CIDGravityTokens) > 0 {
-		for _, token := range cfg.Market.StorageMarketConfig.MK12.CIDGravityTokens {
-			st := strings.SplitN(token, ":", 2)
-			m, err := address.NewFromString(st[0])
-			if err != nil {
-				return nil, xerrors.Errorf("invalid miner in CIDGravity token: %w", err)
-			}
-			if st[1] == "" || len(st[1]) == 0 {
-				return nil, xerrors.Errorf("invalid CIDGravity token for miner %s: %s", m.String(), st[1])
-			}
-			if lo.Contains(miners, m) {
-				cgMap[m] = st[1]
-			}
-		}
+	if err := rebuildCIDGravity(); err != nil {
+		return nil, err
 	}
+	miners.OnChange(func() {
+		if err := rebuildCIDGravity(); err != nil {
+			log.Errorf("error updating CIDGravity tokens: %s", err)
+		}
+	})
 
 	b, err := bp.Val()
 	if err != nil {
@@ -134,10 +132,9 @@ func NewMK12Handler(
 		db:           db,
 		api:          mapi,
 		si:           si,
-		sm:           sm,
 		cfg:          cfg,
 		as:           as,
-		cidGravity:   cgMap,
+		cidGravity:   cidGravity,
 		backpressure: b,
 	}, nil
 }
@@ -182,7 +179,7 @@ func (m *MK12) ExecuteDeal(ctx context.Context, dp *DealParams, clientPeer peer.
 	}
 
 	// Either use CIDGravity Filters or internal filters
-	if _, ok := m.cidGravity[ds.ClientDealProposal.Proposal.Provider]; ok {
+	if _, ok := m.cidGravity.Get()[ds.ClientDealProposal.Proposal.Provider]; ok {
 		accept, msg, err := m.cidGravityCheck(ctx, ds)
 		if err != nil {
 			log.Errorf("failed to check cid gravity: %s", err.Error())
@@ -303,8 +300,9 @@ func (m *MK12) validateDealProposal(ctx context.Context, deal *ProviderDealState
 	}
 
 	// validate deal proposal
-	if !lo.Contains(m.miners, proposal.Provider) {
-		err := xerrors.Errorf("incorrect provider for deal; proposal.Provider: %s; provider.Address: %s", proposal.Provider, m.miners)
+	liveMiners := m.miners.Get()
+	if !lo.Contains(liveMiners, proposal.Provider) {
+		err := xerrors.Errorf("incorrect provider for deal; proposal.Provider: %s; provider.Address: %s", proposal.Provider, liveMiners)
 		return &validationError{error: err}
 	}
 
