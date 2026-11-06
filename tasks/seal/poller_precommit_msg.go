@@ -58,6 +58,7 @@ func (s *SealPoller) pollStartBatchPrecommitMsg(ctx context.Context) {
 					p.reg_seal_proof
 				FROM sectors_sdr_pipeline p
 				WHERE p.after_synth = TRUE
+					AND p.failed = FALSE
 					AND p.task_id_precommit_msg IS NULL
 					AND p.after_precommit_msg = FALSE
 			),
@@ -121,6 +122,7 @@ func (s *SealPoller) pollStartBatchPrecommitMsg(ctx context.Context) {
 				AND reg_seal_proof = $3
 				AND sector_number = ANY($4::bigint[])
 				AND after_synth = TRUE
+				AND failed = FALSE
 				AND task_id_precommit_msg IS NULL
 				AND after_precommit_msg = FALSE`,
 			id, firing.SpID, firing.RegSealProof, firing.SectorNums)
