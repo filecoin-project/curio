@@ -199,7 +199,8 @@ func NewPullHandler(auth Auth, store PullStore, validator AddPiecesValidator, db
 // userinfo (user "FOC Grant", password the token) before the pull is stored.
 // The fetch sends that userinfo, so the first copy's /download can read it.
 // The grant is taken from Authorization when it is not Bearer, from basic auth
-// whose user is "FOC Grant", or from an "FOC Grant" cookie. A source URL that
+// whose user is "FOC Grant", from an "FOC Grant" cookie, or from a foc_grant
+// query value (base64url). A source URL that
 // already has that userinfo keeps its own token. Send the grant on the first
 // call: the same extraData later only polls the stored pull. The read request
 // inside the grant stays valid for about five minutes.

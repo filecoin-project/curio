@@ -91,7 +91,8 @@ func TestReadEnvelopeLabelsStopsAtCBORItem(t *testing.T) {
 	labels, err := ReadEnvelopeLabels(counted)
 	require.NoError(t, err)
 	require.Equal(t, meta["foc/own"], labels.Owner)
-	require.Less(t, counted.n, len(env)+512)
+	// A 4 KiB prefix peek decides CAR vs bare; the decoder then stops at the CBOR item.
+	require.LessOrEqual(t, counted.n, 4096)
 	require.Less(t, counted.n, len(src)/2)
 }
 

@@ -199,12 +199,13 @@ func (p *PDPService) handleCreateDataSetAndAddPieces(w http.ResponseWriter, r *h
 		return
 	}
 
-	if forceACL {
-		if err := p.placePieceRefs(workCtx, subPieceInfoMap, true); err != nil {
-			log.Errorw("Failed to place ACL pieces for create-and-add", "error", err, "txHash", txHashLower)
-			httpPlaceError(w, err)
-			return
-		}
+	// Upload left the bytes in piece-park. This claim is the first time they
+	// leave it: acl-pieces when create extraData is restricted, open-pieces
+	// otherwise. The data set row does not exist until the create confirms.
+	if err := p.placePieceRefs(workCtx, subPieceInfoMap, forceACL, !forceACL); err != nil {
+		log.Errorw("Failed to place pieces for create-and-add", "error", err, "txHash", txHashLower, "acl", forceACL)
+		httpPlaceError(w, err)
+		return
 	}
 
 	// Step 7: Respond with 201 Created and Location header

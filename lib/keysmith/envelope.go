@@ -1,6 +1,7 @@
 package keysmith
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -40,12 +41,46 @@ func (l Labels) Piece() PieceLabels {
 	return out
 }
 
-// ReadEnvelopeLabels reads the FEE envelope at the front of r.
+// ReadEnvelopeLabels reads the FEE envelope from r.
+// A bare piece starts with the envelope. A CAR piece must contain exactly one
+// UnixFS file; when the root is a directory that file is named encrypted.fee.
 // The decoder stops at the end of the CBOR item. Ciphertext after it is not read.
 // The item is at most 1 MiB.
 func ReadEnvelopeLabels(r io.Reader) (Labels, error) {
 	src := &prefixReader{r: r}
-	dec := decMode.NewDecoder(io.LimitReader(src, int64(maxEnvelopeSize)))
+	peek := make([]byte, 4096)
+	n, err := io.ReadFull(src, peek)
+	if n == 0 {
+		if src.ioErr != nil {
+			return Labels{}, src.ioErr
+		}
+		if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
+			return Labels{}, fmt.Errorf("%w: %v", ErrInvalidEnvelope, err)
+		}
+		return Labels{}, fmt.Errorf("%w: empty piece", ErrInvalidEnvelope)
+	}
+	peek = peek[:n]
+	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
+		if src.ioErr != nil {
+			return Labels{}, src.ioErr
+		}
+		return Labels{}, fmt.Errorf("%w: %v", ErrInvalidEnvelope, err)
+	}
+	rest := io.MultiReader(bytes.NewReader(peek), src)
+	if isCARPrefix(peek) {
+		labels, err := labelsFromCAR(rest)
+		if src.ioErr != nil {
+			return Labels{}, src.ioErr
+		}
+		return labels, err
+	}
+	return readBareEnvelope(rest, src)
+}
+
+// readBareEnvelope parses a FEE envelope at the front of r.
+// The caller has established the stream is not a CAR.
+func readBareEnvelope(r io.Reader, src *prefixReader) (Labels, error) {
+	dec := decMode.NewDecoder(io.LimitReader(r, int64(maxEnvelopeSize)))
 	var item cbor.RawMessage
 	err := dec.Decode(&item)
 	if err != nil {
@@ -66,7 +101,7 @@ func ReadEnvelopeLabels(r io.Reader) (Labels, error) {
 // ReadEnvelopeLabelsAt reads the FEE envelope at offset 0 of r.
 // It does not move a seek position on r.
 func ReadEnvelopeLabelsAt(r io.ReaderAt) (Labels, error) {
-	return ReadEnvelopeLabels(io.NewSectionReader(r, 0, int64(maxEnvelopeSize)))
+	return ReadEnvelopeLabels(io.NewSectionReader(r, 0, int64(maxEnvelopeReadWindow)))
 }
 
 // prefixReader remembers a read failure that is not an EOF, so a disk error

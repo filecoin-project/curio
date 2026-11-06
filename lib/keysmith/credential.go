@@ -20,12 +20,14 @@ const (
 	grantUserEsc   = "FOC%20Grant"
 	grantCookie    = "FOC Grant"
 	grantCookieEsc = "FOC%20Grant"
+	grantQuery     = "foc_grant"
 )
 
 // Credential returns the longest FOC grant on r, decoded.
-// A missing Authorization header, basic-auth password, or cookie is skipped.
+// A missing Authorization header, basic-auth password, cookie, or foc_grant query is skipped.
 // The Authorization value is used when it is not HTTP basic auth and not Bearer.
 // Basic auth contributes its password only when the user is "FOC Grant" or "FOC%20Grant".
+// foc_grant is a base64url query value.
 func Credential(r *http.Request) ([]byte, error) {
 	token, err := GrantToken(r)
 	if err != nil {
@@ -64,6 +66,7 @@ func grantCandidates(r *http.Request) []string {
 		candidates = append(candidates, pass)
 	}
 	candidates = append(candidates, grantCookies(r)...)
+	candidates = append(candidates, grantQueryValues(r)...)
 	return candidates
 }
 
@@ -78,6 +81,21 @@ func normalizeGrantToken(s string) (string, error) {
 		return "", err
 	}
 	return s, nil
+}
+
+// grantQueryValues reads foc_grant query values. The caller has a parsed request URL.
+// An empty value is skipped. The value is base64url.
+func grantQueryValues(r *http.Request) []string {
+	if r == nil || r.URL == nil {
+		return nil
+	}
+	var out []string
+	for _, v := range r.URL.Query()[grantQuery] {
+		if v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 // grantCookies reads an FOC Grant cookie from the parsed cookies and the raw

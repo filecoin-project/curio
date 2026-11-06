@@ -1,6 +1,7 @@
 // Package openpieces moves PDP pieces between piece-park and the cluster
 // hash spaces. Public pieces go to open-pieces. Pieces in a data set whose
-// read metadata is restricted (acl = 1) go to acl-pieces.
+// read metadata is restricted (acl = 1) go to acl-pieces. Until a data set
+// claims a piece, it stays in piece-park.
 package openpieces
 
 import (
@@ -47,12 +48,13 @@ type parkedPiece struct {
 }
 
 // Place copies the PDP piece for parked piece ref pieceRef into open-pieces,
-// or into acl-pieces when one of its data sets has acl = 1. After it returns
-// nil, a client can read the piece from that hash space. A nil cluster means
-// this node has not joined the hash space, and placement is skipped. When a
-// hash_space_delete row is present the bytes are left in piece-park.
+// or into acl-pieces when one of its data sets has acl = 1. A piece that no
+// data set has claimed stays in piece-park. After a claimed piece returns nil,
+// a client can read it from that hash space. A nil cluster means this node has
+// not joined the hash space, and placement is skipped. When a hash_space_delete
+// row is present the bytes are left in piece-park.
 func Place(ctx context.Context, db *harmonydb.DB, hs *hashfolder.Cluster, local *paths.Local, pieceIO piecestore.PieceIO, pieceRef int64) error {
-	return place(ctx, db, hs, local, pieceIO, pieceRef, false)
+	return place(ctx, db, hs, local, pieceIO, pieceRef, false, false)
 }
 
 // PlaceACL copies the piece into acl-pieces. The caller has established that
@@ -60,13 +62,23 @@ func Place(ctx context.Context, db *harmonydb.DB, hs *hashfolder.Cluster, local 
 // when that data set row is not linked to the piece yet. An open-pieces copy
 // is removed unless the piece is also in a data set whose acl is not 1.
 func PlaceACL(ctx context.Context, db *harmonydb.DB, hs *hashfolder.Cluster, local *paths.Local, pieceIO piecestore.PieceIO, pieceRef int64) error {
-	return place(ctx, db, hs, local, pieceIO, pieceRef, true)
+	return place(ctx, db, hs, local, pieceIO, pieceRef, true, false)
+}
+
+// PlaceOpen copies the piece into open-pieces. The caller has established that
+// the piece is being claimed by a data set that is not read-restricted,
+// including when that data set row is not linked yet. An acl-pieces copy is
+// written as well when the piece is already in a data set whose acl is 1.
+func PlaceOpen(ctx context.Context, db *harmonydb.DB, hs *hashfolder.Cluster, local *paths.Local, pieceIO piecestore.PieceIO, pieceRef int64) error {
+	return place(ctx, db, hs, local, pieceIO, pieceRef, false, true)
 }
 
 // place writes pieceRef into the hash spaces it belongs in. forceACL puts it
-// in acl-pieces even when no data set row is linked yet. The caller has a
-// cluster or has passed a nil cluster, which skips the work.
-func place(ctx context.Context, db *harmonydb.DB, hs *hashfolder.Cluster, local *paths.Local, pieceIO piecestore.PieceIO, pieceRef int64, forceACL bool) error {
+// in acl-pieces even when no data set row is linked yet. forceOpen puts it in
+// open-pieces in that same window. The caller has a cluster or has passed a
+// nil cluster, which skips the work. With neither flag and no linked data set,
+// the bytes stay in piece-park.
+func place(ctx context.Context, db *harmonydb.DB, hs *hashfolder.Cluster, local *paths.Local, pieceIO piecestore.PieceIO, pieceRef int64, forceACL, forceOpen bool) error {
 	if hs == nil {
 		return nil
 	}
@@ -90,20 +102,28 @@ func place(ctx context.Context, db *harmonydb.DB, hs *hashfolder.Cluster, local 
 		return err
 	}
 
-	wantACL := forceACL
-	if !wantACL {
-		wantACL, err = pieceInACL(ctx, db, pieceRef)
+	links, err := pieceacl.ByParkedPieceRef(ctx, db, pieceRef)
+	if err != nil {
+		return err
+	}
+	// AnyPublic counts acl NULL and 0 as public. An empty link list is neither.
+	secured := pieceacl.AnySecured(links)
+	publicLinks := pieceacl.AnyPublic(links)
+	creating := false
+	if !forceACL && !forceOpen && !secured && !publicLinks {
+		creating, err = pullCreatesDataSet(ctx, db, pieceRef)
 		if err != nil {
 			return err
 		}
 	}
-	public, err := pieceSharesPublic(ctx, db, pieceRef)
-	if err != nil {
-		return err
+	wantACL, wantOpen, stay := placementDecision(forceACL, forceOpen || creating, secured, publicLinks)
+	// No data set has claimed this upload. Leave it in piece-park until add or
+	// create places it. An ACL piece is also in open-pieces only when another
+	// data set is not ACL, or the caller is claiming a public data set.
+	if stay {
+		log.Debugw("leaving piece in piece-park until a data set claims it", "piece", pc, "ref", pieceRef)
+		return nil
 	}
-	// A piece with no data set yet is public. An ACL piece stays in open-pieces
-	// only when another data set is not ACL.
-	wantOpen := !wantACL || public
 
 	ensure := func(space *hashfolder.ClusterSpace) error {
 		placed, err := space.HasFile(ctx, pc)
@@ -253,24 +273,34 @@ func requireEnvelope(ctx context.Context, pieceIO piecestore.PieceIO, parkedID i
 	return nil
 }
 
-// pieceInACL reports whether pieceRef belongs to a data set with acl = 1.
-// pieceRef is parked_piece_refs.ref_id.
-func pieceInACL(ctx context.Context, db *harmonydb.DB, pieceRef int64) (bool, error) {
-	links, err := pieceacl.ByParkedPieceRef(ctx, db, pieceRef)
-	if err != nil {
-		return false, err
+// placementDecision chooses hash spaces for one piece. stay leaves the bytes
+// in piece-park. forceACL and forceOpen are set when the caller already knows
+// the claim and the data set row may not be linked yet. anySecured and
+// anyPublic come from data sets already linked to the piece.
+func placementDecision(forceACL, forceOpen, anySecured, anyPublic bool) (wantACL, wantOpen, stay bool) {
+	wantACL = forceACL || anySecured
+	public := forceOpen || anyPublic
+	if !wantACL && !public {
+		return false, false, true
 	}
-	return pieceacl.AnySecured(links), nil
+	return wantACL, !wantACL || public, false
 }
 
-// pieceSharesPublic reports whether pieceRef also belongs to a data set whose
-// acl is not 1. NULL and 0 count as public. pieceRef is parked_piece_refs.ref_id.
-func pieceSharesPublic(ctx context.Context, db *harmonydb.DB, pieceRef int64) (bool, error) {
-	links, err := pieceacl.ByParkedPieceRef(ctx, db, pieceRef)
+// pullCreatesDataSet reports whether pieceRef is attached to a pull whose
+// data_set_id is 0. The caller has found no data set row. Those pulls are
+// placed as public because the pull row does not store read metadata.
+func pullCreatesDataSet(ctx context.Context, db *harmonydb.DB, pieceRef int64) (bool, error) {
+	var creating bool
+	err := db.QueryRow(ctx, `SELECT EXISTS (
+		SELECT 1
+		FROM pdp_piece_pull_items fi
+		JOIN pdp_piece_pulls fp ON fp.id = fi.fetch_id
+		WHERE fi.parked_piece_ref = $1 AND fp.data_set_id = 0
+	)`, pieceRef).Scan(&creating)
 	if err != nil {
-		return false, err
+		return false, xerrors.Errorf("checking create-new pull for ref %d: %w", pieceRef, err)
 	}
-	return pieceacl.AnyPublic(links), nil
+	return creating, nil
 }
 
 // pieceCidV2 is the piece CID v2 of a PDP piece CID v1 and its raw size.

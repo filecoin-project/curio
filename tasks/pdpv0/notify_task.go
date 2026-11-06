@@ -39,7 +39,8 @@ func NewPDPNotifyTask(db *harmonydb.DB) *PDPNotifyTask {
 	return &PDPNotifyTask{db: db}
 }
 
-// UseOpenPieces copies a published piece into open-pieces before Do returns.
+// UseOpenPieces copies a published piece into its hash space before Do returns.
+// A piece no data set has claimed stays in piece-park.
 func (t *PDPNotifyTask) UseOpenPieces(hs *hashfolder.Cluster, local *paths.Local, pio piecestore.PieceIO) {
 	t.hs = hs
 	t.local = local

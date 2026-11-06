@@ -96,6 +96,8 @@ func readHasExtraByte(r io.Reader) (bool, error) {
 	}
 }
 
+// placeRef moves pieceRef into the hash space its data sets require.
+// A ref no data set has claimed stays in piece-park.
 func (p *PDPService) placeRef(ctx context.Context, pieceRef int64) error {
 	return openpieces.Place(ctx, p.db, p.hs, p.local, p.pieceIO, pieceRef)
 }
@@ -386,8 +388,8 @@ func (p *PDPService) finalizeDirectUpload(ctx context.Context, uploadID, service
 	if err := p.placeRef(ctx, claim.pieceRefID); err != nil {
 		return err
 	}
-	// Drop the upload only after the piece is in its hash space, so a retry of
-	// this request can place again if the copy failed.
+	// Drop the upload after placement returns. An unclaimed piece stays in
+	// piece-park; a retry can place again if a claimed copy failed.
 	n, err := p.db.Exec(ctx, `DELETE FROM pdp_piece_uploads WHERE id = $1 AND piece_ref = $2`, uploadID, claim.pieceRefID)
 	if err != nil {
 		return fmt.Errorf("failed to delete pdp_piece_uploads row: %w", err)
@@ -779,7 +781,8 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Debugw("[handlePieceUpload] -- upload lookup done", "uploadUUID", uploadUUID)
 	// A non-null ref is an active direct-write claim, or a finalize that
-	// published the PDP ref and then failed while copying into its hash space.
+	// published the PDP ref and then failed before this upload row was removed.
+	// Placement leaves the bytes in piece-park until a data set claims them.
 	if pieceRef.Valid {
 		var published bool
 		err = p.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pdp_piecerefs WHERE piece_ref = $1)`, pieceRef.Int64).Scan(&published)
