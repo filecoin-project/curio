@@ -210,7 +210,7 @@ func (e *TaskEngine) runScheduler() {
 				if pt.IsZero() {
 					pt = time.Now()
 				}
-				e.peering.TellNewTask(event.TaskType, event.TaskID, event.Retries, pt)
+				e.peering.TellNewTask(event.TaskType, event.TaskID, event.Retries, pt, event.UpdateTime)
 			case schedulerSourcePeerNewTask:
 				// A peer added a task. Insert into our available set (if we
 				// handle this type) and schedule. Respects chokePoint to

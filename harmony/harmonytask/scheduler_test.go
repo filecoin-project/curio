@@ -87,7 +87,7 @@ func TestEmitRetryTaskWaitsBeforeReemit(t *testing.T) {
 	ee := eventEmitter{schedulerChannel: ch}
 
 	start := time.Now()
-	h.emitRetryTask(ee, task{ID: 99, Retries: 0}, false)
+	h.emitRetryTask(ee, task{ID: 99, Retries: 1, UpdateTime: start}, false)
 
 	select {
 	case ev := <-ch:
@@ -142,7 +142,7 @@ func TestEmitRetryTaskStopsAtMaxFailures(t *testing.T) {
 	ch := make(chan schedulerEvent, 1)
 	ee := eventEmitter{schedulerChannel: ch}
 
-	h.emitRetryTask(ee, task{ID: 11, Retries: 2}, false)
+	h.emitRetryTask(ee, task{ID: 11, Retries: 3}, false)
 
 	select {
 	case ev := <-ch:
