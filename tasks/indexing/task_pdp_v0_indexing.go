@@ -18,6 +18,7 @@ import (
 	"github.com/filecoin-project/curio/lib/cachedreader"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/market/indexstore"
+	"github.com/filecoin-project/curio/pdp/pieceacl"
 	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
@@ -105,8 +106,23 @@ func (P *PDPIndexingV0Task) Do(ctx context.Context, taskID harmonytask.TaskID, s
 		return true, nil
 	}
 
-	// Fetch with pcid2, it should automatically give us correct pieceReader
-	reader, _, err := P.cpr.GetSharedPieceReader(ctx, pcid2, false)
+	// Restricted data sets are opaque ciphertext: no child piece CIDs. A copy
+	// in open-pieces still gets them. A piece in neither folder uses linked
+	// data set acl = 1 to decide.
+	inOpen, inACL, err := P.cpr.PieceInSpaces(ctx, pcid2)
+	if err != nil {
+		return false, xerrors.Errorf("checking piece hash spaces: %w", err)
+	}
+	var unplacedRestricted bool
+	if !inOpen && !inACL {
+		unplacedRestricted, err = unplacedPieceRestricted(ctx, P.db, task.ID)
+		if err != nil {
+			return false, err
+		}
+	}
+	skipAggregate := skipSubpieceIndex(inOpen, inACL, unplacedRestricted)
+
+	reader, _, _, err := P.cpr.ReadPieceOrACL(ctx, pcid2, false)
 	if err != nil {
 		return false, xerrors.Errorf("getting piece reader: %w", err)
 	}
@@ -124,18 +140,26 @@ func (P *PDPIndexingV0Task) Do(ctx context.Context, taskID harmonytask.TaskID, s
 
 	var interrupted bool
 
-	aggRecs := make(chan indexstore.Record, chanSize)
+	// A nil aggregate writer leaves aggRecs nil, so IndexPDPv0 records no child piece CIDs.
+	var aggRecs chan indexstore.Record
+	var addAggregate func() error
+	if !skipAggregate {
+		aggRecs = make(chan indexstore.Record, chanSize)
+		addAggregate = func() error {
+			return P.indexStore.InsertAggregateIndex(ctx, pcid2, aggRecs)
+		}
+	}
 	eg, addFail := startIndexWriters(func() error {
 		return P.indexStore.AddIndex(ctx, pcid2, recs)
-	}, func() error {
-		return P.indexStore.InsertAggregateIndex(ctx, pcid2, aggRecs)
-	})
+	}, addAggregate)
 
 	blocks, interrupted, err = IndexPDPv0(pcid2, reader, task.PieceSize, recs, aggRecs, addFail)
 	if err != nil {
 		// Indexing itself failed, stop early
 		close(recs) // still safe to close, AddIndex will exit on channel close
-		close(aggRecs)
+		if aggRecs != nil {
+			close(aggRecs)
+		}
 		// wait for AddIndex goroutine to finish cleanly
 		_ = eg.Wait()
 		return false, xerrors.Errorf("indexing failed: %w", err)
@@ -143,7 +167,9 @@ func (P *PDPIndexingV0Task) Do(ctx context.Context, taskID harmonytask.TaskID, s
 
 	// Close the channel
 	close(recs)
-	close(aggRecs)
+	if aggRecs != nil {
+		close(aggRecs)
+	}
 
 	// Wait till AddIndex is finished
 	err = eg.Wait()
@@ -162,6 +188,31 @@ func (P *PDPIndexingV0Task) Do(ctx context.Context, taskID harmonytask.TaskID, s
 	log.Infow("Piece indexed", "piece_cid", task.PieceCID, "id", task.ID, "blocks", blocks, "blocks_per_second", blocksPerSecond)
 
 	return true, nil
+}
+
+// skipSubpieceIndex omits child piece CID records for restricted data sets.
+// Those pieces are encrypted end-to-end; there is no key and no subpiece to
+// index. A copy in open-pieces keeps them. unplacedRestricted is true when
+// every linked data set has acl = 1 and the piece is in neither hash folder.
+func skipSubpieceIndex(inOpen, inACL, unplacedRestricted bool) bool {
+	if inOpen {
+		return false
+	}
+	if inACL {
+		return true
+	}
+	return unplacedRestricted
+}
+
+// unplacedPieceRestricted reports whether every data set linked to this piece
+// has acl = 1. The caller passes pdp_piecerefs.id and has found the piece in
+// neither hash folder. 0, NULL, or no linked data set is public.
+func unplacedPieceRestricted(ctx context.Context, db *harmonydb.DB, pdpPieceRef int64) (bool, error) {
+	links, err := pieceacl.ByPDPPieceRefID(ctx, db, pdpPieceRef)
+	if err != nil {
+		return false, err
+	}
+	return pieceacl.EverySecured(links), nil
 }
 
 func (P *PDPIndexingV0Task) recordCompletion(ctx context.Context, taskID harmonytask.TaskID, id int64, needsIPNI bool) error {

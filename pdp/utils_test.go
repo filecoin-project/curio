@@ -13,9 +13,14 @@ import (
 
 func packCreatePayload(t *testing.T, payer common.Address, clientDataSetId int64, keys []string) []byte {
 	t.Helper()
+	values := make([]string, len(keys))
+	return packCreatePayloadWithValues(t, payer, clientDataSetId, keys, values)
+}
+
+func packCreatePayloadWithValues(t *testing.T, payer common.Address, clientDataSetId int64, keys, values []string) []byte {
+	t.Helper()
 	args, err := createPayloadArgs()
 	require.NoError(t, err)
-	values := make([]string, len(keys))
 	payload, err := args.Pack(payer, big.NewInt(clientDataSetId), keys, values, []byte("sig"))
 	require.NoError(t, err)
 	return payload
@@ -31,18 +36,18 @@ func packCombinedExtraData(t *testing.T, createPayload, addPayload []byte) []byt
 	return extra
 }
 
-func TestDecodeFWSSCreateIdentityFromExtraData_CombinedAndBare(t *testing.T) {
+func TestDecodeFWSSCreateIdentity_CombinedAndBare(t *testing.T) {
 	payer := common.HexToAddress("0x1111111111111111111111111111111111111111")
 	createPayload := packCreatePayload(t, payer, 42, []string{"withIPFSIndexing"})
 
 	combined := packCombinedExtraData(t, createPayload, []byte{0x01})
-	got, err := DecodeFWSSCreateIdentityFromExtraData(combined)
+	got, err := DecodeFWSSCreateIdentity(combined)
 	require.NoError(t, err)
 	require.Equal(t, payer, got.Payer)
 	require.Equal(t, int64(42), got.ClientDataSetId.Int64())
 	require.Equal(t, []string{"withIPFSIndexing"}, got.MetadataKeys)
 
-	gotBare, err := DecodeFWSSCreateIdentityFromExtraData(createPayload)
+	gotBare, err := DecodeFWSSCreateIdentity(createPayload)
 	require.NoError(t, err)
 	require.Equal(t, payer, gotBare.Payer)
 	require.Equal(t, int64(42), gotBare.ClientDataSetId.Int64())
@@ -75,6 +80,43 @@ func TestCreateIdentityFromPDPCalldata_CreateDataSetAndAddPieces(t *testing.T) {
 	require.NoError(t, err)
 	_, err = CreateIdentityFromPDPCalldata(existing)
 	require.Error(t, err)
+}
+
+func TestACLFromExtraData(t *testing.T) {
+	payer := common.HexToAddress("0x1111111111111111111111111111111111111111")
+
+	known, acl := ACLFromExtraData(nil)
+	require.False(t, known)
+	require.False(t, acl)
+
+	withACL := packCreatePayloadWithValues(t, payer, 1, []string{MetadataKeyACL}, []string{DATASET_READ_RESTRICTED})
+	known, acl = ACLFromExtraData(withACL)
+	require.True(t, known)
+	require.True(t, acl)
+
+	folded := packCreatePayloadWithValues(t, payer, 1, []string{MetadataKeyACL}, []string{" RESTRICTED "})
+	known, acl = ACLFromExtraData(folded)
+	require.True(t, known)
+	require.True(t, acl)
+
+	off := packCreatePayloadWithValues(t, payer, 1, []string{MetadataKeyACL}, []string{"false"})
+	known, acl = ACLFromExtraData(off)
+	require.True(t, known)
+	require.False(t, acl)
+
+	legacy := packCreatePayloadWithValues(t, payer, 1, []string{MetadataKeyACL}, []string{"true"})
+	known, acl = ACLFromExtraData(legacy)
+	require.True(t, known)
+	require.False(t, acl)
+
+	other := packCreatePayloadWithValues(t, payer, 1, []string{"other"}, []string{DATASET_READ_RESTRICTED})
+	known, acl = ACLFromExtraData(other)
+	require.True(t, known)
+	require.False(t, acl)
+
+	known, acl = ACLFromExtraData([]byte{0xde, 0xad})
+	require.False(t, known)
+	require.False(t, acl)
 }
 
 func TestIPFSIndexingFromExtraData(t *testing.T) {

@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"math/big"
-	"slices"
 
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
@@ -22,13 +21,13 @@ func IPFSIndexingFromExtraData(extraData []byte) (known bool, ipfsIndexing bool)
 		return false, false
 	}
 
-	payload, err := DecodeFWSSCreateIdentityFromExtraData(extraData)
+	id, err := DecodeFWSSCreateIdentity(extraData)
 	if err != nil {
 		log.Debugw("Failed to decode extraData for IPFS indexing intent", "error", err)
 		return false, false
 	}
 
-	return true, slices.Contains(payload.MetadataKeys, "withIPFSIndexing")
+	return true, id.HasMetadataKey("withIPFSIndexing")
 }
 
 // CheckIfIndexingNeededFromExtraData checks if extraData contains withIPFSIndexing metadata.

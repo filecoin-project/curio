@@ -20,6 +20,9 @@ import (
 
 var log = logging.Logger("cu-http")
 
+// MAX_HEADER_BYTES caps the request line and every header on the public listener.
+const MAX_HEADER_BYTES = 8 << 10
+
 type startTime string
 
 // RouterConfig configures the shared public HTTP router middleware stack.
@@ -67,6 +70,7 @@ func StartServer(ctx context.Context, cfg *config.HTTPConfig, db *harmonydb.DB, 
 		WriteTimeout:      writeTimeout,
 		IdleTimeout:       cfg.IdleTimeout,
 		ReadHeaderTimeout: cfg.ReadHeaderTimeout,
+		MaxHeaderBytes:    MAX_HEADER_BYTES,
 	}
 
 	if !cfg.DelegateTLS {

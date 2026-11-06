@@ -34,6 +34,16 @@ type fakeOpen struct {
 	opens []*fakeFile
 }
 
+func (f *fakeOpen) HasPiece(_ context.Context, pc cid.Cid) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.err != nil {
+		return false, f.err
+	}
+	_, ok := f.files[pc]
+	return ok, nil
+}
+
 func (f *fakeOpen) ReadPiece(_ context.Context, pc cid.Cid, rawSize int64) (storiface.Reader, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -227,6 +237,65 @@ func TestReadFromHashspace(t *testing.T) {
 		require.Nil(t, res.reader)
 		require.Empty(t, open.calls)
 	})
+}
+
+func TestPieceInSpaces(t *testing.T) {
+	ctx := context.Background()
+	pc := testV2(t, 127)
+	cpr := &CachedPieceReader{}
+	cpr.SetOpenPieceReader(&fakeOpen{files: map[cid.Cid][]byte{pc: []byte("open")}})
+	cpr.SetACLPieceReader(&fakeOpen{files: map[cid.Cid][]byte{}})
+
+	inOpen, inACL, err := cpr.PieceInSpaces(ctx, pc)
+	require.NoError(t, err)
+	require.True(t, inOpen)
+	require.False(t, inACL)
+}
+
+func TestReadACLPiece(t *testing.T) {
+	ctx := context.Background()
+	pc := testV2(t, 127)
+
+	t.Run("nil reader is a miss", func(t *testing.T) {
+		cpr := &CachedPieceReader{}
+		r, size, err := cpr.ReadACLPiece(ctx, pc)
+		require.NoError(t, err)
+		require.Nil(t, r)
+		require.Zero(t, size)
+	})
+
+	t.Run("hit returns the acl bytes", func(t *testing.T) {
+		cpr := &CachedPieceReader{}
+		cpr.SetACLPieceReader(&fakeOpen{files: map[cid.Cid][]byte{pc: []byte("acl-bytes")}})
+		r, size, err := cpr.ReadACLPiece(ctx, pc)
+		require.NoError(t, err)
+		require.Equal(t, uint64(127), size)
+		require.Equal(t, []byte("acl-bytes"), readAll(t, r))
+	})
+
+	t.Run("open piece is not visible", func(t *testing.T) {
+		cpr := newStageReader(&fakeOpen{files: map[cid.Cid][]byte{pc: []byte("open")}}, nil)
+		r, _, err := cpr.ReadACLPiece(ctx, pc)
+		require.NoError(t, err)
+		require.Nil(t, r)
+	})
+}
+
+func TestReadPieceOrACLSkipsYCQLForACLOnly(t *testing.T) {
+	ctx := context.Background()
+	pc := testV2(t, 127)
+	aggs := &fakeAggs{records: []indexstore.Record{{Cid: testV2(t, 1016), Offset: 0, Size: 10}}}
+
+	cpr := &CachedPieceReader{aggs: aggs}
+	cpr.SetOpenPieceReader(&fakeOpen{files: map[cid.Cid][]byte{}})
+	cpr.SetACLPieceReader(&fakeOpen{files: map[cid.Cid][]byte{pc: []byte("acl-bytes")}})
+
+	r, size, fromACL, err := cpr.ReadPieceOrACL(ctx, pc, true)
+	require.NoError(t, err)
+	require.True(t, fromACL)
+	require.Equal(t, uint64(127), size)
+	require.Equal(t, []byte("acl-bytes"), readAll(t, r))
+	require.Empty(t, aggs.calls, "acl-only pieces must not consult YCQL for subpieces")
 }
 
 func TestBoundedReader(t *testing.T) {

@@ -1,10 +1,13 @@
 // Package openpieces moves PDP pieces between piece-park and the cluster
-// open-pieces hash space.
+// hash spaces. Public pieces go to open-pieces. Pieces in a data set whose
+// read metadata is restricted (acl = 1) go to acl-pieces. Until a data set
+// claims a piece, it stays in piece-park.
 package openpieces
 
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"time"
 
@@ -15,10 +18,16 @@ import (
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/hashfolder"
+	"github.com/filecoin-project/curio/lib/keysmith"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/piecestore"
 	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/pdp/pieceacl"
 )
+
+// errPlacementAborted means the PDP ref disappeared while the bytes were
+// being copied, and the new file was removed.
+var errPlacementAborted = errors.New("piece ref disappeared during placement")
 
 const (
 	// waitInterval is how long place and drop pause while the other still
@@ -38,17 +47,43 @@ type parkedPiece struct {
 	RefCount int64  `db:"ref_count"`
 }
 
-// Place copies the PDP piece for parked piece ref pieceRef into open-pieces
-// before the caller returns. After it returns nil, a client can read the
-// piece from the hash space. A nil cluster means this node has not joined
-// the hash space, and placement is skipped. When a hash_space_delete row is
-// present the bytes are left in piece-park.
+// Place copies the PDP piece for parked piece ref pieceRef into open-pieces,
+// or into acl-pieces when one of its data sets has acl = 1. A piece that no
+// data set has claimed stays in piece-park. After a claimed piece returns nil,
+// a client can read it from that hash space. A nil cluster means this node has
+// not joined the hash space, and placement is skipped. When a hash_space_delete
+// row is present the bytes are left in piece-park.
 func Place(ctx context.Context, db *harmonydb.DB, hs *hashfolder.Cluster, local *paths.Local, pieceIO piecestore.PieceIO, pieceRef int64) error {
+	return place(ctx, db, hs, local, pieceIO, pieceRef, false, false)
+}
+
+// PlaceACL copies the piece into acl-pieces. The caller has established that
+// the piece belongs to a data set whose read metadata is restricted, including
+// when that data set row is not linked to the piece yet. An open-pieces copy
+// is removed unless the piece is also in a data set whose acl is not 1.
+func PlaceACL(ctx context.Context, db *harmonydb.DB, hs *hashfolder.Cluster, local *paths.Local, pieceIO piecestore.PieceIO, pieceRef int64) error {
+	return place(ctx, db, hs, local, pieceIO, pieceRef, true, false)
+}
+
+// PlaceOpen copies the piece into open-pieces. The caller has established that
+// the piece is being claimed by a data set that is not read-restricted,
+// including when that data set row is not linked yet. An acl-pieces copy is
+// written as well when the piece is already in a data set whose acl is 1.
+func PlaceOpen(ctx context.Context, db *harmonydb.DB, hs *hashfolder.Cluster, local *paths.Local, pieceIO piecestore.PieceIO, pieceRef int64) error {
+	return place(ctx, db, hs, local, pieceIO, pieceRef, false, true)
+}
+
+// place writes pieceRef into the hash spaces it belongs in. forceACL puts it
+// in acl-pieces even when no data set row is linked yet. forceOpen puts it in
+// open-pieces in that same window. The caller has a cluster or has passed a
+// nil cluster, which skips the work. With neither flag and no linked data set,
+// the bytes stay in piece-park.
+func place(ctx context.Context, db *harmonydb.DB, hs *hashfolder.Cluster, local *paths.Local, pieceIO piecestore.PieceIO, pieceRef int64, forceACL, forceOpen bool) error {
 	if hs == nil {
 		return nil
 	}
 	if local == nil || pieceIO == nil {
-		return xerrors.Errorf("open-pieces placement needs local storage and piece IO")
+		return xerrors.Errorf("hash space placement needs local storage and piece IO")
 	}
 	var parked []parkedPiece
 	if err := db.Select(ctx, &parked, `SELECT pp.id, pr.piece_cid, pp.piece_raw_size, pp.ref_count
@@ -67,16 +102,42 @@ func Place(ctx context.Context, db *harmonydb.DB, hs *hashfolder.Cluster, local 
 		return err
 	}
 
-	placed, err := hs.HasFile(ctx, pc)
+	links, err := pieceacl.ByParkedPieceRef(ctx, db, pieceRef)
 	if err != nil {
-		return xerrors.Errorf("checking open piece: %w", err)
+		return err
 	}
-	if !placed {
+	// AnyPublic counts acl NULL and 0 as public. An empty link list is neither.
+	secured := pieceacl.AnySecured(links)
+	publicLinks := pieceacl.AnyPublic(links)
+	creating := false
+	if !forceACL && !forceOpen && !secured && !publicLinks {
+		creating, err = pullCreatesDataSet(ctx, db, pieceRef)
+		if err != nil {
+			return err
+		}
+	}
+	wantACL, wantOpen, stay := placementDecision(forceACL, forceOpen || creating, secured, publicLinks)
+	// No data set has claimed this upload. Leave it in piece-park until add or
+	// create places it. An ACL piece is also in open-pieces only when another
+	// data set is not ACL, or the caller is claiming a public data set.
+	if stay {
+		log.Debugw("leaving piece in piece-park until a data set claims it", "piece", pc, "ref", pieceRef)
+		return nil
+	}
+
+	ensure := func(space *hashfolder.ClusterSpace) error {
+		placed, err := space.HasFile(ctx, pc)
+		if err != nil {
+			return xerrors.Errorf("checking %s piece: %w", space.Name(), err)
+		}
+		if placed {
+			return nil
+		}
 		digest, err := hashfolder.CIDHash(pc)
 		if err != nil {
 			return err
 		}
-		target, err := hs.Target(ctx, digest)
+		target, err := space.Target(ctx, digest)
 		if err != nil {
 			return err
 		}
@@ -86,24 +147,24 @@ func Place(ctx context.Context, db *harmonydb.DB, hs *hashfolder.Cluster, local 
 		for attempt := 0; ; attempt++ {
 			var busy bool
 			if err := db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM hash_space_delete WHERE piece_cid = $1)`, pc.String()).Scan(&busy); err != nil {
-				return xerrors.Errorf("checking open-pieces delete of %s: %w", pc, err)
+				return xerrors.Errorf("checking hash space delete of %s: %w", pc, err)
 			}
 			if busy {
 				if attempt >= placeDeleteAttempts {
-					return xerrors.Errorf("open-pieces delete of %s is in progress", pc)
+					return xerrors.Errorf("hash space delete of %s is in progress", pc)
 				}
 				if err := sleepTask(ctx, nil); err != nil {
 					return err
 				}
 				continue
 			}
-			size, adopted, existed, err = writePiece(ctx, hs, local, pieceIO, target, pc, pp)
+			size, adopted, existed, err = writePiece(ctx, hs, local, pieceIO, space, target, pc, pp)
 			if err != nil {
 				return err
 			}
 			if size != pp.RawSize {
-				undoPlacement(ctx, hs, target, pc, existed, adopted)
-				return xerrors.Errorf("open piece %s is %d bytes, expected %d", pc, size, pp.RawSize)
+				undoPlacement(ctx, space, target, pc, existed, adopted)
+				return xerrors.Errorf("%s piece %s is %d bytes, expected %d", space.Name(), pc, size, pp.RawSize)
 			}
 			var refOK, dropBusy bool
 			if err := db.QueryRow(ctx, `SELECT
@@ -113,13 +174,13 @@ func Place(ctx context.Context, db *harmonydb.DB, hs *hashfolder.Cluster, local 
 				return xerrors.Errorf("checking placement of %s: %w", pc, err)
 			}
 			if !refOK {
-				undoPlacement(ctx, hs, target, pc, existed, adopted)
-				return nil
+				undoPlacement(ctx, space, target, pc, existed, adopted)
+				return errPlacementAborted
 			}
 			if dropBusy {
-				undoPlacement(ctx, hs, target, pc, existed, adopted)
+				undoPlacement(ctx, space, target, pc, existed, adopted)
 				if attempt >= placeDeleteAttempts-1 {
-					return xerrors.Errorf("open-pieces delete of %s is in progress", pc)
+					return xerrors.Errorf("hash space delete of %s is in progress", pc)
 				}
 				if err := sleepTask(ctx, nil); err != nil {
 					return err
@@ -128,15 +189,49 @@ func Place(ctx context.Context, db *harmonydb.DB, hs *hashfolder.Cluster, local 
 			}
 			break
 		}
-		placed, err = hs.HasFile(ctx, pc)
+		placed, err = space.HasFile(ctx, pc)
 		if err != nil {
 			return err
 		}
 		if !placed {
-			return xerrors.Errorf("open piece %s disappeared during placement", pc)
+			return xerrors.Errorf("%s piece %s disappeared during placement", space.Name(), pc)
 		}
 		if err := hs.MaybeRebalance(ctx, target); err != nil {
-			log.Warnw("checking open-pieces capacity", "storage", target, "error", err)
+			log.Warnw("checking hash space capacity", "space", space.Name(), "storage", target, "error", err)
+		}
+		return nil
+	}
+
+	if wantOpen {
+		if err := ensure(hs.Public); err != nil {
+			if errors.Is(err, errPlacementAborted) {
+				return nil
+			}
+			return err
+		}
+	}
+	if wantACL {
+		placed, err := hs.ACL.HasFile(ctx, pc)
+		if err != nil {
+			return xerrors.Errorf("checking acl-pieces for %s: %w", pc, err)
+		}
+		// The park file is still here the first time an ACL piece is finalized.
+		// A copy already in acl-pieces was checked on that write.
+		if !placed {
+			if err := requireEnvelope(ctx, pieceIO, pp.ID); err != nil {
+				return xerrors.Errorf("acl piece %s: %w", pc, err)
+			}
+		}
+		if err := ensure(hs.ACL); err != nil {
+			if errors.Is(err, errPlacementAborted) {
+				return nil
+			}
+			return err
+		}
+		if !wantOpen {
+			if err := hs.Public.DeleteCID(ctx, pc.String()); err != nil {
+				return xerrors.Errorf("removing open-pieces copy of ACL piece %s: %w", pc, err)
+			}
 		}
 	}
 
@@ -164,6 +259,50 @@ func Place(ctx context.Context, db *harmonydb.DB, hs *hashfolder.Cluster, local 
 	return nil
 }
 
+// requireEnvelope reads the parked piece and requires a FEE envelope.
+// The caller is finalizing a piece into acl-pieces and the park file is still present.
+func requireEnvelope(ctx context.Context, pieceIO piecestore.PieceIO, parkedID int64) error {
+	rc, err := pieceIO.PieceReader(ctx, storiface.PieceNumber(parkedID))
+	if err != nil {
+		return xerrors.Errorf("reading parked piece %d: %w", parkedID, err)
+	}
+	defer func() { _ = rc.Close() }()
+	if _, err := keysmith.ReadEnvelopeLabels(rc); err != nil {
+		return err
+	}
+	return nil
+}
+
+// placementDecision chooses hash spaces for one piece. stay leaves the bytes
+// in piece-park. forceACL and forceOpen are set when the caller already knows
+// the claim and the data set row may not be linked yet. anySecured and
+// anyPublic come from data sets already linked to the piece.
+func placementDecision(forceACL, forceOpen, anySecured, anyPublic bool) (wantACL, wantOpen, stay bool) {
+	wantACL = forceACL || anySecured
+	public := forceOpen || anyPublic
+	if !wantACL && !public {
+		return false, false, true
+	}
+	return wantACL, !wantACL || public, false
+}
+
+// pullCreatesDataSet reports whether pieceRef is attached to a pull whose
+// data_set_id is 0. The caller has found no data set row. Those pulls are
+// placed as public because the pull row does not store read metadata.
+func pullCreatesDataSet(ctx context.Context, db *harmonydb.DB, pieceRef int64) (bool, error) {
+	var creating bool
+	err := db.QueryRow(ctx, `SELECT EXISTS (
+		SELECT 1
+		FROM pdp_piece_pull_items fi
+		JOIN pdp_piece_pulls fp ON fp.id = fi.fetch_id
+		WHERE fi.parked_piece_ref = $1 AND fp.data_set_id = 0
+	)`, pieceRef).Scan(&creating)
+	if err != nil {
+		return false, xerrors.Errorf("checking create-new pull for ref %d: %w", pieceRef, err)
+	}
+	return creating, nil
+}
+
 // pieceCidV2 is the piece CID v2 of a PDP piece CID v1 and its raw size.
 func pieceCidV2(pdpPieceCID string, rawSize int64) (cid.Cid, error) {
 	v1, err := cid.Parse(pdpPieceCID)
@@ -177,77 +316,112 @@ func pieceCidV2(pdpPieceCID string, rawSize int64) (cid.Cid, error) {
 	return v2, nil
 }
 
-// writePiece puts pc on target. A sole-reference piece-park file on the same
-// local filesystem is renamed; otherwise the bytes are copied. A remote
-// target is written by streaming a PUT to that node. The second result is
-// the piece-park path when the file was renamed. The third reports that the
-// open-pieces file was already there.
-func writePiece(ctx context.Context, hs *hashfolder.Cluster, local *paths.Local, pieceIO piecestore.PieceIO, target string, pc cid.Cid, pp parkedPiece) (int64, string, bool, error) {
-	if !hs.HasLocal(target) {
-		r, err := pieceIO.PieceReader(ctx, storiface.PieceNumber(pp.ID))
+// writePiece puts pc into space on target. A sole-reference piece-park file on
+// the same local filesystem is renamed; otherwise the bytes are copied from
+// piece-park, or from the other hash space when piece-park is already gone.
+// A remote target is written by streaming a PUT to that node. The second
+// result is the piece-park path when the file was renamed. The third reports
+// that the file was already there.
+func writePiece(ctx context.Context, hs *hashfolder.Cluster, local *paths.Local, pieceIO piecestore.PieceIO, space *hashfolder.ClusterSpace, target string, pc cid.Cid, pp parkedPiece) (int64, string, bool, error) {
+	openSource := func() (io.ReadCloser, error) {
+		r, err := pieceSource(ctx, hs, pieceIO, space, pc, pp)
 		if err != nil {
-			return 0, "", false, xerrors.Errorf("opening piece-park copy of %s: %w", pc, err)
+			return nil, xerrors.Errorf("opening copy of %s: %w", pc, err)
+		}
+		return r, nil
+	}
+	if !space.HasLocal(target) {
+		r, err := openSource()
+		if err != nil {
+			return 0, "", false, err
 		}
 		defer func() { _ = r.Close() }()
-		size, existed, err := hs.PutRemote(ctx, target, pc, hashfolder.WithSize(r, pp.RawSize))
+		size, existed, err := space.PutRemote(ctx, target, pc, hashfolder.WithSize(r, pp.RawSize))
 		if err != nil {
 			return 0, "", false, err
 		}
 		return size, "", existed, nil
 	}
 
-	if size, ok, err := hs.StatLocal(target, pc); err != nil {
+	if size, ok, err := space.StatLocal(target, pc); err != nil {
 		return 0, "", false, err
 	} else if ok && size >= pp.RawSize {
 		return size, "", true, nil
 	} else if ok {
-		if err := hs.DropLocal(target, pc); err != nil {
+		if err := space.DropLocal(target, pc); err != nil {
 			return 0, "", false, xerrors.Errorf("dropping partial copy of %s: %w", pc, err)
 		}
 	}
 
 	if pp.RefCount == 1 {
 		if src, ok := local.ExistingLocalFile(storiface.PieceNumber(pp.ID).Ref().ID, storiface.FTPiece); ok {
-			size, err := hs.AdoptLocal(target, pc, src)
+			size, err := space.AdoptLocal(target, pc, src)
 			switch {
 			case err == nil:
 				return size, src, false, nil
 			case errors.Is(err, os.ErrExist):
-				size, _, err := hs.StatLocal(target, pc)
+				size, _, err := space.StatLocal(target, pc)
 				return size, "", true, err
 			case !errors.Is(err, hashfolder.ErrCrossDevice):
-				return 0, "", false, xerrors.Errorf("renaming %s into open-pieces: %w", pc, err)
+				return 0, "", false, xerrors.Errorf("renaming %s into %s: %w", pc, space.Name(), err)
 			}
 		}
 	}
 
-	r, err := pieceIO.PieceReader(ctx, storiface.PieceNumber(pp.ID))
+	r, err := openSource()
 	if err != nil {
-		return 0, "", false, xerrors.Errorf("opening piece-park copy of %s: %w", pc, err)
+		return 0, "", false, err
 	}
 	defer func() { _ = r.Close() }()
-	size, err := hs.WriteLocal(target, pc, hashfolder.WithSize(r, pp.RawSize))
+	size, err := space.WriteLocal(target, pc, hashfolder.WithSize(r, pp.RawSize))
 	if err != nil {
 		return 0, "", false, err
 	}
 	return size, "", false, nil
 }
 
-// undoPlacement removes a file this attempt created. An adopted file goes
-// back to its piece-park path; a copy is deleted. A file that was already
+// pieceSource opens the bytes for pc. Piece-park is used when it still has
+// the file. Otherwise the other hash space is read. space is the one being written.
+func pieceSource(ctx context.Context, hs *hashfolder.Cluster, pieceIO piecestore.PieceIO, space *hashfolder.ClusterSpace, pc cid.Cid, pp parkedPiece) (io.ReadCloser, error) {
+	r, err := pieceIO.PieceReader(ctx, storiface.PieceNumber(pp.ID))
+	if err == nil {
+		return r, nil
+	}
+	other := hs.ACL
+	if space == hs.ACL {
+		other = hs.Public
+	}
+	locs, lerr := other.Locations(ctx, pc.String())
+	if lerr != nil || len(locs) == 0 {
+		return nil, err
+	}
+	last := err
+	for _, l := range locs {
+		r, oerr := other.Open(ctx, l.StorageID, pc)
+		if oerr != nil {
+			last = oerr
+			continue
+		}
+		return r, nil
+	}
+	return nil, last
+}
+
+// undoPlacement removes a file this attempt created in space. An adopted file
+// goes back to its piece-park path; a copy is deleted. A file that was already
 // there is left alone.
-func undoPlacement(ctx context.Context, hs *hashfolder.Cluster, target string, pc cid.Cid, existed bool, adopted string) {
+func undoPlacement(ctx context.Context, space *hashfolder.ClusterSpace, target string, pc cid.Cid, existed bool, adopted string) {
 	if existed {
 		return
 	}
 	if adopted != "" {
-		if err := hs.ReturnLocal(target, pc, adopted); err != nil {
-			log.Errorw("returning open piece to piece-park", "piece", pc, "path", adopted, "error", err)
+		if err := space.ReturnLocal(target, pc, adopted); err != nil {
+			log.Errorw("returning piece to piece-park", "space", space.Name(), "piece", pc, "path", adopted, "error", err)
 		}
 		return
 	}
-	if err := hs.Drop(ctx, target, pc); err != nil {
-		log.Warnw("dropping open piece after placement rolled back", "piece", pc, "storage", target, "error", err)
+	if err := space.Drop(ctx, target, pc); err != nil {
+		log.Warnw("dropping piece after placement rolled back", "space", space.Name(), "piece", pc, "storage", target, "error", err)
 	}
 }
 
@@ -280,27 +454,30 @@ func hasNonPDPRefs(ctx context.Context, db *harmonydb.DB, parkedID int64) (bool,
 	return shared, nil
 }
 
-// restorePark writes the piece-park copy back from open-pieces when a non-PDP
-// ref attached while the copy was being removed.
+// restorePark writes the piece-park copy back from a hash space when a non-PDP
+// ref attached while the copy was being removed. Open-pieces is tried first.
 func restorePark(ctx context.Context, hs *hashfolder.Cluster, pieceIO piecestore.PieceIO, pc cid.Cid, pp parkedPiece) error {
-	locs, err := hs.Locations(ctx, pc.String())
-	if err != nil {
-		return err
-	}
-	lastErr := xerrors.Errorf("%s has no open-pieces location", pc)
-	for _, l := range locs {
-		r, err := hs.Open(ctx, l.StorageID, pc)
+	lastErr := xerrors.Errorf("%s has no hash space location", pc)
+	for _, space := range []*hashfolder.ClusterSpace{hs.Public, hs.ACL} {
+		locs, err := space.Locations(ctx, pc.String())
 		if err != nil {
 			lastErr = err
 			continue
 		}
-		err = pieceIO.WritePiece(ctx, nil, storiface.PieceNumber(pp.ID), pp.RawSize, r, storiface.PathStorage)
-		_ = r.Close()
-		if err != nil {
-			lastErr = err
-			continue
+		for _, l := range locs {
+			r, err := space.Open(ctx, l.StorageID, pc)
+			if err != nil {
+				lastErr = err
+				continue
+			}
+			err = pieceIO.WritePiece(ctx, nil, storiface.PieceNumber(pp.ID), pp.RawSize, r, storiface.PathStorage)
+			_ = r.Close()
+			if err != nil {
+				lastErr = err
+				continue
+			}
+			return nil
 		}
-		return nil
 	}
 	return lastErr
 }

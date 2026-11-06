@@ -16,6 +16,8 @@
 - In production code, give every unexported function and method a short comment. Privacy means the caller is expected to have established conditions the function does not re-check: valid indexes, required order, a prior capacity or range-cap check, or which limits it deliberately skips. Say what it does and those conditions. If it checks its own inputs, say that instead of inventing a precondition. Do not restate the body. Test helpers are exempt.
 - Keep other comments sparse and high-signal (non-obvious invariants, coordination logic, edge cases).
 - Avoid unnecessary abstractions and wide refactors when scoped fixes are sufficient.
+- A lower type does not hold its parent and does not mutate the parent's variables. An effect on the parent is a function passed at initialization, so reading the lower type shows every upward call.
+- Pass a lower type only the data it reads. Do not hand it the parent's aggregate object when it uses one field of that object.
 
 ## SQL / DB preferences
 - Treat Yugabyte YSQL state as part of Curio’s runtime protocol, not just storage.

@@ -2,6 +2,7 @@ package indexing
 
 import (
 	"bytes"
+	"database/sql"
 	"errors"
 	"io"
 	"math/bits"
@@ -22,6 +23,7 @@ import (
 	"github.com/filecoin-project/curio/lib/testutils"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/mk20"
+	"github.com/filecoin-project/curio/pdp/pieceacl"
 )
 
 func TestAggregateWriterFailureUnblocksIndexing(t *testing.T) {
@@ -177,6 +179,43 @@ func TestIndexPDPv0AggregateUsesSegmentCARRawSizesForChildPieceCIDV2(t *testing.
 
 	assertPDPv0ChildCID(t, subA, children[0])
 	assertPDPv0ChildCID(t, subB, children[1])
+}
+
+func TestSkipSubpieceIndex(t *testing.T) {
+	require.False(t, skipSubpieceIndex(true, true, true))
+	require.False(t, skipSubpieceIndex(true, false, false))
+	require.True(t, skipSubpieceIndex(false, true, false))
+	require.False(t, skipSubpieceIndex(false, false, false))
+	require.True(t, skipSubpieceIndex(false, false, true))
+}
+
+func TestEveryACLRestricted(t *testing.T) {
+	secured := pieceacl.Link{ID: 1, ACL: sql.NullInt32{Int32: pieceacl.Secured, Valid: true}}
+	public0 := pieceacl.Link{ID: 2, ACL: sql.NullInt32{Int32: 0, Valid: true}}
+	unresolved := pieceacl.Link{ID: 3, ACL: sql.NullInt32{Valid: false}}
+
+	require.False(t, pieceacl.EverySecured(nil))
+	require.True(t, pieceacl.EverySecured([]pieceacl.Link{secured}))
+	require.True(t, pieceacl.EverySecured([]pieceacl.Link{secured, secured}))
+	require.False(t, pieceacl.EverySecured([]pieceacl.Link{unresolved}))
+	require.False(t, pieceacl.EverySecured([]pieceacl.Link{public0}))
+	require.False(t, pieceacl.EverySecured([]pieceacl.Link{secured, unresolved}))
+}
+
+func TestIndexPDPv0AggregateIndexesBlocksWithoutChildPieceCIDs(t *testing.T) {
+	subA := makeCARPiece(t, 384)
+	subB := makeCARPiece(t, 768)
+	aggregate := makeAggregatePiece(t, subA, subB)
+
+	recs := make(chan indexstore.Record, 128)
+	blocks, interrupted, err := IndexPDPv0(aggregate.pieceCIDV2, bytes.NewReader(aggregate.raw), aggregate.pieceSize, recs, nil, make(chan struct{}))
+	close(recs)
+	gotRecords := collectRecords(recs)
+
+	require.NoError(t, err)
+	require.False(t, interrupted)
+	require.NotZero(t, blocks)
+	require.Len(t, gotRecords, int(blocks))
 }
 
 func TestIndexPDPv0AggregateFailsWhenSegmentIsNotCAR(t *testing.T) {

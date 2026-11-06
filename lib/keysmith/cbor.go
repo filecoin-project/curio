@@ -9,8 +9,10 @@ import (
 )
 
 const (
-	maxEnvelopeSize = 1 << 20 // 1 MiB, the FEE envelope ceiling
-	maxSafeInteger  = 1<<53 - 1
+	maxEnvelopeSize       = 1 << 20 // 1 MiB, the FEE envelope ceiling
+	maxCARStructureSize   = 4 << 10 // dag-pb for a one-file CAR; larger means reject
+	maxEnvelopeReadWindow = maxCARStructureSize + maxEnvelopeSize
+	maxSafeInteger        = 1<<53 - 1
 )
 
 // decMode rejects ambiguous CBOR. Keysmith and FEE both require definite

@@ -115,7 +115,9 @@ func (ro *RemoteBlockstore) Get(ctx context.Context, c cid.Cid) (b blocks.Block,
 	var merr error
 	for _, piece := range pieces {
 		data, err := func() ([]byte, error) {
-			reader, _, err := ro.cpr.GetSharedPieceReader(ctx, piece.PieceCid, true)
+			// IPNI block retrieval may read a piece that has moved to acl-pieces.
+			// /piece/ stays on the shared reader and does not serve that copy.
+			reader, _, _, err := ro.cpr.ReadPieceOrACL(ctx, piece.PieceCid, true)
 			if err != nil {
 				return nil, fmt.Errorf("getting piece reader: %w", err)
 			}
