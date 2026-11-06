@@ -5,7 +5,6 @@ import (
 
 	"github.com/BurntSushi/toml"
 
-	"github.com/filecoin-project/curio/deps"
 	depsconfig "github.com/filecoin-project/curio/deps/config"
 )
 
@@ -37,12 +36,18 @@ func prepareCurioLayerSave(_ string, configStruct map[string]any) (string, error
 		return "", err
 	}
 
-	curioCfg := depsconfig.DefaultCurioConfig()
-	if _, err := deps.LoadConfigWithUpgrades(tomlData.String(), curioCfg); err != nil {
+	layer, err := editableCurioLayer(tomlData.String())
+	if err != nil {
 		return "", err
 	}
-
-	return formatLayerTOML(curioCfg)
+	// A layer is a sparse set of explicit overrides, not a full effective config.
+	// Comparing against defaults comments out intentional false/zero overrides
+	// and can synthesize empty address entries. Keep exactly the submitted keys.
+	tomlData.Reset()
+	if err := toml.NewEncoder(&tomlData).Encode(layer); err != nil {
+		return "", err
+	}
+	return tomlData.String(), nil
 }
 
 func formatLayerTOML(curioCfg *depsconfig.CurioConfig) (string, error) {
