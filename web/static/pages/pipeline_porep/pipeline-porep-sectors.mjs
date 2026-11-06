@@ -74,19 +74,27 @@ export const pipelineStyles = css`
 class PipelinePorepSectors extends LitElement {
     static properties = {
         data: { type: Array },
+        refreshFailed: { type: Boolean },
     };
 
     constructor() {
         super();
         this.data = [];
+        this.refreshFailed = false;
         this.loadData();
     }
 
     async loadData() {
-        this.data = await RPCCall('PipelinePorepSectors');
-        // Refresh every 3 seconds
-        setTimeout(() => this.loadData(), 3000);
-        this.requestUpdate();
+        try {
+            this.data = await RPCCall('PipelinePorepSectors');
+            this.refreshFailed = false;
+        } catch {
+            this.refreshFailed = true;
+        } finally {
+            // Refresh every 3 seconds, including after an RPC failure.
+            setTimeout(() => this.loadData(), 3000);
+            this.requestUpdate();
+        }
     }
 
     static styles = [pipelineStyles];
@@ -111,6 +119,8 @@ class PipelinePorepSectors extends LitElement {
         href="/ux/main.css"
         onload="document.body.style.visibility = 'initial'"
       />
+
+      ${this.refreshFailed ? html`<div class="text-warning" role="status">Refresh failed; retrying…</div>` : ''}
 
       <!-- Show counters for waiting states -->
       <div style="margin: 1em 0;">
