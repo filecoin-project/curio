@@ -20,6 +20,7 @@ import (
 	"github.com/filecoin-project/curio/lib/hashfolder"
 	"github.com/filecoin-project/curio/lib/keysmith"
 	"github.com/filecoin-project/curio/lib/paths"
+	"github.com/filecoin-project/curio/lib/pieceprovider"
 	"github.com/filecoin-project/curio/lib/piecestore"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/pdp/pieceacl"
@@ -218,7 +219,7 @@ func place(ctx context.Context, db *harmonydb.DB, hs *hashfolder.Cluster, local 
 		// The park file is still here the first time an ACL piece is finalized.
 		// A copy already in acl-pieces was checked on that write.
 		if !placed {
-			if err := requireEnvelope(ctx, pieceIO, pp.ID); err != nil {
+			if err := requireEnvelope(ctx, hs, pieceIO, pp.ID, pc, pp.RawSize); err != nil {
 				return xerrors.Errorf("acl piece %s: %w", pc, err)
 			}
 		}
@@ -259,12 +260,19 @@ func place(ctx context.Context, db *harmonydb.DB, hs *hashfolder.Cluster, local 
 	return nil
 }
 
-// requireEnvelope reads the parked piece and requires a FEE envelope.
-// The caller is finalizing a piece into acl-pieces and the park file is still present.
-func requireEnvelope(ctx context.Context, pieceIO piecestore.PieceIO, parkedID int64) error {
+// requireEnvelope reads the piece and requires a FEE envelope. The caller is
+// finalizing a piece into acl-pieces. The park file is gone when the upload was
+// placed into open-pieces before a data set claimed it, so read that copy then.
+func requireEnvelope(ctx context.Context, hs *hashfolder.Cluster, pieceIO piecestore.PieceIO, parkedID int64, pc cid.Cid, rawSize int64) error {
 	rc, err := pieceIO.PieceReader(ctx, storiface.PieceNumber(parkedID))
 	if err != nil {
-		return xerrors.Errorf("reading parked piece %d: %w", parkedID, err)
+		open, openErr := pieceprovider.NewOpenPieceReader(hs).ReadPiece(ctx, pc, rawSize)
+		if openErr != nil || open == nil {
+			return xerrors.Errorf("reading parked piece %d: %w", parkedID, err)
+		}
+		defer func() { _ = open.Close() }()
+		_, err = keysmith.ReadEnvelopeLabelsAt(open)
+		return err
 	}
 	defer func() { _ = rc.Close() }()
 	if _, err := keysmith.ReadEnvelopeLabels(rc); err != nil {
