@@ -243,6 +243,10 @@ You should now have Curio installed. You can now [finish setting up the Curio no
 
 You can build the Curio executables from source by following these steps.
 
+{% hint style="warning" %}
+Only Apple Silicon (M1 and later) Macs are supported. Intel Macs are not supported, because [filecoin-ffi dropped darwin/amd64 support](https://github.com/filecoin-project/filecoin-ffi/issues/601).
+{% endhint %}
+
 ### Software dependencies
 
 You must have XCode and Homebrew installed to build Curio from source.
@@ -294,13 +298,6 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 ### Build and install Curio
 
-The installation instructions are different depending on which CPU is in your Mac:
-
-* [ARM-based CPUs (M1, M2, M3)](installation.md#arm-based-cpus)
-* [Intel CPUs](installation.md#intel-cpus)
-
-#### **Arm based CPUs**
-
 1.  Clone the repository:
 
     ```shell
@@ -312,7 +309,7 @@ The installation instructions are different depending on which CPU is in your Ma
     ```shell
     git checkout <release version>
     ```
-3.  Create the necessary environment variables to allow Curio to run on Arm architecture:
+3.  Create the necessary environment variables:
 
     ```shell
     export LIBRARY_PATH=/opt/homebrew/lib
@@ -337,34 +334,3 @@ The installation instructions are different depending on which CPU is in your Ma
     curio version 1.24.5+calibnet+git_214226e7_2025-02-19T17:02:54+04:00
     ```
 7. You should now have Curio installed. You can now [finish setting up the Curio node](setup.md).
-
-#### **Intel CPUs**
-
-❗These instructions are for installing Curio on an Intel Mac. If you have an Arm-based CPU, use the [Arm-based CPU instructions ↑](installation.md#arm-based-cpus)
-
-1.  Clone the repository:
-
-    ```shell
-    git clone https://github.com/filecoin-project/curio.git
-    cd curio/
-    ```
-2.  Switch to the latest stable release branch:
-
-    ```shell
-    git checkout <release version>
-    ```
-3.  Build and install Curio:
-
-    ```shell
-    make clean curio
-    sudo make install
-    ```
-4.  Run `curio --version`
-
-    ```md
-    curio version 1.23.0+mainnet+git_ae625a5_2024-08-21T15:21:45+04:00
-    # or
-    curio version 1.23.0+calibnet+git_ae625a5_2024-08-21T15:21:45+04:00
-    ```
-
-You can now [finish setting up the Curio node](setup.md).
