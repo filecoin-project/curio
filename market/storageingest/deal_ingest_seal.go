@@ -77,56 +77,40 @@ type PieceIngester struct {
 	ctx                  context.Context
 	db                   *harmonydb.DB
 	api                  PieceIngesterApi
-	addToID              map[address.Address]int64
-	idToAddr             map[abi.ActorID]address.Address
-	minerDetails         map[int64]*mdetails
+	addToID              *config.Dynamic[map[address.Address]int64]
+	idToAddr             *config.Dynamic[map[abi.ActorID]address.Address]
+	minerDetails         *config.Dynamic[map[int64]*mdetails]
 	maxWaitTime          *config.Dynamic[time.Duration]
 	expectedSealDuration abi.ChainEpoch
 }
 
-func NewPieceIngester(ctx context.Context, db *harmonydb.DB, api PieceIngesterApi, miners []address.Address, cfg *config.CurioConfig) (*PieceIngester, error) {
-	if len(miners) == 0 {
+func NewPieceIngester(ctx context.Context, db *harmonydb.DB, api PieceIngesterApi, miners *config.Dynamic[[]address.Address], cfg *config.CurioConfig) (*PieceIngester, error) {
+	if len(miners.Get()) == 0 {
 		return nil, xerrors.Errorf("no miners provided")
 	}
 
-	addToID := make(map[address.Address]int64)
-	minerDetails := make(map[int64]*mdetails)
-	idToAddr := make(map[abi.ActorID]address.Address)
+	addToID := config.NewDynamic(make(map[address.Address]int64))
+	minerDetails := config.NewDynamic(make(map[int64]*mdetails))
+	idToAddr := config.NewDynamic(make(map[abi.ActorID]address.Address))
 
-	for _, maddr := range miners {
-		mi, err := api.StateMinerInfo(ctx, maddr, types.EmptyTSK)
+	rebuild := func() error {
+		a, d, i, err := buildMinerMaps(ctx, api, miners.Get(), cfg.Subsystems.UseSyntheticPoRep)
 		if err != nil {
-			return nil, err
+			return err
 		}
-
-		mid, err := address.IDFromAddress(maddr)
-		if err != nil {
-			return nil, xerrors.Errorf("getting miner ID: %w", err)
-		}
-
-		nv, err := api.StateNetworkVersion(ctx, types.EmptyTSK)
-		if err != nil {
-			return nil, xerrors.Errorf("getting network version: %w", err)
-		}
-
-		proof, err := miner.PreferredSealProofTypeFromWindowPoStType(nv, mi.WindowPoStProofType, cfg.Subsystems.UseSyntheticPoRep)
-		if err != nil {
-			return nil, xerrors.Errorf("getting preferred seal proof type: %w", err)
-		}
-
-		proofInfo, ok := abi.SealProofInfos[proof]
-		if !ok {
-			return nil, xerrors.Errorf("getting seal proof type: %w", err)
-		}
-
-		addToID[maddr] = int64(mid)
-		minerDetails[int64(mid)] = &mdetails{
-			sealProof:   proof,
-			sectorSize:  mi.SectorSize,
-			updateProof: proofInfo.UpdateProof,
-		}
-		idToAddr[abi.ActorID(mid)] = maddr
+		addToID.Set(a)
+		minerDetails.Set(d)
+		idToAddr.Set(i)
+		return nil
 	}
+	if err := rebuild(); err != nil {
+		return nil, err
+	}
+	miners.OnChange(func() {
+		if err := rebuild(); err != nil {
+			log.Errorf("error rebuilding piece-ingester miner maps: %s", err)
+		}
+	})
 
 	epochs := cfg.Market.StorageMarketConfig.MK12.ExpectedPoRepSealDuration.Seconds() / float64(build.BlockDelaySecs)
 	expectedEpochs := math.Ceil(epochs)
@@ -145,6 +129,49 @@ func NewPieceIngester(ctx context.Context, db *harmonydb.DB, api PieceIngesterAp
 	go pi.start()
 
 	return pi, nil
+}
+
+// buildMinerMaps resolves live miner addresses into ID and proof maps.
+func buildMinerMaps(ctx context.Context, api PieceIngesterApi, miners []address.Address, useSyntheticPoRep bool) (map[address.Address]int64, map[int64]*mdetails, map[abi.ActorID]address.Address, error) {
+	addToID := make(map[address.Address]int64)
+	minerDetails := make(map[int64]*mdetails)
+	idToAddr := make(map[abi.ActorID]address.Address)
+
+	for _, maddr := range miners {
+		mi, err := api.StateMinerInfo(ctx, maddr, types.EmptyTSK)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+
+		mid, err := address.IDFromAddress(maddr)
+		if err != nil {
+			return nil, nil, nil, xerrors.Errorf("getting miner ID: %w", err)
+		}
+
+		nv, err := api.StateNetworkVersion(ctx, types.EmptyTSK)
+		if err != nil {
+			return nil, nil, nil, xerrors.Errorf("getting network version: %w", err)
+		}
+
+		proof, err := miner.PreferredSealProofTypeFromWindowPoStType(nv, mi.WindowPoStProofType, useSyntheticPoRep)
+		if err != nil {
+			return nil, nil, nil, xerrors.Errorf("getting preferred seal proof type: %w", err)
+		}
+
+		proofInfo, ok := abi.SealProofInfos[proof]
+		if !ok {
+			return nil, nil, nil, xerrors.Errorf("getting seal proof type: %w", err)
+		}
+
+		addToID[maddr] = int64(mid)
+		minerDetails[int64(mid)] = &mdetails{
+			sealProof:   proof,
+			sectorSize:  mi.SectorSize,
+			updateProof: proofInfo.UpdateProof,
+		}
+		idToAddr[abi.ActorID(mid)] = maddr
+	}
+	return addToID, minerDetails, idToAddr, nil
 }
 
 func (p *PieceIngester) start() {
@@ -170,28 +197,36 @@ func (p *PieceIngester) Seal() error {
 		return xerrors.Errorf("getting chain head: %w", err)
 	}
 
+	addToID := p.addToID.Get()
+	minerDetails := p.minerDetails.Get()
+	idToAddr := p.idToAddr.Get()
+
 	shouldSeal := func(sector *openSector) bool {
+		details, ok := minerDetails[int64(sector.miner)]
+		if !ok {
+			return false
+		}
 		// Start sealing a sector if
 		// 1. If sector is full
 		// 2. We have been waiting for MaxWaitDuration
 		// 3. StartEpoch is currentEpoch + expectedSealDuration
-		if sector.currentSize == abi.PaddedPieceSize(p.minerDetails[int64(sector.miner)].sectorSize) {
-			log.Debugf("start sealing sector %d of miner %s: %s", sector.number, p.idToAddr[sector.miner].String(), "sector full")
+		if sector.currentSize == abi.PaddedPieceSize(details.sectorSize) {
+			log.Debugf("start sealing sector %d of miner %s: %s", sector.number, idToAddr[sector.miner].String(), "sector full")
 			return true
 		}
 		if time.Since(*sector.openedAt) > p.maxWaitTime.Get() {
-			log.Debugf("start sealing sector %d of miner %s: %s", sector.number, p.idToAddr[sector.miner].String(), "MaxWaitTime reached")
+			log.Debugf("start sealing sector %d of miner %s: %s", sector.number, idToAddr[sector.miner].String(), "MaxWaitTime reached")
 			return true
 		}
 		if sector.earliestStartEpoch < head.Height()+p.expectedSealDuration {
-			log.Debugf("start sealing sector %d of miner %s: %s", sector.number, p.idToAddr[sector.miner].String(), "earliest start epoch")
+			log.Debugf("start sealing sector %d of miner %s: %s", sector.number, idToAddr[sector.miner].String(), "earliest start epoch")
 			return true
 		}
 		return false
 	}
 
 	comm, err := p.db.BeginTransaction(p.ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
-		for _, mid := range p.addToID {
+		for _, mid := range addToID {
 			openSectors, err := p.getOpenSectors(tx, mid)
 			if err != nil {
 				return false, err
@@ -200,7 +235,7 @@ func (p *PieceIngester) Seal() error {
 			for _, sector := range openSectors {
 				if shouldSeal(sector) {
 					// Start sealing the sector
-					cn, err := tx.Exec(`INSERT INTO sectors_sdr_pipeline (sp_id, sector_number, reg_seal_proof) VALUES ($1, $2, $3);`, mid, sector.number, p.minerDetails[mid].sealProof)
+					cn, err := tx.Exec(`INSERT INTO sectors_sdr_pipeline (sp_id, sector_number, reg_seal_proof) VALUES ($1, $2, $3);`, mid, sector.number, minerDetails[mid].sealProof)
 
 					if err != nil {
 						return false, xerrors.Errorf("adding sector to pipeline: %w", err)
@@ -266,18 +301,25 @@ func (p *PieceIngester) AllocatePieceToSector(ctx context.Context, tx *harmonydb
 		}
 	}
 
-	mid, ok := p.addToID[maddr]
+	addToID := p.addToID.Get()
+	minerDetails := p.minerDetails.Get()
+	mid, ok := addToID[maddr]
 	if !ok {
 		return nil, nil, xerrors.Errorf("miner not found")
 	}
 
+	details, ok := minerDetails[mid]
+	if !ok {
+		return nil, nil, xerrors.Errorf("miner details not found")
+	}
+
 	// Try to allocate the piece to an open sector
-	allocated, ret, err := p.allocateToExisting(tx, maddr, piece, psize, rawSize, source, dataHdrJson, propJson)
+	allocated, ret, err := p.allocateToExisting(tx, mid, details, piece, psize, rawSize, source, dataHdrJson, propJson)
 	if err != nil {
 		return nil, nil, err
 	}
 	if allocated {
-		return ret, &p.minerDetails[mid].sealProof, nil
+		return ret, &details.sealProof, nil
 	}
 
 	// Allocation to open sector failed, create a new sector and add the piece to it
@@ -294,7 +336,7 @@ func (p *PieceIngester) AllocatePieceToSector(ctx context.Context, tx *harmonydb
 	// Assign piece to new sector
 	if piece.DealProposal != nil {
 		_, err = tx.Exec(`SELECT insert_sector_market_piece($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
-			p.addToID[maddr], n, 0,
+			mid, n, 0,
 			piece.DealProposal.PieceCID, piece.DealProposal.PieceSize,
 			source.String(), dataHdrJson, rawSize, !piece.KeepUnsealed,
 			piece.PublishCid, piece.DealID, propJson, piece.DealSchedule.StartEpoch, piece.DealSchedule.EndEpoch)
@@ -303,7 +345,7 @@ func (p *PieceIngester) AllocatePieceToSector(ctx context.Context, tx *harmonydb
 		}
 	} else {
 		_, err = tx.Exec(`SELECT insert_sector_ddo_piece($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-			p.addToID[maddr], n, 0,
+			mid, n, 0,
 			piece.PieceActivationManifest.CID, piece.PieceActivationManifest.Size,
 			source.String(), dataHdrJson, rawSize, !piece.KeepUnsealed,
 			piece.DealSchedule.StartEpoch, piece.DealSchedule.EndEpoch, propJson)
@@ -312,16 +354,16 @@ func (p *PieceIngester) AllocatePieceToSector(ctx context.Context, tx *harmonydb
 		}
 	}
 
-	return &n, &p.minerDetails[mid].sealProof, nil
+	return &n, &details.sealProof, nil
 }
 
 // allocateToExisting adds a size-validated piece to an open sector for a configured miner.
-func (p *PieceIngester) allocateToExisting(tx *harmonydb.Tx, maddr address.Address, piece lpiece.PieceDealInfo, psize abi.PaddedPieceSize, rawSize int64, source url.URL, dataHdrJson, propJson []byte) (bool, *abi.SectorNumber, error) {
+func (p *PieceIngester) allocateToExisting(tx *harmonydb.Tx, mid int64, details *mdetails, piece lpiece.PieceDealInfo, psize abi.PaddedPieceSize, rawSize int64, source url.URL, dataHdrJson, propJson []byte) (bool, *abi.SectorNumber, error) {
 	var ret abi.SectorNumber
 	var allocated bool
 	var rerr error
 
-	openSectors, err := p.getOpenSectors(tx, p.addToID[maddr])
+	openSectors, err := p.getOpenSectors(tx, mid)
 	if err != nil {
 		return false, nil, err
 	}
@@ -338,13 +380,13 @@ func (p *PieceIngester) allocateToExisting(tx *harmonydb.Tx, maddr address.Addre
 		if nextSector {
 			continue
 		}
-		if sec.currentSize+psize <= abi.PaddedPieceSize(p.minerDetails[p.addToID[maddr]].sectorSize) {
+		if sec.currentSize+psize <= abi.PaddedPieceSize(details.sectorSize) {
 			ret = sec.number
 
 			// Insert market deal to DB for the sector
 			if piece.DealProposal != nil {
 				cn, err := tx.Exec(`SELECT insert_sector_market_piece($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
-					p.addToID[maddr], sec.number, sec.index+1,
+					mid, sec.number, sec.index+1,
 					piece.DealProposal.PieceCID, piece.DealProposal.PieceSize,
 					source.String(), dataHdrJson, rawSize, !piece.KeepUnsealed,
 					piece.PublishCid, piece.DealID, propJson, piece.DealSchedule.StartEpoch, piece.DealSchedule.EndEpoch)
@@ -359,7 +401,7 @@ func (p *PieceIngester) allocateToExisting(tx *harmonydb.Tx, maddr address.Addre
 
 			} else { // Insert DDO deal to DB for the sector
 				cn, err := tx.Exec(`SELECT insert_sector_ddo_piece($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-					p.addToID[maddr], sec.number, sec.index+1,
+					mid, sec.number, sec.index+1,
 					piece.PieceActivationManifest.CID, piece.PieceActivationManifest.Size,
 					source.String(), dataHdrJson, rawSize, !piece.KeepUnsealed,
 					piece.DealSchedule.StartEpoch, piece.DealSchedule.EndEpoch, propJson)

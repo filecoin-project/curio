@@ -175,7 +175,7 @@ func (m *MK12) cidGravityCheck(ctx context.Context, deal *ProviderDealState) (bo
 		"Content-Type":         []string{"application/json"},
 	}
 
-	token, ok := m.cidGravity[deal.ClientDealProposal.Proposal.Provider]
+	token, ok := m.cidGravity.Get()[deal.ClientDealProposal.Proposal.Provider]
 	if !ok {
 		return false, "", xerrors.Errorf("No cid gravity token for provider %s", deal.ClientDealProposal.Proposal.Provider)
 	}

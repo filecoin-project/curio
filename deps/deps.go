@@ -507,7 +507,7 @@ func updateBaseLayer(ctx context.Context, db *harmonydb.DB) error {
 		}
 
 		// Save the updated base with merged comments
-		_, err = tx.Exec("UPDATE harmony_config SET config=$1 WHERE title='base'", finalConfig)
+		_, err = tx.Exec("UPDATE harmony_config SET config=$1, timestamp=NOW() WHERE title='base'", finalConfig)
 		if err != nil {
 			return false, xerrors.Errorf("cannot update base config: %w", err)
 		}
@@ -747,7 +747,7 @@ func CreateMinerConfig(ctx context.Context, full CreateMinerConfigChainAPI, db *
 	if err != nil {
 		return xerrors.Errorf("cannot interpret config: %w", err)
 	}
-	_, err = db.Exec(ctx, "UPDATE harmony_config SET config=$1 WHERE title='base'", string(cb))
+	_, err = db.Exec(ctx, "UPDATE harmony_config SET config=$1, timestamp=NOW() WHERE title='base'", string(cb))
 	if err != nil {
 		return xerrors.Errorf("cannot update base config: %w", err)
 	}

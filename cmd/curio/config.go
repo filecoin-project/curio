@@ -117,7 +117,7 @@ var configSetCmd = &cli.Command{
 func setConfig(db *harmonydb.DB, name, config string) error {
 	_, err := db.Exec(context.Background(),
 		`INSERT INTO harmony_config (title, config) VALUES ($1, $2) 
-			ON CONFLICT (title) DO UPDATE SET config = excluded.config`, name, config)
+			ON CONFLICT (title) DO UPDATE SET config = excluded.config, timestamp = NOW()`, name, config)
 	return err
 }
 

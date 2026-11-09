@@ -39,11 +39,7 @@ func startWalletExporterIfEnabled(ctx context.Context, deps *Deps) {
 	if !deps.Cfg.Subsystems.EnableWalletExporter {
 		return
 	}
-	spIDs := []address.Address{}
-	for maddr := range deps.Maddrs.Get() {
-		spIDs = append(spIDs, address.Address(maddr))
-	}
-	stats.StartWalletExporter(ctx, deps.DB, deps.Chain, spIDs)
+	stats.StartWalletExporter(ctx, deps.DB, deps.Chain, deps.Maddrs)
 }
 
 func sealProofType(maddr dtypes.MinerAddress, fnapi api.Chain) (abi.RegisteredSealProof, error) {
