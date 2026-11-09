@@ -160,7 +160,7 @@ func TestOfferingToCapabilities_ContactEmail(t *testing.T) {
 		PaymentTokenAddress:      common.HexToAddress("0x0000000000004946c0e9F43F4Dee607b0eF1fA1c"),
 	}
 
-	keys, values, err := OfferingToCapabilities(base, nil)
+	keys, _, err := OfferingToCapabilities(base, nil)
 	if err != nil {
 		t.Fatalf("OfferingToCapabilities: %v", err)
 	}
@@ -172,7 +172,7 @@ func TestOfferingToCapabilities_ContactEmail(t *testing.T) {
 
 	withEmail := base
 	withEmail.ContactEmail = "  ops@example.com  "
-	keys, values, err = OfferingToCapabilities(withEmail, nil)
+	keys, values, err := OfferingToCapabilities(withEmail, nil)
 	if err != nil {
 		t.Fatalf("OfferingToCapabilities: %v", err)
 	}
