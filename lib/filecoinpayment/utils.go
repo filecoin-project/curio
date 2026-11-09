@@ -453,5 +453,6 @@ func isGasEstimateOutOfGas(err error) bool {
 	}
 	errStr := strings.ToLower(err.Error())
 	return strings.Contains(errStr, "call ran out of gas") ||
-		strings.Contains(errStr, "out of gas (7)")
+		strings.Contains(errStr, "out of gas (7)") ||
+		strings.Contains(errStr, "out of gas: gas required exceeds")
 }
