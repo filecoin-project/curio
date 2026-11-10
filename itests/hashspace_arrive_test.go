@@ -144,7 +144,7 @@ func TestHashSpaceArrivingDiskMovesPiecesOff(t *testing.T) {
 
 	// Restart with the arriving disk. NewCluster migrates piece-park into
 	// open-pieces, and no move can start until the task engine below exists.
-	cluster, err := hashfolder.NewCluster(ctx, db, []hashfolder.LocalDrive{arriving.drive(), resident[0].drive(), resident[1].drive()}, nil)
+	hashSpaces, err := hashfolder.NewCluster(ctx, db, []hashfolder.LocalDrive{arriving.drive(), resident[0].drive(), resident[1].drive()}, nil)
 	require.NoError(t, err)
 
 	t.Run("after migration", func(t *testing.T) {
@@ -174,12 +174,12 @@ func TestHashSpaceArrivingDiskMovesPiecesOff(t *testing.T) {
 
 	// The move task runs for real: the cluster loop plans the moves once the
 	// engine exists, and the engine copies and hands them over.
-	engine, err := harmonytask.New(db, []harmonytask.TaskInterface{openpieces.NewMoveTask(db, cluster)},
+	engine, err := harmonytask.New(db, []harmonytask.TaskInterface{openpieces.NewMoveTask(db, hashSpaces)},
 		"hashspace-itest:1234", hsNoopPeer{}, ffigpu.Inspector{})
 	require.NoError(t, err)
 	stop := sync.OnceFunc(func() {
 		engine.GracefullyTerminate()
-		require.NoError(t, cluster.Close())
+		require.NoError(t, hashSpaces.Close())
 	})
 	t.Cleanup(stop)
 

@@ -80,10 +80,10 @@ type ETHTxSender interface {
 // PDPService represents the service for managing data sets and pieces
 type PDPService struct {
 	Auth
-	db      *harmonydb.DB
-	pieceIO piecestore.PieceIO
-	hs      *hashfolder.Cluster
-	local   *paths.Local
+	db         *harmonydb.DB
+	pieceIO    piecestore.PieceIO
+	hashSpaces *hashfolder.Cluster
+	local      *paths.Local
 
 	sender    ETHTxSender
 	ethClient ethchain.EthClient
@@ -112,18 +112,18 @@ func NewPDPService(
 	sn ETHTxSender,
 	alertTask *alertmanager.AlertTask,
 	ipp *ipni_provider.Provider,
-	hs *hashfolder.Cluster,
+	hashSpaces *hashfolder.Cluster,
 	local *paths.Local) *PDPService {
 	auth := &NullAuth{}
 	pullStore := NewDBPullStore(db)
 	pullValidator := NewEthCallValidator(ec, db)
 
 	p := &PDPService{
-		Auth:    auth,
-		db:      db,
-		pieceIO: pieceIO,
-		hs:      hs,
-		local:   local,
+		Auth:       auth,
+		db:         db,
+		pieceIO:    pieceIO,
+		hashSpaces: hashSpaces,
+		local:      local,
 
 		sender:    sn,
 		ethClient: ec,

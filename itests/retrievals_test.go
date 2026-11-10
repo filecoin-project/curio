@@ -96,10 +96,10 @@ func TestRetrievals(t *testing.T) {
 	minerID := abi.ActorID(mid)
 	sectorSize := sealSectorSize
 
-	hs := helpers.NewHashSpaceCluster(t, ctx, db, "retrievals-itest-hs")
+	hashSpaces := helpers.NewHashSpaces(t, ctx, db, "retrievals-itest-hs")
 
 	seedPlan := buildRetrievalSeedPlan(fixtures)
-	seedState := seedRetrievalFixtures(t, ctx, dir, db, idxStore, hs, spID, minerID, sealProof, sectorSize, seedPlan, fixtures)
+	seedState := seedRetrievalFixtures(t, ctx, dir, db, idxStore, hashSpaces, spID, minerID, sealProof, sectorSize, seedPlan, fixtures)
 
 	denylistData, err = json.Marshal([]struct {
 		Anchor string `json:"anchor"`
@@ -112,12 +112,12 @@ func TestRetrievals(t *testing.T) {
 	harness := helpers.StartCurioHarnessWithCleanup(ctx, t, dir, db, idxStore, full, baseCfg.Apis.StorageRPCSecret, helpers.CurioHarnessOptions{})
 
 	dependencies := harness.Dependencies
-	dependencies.CachedPieceReader.SetOpenPieceReader(pieceprovider.NewOpenPieceReader(hs))
-	dependencies.CachedPieceReader.SetACLPieceReader(pieceprovider.NewACLPieceReader(hs))
+	dependencies.CachedPieceReader.SetOpenPieceReader(pieceprovider.NewOpenPieceReader(hashSpaces))
+	dependencies.CachedPieceReader.SetACLPieceReader(pieceprovider.NewACLPieceReader(hashSpaces))
 
 	baseURL := "http://" + baseCfg.HTTP.ListenAddress
 	helpers.WaitForHTTP(t, baseURL)
-	runRetrievalScenarios(t, ctx, dir, db, idxStore, hs, dependencies, baseURL, spID, minerID, sealProof, sectorSize, fixtures, seedState)
+	runRetrievalScenarios(t, ctx, dir, db, idxStore, hashSpaces, dependencies, baseURL, spID, minerID, sealProof, sectorSize, fixtures, seedState)
 }
 
 type retrievalFixtureSeed struct {
@@ -300,7 +300,7 @@ func seedRetrievalFixtures(
 	dir string,
 	db *harmonydb.DB,
 	idxStore *indexstore.IndexStore,
-	hs *hashfolder.Cluster,
+	hashSpaces *hashfolder.Cluster,
 	spID int64,
 	minerID abi.ActorID,
 	sealProof abi.RegisteredSealProof,
@@ -341,11 +341,11 @@ func seedRetrievalFixtures(
 	// PDP pieces are placed: their parked_pieces rows stay, the bytes are in
 	// open-pieces only. The aggregate's subpieces are in no hashspace disk, so
 	// reading them takes the CQL aggregate lookup.
-	helpers.PlaceOpenPiece(t, ctx, hs, fixtures.pdpParked)
-	helpers.PlaceOpenPiece(t, ctx, hs, fixtures.pdpv0Fallback)
-	helpers.PlaceOpenPiece(t, ctx, hs, fixtures.pdpv0Aggregate)
-	helpers.RequireNotInOpenPieces(t, ctx, hs, fixtures.pdpv0AggregateSubpieceA)
-	helpers.RequireNotInOpenPieces(t, ctx, hs, fixtures.pdpv0AggregateSubpieceB)
+	helpers.PlaceOpenPiece(t, ctx, hashSpaces, fixtures.pdpParked)
+	helpers.PlaceOpenPiece(t, ctx, hashSpaces, fixtures.pdpv0Fallback)
+	helpers.PlaceOpenPiece(t, ctx, hashSpaces, fixtures.pdpv0Aggregate)
+	helpers.RequireNotInOpenPieces(t, ctx, hashSpaces, fixtures.pdpv0AggregateSubpieceA)
+	helpers.RequireNotInOpenPieces(t, ctx, hashSpaces, fixtures.pdpv0AggregateSubpieceB)
 
 	for _, seed := range seeds {
 		if seed.SkipIndex {
@@ -475,7 +475,7 @@ func runRetrievalScenarios(
 	dir string,
 	db *harmonydb.DB,
 	idxStore *indexstore.IndexStore,
-	hs *hashfolder.Cluster,
+	hashSpaces *hashfolder.Cluster,
 	dependencies *deps.Deps,
 	baseURL string,
 	spID int64,
@@ -649,9 +649,9 @@ func runRetrievalScenarios(
 		subA := helpers.CreatePieceFixture(t, dir, 171)
 		subB := helpers.CreatePieceFixture(t, dir, 173)
 		parent, _ := helpers.CreateAggregateFixtureFromSubpieces(t, []helpers.PieceFixture{subA, subB})
-		helpers.PlaceOpenPiece(t, ctx, hs, parent)
-		helpers.RequireNotInOpenPieces(t, ctx, hs, subA)
-		helpers.RequireNotInOpenPieces(t, ctx, hs, subB)
+		helpers.PlaceOpenPiece(t, ctx, hashSpaces, parent)
+		helpers.RequireNotInOpenPieces(t, ctx, hashSpaces, subA)
+		helpers.RequireNotInOpenPieces(t, ctx, hashSpaces, subB)
 
 		require.NoError(t, helpers.AddPDPv0IndexFromPiece(t, ctx, idxStore, parent))
 		requireSubpieceParent(t, ctx, idxStore, subA, parent)
@@ -681,7 +681,7 @@ func runRetrievalScenarios(
 		requireSubpieceParent(t, ctx, idxStore, subA, parent)
 
 		// The parent is nowhere, so only a direct hit can serve subA.
-		helpers.PlaceOpenPiece(t, ctx, hs, subA)
+		helpers.PlaceOpenPiece(t, ctx, hashSpaces, subA)
 
 		status, body, _ := helpers.HTTPGetWithHeaders(t, baseURL, "/piece/"+subA.PieceCIDV2.String(), nil)
 		require.Equal(t, http.StatusOK, status)
@@ -715,7 +715,7 @@ func runRetrievalScenarios(
 			if tc.firstPlaced {
 				placed = first
 			}
-			helpers.PlaceOpenPiece(t, ctx, hs, placed)
+			helpers.PlaceOpenPiece(t, ctx, hashSpaces, placed)
 
 			recs, err := idxStore.FindPieceInAggregate(ctx, sub.PieceCIDV2)
 			require.NoError(t, err)

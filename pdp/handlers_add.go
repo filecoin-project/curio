@@ -571,9 +571,9 @@ func (p *PDPService) placePieceRefs(ctx context.Context, infos map[string]*SubPi
 		seen[info.PieceRef] = struct{}{}
 		var err error
 		if forceACL {
-			err = openpieces.PlaceACL(ctx, p.db, p.hs, p.local, p.pieceIO, info.PieceRef)
+			err = openpieces.PlaceACL(ctx, p.db, p.hashSpaces, p.local, p.pieceIO, info.PieceRef)
 		} else {
-			err = openpieces.Place(ctx, p.db, p.hs, p.local, p.pieceIO, info.PieceRef)
+			err = openpieces.Place(ctx, p.db, p.hashSpaces, p.local, p.pieceIO, info.PieceRef)
 		}
 		if err != nil {
 			return err

@@ -35,19 +35,19 @@ func Attach(
 		}
 	}
 
-	if cd.HashSpace == nil {
+	if cd.HashSpaces == nil {
 		sa, err := curiodeps.StorageAuth(cd.Cfg.Apis.StorageRPCSecret)
 		if err != nil {
 			return xerrors.Errorf("storage auth: %w", err)
 		}
-		hs, err := NewHashSpace(ctx, cd.DB, cd.LocalStore, cd.Si, http.Header(sa))
+		hashSpaces, err := NewHashSpace(ctx, cd.DB, cd.LocalStore, cd.Si, http.Header(sa))
 		if err != nil {
 			return xerrors.Errorf("hash space: %w", err)
 		}
-		cd.HashSpace = hs
-		if hs != nil && cd.CachedPieceReader != nil {
-			cd.CachedPieceReader.SetOpenPieceReader(pieceprovider.NewOpenPieceReader(hs))
-			cd.CachedPieceReader.SetACLPieceReader(pieceprovider.NewACLPieceReader(hs))
+		cd.HashSpaces = hashSpaces
+		if hashSpaces != nil && cd.CachedPieceReader != nil {
+			cd.CachedPieceReader.SetOpenPieceReader(pieceprovider.NewOpenPieceReader(hashSpaces))
+			cd.CachedPieceReader.SetACLPieceReader(pieceprovider.NewACLPieceReader(hashSpaces))
 		}
 	}
 

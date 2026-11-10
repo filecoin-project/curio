@@ -62,17 +62,17 @@ func init() {
 	}
 }
 
-// canonicalCBOR decodes one CBOR item and requires b to be that item's core
-// deterministic encoding. The caller passes a complete presentation, with no
-// trailing bytes. Integers outside ±(2^53−1) and floats are non-canonical.
-func canonicalCBOR(b []byte) (any, error) {
+// decodeWithRoundTripCheck decodes one CBOR item and requires b to be that
+// item's core deterministic encoding. The caller passes a complete presentation,
+// with no trailing bytes. Integers outside ±(2^53−1) and floats are non-canonical.
+func decodeWithRoundTripCheck(b []byte) (any, error) {
 	var value any
 	rest, err := presDec.UnmarshalFirst(b, &value)
 	if err != nil || len(rest) != 0 {
 		return nil, errNotCanonical
 	}
 	enc, err := presEnc.Marshal(value)
-	if err != nil || !bytes.Equal(enc, b) || !safeCBORNumbers(value) {
+	if err != nil || !bytes.Equal(enc, b) || !safeJSONNumbers(value) {
 		return nil, errNotCanonical
 	}
 	return value, nil
@@ -80,9 +80,9 @@ func canonicalCBOR(b []byte) (any, error) {
 
 var errNotCanonical = fmt.Errorf("not canonical")
 
-// safeCBORNumbers reports whether every integer in v fits in a JavaScript
+// safeJSONNumbers reports whether every integer in v fits in a JavaScript
 // safe integer and no float is present. The caller has already decoded v.
-func safeCBORNumbers(v any) bool {
+func safeJSONNumbers(v any) bool {
 	switch n := v.(type) {
 	case uint64:
 		return n <= maxSafeInteger
@@ -98,14 +98,14 @@ func safeCBORNumbers(v any) bool {
 		return n.IsInt64() && n.Int64() >= -maxSafeInteger && n.Int64() <= maxSafeInteger
 	case []any:
 		for _, e := range n {
-			if !safeCBORNumbers(e) {
+			if !safeJSONNumbers(e) {
 				return false
 			}
 		}
 		return true
 	case map[any]any:
 		for k, e := range n {
-			if !safeCBORNumbers(k) || !safeCBORNumbers(e) {
+			if !safeJSONNumbers(k) || !safeJSONNumbers(e) {
 				return false
 			}
 		}

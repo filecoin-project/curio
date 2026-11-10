@@ -44,10 +44,10 @@ import (
 // If this check fails the piece is unrecoverable by repair, and
 // it is logged and recorded in the lost_data table
 type RepairMissingPiecesTask struct {
-	db  *harmonydb.DB
-	eth ethchain.EthClient
-	pio ParkedPieceStore
-	hs  *hashfolder.Cluster
+	db         *harmonydb.DB
+	eth        ethchain.EthClient
+	pio        ParkedPieceStore
+	hashSpaces *hashfolder.Cluster
 }
 
 const (
@@ -69,12 +69,12 @@ const (
 	repairMaxFailures = 10
 )
 
-func NewRepairMissingPiecesTask(db *harmonydb.DB, eth ethchain.EthClient, pio ParkedPieceStore, hs *hashfolder.Cluster) *RepairMissingPiecesTask {
+func NewRepairMissingPiecesTask(db *harmonydb.DB, eth ethchain.EthClient, pio ParkedPieceStore, hashSpaces *hashfolder.Cluster) *RepairMissingPiecesTask {
 	return &RepairMissingPiecesTask{
-		db:  db,
-		eth: eth,
-		pio: pio,
-		hs:  hs,
+		db:         db,
+		eth:        eth,
+		pio:        pio,
+		hashSpaces: hashSpaces,
 	}
 }
 
@@ -285,13 +285,13 @@ func (t *RepairMissingPiecesTask) repairPiece(ctx context.Context, dataSetID int
 	// really there before claiming the piece is provable: either placed in
 	// open-pieces or acl-pieces, or readable from piece-park.
 	placed := false
-	if t.hs != nil {
-		placed, err = t.hs.Public.HasFile(ctx, info.CidV2)
+	if t.hashSpaces != nil {
+		placed, err = t.hashSpaces.Public.HasFile(ctx, info.CidV2)
 		if err != nil {
 			return false, xerrors.Errorf("failed to look up open piece for %s: %w", info.CidV2, err)
 		}
 		if !placed {
-			placed, err = t.hs.ACL.HasFile(ctx, info.CidV2)
+			placed, err = t.hashSpaces.ACL.HasFile(ctx, info.CidV2)
 			if err != nil {
 				return false, xerrors.Errorf("failed to look up acl piece for %s: %w", info.CidV2, err)
 			}

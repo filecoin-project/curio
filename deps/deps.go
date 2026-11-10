@@ -180,7 +180,7 @@ type Deps struct {
 	EthSender         *message.SenderETH // set when PDP ETH send task is registered; nil otherwise
 	PeerHTTP          *harmonypeerhttp.PeerHTTP
 	WakeDealPoller    func()
-	HashSpace         *hashfolder.Cluster // set when PDP is enabled; nil otherwise
+	HashSpaces        *hashfolder.Cluster // set when PDP is enabled; nil otherwise
 }
 
 const (

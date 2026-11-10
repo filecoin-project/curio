@@ -58,7 +58,7 @@ type Deps struct {
 	EthClient         *lazy.Lazy[ethchain.EthClient]
 	Sender            *message.Sender
 	EthSender         *message.SenderETH
-	HashSpace         *hashfolder.Cluster
+	HashSpaces        *hashfolder.Cluster
 	Al                *curioalerting.AlertingSystem
 	Alert             *alertmanager.AlertNow
 	MachineHost       string
@@ -158,7 +158,7 @@ func Open(ctx context.Context, cctx *cli.Context) (*Deps, error) {
 		return nil, xerrors.Errorf("start index store: %w", err)
 	}
 
-	hs, err := NewHashSpace(ctx, db, localStore, si, sa)
+	hashSpaces, err := NewHashSpace(ctx, db, localStore, si, sa)
 	if err != nil {
 		return nil, xerrors.Errorf("hash space: %w", err)
 	}
@@ -166,9 +166,9 @@ func Open(ctx context.Context, cctx *cli.Context) (*Deps, error) {
 	sectorReader := pieceprovider.NewSectorReader(stor, si)
 	ppr := pieceprovider.NewPieceParkReader(stor, si)
 	cpr := cachedreader.NewCachedPieceReader(db, sectorReader, ppr, indexStore)
-	if hs != nil {
-		cpr.SetOpenPieceReader(pieceprovider.NewOpenPieceReader(hs))
-		cpr.SetACLPieceReader(pieceprovider.NewACLPieceReader(hs))
+	if hashSpaces != nil {
+		cpr.SetOpenPieceReader(pieceprovider.NewOpenPieceReader(hashSpaces))
+		cpr.SetACLPieceReader(pieceprovider.NewACLPieceReader(hashSpaces))
 	}
 	serveChunker := chunker.NewServeChunker(db, sectorReader, indexStore, cpr)
 
@@ -194,7 +194,7 @@ func Open(ctx context.Context, cctx *cli.Context) (*Deps, error) {
 		CachedPieceReader: cpr,
 		ServeChunker:      serveChunker,
 		EthClient:         ethLazy,
-		HashSpace:         hs,
+		HashSpaces:        hashSpaces,
 		Al:                al,
 		Alert:             alertmanager.NewAlertNow(db, machineHost),
 		MachineHost:       machineHost,
@@ -221,8 +221,8 @@ func (d *Deps) Close() {
 	if d.chainCloser != nil {
 		d.chainCloser()
 	}
-	if d.HashSpace != nil {
-		if err := d.HashSpace.Close(); err != nil {
+	if d.HashSpaces != nil {
+		if err := d.HashSpaces.Close(); err != nil {
 			log.Warnf("closing hash space: %s", err)
 		}
 	}

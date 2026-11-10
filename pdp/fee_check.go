@@ -64,13 +64,13 @@ func httpPlaceError(w http.ResponseWriter, err error) {
 
 // aclCopyExists reports whether this piece is already stored in acl-pieces.
 func (p *PDPService) aclCopyExists(ctx context.Context, info *SubPieceInfo) bool {
-	if p.hs == nil || p.hs.ACL == nil {
+	if p.hashSpaces == nil || p.hashSpaces.ACL == nil {
 		return false
 	}
 	parsed, err := PieceCidV2FromV1(info.PieceCIDv1, info.RawSize)
 	if err != nil {
 		return false
 	}
-	ok, err := p.hs.ACL.HasFile(ctx, parsed.CidV2)
+	ok, err := p.hashSpaces.ACL.HasFile(ctx, parsed.CidV2)
 	return err == nil && ok
 }

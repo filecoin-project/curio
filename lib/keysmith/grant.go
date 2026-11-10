@@ -468,7 +468,7 @@ var rootOnly = map[int64]bool{2: true, 3: true, 6: true, 10: true, 11: true}
 // decodePresentation reads a version-1 presentation. The bytes must be the
 // core deterministic encoding of that value.
 func decodePresentation(b []byte) (grantChain, readRequest, error) {
-	value, err := canonicalCBOR(b)
+	value, err := decodeWithRoundTripCheck(b)
 	if err != nil {
 		return grantChain{}, readRequest{}, refuse("Not a presentation: the bytes are not canonical CBOR")
 	}

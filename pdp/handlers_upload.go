@@ -97,7 +97,7 @@ func readHasExtraByte(r io.Reader) (bool, error) {
 }
 
 func (p *PDPService) placeRef(ctx context.Context, pieceRef int64) error {
-	return openpieces.Place(ctx, p.db, p.hs, p.local, p.pieceIO, pieceRef)
+	return openpieces.Place(ctx, p.db, p.hashSpaces, p.local, p.pieceIO, pieceRef)
 }
 
 func needsSaveCache(rawSize int64) bool {
