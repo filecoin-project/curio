@@ -10,28 +10,28 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
-	"github.com/filecoin-project/curio/lib/ffi"
+	"github.com/filecoin-project/curio/lib/piecestore"
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 type CleanupPieceTask struct {
-	max int
-	db  *harmonydb.DB
-	sc  *ffi.SealCalls
+	max   int
+	db    *harmonydb.DB
+	piece piecestore.PieceIO
 
 	TF promise.Promise[harmonytask.AddTaskFunc]
 
 	wake chan struct{}
 }
 
-func NewCleanupPieceTask(db *harmonydb.DB, sc *ffi.SealCalls, max int) *CleanupPieceTask {
+func NewCleanupPieceTask(db *harmonydb.DB, piece piecestore.PieceIO, max int) *CleanupPieceTask {
 	pt := &CleanupPieceTask{
-		db:   db,
-		sc:   sc,
-		max:  max,
-		wake: make(chan struct{}, 1),
+		db:    db,
+		piece: piece,
+		max:   max,
+		wake:  make(chan struct{}, 1),
 	}
 	go pt.pollCleanupTasks(context.Background())
 	return pt
@@ -149,7 +149,7 @@ func (c *CleanupPieceTask) Do(ctx context.Context, taskID harmonytask.TaskID, st
 	}
 
 	// remove from storage
-	err = c.sc.RemovePiece(ctx, storiface.PieceNumber(pieceID))
+	err = c.piece.RemovePiece(ctx, storiface.PieceNumber(pieceID))
 	if err != nil {
 		log.Errorw("remove piece", "piece_id", pieceID, "error", err)
 	}
@@ -164,7 +164,7 @@ func (c *CleanupPieceTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.Ta
 
 	ctx := context.Background()
 
-	ls, err := c.sc.LocalStorage(ctx)
+	ls, err := c.piece.LocalStorage(ctx)
 	if err != nil {
 		return nil, xerrors.Errorf("getting local storage: %w", err)
 	}

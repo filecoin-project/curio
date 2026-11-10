@@ -315,7 +315,9 @@ func (s *ClusterSpace) places(ctx context.Context, digest []byte) ([]Location, e
 
 // DeleteCID removes pieceCID from this space on the disks that hold its hash.
 // A missing file is fine. The lookup runs twice so a move that starts during
-// the first pass is still cleared.
+// the first pass is still cleared. The second pass only contacts disks the
+// first did not. A missing range on the second pass still rebalances disks
+// already cleared.
 func (s *ClusterSpace) DeleteCID(ctx context.Context, pieceCID string) error {
 	pc, err := cid.Parse(pieceCID)
 	if err != nil {
@@ -329,7 +331,7 @@ func (s *ClusterSpace) DeleteCID(ctx context.Context, pieceCID string) error {
 	for pass := 0; pass < 2; pass++ {
 		locs, err := s.places(ctx, digest)
 		if errors.Is(err, errNoRange) {
-			return nil
+			break
 		}
 		if err != nil {
 			return err

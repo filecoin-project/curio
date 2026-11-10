@@ -22,6 +22,10 @@ type Store struct {
 	sindex     paths.SectorIndex
 }
 
+func (s *Store) LocalStorage(ctx context.Context) ([]storiface.StoragePath, error) {
+	return s.localStore.Local(ctx)
+}
+
 var _ PieceIO = (*Store)(nil)
 
 func New(st *paths.Remote, ls *paths.Local, si paths.SectorIndex) *Store {

@@ -43,7 +43,16 @@ func httpServerError(w http.ResponseWriter, statusCode int, msg string, err erro
 		return
 	}
 	eid := uuid.New()
-	log.Errorf("%s [eid=%s]: %+v", msg, eid, err)
+	detail := msg
+	if err != nil {
+		detail = fmt.Sprintf("%s: %+v", msg, err)
+	}
+	// Client faults (4xx) are expected; keep an eid for support without ERROR noise.
+	if statusCode >= http.StatusInternalServerError {
+		log.Errorf("%s [eid=%s]", detail, eid)
+	} else {
+		log.Warnf("%s [eid=%s]", detail, eid)
+	}
 	http.Error(w, fmt.Sprintf("%s [eid: %s]", msg, eid), statusCode)
 }
 

@@ -18,10 +18,10 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
-	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/parkpiece"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/lib/paths"
+	"github.com/filecoin-project/curio/lib/piecestore"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/mk20"
 	"github.com/filecoin-project/curio/tasks/tasknames"
@@ -30,14 +30,14 @@ import (
 type AggregateChunksTask struct {
 	db     *harmonydb.DB
 	remote *paths.Remote
-	sc     *ffi.SealCalls
+	piece  piecestore.PieceIO
 }
 
-func NewAggregateChunksTask(db *harmonydb.DB, remote *paths.Remote, sc *ffi.SealCalls) *AggregateChunksTask {
+func NewAggregateChunksTask(db *harmonydb.DB, remote *paths.Remote, piece piecestore.PieceIO) *AggregateChunksTask {
 	return &AggregateChunksTask{
 		db:     db,
 		remote: remote,
-		sc:     sc,
+		piece:  piece,
 	}
 }
 
@@ -110,7 +110,7 @@ func (a *AggregateChunksTask) Do(ctx context.Context, taskID harmonytask.TaskID,
 			return false, xerrors.Errorf("expected 1 pieceID, got %d", len(pieceID))
 		}
 
-		pr, err := a.sc.PieceReader(ctx, pieceID[0].PieceID)
+		pr, err := a.piece.PieceReader(ctx, pieceID[0].PieceID)
 		if err != nil {
 			return false, xerrors.Errorf("getting piece reader: %w", err)
 		}
@@ -135,7 +135,7 @@ func (a *AggregateChunksTask) Do(ctx context.Context, taskID harmonytask.TaskID,
 		err = tx.QueryRow(`SELECT id FROM parked_pieces WHERE piece_cid = $1 AND piece_padded_size = $2 AND long_term = TRUE`, pcid.String(), psize).Scan(&pid)
 		if err == nil {
 			// If piece exists then check if we can access the data
-			pr, err := a.sc.PieceReader(ctx, storiface.PieceNumber(pid))
+			pr, err := a.piece.PieceReader(ctx, storiface.PieceNumber(pid))
 			if err == nil {
 				defer func() {
 					_ = pr.Close()
@@ -204,7 +204,7 @@ func (a *AggregateChunksTask) Do(ctx context.Context, taskID harmonytask.TaskID,
 
 	// Write piece if not already complete
 	if !pieceParked {
-		cpi, _, err := a.sc.WriteUploadPiece(ctx, storiface.PieceNumber(parkedPieceID), rawSize, rd, storiface.PathStorage, true)
+		cpi, _, err := a.piece.WriteUploadPiece(ctx, storiface.PieceNumber(parkedPieceID), rawSize, rd, storiface.PathStorage, true)
 		if err != nil {
 			return false, xerrors.Errorf("writing aggregated piece data to storage: %w", err)
 		}

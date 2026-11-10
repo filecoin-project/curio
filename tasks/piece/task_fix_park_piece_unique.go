@@ -10,8 +10,8 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
-	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/parkpiece"
+	"github.com/filecoin-project/curio/lib/piecestore"
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/tasks/tasknames"
@@ -20,16 +20,16 @@ import (
 // TODO: This task should be removed at NV30 upgrade along with CTEs for parked_piece insert
 
 type FixParkPieceTask struct {
-	db *harmonydb.DB
-	sc *ffi.SealCalls
+	db    *harmonydb.DB
+	piece piecestore.PieceIO
 
 	TF promise.Promise[harmonytask.AddTaskFunc]
 }
 
-func NewFixParkPieceTask(db *harmonydb.DB, sc *ffi.SealCalls) *FixParkPieceTask {
+func NewFixParkPieceTask(db *harmonydb.DB, piece piecestore.PieceIO) *FixParkPieceTask {
 	return &FixParkPieceTask{
-		db: db,
-		sc: sc,
+		db:    db,
+		piece: piece,
 	}
 }
 
@@ -133,7 +133,7 @@ func (f *FixParkPieceTask) Do(ctx context.Context, taskID harmonytask.TaskID, st
 			if !row.Complete {
 				continue
 			}
-			pr, err := f.sc.PieceReader(ctx, storiface.PieceNumber(row.ID))
+			pr, err := f.piece.PieceReader(ctx, storiface.PieceNumber(row.ID))
 			if err != nil {
 				continue
 			}
@@ -182,7 +182,7 @@ func (f *FixParkPieceTask) Do(ctx context.Context, taskID harmonytask.TaskID, st
 		// deleted from the DB. Errors are logged; orphan cleanup will
 		// catch any stragglers.
 		for _, loserID := range loserIDs {
-			if rerr := f.sc.RemovePiece(ctx, storiface.PieceNumber(loserID)); rerr != nil {
+			if rerr := f.piece.RemovePiece(ctx, storiface.PieceNumber(loserID)); rerr != nil {
 				log.Errorw("removing piece after consolidation", "piece_id", loserID, "error", rerr)
 			}
 		}

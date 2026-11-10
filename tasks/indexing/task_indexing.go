@@ -13,7 +13,6 @@ import (
 	"github.com/ipfs/go-cid"
 	"github.com/oklog/ulid"
 	"github.com/yugabyte/pgx/v5"
-	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
 
 	commcid "github.com/filecoin-project/go-fil-commcid"
@@ -286,21 +285,20 @@ func (i *IndexingTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillO
 	recs := make(chan indexstore.Record, chanSize)
 	var blocks int64
 
-	var eg errgroup.Group
-	addFail := make(chan struct{})
 	var interrupted bool
 
-	eg.Go(func() error {
-		defer close(addFail)
-		return i.indexStore.AddIndex(ctx, pc2, recs)
-	})
-
 	aggRecs := make(chan indexstore.Record, chanSize)
+	var addAggregateIndex func() error
+	if task.Mk20 && len(subPieces) > 0 {
+		addAggregateIndex = func() error {
+			return i.indexStore.InsertAggregateIndex(ctx, pc2, aggRecs)
+		}
+	}
+	eg, addFail := startIndexWriters(func() error {
+		return i.indexStore.AddIndex(ctx, pc2, recs)
+	}, addAggregateIndex)
 
 	if task.Mk20 && len(subPieces) > 0 {
-		eg.Go(func() error {
-			return i.indexStore.InsertAggregateIndex(ctx, pc2, aggRecs)
-		})
 		blocks, interrupted, err = IndexAggregate(pc2, reader, task.Size, subPieces, recs, aggRecs, addFail)
 	} else {
 		_, blocks, interrupted, err = IndexCAR(reader, 4<<20, recs, addFail)
@@ -520,6 +518,7 @@ func (i *IndexingTask) schedule(ctx context.Context, taskFunc harmonytask.AddTas
 					SELECT uuid
 					FROM market_mk12_deal_pipeline
 					WHERE sealed = TRUE
+					  AND sector_offset IS NOT NULL
 					  AND indexing_task_id IS NULL
 					  AND indexed = FALSE
 					  AND indexing_created_at IS NOT NULL
@@ -531,6 +530,7 @@ func (i *IndexingTask) schedule(ctx context.Context, taskFunc harmonytask.AddTas
 				FROM pending
 				WHERE p.uuid = pending.uuid
 				  AND p.sealed = TRUE
+				  AND p.sector_offset IS NOT NULL
 				  AND p.indexing_task_id IS NULL
 				  AND p.indexed = FALSE`, id)
 			if err != nil {
@@ -548,6 +548,7 @@ func (i *IndexingTask) schedule(ctx context.Context, taskFunc harmonytask.AddTas
 					SELECT id, aggr_index
 					FROM market_mk20_pipeline
 					WHERE sealed = TRUE
+					  AND sector_offset IS NOT NULL
 					  AND indexing_task_id IS NULL
 					  AND indexed = FALSE
 					  AND indexing_created_at IS NOT NULL
@@ -560,6 +561,7 @@ func (i *IndexingTask) schedule(ctx context.Context, taskFunc harmonytask.AddTas
 				WHERE p.id = pending.id
 				  AND p.aggr_index = pending.aggr_index
 				  AND p.sealed = TRUE
+				  AND p.sector_offset IS NOT NULL
 				  AND p.indexing_task_id IS NULL
 				  AND p.indexed = FALSE`, id)
 			if err != nil {

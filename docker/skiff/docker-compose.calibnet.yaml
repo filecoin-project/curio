@@ -15,7 +15,7 @@ services:
       - "false"
 
   skiff:
-    image: ${SKIFF_IMAGE:-filecoin/curio-pdp:calibnet-dev}
+    image: ${SKIFF_IMAGE:-filecoin/curio-pdp:calibnet}
     build:
       context: ../..
       dockerfile: docker/skiff/Dockerfile

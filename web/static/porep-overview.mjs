@@ -447,6 +447,7 @@ customElements.define('porep-overview', class PorepOverview extends LitElement {
     return html`
       <div class="dashboard-section">
         <pipeline-porep></pipeline-porep>
+        <pipeline-stats></pipeline-stats>
       </div>
     `
   }

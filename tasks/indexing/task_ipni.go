@@ -93,7 +93,7 @@ func (I *IPNITask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned
 	}
 
 	if len(tasks) == 0 {
-		// orphans are normal actually
+		// orphans are actually normal
 		return true, nil
 	}
 	if len(tasks) != 1 {

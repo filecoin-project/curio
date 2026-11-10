@@ -2,13 +2,8 @@
 
 package hashfolder
 
-import "os"
-
+// renameNoReplace moves oldpath to newpath and leaves an existing newpath
+// untouched, reporting os.ErrExist.
 func renameNoReplace(oldpath, newpath string) error {
-	if _, err := os.Lstat(newpath); err == nil {
-		return os.ErrExist
-	} else if !os.IsNotExist(err) {
-		return err
-	}
-	return os.Rename(oldpath, newpath)
+	return renameViaStat(oldpath, newpath)
 }

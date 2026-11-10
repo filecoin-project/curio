@@ -189,6 +189,12 @@ const (
 )
 
 func knownFWSSViewAddress(serviceAddr common.Address) (common.Address, bool) {
+	// Addresses set through SetAddresses replace the build-type defaults, and
+	// these view addresses belong to those defaults; the caller then asks the
+	// service contract for its view instead.
+	if configured.Load() != nil {
+		return common.Address{}, false
+	}
 	fwssService := ContractAddresses().AllowedPublicRecordKeepers.FWSService
 	if !strings.EqualFold(serviceAddr.Hex(), fwssService.Hex()) {
 		return common.Address{}, false

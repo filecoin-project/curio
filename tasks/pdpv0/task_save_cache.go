@@ -21,6 +21,7 @@ import (
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/lib/proof"
 	"github.com/filecoin-project/curio/market/indexstore"
+	"github.com/filecoin-project/curio/pdp"
 	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
@@ -65,15 +66,18 @@ func (t *TaskPDPSaveCache) Do(ctx context.Context, taskID harmonytask.TaskID, st
 
 	log.Debugw("PDPv0_SaveCache starting", "taskID", taskID, "pieceCID", task.PieceCID, "rawSize", task.RawSize)
 
-	pcidV1, err := cid.Parse(task.PieceCID)
+	pieceCid, err := pdp.ParsePieceCid(task.PieceCID)
 	if err != nil {
 		return false, xerrors.Errorf("failed to parse piece cid: %w", err)
 	}
 
-	// Construct v2 CID from v1 + raw size (needed for Cassandra cache layer keying)
-	pcidV2, err := commcid.PieceCidV2FromV1(pcidV1, task.RawSize)
-	if err != nil {
-		return false, xerrors.Errorf("failed to construct piece cid v2: %w", err)
+	pcidV1, pcidV2 := pieceCid.CidV1, pieceCid.CidV2
+	if !pieceCid.HasV2() {
+		// Construct v2 CID from v1 + raw size (needed for Cassandra cache layer keying)
+		pcidV2, err = commcid.PieceCidV2FromV1(pcidV1, task.RawSize)
+		if err != nil {
+			return false, xerrors.Errorf("failed to construct piece cid v2: %w", err)
+		}
 	}
 
 	paddedSize := padreader.PaddedSize(task.RawSize).Padded()

@@ -9,7 +9,7 @@ import (
 const exploreDataSetsPathPrefix = "/explore/data-sets/"
 
 // allowExploreList soft-gates the dataset explorer piece listing.
-// Membership is public on-chain and piece bytes are served at /piece/{cid};
+// Membership is public on-chain and piece bytes are served at /public/{cid};
 // this accepts either a valid service JWT or a Referer from the explorer UI
 // so the list endpoint is clearly not meant as a public catalog API.
 // Callers should record OffenseExploreListUnauth on deny so scrapers hit the

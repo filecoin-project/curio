@@ -1,3 +1,5 @@
+//go:build !skiff
+
 package piece
 
 import (
@@ -8,7 +10,6 @@ import (
 	"time"
 
 	"github.com/hashicorp/go-multierror"
-	logging "github.com/ipfs/go-log/v2"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -22,9 +23,6 @@ import (
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/tasks/tasknames"
 )
-
-var log = logging.Logger("cu-piece")
-var PieceParkPollInterval = time.Second * 5
 
 // ParkPieceTask gets a piece from some origin, and parks it in storage
 // Pieces are always f00, piece ID is mapped to pieceCID in the DB
@@ -182,7 +180,8 @@ func (p *ParkPieceTask) Do(ctx context.Context, taskID harmonytask.TaskID, still
 	err = p.db.Select(ctx, &refData, `
         SELECT data_url, data_headers
         FROM parked_piece_refs
-        WHERE piece_id = $1 AND data_url IS NOT NULL`, pieceData.PieceID)
+        WHERE piece_id = $1 AND data_url IS NOT NULL
+        ORDER BY ref_id ASC`, pieceData.PieceID)
 	if err != nil {
 		return false, xerrors.Errorf("fetching reference data: %w", err)
 	}

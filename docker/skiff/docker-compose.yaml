@@ -20,7 +20,7 @@ networks:
 services:
   yugabyte:
     container_name: skiff-yugabyte
-    image: ${YUGABYTE_IMAGE:-yugabytedb/yugabyte:2024.1.0.0-b129}
+    image: ${YUGABYTE_IMAGE:-yugabytedb/yugabyte:2025.2.7.0-b107}
     init: true
     environment:
       - TINI_SUBREAPER=true
@@ -87,7 +87,7 @@ services:
 
   skiff:
     container_name: skiff
-    image: ${SKIFF_IMAGE:-filecoin/curio-pdp:dev}
+    image: ${SKIFF_IMAGE:-filecoin/curio-pdp:latest}
     build:
       context: ../..
       dockerfile: docker/skiff/Dockerfile
