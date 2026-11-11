@@ -456,10 +456,10 @@ func (n *NextProvingPeriodTask) handleNextProvingPeriodPreflightError(ctx contex
 		}
 		return true, nil
 	case IsUnexpectedProvingInvariantError(err):
-		emitProvingSendErrorAlert(n.al, alertNameNextPP, err)
+		emitProvingSendErrorAlert(n.al, alertNameNextPP, dataSetId, err)
 		return false, err
 	case IsContractRevert(err):
-		emitProvingSendErrorAlert(n.al, alertNameNextPP, err)
+		emitProvingSendErrorAlert(n.al, alertNameNextPP, dataSetId, err)
 		return false, err
 	default:
 		return false, err
@@ -483,7 +483,7 @@ func handleNextProvingPeriodSendError(ctx context.Context, tx *harmonydb.Tx, pro
 		// The challenge epoch was too close to the current block. Retry the
 		// task so it recomputes challenge state and calldata instead of
 		// resending the same transaction.
-		emitProvingSendErrorAlert(al, alertSubsystem, sendErr)
+		emitProvingSendErrorAlert(al, alertSubsystem, dataSetId, sendErr)
 		log.Warnw("Retrying proving period scheduling after insufficient challenge delay",
 			"dataSetId", dataSetId, "subsystem", alertSubsystem, "height", currentHeight, "error", sendErr)
 		return sendErr
@@ -524,12 +524,12 @@ func handleNextProvingPeriodSendError(ctx context.Context, tx *harmonydb.Tx, pro
 	case IsUnexpectedProvingInvariantError(sendErr):
 		// Curio should not hit these in the normal initPP/nextPP path. Alert and
 		// retry without mutating proving state so the condition can be investigated.
-		emitProvingSendErrorAlert(al, alertSubsystem, sendErr)
+		emitProvingSendErrorAlert(al, alertSubsystem, dataSetId, sendErr)
 		return sendErr
 	case IsContractRevert(sendErr):
 		// Fallback for unclassified contract reverts: alert and let Harmony
 		// retry without mutating proving state.
-		emitProvingSendErrorAlert(al, alertSubsystem, sendErr)
+		emitProvingSendErrorAlert(al, alertSubsystem, dataSetId, sendErr)
 		return sendErr
 	default:
 		// Non-contract send failures are transport/sender/task errors.

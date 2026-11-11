@@ -42,6 +42,11 @@ func (c *settleWatcherClient) CallContract(_ context.Context, msg ethereum.CallM
 
 func newSettleWatcherClient(t *testing.T) *settleWatcherClient {
 	t.Helper()
+	return newSettleWatcherClientWithLockup(t, 30*builtin.EpochsInDay)
+}
+
+func newSettleWatcherClientWithLockup(t *testing.T, lockupPeriod int64) *settleWatcherClient {
+	t.Helper()
 	t.Setenv("CURIO_DEVNET_PAYMENTS_ADDRESS", "0x0000000000000000000000000000000000000001")
 	t.Setenv("CURIO_DEVNET_PDP_VERIFIER_ADDRESS", "0x0000000000000000000000000000000000000002")
 	t.Setenv("CURIO_DEVNET_FWSS_ADDRESS", "0x0000000000000000000000000000000000000003")
@@ -62,7 +67,7 @@ func newSettleWatcherClient(t *testing.T) *settleWatcherClient {
 		Operator:          serviceAddr,
 		Validator:         serviceAddr,
 		PaymentRate:       big.NewInt(1),
-		LockupPeriod:      big.NewInt(30 * builtin.EpochsInDay),
+		LockupPeriod:      big.NewInt(lockupPeriod),
 		LockupFixed:       big.NewInt(0),
 		SettledUpTo:       big.NewInt(900),
 		EndEpoch:          big.NewInt(0),
@@ -179,6 +184,28 @@ func TestIntegration_ProcessPendingTransactions_Retry(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestIntegration_ProcessPendingTransactions_RailSoonToDefaultAlertReferencesDataSet(t *testing.T) {
+	// The lockup ends at epoch 950, before block 1000, while the default grace still holds off termination.
+	client := newSettleWatcherClientWithLockup(t, 50)
+	db, err := harmonydb.NewFromConfigWithITestID(t)
+	require.NoError(t, err)
+	s := insertSettleWatcherState(t, db, false, false)
+	_, err = db.Exec(t.Context(), `
+		INSERT INTO message_waits_eth (signed_tx_hash, tx_status, tx_success)
+		VALUES ($1, 'confirmed', TRUE)
+	`, s.Hash)
+	require.NoError(t, err)
+
+	alerts := &settleWatcherAlerts{}
+	require.NoError(t, processPendingTransactions(t.Context(), db, client, alerts))
+	requireSettleWatcherState(t, db, s, false, false)
+
+	require.Len(t, alerts.events, 1)
+	require.Contains(t, alerts.events[0].Message, "soon to default")
+	require.Equal(t, curioalerting.SUBJECT_KIND_DATASET, alerts.events[0].SubjectKind)
+	require.Equal(t, "1", alerts.events[0].SubjectID)
 }
 
 func TestIntegration_VerifySettle_RetryRollsBackWithCleanup(t *testing.T) {

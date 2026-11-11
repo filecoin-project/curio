@@ -31,15 +31,47 @@ func TestCurioAlertingEventAndConditionLifecycle(t *testing.T) {
 
 	var eventKind, eventAlertName string
 	var eventSentAt *time.Time
+	var eventSubjectKind, eventSubjectID *string
 	err = db.QueryRow(ctx, `
-		SELECT kind, alert_name, sent_at
+		SELECT kind, alert_name, sent_at, subject_kind, subject_id
 		FROM alert_history
 		WHERE system = 'pay' AND subsystem = 'settlement'
-	`).Scan(&eventKind, &eventAlertName, &eventSentAt)
+	`).Scan(&eventKind, &eventAlertName, &eventSentAt, &eventSubjectKind, &eventSubjectID)
 	require.NoError(t, err)
 	require.Equal(t, "event", eventKind)
 	require.Equal(t, "pay_settlement", eventAlertName)
 	require.Nil(t, eventSentAt)
+	require.Nil(t, eventSubjectKind)
+	require.Nil(t, eventSubjectID)
+
+	err = as.EmitEvent(ctx, AlertEvent{
+		System:      "pdp",
+		Subsystem:   "proving",
+		Message:     "proof rejected",
+		SubjectKind: SUBJECT_KIND_DATASET,
+		SubjectID:   "42",
+	})
+	require.NoError(t, err)
+
+	err = db.QueryRow(ctx, `
+		SELECT subject_kind, subject_id
+		FROM alert_history
+		WHERE system = 'pdp' AND subsystem = 'proving'
+	`).Scan(&eventSubjectKind, &eventSubjectID)
+	require.NoError(t, err)
+	require.NotNil(t, eventSubjectKind)
+	require.NotNil(t, eventSubjectID)
+	// The alert page matches the stored kind by this literal value.
+	require.Equal(t, "dataset", *eventSubjectKind)
+	require.Equal(t, "42", *eventSubjectID)
+
+	err = as.EmitEvent(ctx, AlertEvent{
+		System:      "pdp",
+		Subsystem:   "proving",
+		Message:     "proof rejected",
+		SubjectKind: SUBJECT_KIND_DATASET,
+	})
+	require.Error(t, err)
 
 	condition := AlertCondition{
 		System:    "pdp",

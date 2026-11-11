@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"math/big"
+	"strconv"
 	"sync/atomic"
 	"testing"
 
@@ -117,6 +118,8 @@ func TestIntegration_HandleProveSendError_FWSSProvingNotStartedResetsToInitPP(t 
 	action := handleProveSendError(alerts, dataSetID, 4350, sendErr)
 	require.Equal(t, proveSendErrorResetToInitPP, action)
 	require.Len(t, alerts.events, 1)
+	require.Equal(t, curioalerting.SUBJECT_KIND_DATASET, alerts.events[0].SubjectKind)
+	require.Equal(t, strconv.FormatInt(dataSetID, 10), alerts.events[0].SubjectID)
 
 	require.NoError(t, resetDatasetToInitPP(ctx, db, dataSetID))
 	require.Equal(t, failureHandlingDataSetState{
@@ -261,6 +264,10 @@ func TestIntegration_HandleSplitProvingSendErrors_RetryAndAlertPathsDoNotMutateD
 
 			require.Equal(t, initialState, loadFailureHandlingDataSet(t, ctx, db, dataSetID))
 			require.Len(t, alerts.events, tc.wantAlerts)
+			for _, event := range alerts.events {
+				require.Equal(t, curioalerting.SUBJECT_KIND_DATASET, event.SubjectKind)
+				require.Equal(t, strconv.FormatInt(dataSetID, 10), event.SubjectID)
+			}
 			require.Equal(t, 0, countFailureHandlingDeleteRows(t, ctx, db, dataSetID))
 		})
 	}

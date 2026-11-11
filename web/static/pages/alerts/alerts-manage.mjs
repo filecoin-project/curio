@@ -444,6 +444,13 @@ class AlertsManage extends StyledLitElement {
         `;
     }
 
+    renderSubject(alert) {
+        if (alert.SubjectKind === 'dataset' && alert.SubjectID) {
+            return html`DataSet: <a href="/pages/dataset/?id=${encodeURIComponent(alert.SubjectID)}">${alert.SubjectID}</a> | `;
+        }
+        return '';
+    }
+
     renderAlert(alert) {
         return html`
             <div class="alert-card ${alert.Acknowledged ? 'acknowledged' : ''}">
@@ -467,6 +474,7 @@ class AlertsManage extends StyledLitElement {
                 </div>
                 <div class="alert-message">${alert.Message}</div>
                 <div class="alert-meta">
+                    ${this.renderSubject(alert)}
                     ${alert.MachineName ? html`Machine: ${alert.MachineName} | ` : ''}
                     Created: ${this.formatDate(alert.CreatedAt)}
                     ${alert.Acknowledged ? html` | Acked by ${alert.AcknowledgedBy} at ${this.formatDate(alert.AcknowledgedAt)}` : ''}

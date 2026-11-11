@@ -224,9 +224,11 @@ func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthC
 
 			if threshold.Uint64() < current {
 				_ = al.EmitEvent(ctx, curioalerting.AlertEvent{
-					Subsystem: alertName,
-					System:    alertType,
-					Message:   fmt.Sprintf("Rail %d is soon to default, terminating dataSet %d", railId, dataSet.Int64()),
+					Subsystem:   alertName,
+					System:      alertType,
+					Message:     fmt.Sprintf("Rail %d is soon to default, terminating dataSet %d", railId, dataSet.Int64()),
+					SubjectKind: curioalerting.SUBJECT_KIND_DATASET,
+					SubjectID:   dataSet.String(),
 				})
 			}
 

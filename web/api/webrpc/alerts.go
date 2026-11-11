@@ -172,6 +172,8 @@ type AlertHistoryEntry struct {
 	SentToPlugins  bool       `db:"sent_to_plugins" json:"SentToPlugins"`
 	SentAt         *time.Time `db:"sent_at" json:"SentAt"`
 	CommentCount   int        `db:"comment_count" json:"CommentCount"`
+	SubjectKind    *string    `db:"subject_kind" json:"SubjectKind"`
+	SubjectID      *string    `db:"subject_id" json:"SubjectID"`
 }
 
 // AlertComment represents a comment on an alert
@@ -227,6 +229,7 @@ func (a *WebRPC) AlertHistoryListPaginated(ctx context.Context, limit int, offse
 					ah.id, ah.alert_name, ah.message, ah.machine_name, ah.created_at,
 					ah.acknowledged, ah.acknowledged_by, ah.acknowledged_at,
 					ah.sent_to_plugins, ah.sent_at,
+					ah.subject_kind, ah.subject_id,
 					COALESCE((SELECT COUNT(*) FROM alert_comments ac WHERE ac.alert_id = ah.id), 0) as comment_count
 				FROM alert_history ah
 				ORDER BY ah.created_at DESC LIMIT $1 OFFSET $2
@@ -237,6 +240,7 @@ func (a *WebRPC) AlertHistoryListPaginated(ctx context.Context, limit int, offse
 					ah.id, ah.alert_name, ah.message, ah.machine_name, ah.created_at,
 					ah.acknowledged, ah.acknowledged_by, ah.acknowledged_at,
 					ah.sent_to_plugins, ah.sent_at,
+					ah.subject_kind, ah.subject_id,
 					COALESCE((SELECT COUNT(*) FROM alert_comments ac WHERE ac.alert_id = ah.id), 0) as comment_count
 				FROM alert_history ah
 				WHERE NOT ah.acknowledged

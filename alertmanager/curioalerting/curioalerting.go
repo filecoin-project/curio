@@ -24,10 +24,17 @@ type AlertingInterface interface {
 	ResolveCondition(ctx context.Context, condition AlertCondition) error
 }
 
+const SUBJECT_KIND_DATASET = "dataset"
+
 type AlertEvent struct {
 	System    string
 	Subsystem string
 	Message   string
+
+	// SubjectKind and SubjectID name the single object the event is about.
+	// Both are set, or both are empty when the event has no specific subject.
+	SubjectKind string
+	SubjectID   string
 }
 
 type AlertCondition struct {
@@ -47,13 +54,19 @@ func (as *AlertingSystem) EmitEvent(ctx context.Context, event AlertEvent) error
 		return err
 	}
 
+	if (event.SubjectKind == "") != (event.SubjectID == "") {
+		return xerrors.Errorf("alert subject kind and id must be set together")
+	}
+
 	_, err := as.db.Exec(ctx, `
 		INSERT INTO alert_history (
 			alert_name, message, machine_name, sent_to_plugins,
-			kind, system, subsystem, condition
+			kind, system, subsystem, condition,
+			subject_kind, subject_id
 		)
-		VALUES ($1, $2, NULL, FALSE, 'event', $3, $4, NULL)
-	`, alertName(event.System, event.Subsystem, ""), event.Message, event.System, event.Subsystem)
+		VALUES ($1, $2, NULL, FALSE, 'event', $3, $4, NULL, NULLIF($5, ''), NULLIF($6, ''))
+	`, alertName(event.System, event.Subsystem, ""), event.Message, event.System, event.Subsystem,
+		event.SubjectKind, event.SubjectID)
 	if err != nil {
 		return xerrors.Errorf("recording alert event: %w", err)
 	}
