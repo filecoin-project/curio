@@ -27,6 +27,7 @@ PDP_SERVICE_NAME="${PDP_SERVICE_NAME:-curio}"
 PDP_SERVICE_DESCRIPTION="${PDP_SERVICE_DESCRIPTION:-curio-devnet}"
 PDP_SERVICE_LOCATION="${PDP_SERVICE_LOCATION:-C=US}"
 PDP_SERVICE_CAPACITY_TIB="${PDP_SERVICE_CAPACITY_TIB:-1}"
+PDP_SERVICE_CONTACT_EMAIL="${PDP_SERVICE_CONTACT_EMAIL:-}"
 PDP_WALLET_FUND_AMOUNT="${PDP_WALLET_FUND_AMOUNT:-1000}"
 
 # Contract artifacts shared from contracts-bootstrap.
@@ -347,7 +348,17 @@ bootstrap_pdp_registry() {
   fi
 
   if [[ ! -f "$pdp_register_marker" ]]; then
-    jsonrpc_call "FSRegister" "$(jq -cn --arg n "$PDP_SERVICE_NAME" --arg d "$PDP_SERVICE_DESCRIPTION" --arg l "$PDP_SERVICE_LOCATION" --argjson c "$PDP_SERVICE_CAPACITY_TIB" '[$n, $d, $l, $c]')"
+    # FSRegister(name, description, location, capacityGiB, contactEmail).
+    # go-jsonrpc rejects a mismatched param count. Capacity is GiB (minimum 100);
+    # an empty contact email is allowed and is omitted on chain.
+    local capacity_gib=$((PDP_SERVICE_CAPACITY_TIB * 1024))
+    jsonrpc_call "FSRegister" "$(jq -cn \
+      --arg n "$PDP_SERVICE_NAME" \
+      --arg d "$PDP_SERVICE_DESCRIPTION" \
+      --arg l "$PDP_SERVICE_LOCATION" \
+      --argjson c "$capacity_gib" \
+      --arg e "$PDP_SERVICE_CONTACT_EMAIL" \
+      '[$n, $d, $l, $c, $e]')"
     touch "$pdp_register_marker"
   fi
 }
