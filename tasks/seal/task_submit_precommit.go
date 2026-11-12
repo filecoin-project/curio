@@ -49,7 +49,9 @@ type SubmitPrecommitTask struct {
 	sp     *SealPoller
 	db     *harmonydb.DB
 	api    SubmitPrecommitTaskApi
-	sender *message.Sender
+	sender interface {
+		Send(context.Context, *types.Message, *api.MessageSendSpec, string) (cid.Cid, error)
+	}
 	as     *multictladdr.MultiAddressSelector
 	feeCfg *config.CurioFees
 }
@@ -100,10 +102,11 @@ func (s *SubmitPrecommitTask) Do(ctx context.Context, taskID harmonytask.TaskID,
 		TicketEpoch              abi.ChainEpoch          `db:"ticket_epoch"`
 		SealedCID                string                  `db:"tree_r_cid"`
 		UnsealedCID              string                  `db:"tree_d_cid"`
+		Failed                   bool                    `db:"failed"`
 	}
 
 	err = s.db.Select(ctx, &sectorParamsArr, `
-		SELECT sp_id, sector_number, reg_seal_proof, user_sector_duration_epochs, ticket_epoch, tree_r_cid, tree_d_cid
+		SELECT sp_id, sector_number, reg_seal_proof, user_sector_duration_epochs, ticket_epoch, tree_r_cid, tree_d_cid, failed
 		FROM sectors_sdr_pipeline
 		WHERE task_id_precommit_msg = $1 ORDER BY sector_number ASC`, taskID)
 	if err != nil {
@@ -146,9 +149,20 @@ func (s *SubmitPrecommitTask) Do(ctx context.Context, taskID harmonytask.TaskID,
 		Sectors: make([]miner.SectorPreCommitInfo, 0, len(sectorParamsArr)),
 	}
 	collateral := big.Zero()
+	includedSectors := make([]int64, 0, len(sectorParamsArr))
 
 	// 2. Prepare preCommit info and PreCommitSectorBatchParams
+sectorLoop:
 	for _, sectorParams := range sectorParamsArr {
+		if sectorParams.Failed {
+			_, err := s.db.Exec(ctx, `UPDATE sectors_sdr_pipeline SET task_id_precommit_msg = NULL
+				WHERE task_id_precommit_msg = $1 AND sp_id = $2 AND sector_number = $3 AND failed = TRUE`,
+				taskID, sectorParams.SpID, sectorParams.SectorNumber)
+			if err != nil {
+				return false, xerrors.Errorf("detaching failed precommit sector: %w", err)
+			}
+			continue
+		}
 
 		// Check miner ID is same for all sectors in batch
 		tmpMaddr, err := address.NewIDAddress(uint64(sectorParams.SpID))
@@ -230,11 +244,12 @@ func (s *SubmitPrecommitTask) Do(ctx context.Context, taskID harmonytask.TaskID,
 					// deal start epoch is in the past, can't precommit this sector anymore
 					_, perr := s.db.Exec(ctx, `UPDATE sectors_sdr_pipeline
 					SET failed = TRUE, failed_at = NOW(), failed_reason = 'past-start-epoch', failed_reason_msg = 'precommit: start epoch is in the past', task_id_precommit_msg = NULL
-					WHERE task_id_precommit_msg = $1`, taskID)
+					WHERE task_id_precommit_msg = $1 AND sp_id = $2 AND sector_number = $3`,
+						taskID, sectorParams.SpID, sectorParams.SectorNumber)
 					if perr != nil {
 						return false, xerrors.Errorf("persisting precommit start epoch expiry: %w", perr)
 					}
-					return true, xerrors.Errorf("deal start epoch is in the past")
+					continue sectorLoop
 				}
 				if p.DealEndEpoch > 0 && abi.ChainEpoch(p.DealEndEpoch) > endEpoch {
 					endEpoch = abi.ChainEpoch(p.DealEndEpoch)
@@ -259,13 +274,13 @@ func (s *SubmitPrecommitTask) Do(ctx context.Context, taskID harmonytask.TaskID,
 		collateral = big.Add(collateral, collateralPerSector)
 
 		params.Sectors = append(params.Sectors, param)
+		includedSectors = append(includedSectors, sectorParams.SectorNumber)
 	}
 
 	// Check if we have any valid sectors
 	if len(params.Sectors) == 0 {
 		log.Warnf("no valid sectors to precommit")
-		// We return true here because only way sectors are 0 is if they were removed due to ticket expiration,
-		// and we have already marked them as failed in pipeline
+		// All sectors were already failed or failed validation above.
 		return true, nil
 	}
 
@@ -336,7 +351,9 @@ func (s *SubmitPrecommitTask) Do(ctx context.Context, taskID harmonytask.TaskID,
 	// set precommit_msg_cid
 	_, err = s.db.Exec(ctx, `UPDATE sectors_sdr_pipeline
 		SET precommit_msg_cid = $1, after_precommit_msg = TRUE, task_id_precommit_msg = NULL
-		WHERE task_id_precommit_msg = $2`, mcid, taskID)
+		WHERE task_id_precommit_msg = $2 AND sp_id = $3
+			AND sector_number = ANY($4::bigint[]) AND failed = FALSE`,
+		mcid, taskID, sectorParamsArr[0].SpID, includedSectors)
 	if err != nil {
 		return false, xerrors.Errorf("updating precommit_msg_cid: %w", err)
 	}
