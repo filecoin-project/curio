@@ -651,7 +651,7 @@ func (s *SupraSeal) claimsFromCCScheduler(tx *harmonydb.Tx, toSeal int64) ([]sec
 	var totalWeight, totalToSeal int64
 	for _, schedule := range enabledSchedules {
 		totalWeight += schedule.Weight
-		totalToSeal += schedule.ToSeal
+		totalToSeal += max(schedule.ToSeal, 0)
 	}
 
 	if totalToSeal < toSeal {
@@ -660,7 +660,7 @@ func (s *SupraSeal) claimsFromCCScheduler(tx *harmonydb.Tx, toSeal int64) ([]sec
 	}
 
 	// Calculate proportional allocation based on weights
-	var outClaims []sectorClaim
+	allocations := make([]int64, len(enabledSchedules))
 	remainingToSeal := toSeal
 
 	for i, schedule := range enabledSchedules {
@@ -678,6 +678,27 @@ func (s *SupraSeal) claimsFromCCScheduler(tx *harmonydb.Tx, toSeal int64) ([]sec
 			sectorsForSP = min(min((toSeal*schedule.Weight)/totalWeight, schedule.ToSeal), remainingToSeal)
 		}
 
+		allocations[i] = max(min(sectorsForSP, schedule.ToSeal), 0)
+		remainingToSeal -= allocations[i]
+	}
+
+	// Preserve the existing shares; redistribute only a quota-limited remainder.
+	for i, schedule := range enabledSchedules {
+		if remainingToSeal == 0 {
+			break
+		}
+		extra := min(remainingToSeal, max(schedule.ToSeal-allocations[i], 0))
+		allocations[i] += extra
+		remainingToSeal -= extra
+	}
+	if remainingToSeal != 0 {
+		return nil, xerrors.Errorf("insufficient CC quota to fill batch: missing %d", remainingToSeal)
+	}
+
+	var outClaims []sectorClaim
+	remainingToSeal = toSeal
+	for i, schedule := range enabledSchedules {
+		sectorsForSP := allocations[i]
 		if sectorsForSP == 0 {
 			continue
 		}
@@ -720,9 +741,13 @@ func (s *SupraSeal) claimsFromCCScheduler(tx *harmonydb.Tx, toSeal int64) ([]sec
 		}
 
 		// Update the to_seal count for this SP
-		_, err = tx.Exec(`UPDATE sectors_cc_scheduler SET to_seal = to_seal - $1 WHERE sp_id = $2`, sectorsForSP, schedule.SpID)
+		n, err := tx.Exec(`UPDATE sectors_cc_scheduler SET to_seal = to_seal - $1
+			WHERE sp_id = $2 AND enabled = TRUE AND to_seal >= $1`, sectorsForSP, schedule.SpID)
 		if err != nil {
 			return nil, xerrors.Errorf("updating to_seal for SP %d: %w", schedule.SpID, err)
+		}
+		if n != 1 {
+			return nil, xerrors.Errorf("CC quota changed for SP %d", schedule.SpID)
 		}
 
 		remainingToSeal -= sectorsForSP
