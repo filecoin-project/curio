@@ -153,9 +153,9 @@ func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthC
 		return xerrors.Errorf("failed to get current block number: %w", err)
 	}
 
-	var soonToDefault []curioalerting.AlertEvent
+	var defaultAlerts []curioalerting.AlertEvent
 	comm, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
-		soonToDefault = nil
+		defaultAlerts = nil
 		for _, railId := range settle.Rails {
 			view, getRailErr := payment.GetRail(contract.EthCallOpts(ctx), big.NewInt(railId))
 
@@ -225,11 +225,16 @@ func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthC
 			threshold := big.NewInt(0).Add(view.SettledUpTo, view.LockupPeriod)
 			thresholdWithGrace := big.NewInt(0).Add(threshold, big.NewInt(temporaryDefaultGraceInEpochs))
 
-			if threshold.Uint64() < current {
-				soonToDefault = append(soonToDefault, curioalerting.AlertEvent{
+			// A terminated rail is paid from its lockup up to endEpoch, so only live rails can default.
+			if view.EndEpoch.Int64() <= 0 && threshold.Uint64() < current {
+				message := fmt.Sprintf("Rail %d is soon to default (dataSet %d)", railId, dataSet.Int64())
+				if thresholdWithGrace.Uint64() < current {
+					message = fmt.Sprintf("Rail %d is past its default grace period, scheduling termination of dataSet %d", railId, dataSet.Int64())
+				}
+				defaultAlerts = append(defaultAlerts, curioalerting.AlertEvent{
 					Subsystem: alertName,
 					System:    alertType,
-					Message:   fmt.Sprintf("Rail %d is soon to default (dataSet %d)", railId, dataSet.Int64()),
+					Message:   message,
 					Context: map[string]string{
 						curioalerting.CONTEXT_KEY_DATASET: dataSet.String(),
 						curioalerting.CONTEXT_KEY_RAIL:    strconv.FormatInt(railId, 10),
@@ -247,9 +252,13 @@ func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthC
 		}
 
 		// Delete the settle message from the DB
-		_, err = tx.Exec(`DELETE FROM filecoin_payment_transactions WHERE tx_hash = $1`, settle.Hash)
+		deleted, err := tx.Exec(`DELETE FROM filecoin_payment_transactions WHERE tx_hash = $1`, settle.Hash)
 		if err != nil {
 			return false, xerrors.Errorf("failed to delete settle message from DB: %w", err)
+		}
+		if deleted == 0 {
+			// Another node already processed this settle and raised its alerts.
+			defaultAlerts = nil
 		}
 
 		if settle.Retry {
@@ -271,7 +280,7 @@ func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthC
 	}
 
 	// EmitEvent uses db.Exec, which cannot run inside a transaction.
-	for _, event := range soonToDefault {
+	for _, event := range defaultAlerts {
 		_ = al.EmitEvent(ctx, event)
 	}
 
