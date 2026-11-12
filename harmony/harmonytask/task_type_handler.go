@@ -11,6 +11,7 @@ import (
 
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/samber/lo"
+	"github.com/yugabyte/pgx/v5"
 	"go.opencensus.io/stats"
 	"go.opencensus.io/tag"
 	"golang.org/x/xerrors"
@@ -304,13 +305,20 @@ func (h *taskTypeHandler) considerWork(from string, tasks []task, eventEmitter e
 				if releaseStorage != nil {
 					releaseStorage()
 				}
-				h.recordCompletion(tID, sectorID, workStart, done, doErr, preempted)
+				deferred := h.recordCompletion(tID, sectorID, workStart, done, doErr, preempted)
 				success := done && doErr == nil
 				if success {
 					h.TaskEngine.invokeTaskCompleteCallbacks(h.Name, meta, tID)
 				}
 				eventEmitter.EmitTaskCompleted(h.Name, success)
 				if !done {
+					var unavailable *taskhelp.WorkerUnavailable
+					if !preempted && errors.As(doErr, &unavailable) {
+						if deferred != nil {
+							eventEmitter.EmitTaskNew(h.Name, *deferred)
+						}
+						return
+					}
 					for _, t := range tasks {
 						if t.ID == tID {
 							h.emitRetryTask(eventEmitter, t, preempted)
@@ -404,8 +412,11 @@ func (h *taskTypeHandler) emitRetryTask(eventEmitter eventEmitter, base task, pr
 // Retries with exponential backoff on DB errors to guarantee eventual
 // persistence. If the process restarts before completion, the resurrection
 // logic in New() will recover the task.
-func (h *taskTypeHandler) recordCompletion(tID TaskID, sectorID *abi.SectorID, workStart time.Time, done bool, doErr error, preempted bool) {
+// Returns committed task metadata only when an unavailable worker releases work.
+func (h *taskTypeHandler) recordCompletion(tID TaskID, sectorID *abi.SectorID, workStart time.Time, done bool, doErr error, preempted bool) *task {
 	workEnd := time.Now()
+	var unavailable *taskhelp.WorkerUnavailable
+	deferred := !done && !preempted && errors.As(doErr, &unavailable)
 	retryWait := time.Millisecond * 100
 
 	{
@@ -422,7 +433,7 @@ func (h *taskTypeHandler) recordCompletion(tID TaskID, sectorID *abi.SectorID, w
 			_ = stats.RecordWithTags(context.Background(), []tag.Mutator{
 				tag.Upsert(taskNameTag, h.Name),
 			}, TaskMeasures.TasksCompleted.M(1))
-		} else if !preempted {
+		} else if !preempted && !deferred {
 			_ = stats.RecordWithTags(context.Background(), []tag.Mutator{
 				tag.Upsert(taskNameTag, h.Name),
 			}, TaskMeasures.TasksFailed.M(1))
@@ -430,12 +441,17 @@ func (h *taskTypeHandler) recordCompletion(tID TaskID, sectorID *abi.SectorID, w
 	}
 
 	var waitStartTime time.Time
+	var retry *task
 retryRecordCompletion:
+	retry = nil
 	cm, err := h.TaskEngine.cfg.db.BeginTransaction(context.Background(), func(tx *harmonydb.Tx) (bool, error) {
 		var postedTime time.Time
 		var retries uint
 		var updateTime time.Time
 		err := tx.QueryRow(`SELECT posted_time, update_time, retries FROM harmony_task WHERE id=$1`, tID).Scan(&postedTime, &updateTime, &retries)
+		if deferred && errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
+		}
 		if err != nil {
 			return false, fmt.Errorf("could not log completion: %w ", err)
 		}
@@ -454,6 +470,17 @@ retryRecordCompletion:
 			if doErr != nil {
 				result = "non-failing error: " + doErr.Error()
 			}
+		case deferred:
+			err = tx.QueryRow(`UPDATE harmony_task SET owner_id=NULL WHERE id=$1 AND owner_id=$2
+				RETURNING posted_time, update_time, retries`, tID, h.TaskEngine.cfg.ownerID).Scan(&postedTime, &updateTime, &retries)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return false, nil
+			}
+			if err != nil {
+				return false, fmt.Errorf("could not release unavailable worker's task: %w", err)
+			}
+			result = doErr.Error()
+			retry = &task{ID: tID, PostedTime: postedTime, UpdateTime: updateTime, Retries: int(retries)}
 		case preempted:
 			_, err = tx.Exec(`UPDATE harmony_task SET owner_id=NULL, update_time=CURRENT_TIMESTAMP WHERE id=$1`, tID)
 			if err != nil {
@@ -498,6 +525,9 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`, tID, h.Name, postedTime.U
 
 		return true, nil
 	})
+	if deferred && err == nil && !cm {
+		return nil
+	}
 	if err != nil || !cm {
 		time.Sleep(retryWait)
 		retryWait *= 2
@@ -514,6 +544,7 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`, tID, h.Name, postedTime.U
 	_ = stats.RecordWithTags(context.Background(), []tag.Mutator{
 		tag.Upsert(taskNameTag, h.Name),
 	}, TaskMeasures.TaskScheduledWait.M(scheduledWait))
+	return retry
 }
 
 // maxHeadroom limits how many tasks of a single type can be accepted in one
