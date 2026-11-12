@@ -5,9 +5,11 @@ package alertmanager
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"iter"
 	"maps"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -83,9 +85,10 @@ type alertMute struct {
 }
 
 type pendingAlertEvent struct {
-	ID        int64  `db:"id"`
-	AlertName string `db:"alert_name"`
-	Message   string `db:"message"`
+	ID        int64           `db:"id"`
+	AlertName string          `db:"alert_name"`
+	Message   string          `db:"message"`
+	Context   json.RawMessage `db:"context"`
 }
 
 type pendingAlertCondition struct {
@@ -323,7 +326,7 @@ func (a *AlertTask) collectQueuedAlerts(ctx context.Context, mutes []alertMute, 
 
 	var events []pendingAlertEvent
 	err := a.db.Select(ctx, &events, `
-		SELECT id, alert_name, message
+		SELECT id, alert_name, message, context
 		FROM alert_history
 		WHERE kind = 'event'
 		  AND sent_at IS NULL
@@ -341,7 +344,7 @@ func (a *AlertTask) collectQueuedAlerts(ctx context.Context, mutes []alertMute, 
 			continue
 		}
 
-		addAlertDetail(details, event.AlertName, event.Message)
+		addAlertDetail(details, event.AlertName, alertContextPrefix(event.ID, event.Context)+event.Message)
 		if hasPlugins {
 			refs.sentEventIDs = append(refs.sentEventIDs, event.ID)
 		} else {
@@ -440,6 +443,26 @@ func addAlertDetail(details map[string]any, alertName string, alertMessage strin
 		return
 	}
 	details[alertName] = combined
+}
+
+// alertContextPrefix formats context in key order, omitting unreadable context.
+func alertContextPrefix(alertID int64, raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var entries map[string]string
+	if err := json.Unmarshal(raw, &entries); err != nil {
+		log.Warnw("sending alert without its context", "alertID", alertID, "error", err)
+		return ""
+	}
+	if len(entries) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(entries))
+	for _, key := range slices.Sorted(maps.Keys(entries)) {
+		parts = append(parts, key+"="+entries[key])
+	}
+	return "[" + strings.Join(parts, " ") + "] "
 }
 
 func conditionAlertName(system, subsystem, condition string) string {

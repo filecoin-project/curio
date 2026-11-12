@@ -2,6 +2,7 @@ package webrpc
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"time"
 
@@ -161,19 +162,18 @@ func (a *WebRPC) AlertSendTest(ctx context.Context) error {
 
 // AlertHistoryEntry represents an alert in the history
 type AlertHistoryEntry struct {
-	ID             int64      `db:"id" json:"ID"`
-	AlertName      string     `db:"alert_name" json:"AlertName"`
-	Message        string     `db:"message" json:"Message"`
-	MachineName    *string    `db:"machine_name" json:"MachineName"`
-	CreatedAt      time.Time  `db:"created_at" json:"CreatedAt"`
-	Acknowledged   bool       `db:"acknowledged" json:"Acknowledged"`
-	AcknowledgedBy *string    `db:"acknowledged_by" json:"AcknowledgedBy"`
-	AcknowledgedAt *time.Time `db:"acknowledged_at" json:"AcknowledgedAt"`
-	SentToPlugins  bool       `db:"sent_to_plugins" json:"SentToPlugins"`
-	SentAt         *time.Time `db:"sent_at" json:"SentAt"`
-	CommentCount   int        `db:"comment_count" json:"CommentCount"`
-	SubjectKind    *string    `db:"subject_kind" json:"SubjectKind"`
-	SubjectID      *string    `db:"subject_id" json:"SubjectID"`
+	ID             int64           `db:"id" json:"ID"`
+	AlertName      string          `db:"alert_name" json:"AlertName"`
+	Message        string          `db:"message" json:"Message"`
+	MachineName    *string         `db:"machine_name" json:"MachineName"`
+	CreatedAt      time.Time       `db:"created_at" json:"CreatedAt"`
+	Acknowledged   bool            `db:"acknowledged" json:"Acknowledged"`
+	AcknowledgedBy *string         `db:"acknowledged_by" json:"AcknowledgedBy"`
+	AcknowledgedAt *time.Time      `db:"acknowledged_at" json:"AcknowledgedAt"`
+	SentToPlugins  bool            `db:"sent_to_plugins" json:"SentToPlugins"`
+	SentAt         *time.Time      `db:"sent_at" json:"SentAt"`
+	CommentCount   int             `db:"comment_count" json:"CommentCount"`
+	Context        json.RawMessage `db:"context" json:"Context"`
 }
 
 // AlertComment represents a comment on an alert
@@ -229,7 +229,7 @@ func (a *WebRPC) AlertHistoryListPaginated(ctx context.Context, limit int, offse
 					ah.id, ah.alert_name, ah.message, ah.machine_name, ah.created_at,
 					ah.acknowledged, ah.acknowledged_by, ah.acknowledged_at,
 					ah.sent_to_plugins, ah.sent_at,
-					ah.subject_kind, ah.subject_id,
+					ah.context,
 					COALESCE((SELECT COUNT(*) FROM alert_comments ac WHERE ac.alert_id = ah.id), 0) as comment_count
 				FROM alert_history ah
 				ORDER BY ah.created_at DESC LIMIT $1 OFFSET $2
@@ -240,7 +240,7 @@ func (a *WebRPC) AlertHistoryListPaginated(ctx context.Context, limit int, offse
 					ah.id, ah.alert_name, ah.message, ah.machine_name, ah.created_at,
 					ah.acknowledged, ah.acknowledged_by, ah.acknowledged_at,
 					ah.sent_to_plugins, ah.sent_at,
-					ah.subject_kind, ah.subject_id,
+					ah.context,
 					COALESCE((SELECT COUNT(*) FROM alert_comments ac WHERE ac.alert_id = ah.id), 0) as comment_count
 				FROM alert_history ah
 				WHERE NOT ah.acknowledged

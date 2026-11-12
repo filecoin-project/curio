@@ -2,11 +2,16 @@ package curioalerting
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
 
+	logging "github.com/ipfs/go-log/v2"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 )
+
+var log = logging.Logger("curio/alerting")
 
 type AlertingSystem struct {
 	db *harmonydb.DB
@@ -24,17 +29,19 @@ type AlertingInterface interface {
 	ResolveCondition(ctx context.Context, condition AlertCondition) error
 }
 
-const SUBJECT_KIND_DATASET = "dataset"
+// Keys of AlertEvent.Context; the alert page matches these literal values.
+const (
+	CONTEXT_KEY_DATASET = "dataset"
+	CONTEXT_KEY_RAIL    = "rail"
+)
 
 type AlertEvent struct {
 	System    string
 	Subsystem string
 	Message   string
 
-	// SubjectKind and SubjectID name the single object the event is about.
-	// Both are set, or both are empty when the event has no specific subject.
-	SubjectKind string
-	SubjectID   string
+	// Context maps a CONTEXT_KEY_* to the id of an object the event is about.
+	Context map[string]string
 }
 
 type AlertCondition struct {
@@ -54,23 +61,35 @@ func (as *AlertingSystem) EmitEvent(ctx context.Context, event AlertEvent) error
 		return err
 	}
 
-	if (event.SubjectKind == "") != (event.SubjectID == "") {
-		return xerrors.Errorf("alert subject kind and id must be set together")
+	var eventContext []byte
+	if len(event.Context) > 0 {
+		var err error
+		if eventContext, err = encodeEventContext(event.Context); err != nil {
+			log.Warnw("recording alert event without its context", "system", event.System, "subsystem", event.Subsystem, "error", err)
+		}
 	}
 
 	_, err := as.db.Exec(ctx, `
 		INSERT INTO alert_history (
 			alert_name, message, machine_name, sent_to_plugins,
-			kind, system, subsystem, condition,
-			subject_kind, subject_id
+			kind, system, subsystem, condition, context
 		)
-		VALUES ($1, $2, NULL, FALSE, 'event', $3, $4, NULL, NULLIF($5, ''), NULLIF($6, ''))
-	`, alertName(event.System, event.Subsystem, ""), event.Message, event.System, event.Subsystem,
-		event.SubjectKind, event.SubjectID)
+		VALUES ($1, $2, NULL, FALSE, 'event', $3, $4, NULL, $5::jsonb)
+	`, alertName(event.System, event.Subsystem, ""), event.Message, event.System, event.Subsystem, eventContext)
 	if err != nil {
 		return xerrors.Errorf("recording alert event: %w", err)
 	}
 	return nil
+}
+
+// encodeEventContext encodes context as JSON, rejecting NUL characters unsupported by jsonb.
+func encodeEventContext(eventContext map[string]string) ([]byte, error) {
+	for key, value := range eventContext {
+		if strings.ContainsRune(key, 0) || strings.ContainsRune(value, 0) {
+			return nil, xerrors.Errorf("context entry %q contains NUL", key)
+		}
+	}
+	return json.Marshal(eventContext)
 }
 
 func (as *AlertingSystem) ActivateCondition(ctx context.Context, condition AlertCondition, message string) error {

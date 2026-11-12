@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"strconv"
 
 	"github.com/ethereum/go-ethereum/common"
 	"golang.org/x/xerrors"
@@ -152,7 +153,9 @@ func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthC
 		return xerrors.Errorf("failed to get current block number: %w", err)
 	}
 
+	var soonToDefault []curioalerting.AlertEvent
 	comm, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+		soonToDefault = nil
 		for _, railId := range settle.Rails {
 			view, getRailErr := payment.GetRail(contract.EthCallOpts(ctx), big.NewInt(railId))
 
@@ -223,12 +226,14 @@ func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthC
 			thresholdWithGrace := big.NewInt(0).Add(threshold, big.NewInt(temporaryDefaultGraceInEpochs))
 
 			if threshold.Uint64() < current {
-				_ = al.EmitEvent(ctx, curioalerting.AlertEvent{
-					Subsystem:   alertName,
-					System:      alertType,
-					Message:     fmt.Sprintf("Rail %d is soon to default, terminating dataSet %d", railId, dataSet.Int64()),
-					SubjectKind: curioalerting.SUBJECT_KIND_DATASET,
-					SubjectID:   dataSet.String(),
+				soonToDefault = append(soonToDefault, curioalerting.AlertEvent{
+					Subsystem: alertName,
+					System:    alertType,
+					Message:   fmt.Sprintf("Rail %d is soon to default (dataSet %d)", railId, dataSet.Int64()),
+					Context: map[string]string{
+						curioalerting.CONTEXT_KEY_DATASET: dataSet.String(),
+						curioalerting.CONTEXT_KEY_RAIL:    strconv.FormatInt(railId, 10),
+					},
 				})
 			}
 
@@ -263,6 +268,11 @@ func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthC
 
 	if !comm {
 		return errors.New("failed to commit the database transaction")
+	}
+
+	// EmitEvent uses db.Exec, which cannot run inside a transaction.
+	for _, event := range soonToDefault {
+		_ = al.EmitEvent(ctx, event)
 	}
 
 	return nil

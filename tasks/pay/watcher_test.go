@@ -42,10 +42,10 @@ func (c *settleWatcherClient) CallContract(_ context.Context, msg ethereum.CallM
 
 func newSettleWatcherClient(t *testing.T) *settleWatcherClient {
 	t.Helper()
-	return newSettleWatcherClientWithLockup(t, 30*builtin.EpochsInDay)
+	return newSettleWatcherClientWith(t, 30*builtin.EpochsInDay, 1)
 }
 
-func newSettleWatcherClientWithLockup(t *testing.T, lockupPeriod int64) *settleWatcherClient {
+func newSettleWatcherClientWith(t *testing.T, lockupPeriod, dataSetID int64) *settleWatcherClient {
 	t.Helper()
 	t.Setenv("CURIO_DEVNET_PAYMENTS_ADDRESS", "0x0000000000000000000000000000000000000001")
 	t.Setenv("CURIO_DEVNET_PDP_VERIFIER_ADDRESS", "0x0000000000000000000000000000000000000002")
@@ -73,7 +73,7 @@ func newSettleWatcherClientWithLockup(t *testing.T, lockupPeriod int64) *settleW
 		EndEpoch:          big.NewInt(0),
 		CommissionRateBps: big.NewInt(0),
 	})
-	addResponse(FWSS.FilecoinWarmStorageServiceStateViewMetaData, "railToDataSet", []any{big.NewInt(1)}, big.NewInt(1))
+	addResponse(FWSS.FilecoinWarmStorageServiceStateViewMetaData, "railToDataSet", []any{big.NewInt(1)}, big.NewInt(dataSetID))
 	addResponse(contract.ContractWithViewMetaData, "viewContractAddress", nil, common.HexToAddress("0x0000000000000000000000000000000000000004"))
 	return c
 }
@@ -188,7 +188,7 @@ func TestIntegration_ProcessPendingTransactions_Retry(t *testing.T) {
 
 func TestIntegration_ProcessPendingTransactions_RailSoonToDefaultAlertReferencesDataSet(t *testing.T) {
 	// The lockup ends at epoch 950, before block 1000, while the default grace still holds off termination.
-	client := newSettleWatcherClientWithLockup(t, 50)
+	client := newSettleWatcherClientWith(t, 50, 2)
 	db, err := harmonydb.NewFromConfigWithITestID(t)
 	require.NoError(t, err)
 	s := insertSettleWatcherState(t, db, false, false)
@@ -198,14 +198,17 @@ func TestIntegration_ProcessPendingTransactions_RailSoonToDefaultAlertReferences
 	`, s.Hash)
 	require.NoError(t, err)
 
-	alerts := &settleWatcherAlerts{}
-	require.NoError(t, processPendingTransactions(t.Context(), db, client, alerts))
+	require.NoError(t, processPendingTransactions(t.Context(), db, client, curioalerting.NewAlertingSystem(db)))
 	requireSettleWatcherState(t, db, s, false, false)
 
-	require.Len(t, alerts.events, 1)
-	require.Contains(t, alerts.events[0].Message, "soon to default")
-	require.Equal(t, curioalerting.SUBJECT_KIND_DATASET, alerts.events[0].SubjectKind)
-	require.Equal(t, "1", alerts.events[0].SubjectID)
+	var events []struct {
+		Message string `db:"message"`
+		Context []byte `db:"context"`
+	}
+	require.NoError(t, db.Select(t.Context(), &events, `SELECT message, context FROM alert_history WHERE kind = 'event'`))
+	require.Len(t, events, 1)
+	require.Equal(t, "Rail 1 is soon to default (dataSet 2)", events[0].Message)
+	require.JSONEq(t, `{"dataset": "2", "rail": "1"}`, string(events[0].Context))
 }
 
 func TestIntegration_VerifySettle_RetryRollsBackWithCleanup(t *testing.T) {
