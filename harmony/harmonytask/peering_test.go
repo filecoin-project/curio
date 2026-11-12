@@ -244,6 +244,28 @@ func TestHandlePeerMessageRejectsGarbage(t *testing.T) {
 
 // ===== TellOthers Delivery Tests =====
 
+func TestPeerRetryCommittedTime(t *testing.T) {
+	updated := time.Now().Add(-time.Hour).UTC()
+	posted := updated.Add(-time.Hour)
+	local, remote := pipePair()
+	peers := peerregistry.New()
+	defer peers.Add(1, "peer", local, []string{"Fence"})()
+	sender := &peering{peers: peers}
+	sender.TellNewTask("Fence", 42, 1, posted, updated)
+	wire := waitAcceptanceTestValue(t, remote.recvCh)
+	events := make(chan schedulerEvent, 1)
+	receiver := &peering{h: &TaskEngine{schedulerChannel: events}}
+	require.NoError(t, receiver.handlePeerMessage("peer", 1, wire))
+	event := waitAcceptanceTestValue(t, events)
+	require.Equal(t, schedulerSourcePeerNewTask, event.Source)
+	require.Equal(t, "Fence", event.TaskType)
+	got := taskFromSchedulerEvent(event)
+	require.Equal(t, TaskID(42), got.ID)
+	require.Equal(t, 1, got.Retries)
+	require.True(t, posted.Equal(got.PostedTime))
+	require.True(t, updated.Equal(got.UpdateTime))
+}
+
 // TestTellOthersDelivery verifies that TellOthers sends correctly-formatted
 // messages to all peers that can run the named task.
 func TestTellOthersDelivery(t *testing.T) {

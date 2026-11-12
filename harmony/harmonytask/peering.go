@@ -30,6 +30,7 @@ type taskOther struct {
 	TaskType    string        `json:"taskType,omitempty"`
 	Retries     int           `json:"retries,omitempty"`
 	Posted      time.Time     `json:"posted,omitempty"`
+	UpdateTime  time.Time     `json:"updateTime,omitempty"`
 	HostAndPort string        `json:"hostAndPort,omitempty"`
 	Cost        time.Duration `json:"cost,omitempty"`
 }
@@ -234,6 +235,7 @@ func (p *peering) handlePeerMessage(peerAddr string, peerID int64, msg []byte) e
 			PeerID:     peerID,
 			Retries:    other.Retries,
 			PostedTime: other.Posted,
+			UpdateTime: other.UpdateTime,
 		}
 	case messageTypeStarted:
 		p.h.schedulerChannel <- schedulerEvent{
@@ -254,8 +256,8 @@ func (p *peering) handlePeerMessage(peerAddr string, peerID int64, msg []byte) e
 }
 
 // TellNewTask notifies peers of a new task including wall time for FIFO scheduling.
-func (p *peering) TellNewTask(task string, tID TaskID, retries int, posted time.Time) {
-	msg, err := marshalPeerMessage(messageTypeNewTask, tID, taskOther{TaskType: task, Retries: retries, Posted: posted})
+func (p *peering) TellNewTask(task string, tID TaskID, retries int, posted, updated time.Time) {
+	msg, err := marshalPeerMessage(messageTypeNewTask, tID, taskOther{TaskType: task, Retries: retries, Posted: posted, UpdateTime: updated})
 	if err != nil {
 		log.Errorw("failed to marshal new task message", "error", err)
 		return
