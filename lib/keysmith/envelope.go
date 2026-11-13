@@ -17,7 +17,6 @@ import (
 	unixfsio "github.com/ipfs/boxo/ipld/unixfs/io"
 	ds "github.com/ipfs/go-datastore"
 	dssync "github.com/ipfs/go-datastore/sync"
-	ipld "github.com/ipfs/go-ipld-format"
 	carv2 "github.com/ipld/go-car/v2"
 )
 
@@ -59,26 +58,17 @@ func (l Labels) Piece() PieceLabels {
 // The piece is a CAR with exactly one UnixFS file. When the root is a
 // directory, that file is named encrypted.fee. The envelope is the first
 // CBOR item in the file and is at most 1 MiB.
-func ReadEnvelopeLabels(r io.Reader) (Labels, error) {
+func ReadEnvelopeLabels(r io.Reader) (labels Labels, err error) {
 	src := &prefixReader{r: r}
-	labels, err := labelsFromCAR(src)
-	if src.ioErr != nil {
-		return Labels{}, src.ioErr
-	}
-	return labels, err
-}
+	// A disk error on the piece prefix replaces whatever envelope error the parse produced.
+	defer func() {
+		if src.ioErr != nil {
+			labels, err = Labels{}, src.ioErr
+		}
+	}()
 
-// ReadEnvelopeLabelsAt reads the FEE envelope at offset 0 of r.
-// It does not move a seek position on r.
-func ReadEnvelopeLabelsAt(r io.ReaderAt) (Labels, error) {
-	return ReadEnvelopeLabels(io.NewSectionReader(r, 0, math.MaxInt64))
-}
-
-// labelsFromCAR reads the FEE at the start of the single UnixFS file in a CAR.
-// The caller has the piece bytes. A stream that is not a CAR is an invalid envelope.
-func labelsFromCAR(r io.Reader) (Labels, error) {
 	ctx := context.Background()
-	br, err := carv2.NewBlockReader(r, carv2.ZeroLengthSectionAsEOF(true))
+	br, err := carv2.NewBlockReader(src, carv2.ZeroLengthSectionAsEOF(true))
 	if err != nil {
 		return Labels{}, fmt.Errorf("%w: piece is not a CAR: %v", ErrInvalidEnvelope, err)
 	}
@@ -103,125 +93,82 @@ func labelsFromCAR(r io.Reader) (Labels, error) {
 	if err != nil {
 		return Labels{}, fmt.Errorf("%w: CAR is missing the root block: %v", ErrInvalidEnvelope, err)
 	}
-	file, err := feeFileNode(ctx, dag, root)
-	if err != nil {
-		return Labels{}, err
+
+	file := root
+	if pn, ok := root.(*merkledag.ProtoNode); ok {
+		fsn, err := unixfs.FSNodeFromBytes(pn.Data())
+		if err != nil {
+			return Labels{}, fmt.Errorf("%w: CAR root is not UnixFS: %v", ErrInvalidEnvelope, err)
+		}
+		switch fsn.Type() {
+		case unixfs.TFile, unixfs.TRaw:
+		case unixfs.TDirectory:
+			links := pn.Links()
+			if len(links) != 1 {
+				return Labels{}, fmt.Errorf("%w: CAR directory must contain exactly one file", ErrInvalidEnvelope)
+			}
+			if links[0].Name != encryptedFeeName {
+				return Labels{}, fmt.Errorf("%w: CAR file must be named %s", ErrInvalidEnvelope, encryptedFeeName)
+			}
+			child, err := links[0].GetNode(ctx, dag)
+			if err != nil {
+				return Labels{}, fmt.Errorf("%w: CAR is missing the UnixFS file: %v", ErrInvalidEnvelope, err)
+			}
+			file = child
+			if cpn, ok := child.(*merkledag.ProtoNode); ok {
+				cfsn, err := unixfs.FSNodeFromBytes(cpn.Data())
+				if err != nil {
+					return Labels{}, fmt.Errorf("%w: %s is not UnixFS: %v", ErrInvalidEnvelope, encryptedFeeName, err)
+				}
+				switch cfsn.Type() {
+				case unixfs.TFile, unixfs.TRaw:
+				default:
+					return Labels{}, fmt.Errorf("%w: %s is not a file", ErrInvalidEnvelope, encryptedFeeName)
+				}
+			}
+		default:
+			return Labels{}, fmt.Errorf("%w: CAR root must be a file or a one-entry directory", ErrInvalidEnvelope)
+		}
 	}
+
 	dr, err := unixfsio.NewDagReader(ctx, file, dag)
 	if err != nil {
 		return Labels{}, fmt.Errorf("%w: UnixFS file has no payload: %v", ErrInvalidEnvelope, err)
 	}
 	defer func() { _ = dr.Close() }()
-	return labelsFromReader(io.LimitReader(dr, int64(maxEnvelopeSize)))
-}
-
-// feeFileNode returns the UnixFS file the envelope is read from.
-// The caller has loaded the CAR, and nd is its root.
-func feeFileNode(ctx context.Context, dag ipld.NodeGetter, nd ipld.Node) (ipld.Node, error) {
-	pn, ok := nd.(*merkledag.ProtoNode)
-	if !ok {
-		return nd, nil
-	}
-	fsn, err := unixfs.FSNodeFromBytes(pn.Data())
-	if err != nil {
-		return nil, fmt.Errorf("%w: CAR root is not UnixFS: %v", ErrInvalidEnvelope, err)
-	}
-	switch fsn.Type() {
-	case unixfs.TFile, unixfs.TRaw:
-		return nd, nil
-	case unixfs.TDirectory:
-		links := pn.Links()
-		if len(links) != 1 {
-			return nil, fmt.Errorf("%w: CAR directory must contain exactly one file", ErrInvalidEnvelope)
-		}
-		if links[0].Name != encryptedFeeName {
-			return nil, fmt.Errorf("%w: CAR file must be named %s", ErrInvalidEnvelope, encryptedFeeName)
-		}
-		child, err := links[0].GetNode(ctx, dag)
-		if err != nil {
-			return nil, fmt.Errorf("%w: CAR is missing the UnixFS file: %v", ErrInvalidEnvelope, err)
-		}
-		return unixfsFile(child)
-	default:
-		return nil, fmt.Errorf("%w: CAR root must be a file or a one-entry directory", ErrInvalidEnvelope)
-	}
-}
-
-// unixfsFile checks that nd is a UnixFS file.
-// The caller has resolved the encrypted.fee link.
-func unixfsFile(nd ipld.Node) (ipld.Node, error) {
-	pn, ok := nd.(*merkledag.ProtoNode)
-	if !ok {
-		return nd, nil
-	}
-	fsn, err := unixfs.FSNodeFromBytes(pn.Data())
-	if err != nil {
-		return nil, fmt.Errorf("%w: %s is not UnixFS: %v", ErrInvalidEnvelope, encryptedFeeName, err)
-	}
-	switch fsn.Type() {
-	case unixfs.TFile, unixfs.TRaw:
-		return nd, nil
-	default:
-		return nil, fmt.Errorf("%w: %s is not a file", ErrInvalidEnvelope, encryptedFeeName)
-	}
-}
-
-// labelsFromReader parses the FEE at the start of a UnixFS file.
-// The caller has the file reader. Bytes after the CBOR item are ciphertext.
-func labelsFromReader(r io.Reader) (Labels, error) {
+	fileReader := io.LimitReader(dr, int64(maxEnvelopeSize))
 	var buf []byte
 	tmp := make([]byte, 256)
 	for {
-		n, err := r.Read(tmp)
+		n, readErr := fileReader.Read(tmp)
 		if n > 0 {
 			buf = append(buf, tmp[:n]...)
-			labels, needMore, perr := tryLabelsFromPrefix(buf)
-			if perr != nil {
-				return Labels{}, perr
+			var item cbor.RawMessage
+			_, perr := decMode.UnmarshalFirst(buf, &item)
+			if perr == nil {
+				return labelsFromItem(item)
 			}
-			if !needMore {
-				return labels, nil
+			msg := perr.Error()
+			truncated := errors.Is(perr, io.EOF) || errors.Is(perr, io.ErrUnexpectedEOF) ||
+				bytes.Contains([]byte(msg), []byte("unexpected EOF")) ||
+				bytes.Contains([]byte(msg), []byte("EOF"))
+			if !truncated {
+				return Labels{}, fmt.Errorf("%w: envelope is not CBOR: %v", ErrInvalidEnvelope, perr)
 			}
 		}
-		if err != nil {
-			if errors.Is(err, io.EOF) {
+		if readErr != nil {
+			if errors.Is(readErr, io.EOF) {
 				return Labels{}, fmt.Errorf("%w: truncated envelope", ErrInvalidEnvelope)
 			}
-			return Labels{}, err
+			return Labels{}, readErr
 		}
 	}
 }
 
-// tryLabelsFromPrefix parses a FEE envelope from b.
-// needMore is true when b is a truncated CBOR item.
-func tryLabelsFromPrefix(b []byte) (Labels, bool, error) {
-	if len(b) == 0 {
-		return Labels{}, true, nil
-	}
-	var item cbor.RawMessage
-	_, err := decMode.UnmarshalFirst(b, &item)
-	if err != nil {
-		if isTruncatedCBOR(err) {
-			return Labels{}, true, nil
-		}
-		return Labels{}, false, fmt.Errorf("%w: envelope is not CBOR: %v", ErrInvalidEnvelope, err)
-	}
-	labels, err := labelsFromItem(item)
-	return labels, false, err
-}
-
-// isTruncatedCBOR reports whether err means the CBOR item is incomplete.
-// A nil error is not truncation.
-func isTruncatedCBOR(err error) bool {
-	if err == nil {
-		return false
-	}
-	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-		return true
-	}
-	msg := err.Error()
-	return bytes.Contains([]byte(msg), []byte("unexpected EOF")) ||
-		bytes.Contains([]byte(msg), []byte("EOF"))
+// ReadEnvelopeLabelsAt reads the FEE envelope at offset 0 of r.
+// It does not move a seek position on r.
+func ReadEnvelopeLabelsAt(r io.ReaderAt) (Labels, error) {
+	return ReadEnvelopeLabels(io.NewSectionReader(r, 0, math.MaxInt64))
 }
 
 // prefixReader remembers a read failure that is not an EOF, so a disk error
@@ -284,11 +231,6 @@ func labelsFromItem(item []byte) (Labels, error) {
 	if !ok {
 		return Labels{}, fmt.Errorf("%w: app_metadata is not a map", ErrInvalidEnvelope)
 	}
-	return labelsFromMetadata(meta)
-}
-
-// labelsFromMetadata requires foc/v, foc/own, foc/ks, and foc/salt. foc/scope may be absent.
-func labelsFromMetadata(meta map[any]any) (Labels, error) {
 	version, ok := meta["foc/v"]
 	if !ok {
 		return Labels{}, fmt.Errorf("%w: foc/v is missing", ErrInvalidEnvelope)
@@ -297,17 +239,29 @@ func labelsFromMetadata(meta map[any]any) (Labels, error) {
 	if !ok || v != 1 {
 		return Labels{}, fmt.Errorf("%w: foc/v must be 1", ErrInvalidEnvelope)
 	}
-	owner, err := requiredText(meta, "foc/own")
-	if err != nil {
-		return Labels{}, err
+	ownerRaw, ok := meta["foc/own"]
+	if !ok {
+		return Labels{}, fmt.Errorf("%w: foc/own is missing", ErrInvalidEnvelope)
 	}
-	keyspace, err := requiredText(meta, "foc/ks")
-	if err != nil {
-		return Labels{}, err
+	owner, ok := ownerRaw.(string)
+	if !ok || owner == "" {
+		return Labels{}, fmt.Errorf("%w: foc/own must be a non-empty string", ErrInvalidEnvelope)
 	}
-	salt, err := requiredText(meta, "foc/salt")
-	if err != nil {
-		return Labels{}, err
+	keyspaceRaw, ok := meta["foc/ks"]
+	if !ok {
+		return Labels{}, fmt.Errorf("%w: foc/ks is missing", ErrInvalidEnvelope)
+	}
+	keyspace, ok := keyspaceRaw.(string)
+	if !ok || keyspace == "" {
+		return Labels{}, fmt.Errorf("%w: foc/ks must be a non-empty string", ErrInvalidEnvelope)
+	}
+	saltRaw, ok := meta["foc/salt"]
+	if !ok {
+		return Labels{}, fmt.Errorf("%w: foc/salt is missing", ErrInvalidEnvelope)
+	}
+	salt, ok := saltRaw.(string)
+	if !ok || salt == "" {
+		return Labels{}, fmt.Errorf("%w: foc/salt must be a non-empty string", ErrInvalidEnvelope)
 	}
 	out := Labels{Version: 1, Owner: owner, Keyspace: keyspace, Salt: salt}
 	if raw, ok := meta["foc/scope"]; ok {
@@ -319,16 +273,4 @@ func labelsFromMetadata(meta map[any]any) (Labels, error) {
 		out.HasScope = true
 	}
 	return out, nil
-}
-
-func requiredText(meta map[any]any, key string) (string, error) {
-	raw, ok := meta[key]
-	if !ok {
-		return "", fmt.Errorf("%w: %s is missing", ErrInvalidEnvelope, key)
-	}
-	text, ok := raw.(string)
-	if !ok || text == "" {
-		return "", fmt.Errorf("%w: %s must be a non-empty string", ErrInvalidEnvelope, key)
-	}
-	return text, nil
 }

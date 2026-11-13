@@ -39,11 +39,6 @@ const (
 // Tests replace it. Production is the dealbot wallet, on every network.
 var extraGrantRoot = common.HexToAddress(DEALBOT_ROOT)
 
-// isExtraGrantRoot reports whether addr may root a grant for a piece it does not own.
-func isExtraGrantRoot(addr common.Address) bool {
-	return addr == extraGrantRoot
-}
-
 // PieceLabels are the foc fields a provider read from a piece envelope.
 // An empty Owner means foc/own was absent, so the piece is not gated.
 // A nil Scope means foc/scope was absent.
@@ -188,7 +183,7 @@ func VerifyPresentation(presentation, pieceCID []byte, piece PieceLabels, blockC
 			if keyspace != "0x"+hex.EncodeToString(claim.keyspace) {
 				return VerifiedClaim{}, refuse("The piece belongs to another owner or keyspace")
 			}
-		} else if !isExtraGrantRoot(claim.Owner) {
+		} else if claim.Owner != extraGrantRoot {
 			return VerifiedClaim{}, refuse("The piece belongs to another owner or keyspace")
 		}
 		ok, err := reaches(claim.Node, piece)

@@ -45,9 +45,26 @@ func TestReadEnvelopeLabelsFromCAREncryptedFee(t *testing.T) {
 func TestReadEnvelopeLabelsRejectsCARTwoFiles(t *testing.T) {
 	meta := validMeta()
 	env := envelopeBytes(t, meta)
-	carBytes := makeTwoFileCAR(t, encryptedFeeName, env, "other.bin", []byte("other"))
+	fileA, fileAData, leafA, leafAData := makeUnixFSFile(t, env)
+	other := []byte("other")
+	fileB, fileBData, leafB, leafBData := makeUnixFSFile(t, other)
+	dir := new(merkledag.ProtoNode)
+	require.NoError(t, dir.SetCidBuilder(merkledag.V1CidPrefix()))
+	fsn := unixfs.NewFSNode(unixfs.TDirectory)
+	fsBytes, err := fsn.GetBytes()
+	require.NoError(t, err)
+	dir.SetData(fsBytes)
+	require.NoError(t, dir.AddRawLink(encryptedFeeName, &ipldformat.Link{Name: encryptedFeeName, Size: uint64(len(fileAData) + len(leafAData)), Cid: fileA}))
+	require.NoError(t, dir.AddRawLink("other.bin", &ipldformat.Link{Name: "other.bin", Size: uint64(len(fileBData) + len(leafBData)), Cid: fileB}))
+	carBytes := writeCAR(t, dir.Cid(), []carBlock{
+		{dir.Cid(), dir.RawData()},
+		{fileA, fileAData},
+		{fileB, fileBData},
+		{leafA, leafAData},
+		{leafB, leafBData},
+	})
 
-	_, err := ReadEnvelopeLabels(bytes.NewReader(carBytes))
+	_, err = ReadEnvelopeLabels(bytes.NewReader(carBytes))
 	require.ErrorIs(t, err, ErrInvalidEnvelope)
 	require.ErrorContains(t, err, "exactly one file")
 }
@@ -109,32 +126,17 @@ func makeFileRootCAR(t *testing.T, payload []byte) []byte {
 func makeNamedFileCAR(t *testing.T, name string, payload []byte) []byte {
 	t.Helper()
 	fileCID, fileData, leafCID, leafData := makeUnixFSFile(t, payload)
-	dirCID, dirData := makeUnixFSDir(t, name, fileCID, uint64(len(fileData)+len(leafData)))
-	return writeCAR(t, dirCID, []carBlock{
-		{dirCID, dirData},
-		{fileCID, fileData},
-		{leafCID, leafData},
-	})
-}
-
-func makeTwoFileCAR(t *testing.T, nameA string, payloadA []byte, nameB string, payloadB []byte) []byte {
-	t.Helper()
-	fileA, fileAData, leafA, leafAData := makeUnixFSFile(t, payloadA)
-	fileB, fileBData, leafB, leafBData := makeUnixFSFile(t, payloadB)
-	dir := new(merkledag.ProtoNode)
-	require.NoError(t, dir.SetCidBuilder(merkledag.V1CidPrefix()))
 	fsn := unixfs.NewFSNode(unixfs.TDirectory)
 	fsBytes, err := fsn.GetBytes()
 	require.NoError(t, err)
+	dir := new(merkledag.ProtoNode)
+	require.NoError(t, dir.SetCidBuilder(merkledag.V1CidPrefix()))
 	dir.SetData(fsBytes)
-	require.NoError(t, dir.AddRawLink(nameA, &ipldformat.Link{Name: nameA, Size: uint64(len(fileAData) + len(leafAData)), Cid: fileA}))
-	require.NoError(t, dir.AddRawLink(nameB, &ipldformat.Link{Name: nameB, Size: uint64(len(fileBData) + len(leafBData)), Cid: fileB}))
+	require.NoError(t, dir.AddRawLink(name, &ipldformat.Link{Name: name, Size: uint64(len(fileData) + len(leafData)), Cid: fileCID}))
 	return writeCAR(t, dir.Cid(), []carBlock{
 		{dir.Cid(), dir.RawData()},
-		{fileA, fileAData},
-		{fileB, fileBData},
-		{leafA, leafAData},
-		{leafB, leafBData},
+		{fileCID, fileData},
+		{leafCID, leafData},
 	})
 }
 
@@ -152,18 +154,6 @@ func makeUnixFSFile(t *testing.T, payload []byte) (fileCID cid.Cid, fileData []b
 	nd.SetData(fsBytes)
 	require.NoError(t, nd.AddRawLink("", &ipldformat.Link{Name: "", Size: uint64(len(payload)), Cid: leafCID}))
 	return nd.Cid(), nd.RawData(), leafCID, leafData
-}
-
-func makeUnixFSDir(t *testing.T, name string, fileCID cid.Cid, fileSize uint64) (cid.Cid, []byte) {
-	t.Helper()
-	fsn := unixfs.NewFSNode(unixfs.TDirectory)
-	fsBytes, err := fsn.GetBytes()
-	require.NoError(t, err)
-	nd := new(merkledag.ProtoNode)
-	require.NoError(t, nd.SetCidBuilder(merkledag.V1CidPrefix()))
-	nd.SetData(fsBytes)
-	require.NoError(t, nd.AddRawLink(name, &ipldformat.Link{Name: name, Size: fileSize, Cid: fileCID}))
-	return nd.Cid(), nd.RawData()
 }
 
 func makeRawCID(t *testing.T, data []byte) (cid.Cid, []byte) {

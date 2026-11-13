@@ -23,7 +23,7 @@ import (
 	"github.com/filecoin-project/curio/lib/keysmith"
 )
 
-// synapse-sdk's default branch is master. There is no branch named main.
+// TODO #1637: Point to the real synapse-sdk repo and target version when the repo is public.
 const (
 	synapseRepo   = "https://github.com/JAG-UK/synapse-sdk.git"
 	synapseBranch = "master"
@@ -31,7 +31,7 @@ const (
 
 // artifacts are a FEE object and grant presentations produced by keysmith.
 type artifacts struct {
-	Fee               string `json:"fee"`
+	FEE               string `json:"fee"`
 	Presentation      string `json:"presentation"`
 	OtherPresentation string `json:"otherPresentation"`
 	PieceCID          string `json:"pieceCid"`
@@ -47,10 +47,8 @@ type artifacts struct {
 }
 
 func TestKeysmithInterop(t *testing.T) {
-	// Setenv keeps this test out of the Go test cache: it tracks synapse-sdk master.
-	t.Setenv("CURIO_KEYSMITH_ITEST", "1")
 	art := produce(t)
-	feeBytes := mustHex(t, art.Fee)
+	FEEBytes := mustHex(t, art.FEE)
 	presentation := mustHex(t, art.Presentation)
 	other := mustHex(t, art.OtherPresentation)
 	piece := mustHex(t, art.PieceCID)
@@ -59,9 +57,9 @@ func TestKeysmithInterop(t *testing.T) {
 	now := time.Unix(art.Now, 0)
 	network := new(big.Int).SetUint64(chainID)
 
-	t.Run("fee", func(t *testing.T) {
-		// feeBytes is the file inside the piece CAR, not the piece itself.
-		labels, err := keysmith.LabelsFromPrefix(feeBytes)
+	t.Run("FEE", func(t *testing.T) {
+		// FEEBytes is the file inside the piece CAR, not the piece itself.
+		labels, err := keysmith.LabelsFromPrefix(FEEBytes)
 		require.NoError(t, err)
 		require.Equal(t, int64(1), labels.Version)
 		require.Equal(t, art.Owner, strings.ToLower(labels.Owner))
@@ -70,12 +68,12 @@ func TestKeysmithInterop(t *testing.T) {
 		require.Equal(t, art.Scope, labels.Scope)
 		require.Equal(t, art.Salt, strings.ToLower(labels.Salt))
 
-		_, err = keysmith.ReadEnvelopeLabels(bytes.NewReader(feeBytes))
+		_, err = keysmith.ReadEnvelopeLabels(bytes.NewReader(FEEBytes))
 		require.ErrorIs(t, err, keysmith.ErrInvalidEnvelope)
 	})
 
 	t.Run("grant", func(t *testing.T) {
-		labels, err := keysmith.LabelsFromPrefix(feeBytes)
+		labels, err := keysmith.LabelsFromPrefix(FEEBytes)
 		require.NoError(t, err)
 		claim, err := keysmith.VerifyPresentation(presentation, piece, labels.Piece(), network, now)
 		require.NoError(t, err)
@@ -94,7 +92,7 @@ func TestKeysmithInterop(t *testing.T) {
 	})
 
 	t.Run("rejects", func(t *testing.T) {
-		labels, err := keysmith.LabelsFromPrefix(feeBytes)
+		labels, err := keysmith.LabelsFromPrefix(FEEBytes)
 		require.NoError(t, err)
 		pieceLabels := labels.Piece()
 		checkGrant := func(raw []byte) error {
@@ -114,7 +112,7 @@ func TestKeysmithInterop(t *testing.T) {
 		require.ErrorIs(t, checkGrant(nil), keysmith.ErrInvalidGrant)
 		require.ErrorIs(t, checkGrant([]byte("hello")), keysmith.ErrInvalidGrant)
 		require.ErrorIs(t, checkGrant(bytes.Repeat([]byte{0xff}, 64)), keysmith.ErrInvalidGrant)
-		require.ErrorIs(t, checkGrant(feeBytes), keysmith.ErrInvalidGrant)
+		require.ErrorIs(t, checkGrant(FEEBytes), keysmith.ErrInvalidGrant)
 		require.ErrorIs(t, checkGrant([]byte(`{"node":"keyspace","bearer":"0x0"}`)), keysmith.ErrInvalidGrant)
 
 		junk, err := cbor.Marshal([]any{1, []any{"not a link"}, map[string]any{"ok": true}})
@@ -133,6 +131,7 @@ func TestKeysmithInterop(t *testing.T) {
 }
 
 // produce builds keysmith from synapse-sdk master and returns one FEE and two presentations.
+// A passing run stays in the Go test cache until this package changes; -count=1 fetches master again.
 func produce(t *testing.T) artifacts {
 	t.Helper()
 	root := checkout(t)
@@ -153,7 +152,7 @@ func produce(t *testing.T) artifacts {
 
 	var art artifacts
 	require.NoError(t, json.Unmarshal(stdout.Bytes(), &art), "producer stdout\n%s\nstderr\n%s", stdout.String(), stderr.String())
-	require.NotEmpty(t, art.Fee)
+	require.NotEmpty(t, art.FEE)
 	require.NotEmpty(t, art.Presentation)
 	require.NotEqual(t, art.Presentation, art.OtherPresentation)
 	return art
@@ -162,7 +161,7 @@ func produce(t *testing.T) artifacts {
 // checkout returns a depth-1 clone of synapse-sdk at master, fetching when the clone already exists.
 func checkout(t *testing.T) string {
 	t.Helper()
-	require.NoError(t, exec.Command("git", "version").Run(), "git is required")
+	run(t, "", "git", "version")
 	root := filepath.Join(os.TempDir(), "curio-itest-jag-synapse-sdk")
 	if _, err := os.Stat(filepath.Join(root, ".git")); errors.Is(err, os.ErrNotExist) {
 		run(t, "", "git", "clone", "--depth", "1", "--branch", synapseBranch, synapseRepo, root)
