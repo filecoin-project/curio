@@ -31,7 +31,7 @@ type JWTAuth struct {
 
 var _ Auth = (*JWTAuth)(nil)
 
-// JWTAuth extracts and verifies the JWT token from the request and returns the serviceID.
+// AuthService verifies the request's bearer JWT and returns its service_name claim.
 func (a *JWTAuth) AuthService(r *http.Request) (string, error) {
 	// Get the Authorization header
 	authHeader := r.Header.Get("Authorization")
@@ -69,7 +69,7 @@ func (a *JWTAuth) AuthService(r *http.Request) (string, error) {
 			return nil, fmt.Errorf("invalid token claims")
 		}
 
-		// Extract service_id from claims
+		// Extract the service label used to look up the registered public key.
 		serviceIf, ok := claims["service_name"]
 		if !ok {
 			return nil, fmt.Errorf("missing service_name claim")
@@ -80,7 +80,7 @@ func (a *JWTAuth) AuthService(r *http.Request) (string, error) {
 			return nil, fmt.Errorf("invalid service_name claim")
 		}
 
-		// Query the database for the public key using serviceID
+		// Query the database for the public key using the service label.
 		var pubKeyBytes []byte
 		ctx := r.Context()
 		err := a.db.QueryRow(ctx, `

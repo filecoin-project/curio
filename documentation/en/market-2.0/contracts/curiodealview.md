@@ -23,7 +23,7 @@ From the Curio UI, each contract is either:
 Before allowing a contract, providers should verify:
 
 1. The contract implements `CurioDealViewV1` correctly.
-2. `verifyDeal` checks the same deal semantics Curio will pass in (`provider`, `client`, `piece CID`, `start epoch`, `duration`, finalization fields) and accepts the deprecated `allocationId` as `0` from NV29 onward.
+2. `verifyDeal` checks the same deal semantics Curio will pass in (`provider`, `client`, `piece CID`, `start epoch`, `duration`, finalization fields) and accepts the deprecated `allocationId` as `0`.
 3. `getDealState` uses the expected `Open` / `Active` / `Finalized` meanings.
 4. The contract's state transitions and finalization behavior are clear for payout and replay safety.
 
@@ -69,14 +69,14 @@ interface ICurioDealViewV1 {
 
 ## Versioning
 
-`version()` must return `1` before and after NV29. The interface and `verifyDeal` ABI remain unchanged.
+`version()` must return `1`. The interface and `verifyDeal` ABI remain unchanged.
 
 ## `CurioDealView` Field Semantics
 
 1. `dealId`: the market deal identifier referenced by `market_deal_id`.
 2. `state`: Curio sends `Open` during intake verification.
 3. `startEpoch`: must be `0` when unused.
-4. `allocationId`: deprecated; always `0` from NV29 onward, even when the stored deal has an allocation. Before NV29, Curio passes the retained allocation ID for a previously accepted deal, or `0` when absent. New deals must omit `allocation_id` from their DDO product.
+4. `allocationId`: deprecated; always `0`, even when the stored deal has an allocation. New deals must omit `allocation_id` from their DDO product.
 5. `finalizedEpoch`: must be `0` for non-finalized intake verification.
 
 ## Curio Verification Checks

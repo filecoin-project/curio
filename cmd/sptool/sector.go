@@ -22,7 +22,6 @@ import (
 	"github.com/filecoin-project/go-state-types/builtin"
 	stminer "github.com/filecoin-project/go-state-types/builtin/v19/miner"
 	stpower "github.com/filecoin-project/go-state-types/builtin/v19/power"
-	"github.com/filecoin-project/go-state-types/network"
 
 	"github.com/filecoin-project/curio/lib/curiochain"
 	"github.com/filecoin-project/curio/lib/reqcontext"
@@ -774,10 +773,6 @@ Extensions will be clamped at either the maximum sector extension of 3.5 years/1
 			Name:  "no-cc",
 			Usage: "don't extend CC sectors (exclusive with --only-cc)",
 		},
-		&cli.BoolFlag{
-			Name:  "drop-claims",
-			Usage: "drop claims for sectors that can be extended, but only by dropping some of their verified power claims",
-		},
 		&cli.Int64Flag{
 			Name:  "tolerance",
 			Usage: "don't try to extend sectors by fewer than this number of epochs, defaults to 7 days",
@@ -1044,32 +1039,6 @@ Extensions will be clamped at either the maximum sector extension of 3.5 years/1
 			}
 		}
 
-		// TODO(NV29): Remove claim lookups, claim-aware batching and --drop-claims
-		// once pre-NV29 support is dropped.
-		var claimsMap map[verifreg.ClaimId]verifreg.Claim
-		var claimIdsBySector map[abi.SectorNumber][]verifreg.ClaimId
-		if nv < network.Version29 {
-			verifregAct, err := fullApi.StateGetActor(ctx, builtin.VerifiedRegistryActorAddr, head.Key())
-			if err != nil {
-				return xerrors.Errorf("failed to lookup verifreg actor: %w", err)
-			}
-
-			verifregSt, err := verifreg.Load(adtStore, verifregAct)
-			if err != nil {
-				return xerrors.Errorf("failed to load verifreg state: %w", err)
-			}
-
-			claimsMap, err = verifregSt.GetClaims(maddr)
-			if err != nil {
-				return xerrors.Errorf("failed to lookup claims for miner: %w", err)
-			}
-
-			claimIdsBySector, err = verifregSt.GetClaimIdsBySector(maddr)
-			if err != nil {
-				return xerrors.Errorf("failed to lookup claim IDs by sector: %w", err)
-			}
-		}
-
 		sectorsMax, err := policy.GetAddressedSectorsMax(nv)
 		if err != nil {
 			return err
@@ -1107,72 +1076,13 @@ Extensions will be clamped at either the maximum sector extension of 3.5 years/1
 
 					batch := numbers[i:end]
 
-					numbersToExtend := make([]abi.SectorNumber, 0, len(batch))
-					var sectorsWithClaims []miner.SectorClaim
 					p := miner.ExtendSectorExpiration2Params{}
 
-					for _, sectorNumber := range batch {
-						claimIdsToMaintain := make([]verifreg.ClaimId, 0)
-						claimIdsToDrop := make([]verifreg.ClaimId, 0)
-						cannotExtendSector := false
-						claimIds, ok := claimIdsBySector[sectorNumber]
-						// Nothing to check, add to ccSectors
-						if !ok {
-							numbersToExtend = append(numbersToExtend, sectorNumber)
-						} else {
-							for _, claimId := range claimIds {
-								claim, ok := claimsMap[claimId]
-								if !ok {
-									return xerrors.Errorf("failed to find claim for claimId %d", claimId)
-								}
-								claimExpiration := claim.TermStart + claim.TermMax
-								// can be maintained in the extended sector
-								if claimExpiration > newExp {
-									claimIdsToMaintain = append(claimIdsToMaintain, claimId)
-								} else {
-									sectorInfo, ok := activeSectorsInfo[sectorNumber]
-									if !ok {
-										return xerrors.Errorf("failed to find sector in active sector set: %w", err)
-									}
-									if !cctx.Bool("drop-claims") ||
-										// FIP-0045 requires the claim minimum duration to have passed
-										currEpoch <= (claim.TermStart+claim.TermMin) ||
-										// FIP-0045 requires the sector to be in its last 30 days of life
-										(currEpoch <= sectorInfo.Expiration-builtin.EndOfLifeClaimDropPeriod) {
-										fmt.Printf("skipping sector %d because claim %d (client f0%s, piece %s) does not live long enough \n", sectorNumber, claimId, claim.Client, claim.Data)
-										cannotExtendSector = true
-										break
-									}
-
-									claimIdsToDrop = append(claimIdsToDrop, claimId)
-								}
-
-								numbersToExtend = append(numbersToExtend, sectorNumber)
-							}
-							if cannotExtendSector {
-								continue
-							}
-
-							if len(claimIdsToMaintain)+len(claimIdsToDrop) != 0 {
-								sectorsWithClaims = append(sectorsWithClaims, miner.SectorClaim{
-									SectorNumber:   sectorNumber,
-									MaintainClaims: claimIdsToMaintain,
-									DropClaims:     claimIdsToDrop,
-								})
-							}
-						}
-					}
-
-					if len(numbersToExtend) == 0 && len(sectorsWithClaims) == 0 {
-						continue
-					}
-
 					p.Extensions = append(p.Extensions, miner.ExpirationExtension2{
-						Deadline:          l.Deadline,
-						Partition:         l.Partition,
-						Sectors:           spcli.SectorNumsToBitfield(numbersToExtend),
-						SectorsWithClaims: sectorsWithClaims,
-						NewExpiration:     newExp,
+						Deadline:      l.Deadline,
+						Partition:     l.Partition,
+						Sectors:       spcli.SectorNumsToBitfield(batch),
+						NewExpiration: newExp,
 					})
 					params = append(params, p)
 				}
@@ -1347,15 +1257,6 @@ var sectorsUpgradeQualityCmd = &cli.Command{
 		}
 
 		tsk := head.Key()
-
-		nv, err := fullNodeAPI.StateNetworkVersion(ctx, tsk)
-		if err != nil {
-			return xerrors.Errorf("getting network version: %w", err)
-		}
-
-		if nv < network.Version29 {
-			return xerrors.Errorf("upgrade-quality requires network version 29+ (Solstice); current: %d", nv)
-		}
 
 		mf, err := types.ParseFIL(cctx.String("max-fee"))
 		if err != nil {

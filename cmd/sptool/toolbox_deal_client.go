@@ -41,7 +41,6 @@ import (
 	commp "github.com/filecoin-project/go-fil-commp-hashhash"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/big"
-	"github.com/filecoin-project/go-state-types/builtin/v16/verifreg"
 	"github.com/filecoin-project/go-state-types/builtin/v9/market"
 
 	"github.com/filecoin-project/curio/lib/keystore"
@@ -1678,10 +1677,6 @@ var mk20DealCmd = &cli.Command{
 			Name:  "market-deal-id",
 			Usage: "market deal ID",
 		},
-		&cli.Uint64Flag{
-			Name:  "allocation",
-			Usage: "allocation id of the deal",
-		},
 		&cli.BoolFlag{
 			Name:  "indexing",
 			Usage: "indicates that an deal should be indexed",
@@ -1922,10 +1917,6 @@ var mk20DealCmd = &cli.Command{
 				did := cctx.Uint64("market-deal-id")
 				p.DDOV1.MarketDealID = &did
 			}
-		}
-
-		if cctx.Uint64("allocation") != 0 {
-			p.DDOV1.AllocationId = new(verifreg.AllocationId(cctx.Uint64("allocation")))
 		}
 
 		// Try to request all URLs one by one and exit after first success

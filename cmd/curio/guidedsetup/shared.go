@@ -220,7 +220,7 @@ func SaveConfigToLayerMigrateSectors(db *harmonydb.DB, minerRepoPath, chainApiIn
 			if err != nil {
 				return minerAddress, xerrors.Errorf("cannot interpret config: %w", err)
 			}
-			_, err = db.Exec(ctx, "UPDATE harmony_config SET config=$1 WHERE title='base'", string(cb))
+			_, err = db.Exec(ctx, "UPDATE harmony_config SET config=$1, timestamp=NOW() WHERE title='base'", string(cb))
 			if err != nil {
 				return minerAddress, xerrors.Errorf("cannot update base config: %w", err)
 			}
@@ -230,7 +230,7 @@ func SaveConfigToLayerMigrateSectors(db *harmonydb.DB, minerRepoPath, chainApiIn
 	skipWritingToBase:
 	} else {
 		_, err = db.Exec(ctx, `INSERT INTO harmony_config (title, config) VALUES ('base', $1)
-		 ON CONFLICT(title) DO UPDATE SET config=EXCLUDED.config`, configTOML)
+		 ON CONFLICT(title) DO UPDATE SET config=EXCLUDED.config, timestamp=NOW()`, configTOML)
 
 		if err != nil {
 			return minerAddress, xerrors.Errorf("Cannot insert base config: %w", err)

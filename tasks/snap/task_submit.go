@@ -14,7 +14,6 @@ import (
 	logging "github.com/ipfs/go-log/v2"
 	"go.opencensus.io/stats"
 	"go.opencensus.io/tag"
-	"go.uber.org/multierr"
 	"golang.org/x/exp/maps"
 	"golang.org/x/xerrors"
 
@@ -23,10 +22,8 @@ import (
 	"github.com/filecoin-project/go-state-types/big"
 	"github.com/filecoin-project/go-state-types/builtin"
 	miner13 "github.com/filecoin-project/go-state-types/builtin/v13/miner"
-	verifregtypes9 "github.com/filecoin-project/go-state-types/builtin/v9/verifreg"
 	"github.com/filecoin-project/go-state-types/dline"
 	"github.com/filecoin-project/go-state-types/exitcode"
-	"github.com/filecoin-project/go-state-types/network"
 
 	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps/config"
@@ -37,7 +34,6 @@ import (
 	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/tasks/message"
-	"github.com/filecoin-project/curio/tasks/seal"
 	"github.com/filecoin-project/curio/tasks/tasknames"
 
 	"github.com/filecoin-project/lotus/api"
@@ -51,10 +47,7 @@ var ImmutableSubmitGate = abi.ChainEpoch(2) // don't submit more than 2 minutes 
 
 type SubmitTaskNodeAPI interface {
 	StateSectorPartition(ctx context.Context, maddr address.Address, sectorNumber abi.SectorNumber, tsk types.TipSetKey) (*miner.SectorLocation, error)
-	// TODO(NV29): Remove this allocation RPC method once pre-NV29 support is dropped.
-	StateGetAllocation(ctx context.Context, clientAddr address.Address, allocationId verifregtypes9.AllocationId, tsk types.TipSetKey) (*verifregtypes9.Allocation, error)
 	ChainHead(ctx context.Context) (*types.TipSet, error)
-	StateNetworkVersion(context.Context, types.TipSetKey) (network.Version, error)
 
 	WalletBalance(context.Context, address.Address) (types.BigInt, error)
 	WalletHas(context.Context, address.Address) (bool, error)
@@ -178,10 +171,6 @@ func (s *SubmitTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwn
 	if err != nil {
 		return false, xerrors.Errorf("getting chain head: %w", err)
 	}
-	nv, err := s.api.StateNetworkVersion(ctx, ts.Key())
-	if err != nil {
-		return false, xerrors.Errorf("getting network version: %w", err)
-	}
 
 	mi, err := s.api.StateMinerInfo(ctx, maddr, ts.Key())
 	if err != nil {
@@ -227,11 +216,9 @@ func (s *SubmitTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwn
 
 		var pieces []struct {
 			Manifest json.RawMessage `db:"direct_piece_activation_manifest"`
-			Size     int64           `db:"piece_size"`
-			Start    int64           `db:"direct_start_epoch"`
 		}
 		err = s.db.Select(ctx, &pieces, `
-		SELECT direct_piece_activation_manifest, piece_size, direct_start_epoch
+		SELECT direct_piece_activation_manifest
 		FROM sectors_snap_initial_pieces
 		WHERE sp_id = $1 AND sector_number = $2 ORDER BY piece_index ASC`, update.SpID, update.SectorNumber)
 		if err != nil {
@@ -316,44 +303,15 @@ func (s *SubmitTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwn
 
 		// Process pieces, prepare PAMs
 		pams := make([]miner.PieceActivationManifest, 0, len(pieces))
-		var verifiedSize int64
-		pieceCheckFailed := false
 		for _, piece := range pieces {
 			var pam *miner.PieceActivationManifest
 			err = json.Unmarshal(piece.Manifest, &pam)
 			if err != nil {
 				return false, xerrors.Errorf("marshalling json to PieceManifest: %w", err)
 			}
-			// TODO(NV29): Remove allocation validation, failure bookkeeping and verified-size counting once pre-NV29 support is dropped.
-			if nv < network.Version29 {
-				unrecoverable, err := seal.AllocationCheck(ctx, s.api, pam, onChainInfo.Expiration, abi.ActorID(update.SpID), ts)
-				if err != nil {
-					if unrecoverable {
-						_, err2 := s.db.Exec(ctx, `UPDATE sectors_snap_pipeline SET
-                                 failed = TRUE, failed_at = NOW(), failed_reason = 'alloc-check', failed_reason_msg = $1,
-                                 task_id_submit = NULL, after_submit = FALSE
-                             WHERE sp_id = $2 AND sector_number = $3`, err.Error(), update.SpID, update.SectorNumber)
-
-						log.Errorw("allocation check failed with an unrecoverable issue", "sp", update.SpID, "sector", update.SectorNumber, "err", err)
-						return true, xerrors.Errorf("allocation check failed with an unrecoverable issue: %w", multierr.Combine(err, err2))
-					}
-
-					pieceCheckFailed = true
-					break
-				}
-
-				if pam.VerifiedAllocationKey != nil {
-					verifiedSize += piece.Size
-				}
-			} else {
-				pam.VerifiedAllocationKey = nil
-			}
+			pam.VerifiedAllocationKey = nil
 
 			pams = append(pams, *pam)
-		}
-
-		if pieceCheckFailed {
-			continue // Skip this sector
 		}
 
 		newSealedCID, err := cid.Parse(update.UpdateSealedCID)
@@ -370,7 +328,7 @@ func (s *SubmitTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwn
 			unsealed: newUnsealedCID,
 		}
 
-		secCollateral, err := s.calculateSectorCollateral(ctx, onChainInfo, ts, nv, uint64(verifiedSize))
+		secCollateral, err := s.calculateSectorCollateral(ctx, onChainInfo, ts)
 		if err != nil {
 			return false, err
 		}
@@ -459,21 +417,18 @@ func (s *SubmitTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwn
 	return true, nil
 }
 
-func (s *SubmitTask) calculateSectorCollateral(ctx context.Context, onChainInfo *miner.SectorOnChainInfo, ts *types.TipSet, nv network.Version, verifiedSize uint64) (abi.TokenAmount, error) {
+// calculateSectorCollateral estimates the pledge increase for a sector with valid on-chain power metadata.
+func (s *SubmitTask) calculateSectorCollateral(ctx context.Context, onChainInfo *miner.SectorOnChainInfo, ts *types.TipSet) (abi.TokenAmount, error) {
 	ssize, err := onChainInfo.SealProof.SectorSize()
 	if err != nil {
 		return big.Zero(), xerrors.Errorf("getting sector size: %w", err)
 	}
 
-	// TODO(NV29): Remove the network-version guard and verifiedSize argument once pre-NV29 support is dropped.
-	if nv >= network.Version29 {
-		if miner.SectorIsFullQaPower(onChainInfo) {
-			return big.Zero(), nil
-		}
-		verifiedSize = uint64(ssize)
+	if miner.SectorIsFullQaPower(onChainInfo) {
+		return big.Zero(), nil
 	}
 
-	estimate, err := s.api.StateMinerInitialPledgeForSector(ctx, onChainInfo.Expiration-ts.Height(), ssize, verifiedSize, ts.Key())
+	estimate, err := s.api.StateMinerInitialPledgeForSector(ctx, onChainInfo.Expiration-ts.Height(), ssize, uint64(ssize), ts.Key())
 	if err != nil {
 		return big.Zero(), xerrors.Errorf("calculating pledge: %w", err)
 	}
