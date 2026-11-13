@@ -20,23 +20,28 @@ const (
 	grantUserEsc   = "FOC%20Grant"
 	grantCookie    = "FOC Grant"
 	grantCookieEsc = "FOC%20Grant"
+	grantQuery     = "foc_grant"
 )
 
-// Credential returns the longest FOC grant token on r.
-// A missing Authorization header, basic-auth password, or cookie is skipped.
-// The Authorization value is used when it is not HTTP basic auth. Basic auth
-// contributes its password only when the user is "FOC Grant" or "FOC%20Grant".
+// Credential returns the longest FOC grant on r, decoded.
+// Each Authorization field is considered. Bearer is skipped.
+// Basic auth contributes its password only when the user is "FOC Grant" or "FOC%20Grant".
+// A cookie or foc_grant query is also a source. foc_grant is a base64url query value.
+// A missing source is skipped.
 func Credential(r *http.Request) ([]byte, error) {
-	var candidates []string
-	if auth := r.Header.Get("Authorization"); auth != "" && !strings.HasPrefix(strings.ToLower(auth), "basic ") {
-		candidates = append(candidates, auth)
+	token, err := GrantToken(r)
+	if err != nil {
+		return nil, err
 	}
-	if user, pass, ok := r.BasicAuth(); ok && pass != "" && (user == grantUser || user == grantUserEsc) {
-		candidates = append(candidates, pass)
-	}
-	candidates = append(candidates, grantCookies(r)...)
+	return decodeToken(token)
+}
+
+// GrantToken returns the longest FOC grant token on r, still base64url-encoded.
+// Bearer field values are not grants. A request with none of the FOC sources is ErrNoGrant.
+func GrantToken(r *http.Request) (string, error) {
+	candidates := grantCandidates(r)
 	if len(candidates) == 0 {
-		return nil, ErrNoGrant
+		return "", ErrNoGrant
 	}
 	best := candidates[0]
 	for _, c := range candidates[1:] {
@@ -44,7 +49,83 @@ func Credential(r *http.Request) ([]byte, error) {
 			best = c
 		}
 	}
-	return decodeToken(best)
+	return normalizeGrantToken(best)
+}
+
+// grantCandidates lists FOC grant strings on r.
+// Each Authorization field is checked. Bearer values are omitted.
+// A Basic value contributes its password only for the FOC grant user.
+// The caller picks the longest and decodes it.
+func grantCandidates(r *http.Request) []string {
+	var candidates []string
+	for _, auth := range r.Header.Values("Authorization") {
+		if auth == "" {
+			continue
+		}
+		scheme := strings.ToLower(auth)
+		if strings.HasPrefix(scheme, "bearer ") {
+			continue
+		}
+		if strings.HasPrefix(scheme, "basic ") {
+			if pass, ok := basicGrantPassword(auth); ok {
+				candidates = append(candidates, pass)
+			}
+			continue
+		}
+		candidates = append(candidates, auth)
+	}
+	candidates = append(candidates, grantCookies(r)...)
+	candidates = append(candidates, grantQueryValues(r)...)
+	return candidates
+}
+
+// basicGrantPassword returns the password from one Authorization field value.
+// The value must be HTTP basic auth for user "FOC Grant" or "FOC%20Grant". Any other value returns ok false.
+func basicGrantPassword(auth string) (string, bool) {
+	const prefix = "Basic "
+	if len(auth) < len(prefix) || !strings.EqualFold(auth[:len(prefix)], prefix) {
+		return "", false
+	}
+	raw, err := base64.StdEncoding.DecodeString(auth[len(prefix):])
+	if err != nil {
+		return "", false
+	}
+	user, pass, ok := strings.Cut(string(raw), ":")
+	if !ok || pass == "" {
+		return "", false
+	}
+	if user != grantUser && user != grantUserEsc {
+		return "", false
+	}
+	return pass, true
+}
+
+// normalizeGrantToken strips the FOC-Grant scheme and checks the token decodes.
+// The caller has already chosen this candidate.
+func normalizeGrantToken(s string) (string, error) {
+	s = strings.TrimSpace(s)
+	if rest, ok := strings.CutPrefix(s, grantPrefix); ok {
+		s = strings.TrimSpace(rest)
+	}
+	if _, err := decodeToken(s); err != nil {
+		return "", err
+	}
+	return s, nil
+}
+
+// grantQueryValues reads foc_grant query values. The caller has a parsed request URL.
+// An empty value is skipped. The value is base64url.
+func grantQueryValues(r *http.Request) []string {
+	if r == nil || r.URL == nil {
+		return nil
+	}
+	var out []string
+	for _, v := range r.URL.Query()[grantQuery] {
+		if v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 // grantCookies reads an FOC Grant cookie from the parsed cookies and the raw

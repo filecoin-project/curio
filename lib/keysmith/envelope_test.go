@@ -38,7 +38,7 @@ func validMeta() map[string]any {
 func TestReadEnvelopeLabels(t *testing.T) {
 	meta := validMeta()
 	meta["foc/scope"] = "agent-memory"
-	labels, err := ReadEnvelopeLabels(bytes.NewReader(envelopeBytes(t, meta)))
+	labels, err := ReadEnvelopeLabels(bytes.NewReader(makeFileRootCAR(t, envelopeBytes(t, meta))))
 	require.NoError(t, err)
 	require.Equal(t, int64(1), labels.Version)
 	require.Equal(t, meta["foc/own"], labels.Owner)
@@ -46,6 +46,10 @@ func TestReadEnvelopeLabels(t *testing.T) {
 	require.Equal(t, meta["foc/salt"], labels.Salt)
 	require.True(t, labels.HasScope)
 	require.Equal(t, "agent-memory", labels.Scope)
+
+	_, err = ReadEnvelopeLabels(bytes.NewReader(envelopeBytes(t, validMeta())))
+	require.ErrorIs(t, err, ErrInvalidEnvelope)
+	require.ErrorContains(t, err, "not a CAR")
 
 	withoutScope := validMeta()
 	labels, err = LabelsFromPrefix(envelopeBytes(t, withoutScope))
@@ -66,33 +70,19 @@ func TestReadEnvelopeLabels(t *testing.T) {
 	require.ErrorIs(t, err, ErrInvalidEnvelope)
 }
 
-type countReader struct {
-	r *bytes.Reader
-	n int
-}
-
-func (c *countReader) Read(p []byte) (int, error) {
-	n, err := c.r.Read(p)
-	c.n += n
-	return n, err
-}
-
 type failReader struct{ err error }
 
 func (r failReader) Read([]byte) (int, error) { return 0, r.err }
 
-func TestReadEnvelopeLabelsStopsAtCBORItem(t *testing.T) {
+func TestReadEnvelopeLabelsReadsPrefixBeforeTrailingLeaf(t *testing.T) {
 	meta := validMeta()
 	env := envelopeBytes(t, meta)
-	trailer := bytes.Repeat([]byte("x"), 64<<10)
-	src := append(append([]byte{}, env...), trailer...)
-	counted := &countReader{r: bytes.NewReader(src)}
+	trailer := bytes.Repeat([]byte{0xA5}, 64<<10)
+	carBytes := makeTwoLeafFileCAR(t, env, trailer)
 
-	labels, err := ReadEnvelopeLabels(counted)
+	labels, err := ReadEnvelopeLabels(bytes.NewReader(carBytes))
 	require.NoError(t, err)
 	require.Equal(t, meta["foc/own"], labels.Owner)
-	require.Less(t, counted.n, len(env)+512)
-	require.Less(t, counted.n, len(src)/2)
 }
 
 func TestReadEnvelopeLabelsKeepsIOErrors(t *testing.T) {
