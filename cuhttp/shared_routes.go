@@ -19,7 +19,7 @@ func MountRetrievalPublicRoutes(ctx context.Context, r *chi.Mux, d *deps.Deps) *
 	df := denylist.NewFilter(ctx, d.Cfg.HTTP.DenylistServers)
 	rp := retrieval.NewRetrievalProvider(ctx, d.DB, d.IndexStore, d.CachedPieceReader, df)
 	// A failure leaves the blockchain unset, and ACL downloads are refused until it is known.
-	if d == nil || d.EthClient == nil {
+	if d.EthClient == nil {
 		log.Warn("FOC grant checks have no eth client; ACL downloads will be refused")
 	} else if eth, err := d.EthClient.Get(); err != nil {
 		log.Warnw("FOC grant checks could not open the eth client", "error", err)
