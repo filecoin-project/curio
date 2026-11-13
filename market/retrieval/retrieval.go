@@ -52,6 +52,7 @@ type Provider struct {
 	fr         *frisbii.HttpIpfs
 	cpr        *cachedreader.CachedPieceReader
 	blockChain *big.Int
+	privateIdx privatePieceIndex
 }
 
 // SetBlockChain records the blockchain FOC grants must name.
@@ -87,10 +88,11 @@ func NewRetrievalProvider(ctx context.Context, db *harmonydb.DB, idxStore *index
 	fr := frisbii.NewHttpIpfs(ctx, lsys, frisbii.WithBlockHasCheck(cbs.Has))
 
 	return &Provider{
-		db:  db,
-		bs:  bs,
-		fr:  fr,
-		cpr: cpr,
+		db:         db,
+		bs:         bs,
+		fr:         fr,
+		cpr:        cpr,
+		privateIdx: idxStore,
 	}
 }
 
@@ -255,7 +257,7 @@ func Router(mux *chi.Mux, rp *Provider, df *denylist.Filter) {
 	mux.Group(func(r chi.Router) {
 		r.Use(metricsMiddleware)
 
-		// Canonical piece retrieval
+		// Canonical piece retrieval. /download/ serves acl-pieces.
 		r.Group(func(r chi.Router) {
 			r.Use(denylist.Middleware(df))
 			r.Use(limiterMiddleware(pieceRequestLimiter))

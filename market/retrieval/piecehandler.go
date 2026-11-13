@@ -1,10 +1,10 @@
 package retrieval
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
-	"math/big"
 	"mime"
 	"net/http"
 	"net/url"
@@ -12,9 +12,11 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/ipfs/go-cid"
+	"github.com/multiformats/go-multihash"
 	"go.opencensus.io/stats"
 
 	"github.com/filecoin-project/curio/lib/cachedreader"
+	"github.com/filecoin-project/curio/lib/commcidv2"
 	"github.com/filecoin-project/curio/lib/keysmith"
 	"github.com/filecoin-project/curio/lib/pieceprovider"
 	"github.com/filecoin-project/curio/market/retrieval/remoteblockstore"
@@ -109,6 +111,24 @@ func (rp *Provider) handleDownload(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
+	// A piece CID is that piece. Any other CID is a block of a private CAR.
+	if !commcidv2.IsPieceCidV2(pieceCid) && !commcidv2.IsCidV1PieceCid(pieceCid) {
+		if rp.privateIdx == nil {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		piece, ok, err := rp.privateIdx.PrivatePieceByMultihash(ctx, pieceCid.Hash())
+		if err != nil {
+			log.Errorf("resolving download CID '%s': %s", pieceCidStr, err.Error())
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		if !ok {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		pieceCid = piece
+	}
 
 	if rp.cpr == nil {
 		w.WriteHeader(http.StatusNotFound)
@@ -128,13 +148,36 @@ func (rp *Provider) handleDownload(w http.ResponseWriter, r *http.Request) {
 		_ = reader.Close()
 	}()
 
-	if err := authorizeACLRead(r, reader, pieceCid, rp.blockChain); err != nil {
+	// The piece is a CAR whose file starts with a FEE envelope.
+	raw, err := keysmith.Credential(r)
+	if err == nil && rp.blockChain == nil {
+		err = errBlockChainUnset
+	}
+	if err == nil {
+		var labels keysmith.Labels
+		labels, err = keysmith.ReadEnvelopeLabelsAt(reader)
+		if err == nil {
+			_, err = keysmith.VerifyPresentation(raw, pieceCid.Bytes(), labels.Piece(), rp.blockChain, time.Now())
+		}
+	}
+	if err != nil {
 		if errors.Is(err, errBlockChainUnset) {
 			log.Warnw("acl download refused: blockchain is not configured", "piece", pieceCid)
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}
-		if errors.Is(err, keysmith.ErrNoGrant) || errors.Is(err, keysmith.ErrInvalidGrant) || errors.Is(err, keysmith.ErrInvalidEnvelope) {
+		if errors.Is(err, keysmith.ErrNoGrant) {
+			log.Debugw("acl download refused", "piece", pieceCid, "error", err)
+			w.Header().Set("WWW-Authenticate", "FOC-Grant")
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if errors.Is(err, keysmith.ErrInvalidGrant) {
+			log.Debugw("acl download refused", "piece", pieceCid, "error", err)
+			http.Error(w, err.Error(), http.StatusForbidden)
+			return
+		}
+		if errors.Is(err, keysmith.ErrInvalidEnvelope) {
 			log.Debugw("acl download refused", "piece", pieceCid, "error", err)
 			w.WriteHeader(http.StatusUnauthorized)
 			return
@@ -157,23 +200,9 @@ func (rp *Provider) handleDownload(w http.ResponseWriter, r *http.Request) {
 
 var errBlockChainUnset = errors.New("blockchain is not configured")
 
-// authorizeACLRead checks the longest FOC grant on r against piece.
-// An ACL piece has a FEE envelope; the grant must reach that piece's labels.
-// The caller has an open reader; the envelope is read from the front and the offset is left unchanged.
-func authorizeACLRead(r *http.Request, reader io.ReaderAt, piece cid.Cid, blockChain *big.Int) error {
-	raw, err := keysmith.Credential(r)
-	if err != nil {
-		return err
-	}
-	if blockChain == nil {
-		return errBlockChainUnset
-	}
-	labels, err := keysmith.ReadEnvelopeLabelsAt(reader)
-	if err != nil {
-		return err
-	}
-	_, err = keysmith.VerifyPresentation(raw, piece.Bytes(), labels.Piece(), blockChain, time.Now())
-	return err
+// privatePieceIndex looks up the restricted piece that contains a CAR block.
+type privatePieceIndex interface {
+	PrivatePieceByMultihash(ctx context.Context, payload multihash.Multihash) (cid.Cid, bool, error)
 }
 
 func sniffContentType(r io.ReaderAt) (string, error) {

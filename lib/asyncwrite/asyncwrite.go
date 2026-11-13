@@ -1,6 +1,7 @@
 package asyncwrite
 
 import (
+	"errors"
 	"fmt"
 	"io"
 
@@ -41,9 +42,7 @@ func (bfw *BackgroundWriter) writeWorker() {
 	}
 
 	if flusher, ok := bfw.dest.(interface{ Flush() error }); ok {
-		if flushErr := flusher.Flush(); flushErr != nil && err == nil {
-			err = flushErr
-		}
+		err = errors.Join(err, flusher.Flush())
 	}
 
 	bfw.done <- err

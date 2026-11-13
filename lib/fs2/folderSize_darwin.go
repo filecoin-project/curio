@@ -4,6 +4,7 @@ package fs2
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"unsafe"
 
@@ -56,8 +57,8 @@ func sumDirDarwin(path, prefix, low, high string, queueDepth uint32, result *Res
 		return fmt.Errorf("open %s: %w", path, err)
 	}
 	defer func() {
-		if cerr := unix.Close(dirfd); cerr != nil && err == nil {
-			err = fmt.Errorf("close %s: %w", path, cerr)
+		if cerr := unix.Close(dirfd); cerr != nil {
+			err = errors.Join(err, fmt.Errorf("close %s: %w", path, cerr))
 		}
 	}()
 

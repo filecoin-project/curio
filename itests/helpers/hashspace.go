@@ -11,36 +11,36 @@ import (
 	"github.com/filecoin-project/curio/lib/hashfolder"
 )
 
-// NewHashSpaces joins a single temporary disk to the open-pieces hash
-// space of db. It is closed when the test ends.
-func NewHashSpaces(t *testing.T, ctx context.Context, db *harmonydb.DB, storageID string) *hashfolder.Cluster {
+// NewHashSpaceCluster joins a single temporary disk to the open-pieces hash
+// space of db. The cluster is closed when the test ends.
+func NewHashSpaceCluster(t *testing.T, ctx context.Context, db *harmonydb.DB, storageID string) *hashfolder.Cluster {
 	t.Helper()
 
-	hashSpaces, err := hashfolder.NewCluster(ctx, db, []hashfolder.LocalDrive{{StorageID: storageID, Root: t.TempDir()}}, nil)
+	hs, err := hashfolder.NewCluster(ctx, db, []hashfolder.LocalDrive{{StorageID: storageID, Root: t.TempDir()}}, nil)
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = hashSpaces.Close() })
-	return hashSpaces
+	t.Cleanup(func() { _ = hs.Close() })
+	return hs
 }
 
 // PlaceOpenPiece writes the fixture's bytes into open-pieces on the disk its
 // hash maps to, named as /piece/ looks it up.
-func PlaceOpenPiece(t *testing.T, ctx context.Context, hashSpaces *hashfolder.Cluster, piece PieceFixture) {
+func PlaceOpenPiece(t *testing.T, ctx context.Context, hs *hashfolder.Cluster, piece PieceFixture) {
 	t.Helper()
 
 	digest, err := hashfolder.CIDHash(piece.PieceCIDV2)
 	require.NoError(t, err)
-	target, err := hashSpaces.Public.Target(ctx, digest)
+	target, err := hs.Public.Target(ctx, digest)
 	require.NoError(t, err)
-	n, err := hashSpaces.Public.WriteLocal(target, piece.PieceCIDV2, bytes.NewReader(piece.CarBytes[:piece.RawSize]))
+	n, err := hs.Public.WriteLocal(target, piece.PieceCIDV2, bytes.NewReader(piece.CarBytes[:piece.RawSize]))
 	require.NoError(t, err)
 	require.Equal(t, piece.RawSize, n)
 }
 
 // RequireNotInOpenPieces fails if any disk that may hold the piece has it.
-func RequireNotInOpenPieces(t *testing.T, ctx context.Context, hashSpaces *hashfolder.Cluster, piece PieceFixture) {
+func RequireNotInOpenPieces(t *testing.T, ctx context.Context, hs *hashfolder.Cluster, piece PieceFixture) {
 	t.Helper()
 
-	has, err := hashSpaces.Public.HasFile(ctx, piece.PieceCIDV2)
+	has, err := hs.Public.HasFile(ctx, piece.PieceCIDV2)
 	require.NoError(t, err)
 	require.False(t, has, "piece %s must not be in open-pieces", piece.PieceCIDV2)
 }

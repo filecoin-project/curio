@@ -54,8 +54,8 @@ func TestCandidates(t *testing.T) {
 	require.NoError(t, err)
 
 	c := &Cluster{roots: map[string]string{"local": "/l"}}
-	c.Public = &ClusterSpace{c: c, kind: DIR_OPEN}
-	c.ACL = &ClusterSpace{c: c, kind: DIR_ACL}
+	c.Public = c.newSpace(DIR_OPEN)
+	c.ACL = c.newSpace(DIR_ACL)
 
 	// No snapshot yet.
 	ls, err := c.Public.Candidates(v2)

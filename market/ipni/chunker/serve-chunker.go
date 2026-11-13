@@ -33,6 +33,7 @@ import (
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/ipni/ipniculib"
+	"github.com/filecoin-project/curio/market/ipni/types"
 
 	"github.com/filecoin-project/lotus/lib/result"
 )
@@ -319,6 +320,21 @@ func (p *ServeChunker) getEntry(rctx context.Context, block cid.Cid, speculated 
 
 	p.noSkipCache.Add(pieceCidv2, time.Now().Add(NoSkipCacheTTL))
 
+	var contextID []byte
+	qerr := p.db.QueryRow(ctx, `
+		SELECT context_id FROM ipni
+		WHERE piece_cid_v2 = $1
+		ORDER BY order_number DESC
+		LIMIT 1`, pieceCidv2.String()).Scan(&contextID)
+	var private bool
+	switch {
+	case errors.Is(qerr, pgx.ErrNoRows): // no advertisement: the piece is public
+	case qerr != nil:
+		return nil, xerrors.Errorf("reading latest IPNI context for piece %s: %w", pieceCidv2, qerr)
+	default:
+		private = encryptedPieceContext(contextID, pieceCidv2)
+	}
+
 	var next ipld.Link
 	if chunk.PrevCID.Valid {
 		prevChunk, err = cid.Parse(chunk.PrevCID.String)
@@ -393,7 +409,7 @@ func (p *ServeChunker) getEntry(rctx context.Context, block cid.Cid, speculated 
 
 		firstHash := multihash.Multihash(cb)
 
-		return p.reconstructChunkFromDB(ctx, block, pieceCidv2, firstHash, next, chunk.NumBlocks, request, speculated)
+		return p.reconstructChunkFromDB(ctx, block, pieceCidv2, firstHash, next, chunk.NumBlocks, request, speculated, private)
 	}
 
 	if !chunk.StartOffset.Valid {
@@ -481,7 +497,7 @@ func (p *ServeChunker) reconstructChunkFromCar(ctx context.Context, chunk, piece
 }
 
 // ReconstructChunkFromDB reconstructs a chunk from the database.
-func (p *ServeChunker) reconstructChunkFromDB(ctx context.Context, chunk, piecev2 cid.Cid, firstHash multihash.Multihash, next ipld.Link, numBlocks int64, request string, speculate bool) (out []byte, err error) {
+func (p *ServeChunker) reconstructChunkFromDB(ctx context.Context, chunk, piecev2 cid.Cid, firstHash multihash.Multihash, next ipld.Link, numBlocks int64, request string, speculate, private bool) (out []byte, err error) {
 	start := time.Now()
 	defer func() {
 		observeEntryReconstruction(request, entryReconstructionSourceDB, time.Since(start), err)
@@ -493,7 +509,11 @@ func (p *ServeChunker) reconstructChunkFromDB(ctx context.Context, chunk, piecev
 	if numBlocks == 1 {
 		mhs = []multihash.Multihash{firstHash}
 	} else {
-		mhs, err = p.indexStore.GetPieceHashRange(ctx, piecev2, firstHash, numBlocks, true)
+		hashRange := p.indexStore.GetPieceHashRange
+		if private {
+			hashRange = p.indexStore.GetPrivatePieceHashRange
+		}
+		mhs, err = hashRange(ctx, piecev2, firstHash, numBlocks, true)
 		if err != nil {
 			return nil, xerrors.Errorf("getting piece hash range: %w", err)
 		}
@@ -529,6 +549,16 @@ func (p *ServeChunker) reconstructChunkFromDB(ctx context.Context, chunk, piecev
 	log.Infow("Reconstructing chunk from DB", "chunk", chunk, "piece", piecev2, "firstHash", firstHash, "numBlocks", numBlocks, "speculated", speculate, "totalTime", time.Since(start), "ents/s", float64(numBlocks)/time.Since(start).Seconds())
 
 	return b.Bytes(), nil
+}
+
+// encryptedPieceContext reports whether contextID is piece's PDP context with the encrypted flag set.
+// A context that does not decode as that piece is false. The caller passes the piece CID on the chunk.
+func encryptedPieceContext(contextID []byte, piece cid.Cid) bool {
+	var pi types.PdpIpniContext
+	if err := pi.Unmarshal(contextID); err != nil {
+		return false
+	}
+	return pi.Encrypted() && pi.PieceCID.Equals(piece)
 }
 
 func (p *ServeChunker) checkIsEntrySkip(ctx context.Context, entry cid.Cid) (bool, error) {

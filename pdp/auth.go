@@ -33,20 +33,9 @@ var _ Auth = (*JWTAuth)(nil)
 
 // JWTAuth extracts and verifies the JWT token from the request and returns the serviceID.
 func (a *JWTAuth) AuthService(r *http.Request) (string, error) {
-	// Get the Authorization header
-	authHeader := r.Header.Get("Authorization")
-	if authHeader == "" {
-		return "", fmt.Errorf("missing Authorization header")
-	}
-
-	// Extract the token from the header
-	bearerTokenPrefix := "Bearer "
-	if !strings.HasPrefix(authHeader, bearerTokenPrefix) {
-		return "", fmt.Errorf("invalid Authorization header format")
-	}
-	tokenString := strings.TrimSpace(strings.TrimPrefix(authHeader, bearerTokenPrefix))
-	if tokenString == "" {
-		return "", fmt.Errorf("empty token")
+	tokenString, err := bearerToken(r)
+	if err != nil {
+		return "", err
 	}
 
 	// Variable to capture serviceID
@@ -122,4 +111,34 @@ func (a *JWTAuth) AuthService(r *http.Request) (string, error) {
 	}
 
 	return service, nil
+}
+
+// bearerToken returns the first non-empty Bearer token on r.
+// Each Authorization field is checked. A field with another scheme is skipped.
+func bearerToken(r *http.Request) (string, error) {
+	const bearerTokenPrefix = "Bearer "
+	sawAuth := false
+	sawEmptyBearer := false
+	for _, authHeader := range r.Header.Values("Authorization") {
+		if authHeader == "" {
+			continue
+		}
+		sawAuth = true
+		if !strings.HasPrefix(authHeader, bearerTokenPrefix) {
+			continue
+		}
+		tokenString := strings.TrimSpace(strings.TrimPrefix(authHeader, bearerTokenPrefix))
+		if tokenString == "" {
+			sawEmptyBearer = true
+			continue
+		}
+		return tokenString, nil
+	}
+	if sawEmptyBearer {
+		return "", fmt.Errorf("empty token")
+	}
+	if !sawAuth {
+		return "", fmt.Errorf("missing Authorization header")
+	}
+	return "", fmt.Errorf("invalid Authorization header format")
 }

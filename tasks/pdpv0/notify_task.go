@@ -29,19 +29,20 @@ import (
 // publish and delete their upload intent in the transaction that marks storage
 // done.
 type PDPNotifyTask struct {
-	db         *harmonydb.DB
-	hashSpaces *hashfolder.Cluster
-	local      *paths.Local
-	pio        piecestore.PieceIO
+	db    *harmonydb.DB
+	hs    *hashfolder.Cluster
+	local *paths.Local
+	pio   piecestore.PieceIO
 }
 
 func NewPDPNotifyTask(db *harmonydb.DB) *PDPNotifyTask {
 	return &PDPNotifyTask{db: db}
 }
 
-// UseOpenPieces copies a published piece into open-pieces before Do returns.
-func (t *PDPNotifyTask) UseOpenPieces(hashSpaces *hashfolder.Cluster, local *paths.Local, pio piecestore.PieceIO) {
-	t.hashSpaces = hashSpaces
+// UseOpenPieces copies a published piece into its hash space before Do returns.
+// A piece no data set has claimed stays in piece-park.
+func (t *PDPNotifyTask) UseOpenPieces(hs *hashfolder.Cluster, local *paths.Local, pio piecestore.PieceIO) {
+	t.hs = hs
 	t.local = local
 	t.pio = pio
 }
@@ -132,7 +133,7 @@ func (t *PDPNotifyTask) Do(ctx context.Context, taskID harmonytask.TaskID, _ fun
 	if !placedRef.Valid {
 		return true, nil
 	}
-	if err := openpieces.Place(ctx, t.db, t.hashSpaces, t.local, t.pio, placedRef.Int64); err != nil {
+	if err := openpieces.Place(ctx, t.db, t.hs, t.local, t.pio, placedRef.Int64); err != nil {
 		return false, err
 	}
 	n, err := t.db.Exec(ctx, `

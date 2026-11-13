@@ -13,6 +13,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/pdp/contract"
+	"github.com/filecoin-project/curio/pdp/pieceacl"
 )
 
 // MetadataKeyACL is the data set metadata key for read access.
@@ -21,6 +22,12 @@ const MetadataKeyACL = "read"
 // DATASET_READ_RESTRICTED is the read-metadata value that marks an ACL data set.
 const DATASET_READ_RESTRICTED = "restricted"
 
+// ACL_SECURED is the pdp_data_sets.acl value for a read-restricted data set.
+const ACL_SECURED = pieceacl.Secured
+
+// ACL_PUBLIC is the pdp_data_sets.acl value once resolved and not restricted.
+const ACL_PUBLIC = 0
+
 // ACLFromExtraData reports whether create extraData sets read to restricted.
 // known is false when extraData is empty or cannot be decoded as FWSS create metadata.
 func ACLFromExtraData(extraData []byte) (known bool, acl bool) {
@@ -28,107 +35,73 @@ func ACLFromExtraData(extraData []byte) (known bool, acl bool) {
 		return false, false
 	}
 
-	payload, err := DecodeFWSSCreateIdentityFromExtraData(extraData)
+	id, err := DecodeFWSSCreateIdentity(extraData)
 	if err != nil {
 		log.Debugw("Failed to decode extraData for ACL intent", "error", err)
 		return false, false
 	}
 
-	return true, verifyMetadataValue(payload, MetadataKeyACL, DATASET_READ_RESTRICTED)
+	return true, id.ReadRestricted()
 }
 
-// verifyMetadataValue reports whether key's paired metadata value equals want, ignoring case and surrounding space.
-// The caller has already decoded the create payload.
-func verifyMetadataValue(payload *FWSSCreateIdentity, key, want string) bool {
-	for i, k := range payload.MetadataKeys {
-		if k != key || i >= len(payload.MetadataValues) {
-			continue
-		}
-		if strings.EqualFold(strings.TrimSpace(payload.MetadataValues[i]), want) {
-			return true
-		}
-	}
-	return false
-}
-
-// ResolveDatasetACL returns the cached read-restricted intent for a data set.
-// If pdp_data_sets.acl is NULL, it reads chain metadata and persists the result.
-// Chain/read failures return an error so callers do not treat an unknown data set as public.
+// ResolveDatasetACL returns whether the data set is read-restricted (acl = 1).
+// A NULL column is read from chain metadata and stored as 1 or 0. A chain or
+// read failure is an error, so an unknown data set is not treated as public.
 func ResolveDatasetACL(
 	ctx context.Context,
 	db *harmonydb.DB,
 	ethClient ethchain.EthClient,
 	dataSetId uint64,
 ) (bool, error) {
-	acl, err := readDatasetACL(ctx, db, dataSetId)
-	if err != nil {
-		return false, err
+	var stored sql.NullInt32
+	err := db.QueryRow(ctx, `SELECT acl FROM pdp_data_sets WHERE id = $1`, dataSetId).Scan(&stored)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, xerrors.Errorf("data set %d not found", dataSetId)
 	}
-	if acl != nil {
-		return *acl, nil
+	if err != nil {
+		return false, xerrors.Errorf("reading pdp_data_sets.acl for %d: %w", dataSetId, err)
+	}
+	if stored.Valid {
+		return int(stored.Int32) == ACL_SECURED, nil
 	}
 
-	isACL, err := fetchFromChainACL(ctx, ethClient, dataSetId)
+	pdpVerifier, err := contract.NewPDPVerifierCaller(contract.ContractAddresses().PDPVerifier, ethClient)
 	if err != nil {
-		return false, err
+		return false, xerrors.Errorf("instantiate PDPVerifier: %w", err)
 	}
+	setID := new(big.Int).SetUint64(dataSetId)
+	listenerAddr, err := pdpVerifier.GetDataSetListener(contract.EthCallOpts(ctx), setID)
+	if err != nil {
+		return false, xerrors.Errorf("GetDataSetListener(%d): %w", dataSetId, err)
+	}
+	exists, value, err := contract.GetDataSetMetadataAtKey(ctx, listenerAddr, ethClient, setID, MetadataKeyACL)
+	if err != nil {
+		return false, xerrors.Errorf("GetDataSetMetadataAtKey(%d, %s): %w", dataSetId, MetadataKeyACL, err)
+	}
+	isACL := exists && strings.EqualFold(strings.TrimSpace(value), DATASET_READ_RESTRICTED)
 	if err := PersistDatasetACL(ctx, db, dataSetId, isACL); err != nil {
 		return false, err
 	}
 	return isACL, nil
 }
 
-// readDatasetACL returns the stored flag. A nil bool means the column is still NULL.
-func readDatasetACL(ctx context.Context, db *harmonydb.DB, dataSetId uint64) (*bool, error) {
-	var acl sql.NullBool
-	err := db.QueryRow(ctx, `SELECT acl FROM pdp_data_sets WHERE id = $1`, dataSetId).Scan(&acl)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, xerrors.Errorf("data set %d not found", dataSetId)
-	}
-	if err != nil {
-		return nil, xerrors.Errorf("reading pdp_data_sets.acl for %d: %w", dataSetId, err)
-	}
-	if !acl.Valid {
-		return nil, nil
-	}
-	v := acl.Bool
-	return &v, nil
-}
-
-// fetchFromChainACL reads the read metadata key from the data set listener.
-// A missing key, or a value other than restricted, is false.
-func fetchFromChainACL(ctx context.Context, ethClient ethchain.EthClient, dataSetId uint64) (bool, error) {
-	pdpVerifier, err := contract.NewPDPVerifierCaller(contract.ContractAddresses().PDPVerifier, ethClient)
-	if err != nil {
-		return false, xerrors.Errorf("instantiate PDPVerifier: %w", err)
-	}
-
-	setID := new(big.Int).SetUint64(dataSetId)
-	listenerAddr, err := pdpVerifier.GetDataSetListener(contract.EthCallOpts(ctx), setID)
-	if err != nil {
-		return false, xerrors.Errorf("GetDataSetListener(%d): %w", dataSetId, err)
-	}
-
-	exists, value, err := contract.GetDataSetMetadataAtKey(ctx, listenerAddr, ethClient, setID, MetadataKeyACL)
-	if err != nil {
-		return false, xerrors.Errorf("GetDataSetMetadataAtKey(%d, %s): %w", dataSetId, MetadataKeyACL, err)
-	}
-	return exists && strings.EqualFold(strings.TrimSpace(value), DATASET_READ_RESTRICTED), nil
-}
-
-// PersistDatasetACL stores a resolved acl value when the column is still NULL.
+// PersistDatasetACL stores a resolved acl value as 1 or 0 when the column is still NULL.
 func PersistDatasetACL(ctx context.Context, db *harmonydb.DB, dataSetId uint64, acl bool) error {
+	value := ACL_PUBLIC
+	if acl {
+		value = ACL_SECURED
+	}
 	_, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
 		n, err := tx.Exec(`
 			UPDATE pdp_data_sets
 			SET acl = $1
 			WHERE id = $2 AND acl IS NULL
-		`, acl, dataSetId)
+		`, value, dataSetId)
 		if err != nil {
 			return false, xerrors.Errorf("updating pdp_data_sets.acl for %d: %w", dataSetId, err)
 		}
 		if n == 0 {
-			var stored sql.NullBool
+			var stored sql.NullInt32
 			if err := tx.QueryRow(`SELECT acl FROM pdp_data_sets WHERE id = $1`, dataSetId).Scan(&stored); err != nil {
 				return false, xerrors.Errorf("re-reading pdp_data_sets.acl for %d: %w", dataSetId, err)
 			}

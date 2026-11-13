@@ -21,19 +21,19 @@ type OpenPieceReader struct {
 	space *hashfolder.ClusterSpace
 }
 
-func NewOpenPieceReader(hashSpaces *hashfolder.Cluster) *OpenPieceReader {
-	if hashSpaces == nil {
+func NewOpenPieceReader(hs *hashfolder.Cluster) *OpenPieceReader {
+	if hs == nil {
 		return &OpenPieceReader{}
 	}
-	return &OpenPieceReader{space: hashSpaces.Public}
+	return &OpenPieceReader{space: hs.Public}
 }
 
 // NewACLPieceReader reads pieces placed in acl-pieces.
-func NewACLPieceReader(hashSpaces *hashfolder.Cluster) *OpenPieceReader {
-	if hashSpaces == nil {
+func NewACLPieceReader(hs *hashfolder.Cluster) *OpenPieceReader {
+	if hs == nil {
 		return &OpenPieceReader{}
 	}
-	return &OpenPieceReader{space: hashSpaces.ACL}
+	return &OpenPieceReader{space: hs.ACL}
 }
 
 // ReadPiece opens pc (a piece CID v2) from this reader's hash space. It returns
@@ -102,8 +102,8 @@ type holderFinder interface {
 	StatAt(ctx context.Context, storageID string, pc cid.Cid) (bool, error)
 }
 
-func findHolder(ctx context.Context, space holderFinder, pc cid.Cid) (string, error) {
-	locs, err := space.Candidates(pc)
+func findHolder(ctx context.Context, hs holderFinder, pc cid.Cid) (string, error) {
+	locs, err := hs.Candidates(pc)
 	if err != nil {
 		return "", err
 	}
@@ -111,7 +111,7 @@ func findHolder(ctx context.Context, space holderFinder, pc cid.Cid) (string, er
 	case 0:
 		return "", nil
 	case 1:
-		ok, err := space.StatAt(ctx, locs[0].StorageID, pc)
+		ok, err := hs.StatAt(ctx, locs[0].StorageID, pc)
 		if err != nil || !ok {
 			return "", err
 		}
@@ -129,7 +129,7 @@ func findHolder(ctx context.Context, space holderFinder, pc cid.Cid) (string, er
 	results := make(chan probe, len(locs))
 	for _, l := range locs {
 		go func(id string) {
-			ok, err := space.StatAt(sctx, id, pc)
+			ok, err := hs.StatAt(sctx, id, pc)
 			results <- probe{storageID: id, ok: ok, err: err}
 		}(l.StorageID)
 	}

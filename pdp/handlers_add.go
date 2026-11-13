@@ -505,7 +505,7 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	if err := p.placePieceRefs(workCtx, subPieceInfoMap, false); err != nil {
+	if err := p.placePieceRefs(workCtx, subPieceInfoMap, acl, false); err != nil {
 		log.Errorw("Failed to place added pieces", "error", err, "txHash", txHashLower)
 		httpPlaceError(w, err)
 		return
@@ -555,11 +555,10 @@ func (p *PDPService) insertPieceAdds(txdb *harmonydb.Tx, dataSetId *uint64, txHa
 	return nil
 }
 
-// placePieceRefs copies each parked piece into the hash space its data sets
-// require. forceACL writes acl-pieces even when the data set row is not linked
-// yet. The caller has committed the piece-add rows, or has decoded read
-// metadata as restricted from create extraData.
-func (p *PDPService) placePieceRefs(ctx context.Context, infos map[string]*SubPieceInfo, forceACL bool) error {
+// placePieceRefs copies each parked piece into the hash space its data sets require.
+// forceACL and forceOpen apply before the data set row is linked; forceOpen is ignored when forceACL is set.
+// The caller has committed the piece-add rows, or decoded read metadata from create extraData.
+func (p *PDPService) placePieceRefs(ctx context.Context, infos map[string]*SubPieceInfo, forceACL, forceOpen bool) error {
 	seen := map[int64]struct{}{}
 	for _, info := range infos {
 		if info == nil || info.PieceRef == 0 {
@@ -570,9 +569,12 @@ func (p *PDPService) placePieceRefs(ctx context.Context, infos map[string]*SubPi
 		}
 		seen[info.PieceRef] = struct{}{}
 		var err error
-		if forceACL {
+		switch {
+		case forceACL:
 			err = openpieces.PlaceACL(ctx, p.db, p.hashSpaces, p.local, p.pieceIO, info.PieceRef)
-		} else {
+		case forceOpen:
+			err = openpieces.PlaceOpen(ctx, p.db, p.hashSpaces, p.local, p.pieceIO, info.PieceRef)
+		default:
 			err = openpieces.Place(ctx, p.db, p.hashSpaces, p.local, p.pieceIO, info.PieceRef)
 		}
 		if err != nil {
