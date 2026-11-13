@@ -889,9 +889,8 @@ func (t *PDPPullPieceTask) Do(ctx context.Context, taskID harmonytask.TaskID, st
 
 		sourceErr := t.tryPullSource(ctx, source.SourceURL, group, expectedCid, parkedPieceID, ssrfPolicy)
 		if sourceErr != nil {
-			loggedURL := pdp.RedactPullSourceURL(source.SourceURL)
-			log.Warnw("pull source URL failed", "error", sourceErr.err, "pieceCid", group.PieceCid, "sourceURL", loggedURL)
-			sourceErrors = multierror.Append(sourceErrors, xerrors.Errorf("%s: %w", loggedURL, sourceErr.err))
+			log.Warnw("pull source URL failed", "error", sourceErr.err, "pieceCid", group.PieceCid, "sourceURL", source.SourceURL)
+			sourceErrors = multierror.Append(sourceErrors, xerrors.Errorf("%s: %w", source.SourceURL, sourceErr.err))
 			sourceFailures = append(sourceFailures, *sourceErr)
 			continue
 		}
@@ -990,13 +989,7 @@ func (t *PDPPullPieceTask) tryPullSource(ctx context.Context, sourceURL string, 
 
 	// Validation-stage errors are treated as permanent because they are request
 	// shape or policy failures, not source availability failures.
-	// FOC grant userinfo is basic auth for the first copy. It is not part of the
-	// URL the SSRF check dials.
-	cleanURL, grantUser, err := pdp.SplitPullGrantURL(sourceURL)
-	if err != nil {
-		return fail(pullSourceValidate, err)
-	}
-	parsedURL, err := url.Parse(cleanURL)
+	parsedURL, err := url.Parse(sourceURL)
 	if err != nil {
 		return fail(pullSourceValidate, err)
 	}
@@ -1006,7 +999,7 @@ func (t *PDPPullPieceTask) tryPullSource(ctx context.Context, sourceURL string, 
 
 	downloadPolicy := ssrfPolicy
 	downloadPolicy.ResponseHeaderTimeout = 2 * time.Minute
-	if _, err := robusthttp.ValidateClientFetchURL(cleanURL, nil, &downloadPolicy); err != nil {
+	if _, err := robusthttp.ValidateClientFetchURL(sourceURL, nil, &downloadPolicy); err != nil {
 		return fail(pullSourceValidate, err)
 	}
 
@@ -1015,12 +1008,9 @@ func (t *PDPPullPieceTask) tryPullSource(ctx context.Context, sourceURL string, 
 
 	// Request failures are classified from typed network/context errors later.
 	client, _ := robusthttp.NewSSRFProtectedHTTPClient(&downloadPolicy, nil)
-	req, err := http.NewRequestWithContext(downloadCtx, http.MethodGet, cleanURL, nil)
+	req, err := http.NewRequestWithContext(downloadCtx, http.MethodGet, sourceURL, nil)
 	if err != nil {
 		return fail(pullSourceValidate, err)
-	}
-	if grantUser != nil {
-		req.URL.User = grantUser
 	}
 
 	resp, err := client.Do(req)

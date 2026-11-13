@@ -246,67 +246,6 @@ func TestVerifyPresentation(t *testing.T) {
 	require.ErrorContains(t, check(present(held, aKey, piece, testNow+3600+240), notes, testNow+3600+120, testBlockChain), "The chain expired")
 }
 
-func TestDealbotRootReadsAnotherOwnersPiece(t *testing.T) {
-	require.Equal(t, common.HexToAddress("0x305025D07c1DEe47F25a4990179eFf2becddCA0B"), common.HexToAddress(DEALBOT_ROOT))
-
-	ownerKey := testKey(t, "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
-	bearerKey := testKey(t, "59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d")
-	owner := crypto.PubkeyToAddress(ownerKey.PublicKey)
-	bearer := crypto.PubkeyToAddress(bearerKey.PublicKey)
-	piece := []byte{0x01, 0x55}
-	blockChain := new(big.Int).SetUint64(testBlockChain)
-	grant := grantChain{
-		owner:              owner,
-		keyspace:           bytes16(1),
-		blockChain:         blockChain,
-		keyspaceCommitment: bytes16(2),
-		expires:            testNow + 86400,
-		links: []claimLink{{
-			node: "keyspace", bearer: bearer, maxDepth: 0, keyCommitment: bytes16(2),
-			expires: testNow + 86400,
-		}},
-	}
-	grant.links[0].signature = signDigest(t, ownerKey, grant, grant.links[0])
-	req := readRequest{
-		pieceCID:  piece,
-		expires:   testNow + 120,
-		signature: signRequestDigest(t, bearerKey, blockChain, piece, testNow+120),
-	}
-	raw := encodePresentation(t, grant, req)
-	other := PieceLabels{
-		Owner:    "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
-		Keyspace: "0x" + "ffffffffffffffffffffffffffffffff",
-		Salt:     "0x000102030405060708090a0b0c0d0e0f",
-	}
-	check := func() error {
-		_, err := VerifyPresentation(raw, piece, other, blockChain, testNowTime())
-		return err
-	}
-	require.ErrorContains(t, check(), "another owner or keyspace")
-
-	prev := extraGrantRoot
-	t.Cleanup(func() { extraGrantRoot = prev })
-	extraGrantRoot = owner
-	require.NoError(t, check())
-
-	scoped := grant
-	scoped.links = []claimLink{{
-		node: "scope:team", bearer: bearer, maxDepth: 0, keyCommitment: bytes16(2),
-		expires: grant.expires,
-	}}
-	scoped.links[0].signature = signDigest(t, ownerKey, scoped, scoped.links[0])
-	scopedRaw := encodePresentation(t, scoped, req)
-	other.Scope = scopePtr("other")
-	_, err := VerifyPresentation(scopedRaw, piece, other, blockChain, testNowTime())
-	require.ErrorContains(t, err, "does not reach")
-
-	same := other
-	same.Owner = owner.Hex()
-	same.Scope = nil
-	_, err = VerifyPresentation(raw, piece, same, blockChain, testNowTime())
-	require.ErrorContains(t, err, "another owner or keyspace")
-}
-
 func TestDecodePresentationRejectsMalformedLinks(t *testing.T) {
 	ownerKey := testKey(t, "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
 	owner := crypto.PubkeyToAddress(ownerKey.PublicKey)

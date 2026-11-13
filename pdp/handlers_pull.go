@@ -16,7 +16,6 @@ import (
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/ethchain"
-	"github.com/filecoin-project/curio/lib/keysmith"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/pdp/contract/FWSS"
 )
@@ -195,11 +194,6 @@ func NewPullHandler(auth Auth, store PullStore, validator AddPiecesValidator, db
 //     tried in order for that piece. sourceUrl is still accepted; when both are
 //     set, both are used with sourceUrl tried first.
 //
-// A FOC grant on this request is copied onto each source URL as basic-auth
-// userinfo before the pull is stored. Send it on the first call; a later
-// request with the same extraData only polls. The grant's read request lasts
-// about five minutes.
-//
 // # ExtraData and Authorization
 //
 // The extraData field serves two purposes:
@@ -303,12 +297,6 @@ func (h *PullHandler) HandlePull(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	grantToken, err := keysmith.GrantToken(r)
-	if err != nil && !errors.Is(err, keysmith.ErrNoGrant) {
-		httpServerError(w, http.StatusBadRequest, "Invalid FOC grant: "+err.Error(), err)
-		return
-	}
-
 	// Validate recordKeeper against allowed list (for create-new case)
 	var recordKeeperAddr common.Address
 	if req.IsCreateNew() {
@@ -407,13 +395,6 @@ func (h *PullHandler) HandlePull(w http.ResponseWriter, r *http.Request) {
 		}
 		pieceData = append(pieceData, contract.CidsCid{Data: info.CidV2.Bytes()})
 		for j, sourceURL := range piece.orderedSourceURLs() {
-			if grantToken != "" {
-				sourceURL, err = WithFOCGrantUserinfo(sourceURL, grantToken)
-				if err != nil {
-					httpServerError(w, http.StatusBadRequest, "Invalid source URL: "+err.Error(), err)
-					return
-				}
-			}
 			pullPieces = append(pullPieces, PullPiece{
 				CidV1:       info.CidV1,
 				RawSize:     info.RawSize,
