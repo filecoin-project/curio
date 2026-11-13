@@ -231,7 +231,7 @@ func (n *NextProvingPeriodTask) Do(ctx context.Context, taskID harmonytask.TaskI
 	reason := "pdp-proving-period"
 	txHash, sendErr := n.sender.Send(ctx, fromAddress, txEth, reason)
 	if sendErr != nil {
-		if err := handleProvingPeriodSendFailure(ctx, n.db, provingSchedule, n.al, alertNameNextPP, dataSetId, currentHeight, sendErr); err != nil {
+		if err := handleNextProvingPeriodSendFailure(ctx, n.db, provingSchedule, n.al, alertNameNextPP, dataSetId, currentHeight, sendErr); err != nil {
 			return false, err
 		}
 		return true, nil
@@ -456,9 +456,9 @@ func (n *NextProvingPeriodTask) handleNextProvingPeriodPreflightError(ctx contex
 	}
 }
 
-// handleProvingPeriodSendFailure handles a failed send and emits any alert after the transaction,
+// handleNextProvingPeriodSendFailure handles a failed send and emits any alert after the transaction,
 // even on rollback. sendErr must be non-nil.
-func handleProvingPeriodSendFailure(ctx context.Context, db *harmonydb.DB, provingSchedule *contract.IPDPProvingSchedule, al curioalerting.AlertingInterface, alertSubsystem string, dataSetId int64, currentHeight int64, sendErr error) error {
+func handleNextProvingPeriodSendFailure(ctx context.Context, db *harmonydb.DB, provingSchedule *contract.IPDPProvingSchedule, al curioalerting.AlertingInterface, alertSubsystem string, dataSetId int64, currentHeight int64, sendErr error) error {
 	var alert bool
 	comm, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		var handleErr error

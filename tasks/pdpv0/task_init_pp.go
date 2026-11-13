@@ -221,7 +221,7 @@ func (ipp *InitProvingPeriodTask) Do(ctx context.Context, taskID harmonytask.Tas
 	txHash, sendErr := ipp.sender.Send(ctx, fromAddress, txEth, reason)
 	if sendErr != nil {
 		currentHeight := int64(ts.Height())
-		if err := handleProvingPeriodSendFailure(ctx, ipp.db, provingSchedule, ipp.al, alertNameInitPP, dataSetId, currentHeight, sendErr); err != nil {
+		if err := handleNextProvingPeriodSendFailure(ctx, ipp.db, provingSchedule, ipp.al, alertNameInitPP, dataSetId, currentHeight, sendErr); err != nil {
 			return false, err
 		}
 		return true, nil

@@ -274,7 +274,7 @@ func TestIntegration_HandleSplitProvingSendErrors_RetryAndAlertPathsDoNotMutateD
 	}
 }
 
-func TestIntegration_HandleProvingPeriodSendFailure_RecordsAlert(t *testing.T) {
+func TestIntegration_HandleNextProvingPeriodSendFailure_RecordsAlert(t *testing.T) {
 	ctx := context.Background()
 	db, err := harmonydb.NewFromConfigWithITestID(t)
 	require.NoError(t, err)
@@ -289,7 +289,7 @@ func TestIntegration_HandleProvingPeriodSendFailure_RecordsAlert(t *testing.T) {
 	sendErr := selectorRevert(contractErrorSelector(ErrPDPVerifierInsufficientChallengeDelay))
 
 	// The alerting cases roll the transaction back; the alert must still be recorded.
-	err = handleProvingPeriodSendFailure(ctx, db, nil, curioalerting.NewAlertingSystem(db), alertNameNextPP, dataSetID, 4500, sendErr)
+	err = handleNextProvingPeriodSendFailure(ctx, db, nil, curioalerting.NewAlertingSystem(db), alertNameNextPP, dataSetID, 4500, sendErr)
 	require.Error(t, err)
 
 	var eventContext []byte

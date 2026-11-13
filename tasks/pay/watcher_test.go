@@ -218,6 +218,7 @@ func TestIntegration_ProcessPendingTransactions_RailDefaultAlert(t *testing.T) {
 			name:            "terminated rail",
 			block:           1000,
 			endEpoch:        2000,
+			wantMessage:     "Rail 1 is soon to default (dataSet 2)",
 			wantTermination: true,
 		},
 	}

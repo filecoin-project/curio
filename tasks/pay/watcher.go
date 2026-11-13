@@ -225,8 +225,7 @@ func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthC
 			threshold := big.NewInt(0).Add(view.SettledUpTo, view.LockupPeriod)
 			thresholdWithGrace := big.NewInt(0).Add(threshold, big.NewInt(temporaryDefaultGraceInEpochs))
 
-			// A terminated rail is paid from its lockup up to endEpoch, so only live rails can default.
-			if view.EndEpoch.Int64() <= 0 && threshold.Uint64() < current {
+			if threshold.Uint64() < current {
 				message := fmt.Sprintf("Rail %d is soon to default (dataSet %d)", railId, dataSet.Int64())
 				if thresholdWithGrace.Uint64() < current {
 					message = fmt.Sprintf("Rail %d is past its default grace period, scheduling termination of dataSet %d", railId, dataSet.Int64())
