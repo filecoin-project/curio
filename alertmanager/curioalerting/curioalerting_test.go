@@ -31,15 +31,52 @@ func TestCurioAlertingEventAndConditionLifecycle(t *testing.T) {
 
 	var eventKind, eventAlertName string
 	var eventSentAt *time.Time
+	var eventContext []byte
 	err = db.QueryRow(ctx, `
-		SELECT kind, alert_name, sent_at
+		SELECT kind, alert_name, sent_at, context
 		FROM alert_history
 		WHERE system = 'pay' AND subsystem = 'settlement'
-	`).Scan(&eventKind, &eventAlertName, &eventSentAt)
+	`).Scan(&eventKind, &eventAlertName, &eventSentAt, &eventContext)
 	require.NoError(t, err)
 	require.Equal(t, "event", eventKind)
 	require.Equal(t, "pay_settlement", eventAlertName)
 	require.Nil(t, eventSentAt)
+	require.Nil(t, eventContext)
+
+	err = as.EmitEvent(ctx, AlertEvent{
+		System:    "pdp",
+		Subsystem: "proving",
+		Message:   "proof rejected",
+		Context: map[string]string{
+			CONTEXT_KEY_DATASET: "42",
+			CONTEXT_KEY_RAIL:    "7",
+		},
+	})
+	require.NoError(t, err)
+
+	err = db.QueryRow(ctx, `
+		SELECT context
+		FROM alert_history
+		WHERE system = 'pdp' AND subsystem = 'proving'
+	`).Scan(&eventContext)
+	require.NoError(t, err)
+	require.JSONEq(t, `{"dataset": "42", "rail": "7"}`, string(eventContext))
+
+	err = as.EmitEvent(ctx, AlertEvent{
+		System:    "pdp",
+		Subsystem: "proving",
+		Message:   "context rejected",
+		Context:   map[string]string{CONTEXT_KEY_DATASET: "4\x002"},
+	})
+	require.NoError(t, err)
+
+	err = db.QueryRow(ctx, `
+		SELECT context
+		FROM alert_history
+		WHERE system = 'pdp' AND subsystem = 'proving' AND message = 'context rejected'
+	`).Scan(&eventContext)
+	require.NoError(t, err)
+	require.Nil(t, eventContext)
 
 	condition := AlertCondition{
 		System:    "pdp",
@@ -155,6 +192,22 @@ func TestAlertTaskSendsQueuedEventsAndConditions(t *testing.T) {
 		Message:   "settlement failed",
 	})
 	require.NoError(t, err)
+	err = as.EmitEvent(ctx, AlertEvent{
+		System:    "pdp",
+		Subsystem: "proving",
+		Message:   "proof rejected",
+		Context: map[string]string{
+			CONTEXT_KEY_RAIL:    "7",
+			CONTEXT_KEY_DATASET: "42",
+		},
+	})
+	require.NoError(t, err)
+	// Mutes match the stored message, not the context added for plugins.
+	_, err = db.Exec(ctx, `
+		INSERT INTO alert_mutes (alert_name, pattern, reason, muted_by)
+		VALUES ('pdp_proving', 'dataset=42', 'test', 'test')
+	`)
+	require.NoError(t, err)
 	err = as.ActivateCondition(ctx, AlertCondition{
 		System:    "pdp",
 		Subsystem: "watcher",
@@ -168,6 +221,7 @@ func TestAlertTaskSendsQueuedEventsAndConditions(t *testing.T) {
 	require.True(t, done)
 
 	require.Equal(t, "settlement failed", tp.details["pay_settlement"])
+	require.Equal(t, "[dataset=42 rail=7] proof rejected", tp.details["pdp_proving"])
 	require.Equal(t, "watcher failed", tp.details["pdp_watcher_error"])
 
 	var eventSentToPlugins bool

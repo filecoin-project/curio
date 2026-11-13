@@ -2,6 +2,7 @@ package pdpv0
 
 import (
 	"context"
+	"strconv"
 
 	"golang.org/x/xerrors"
 
@@ -37,10 +38,14 @@ func markDatasetProvingUnrecoverableAndTerminate(tx *harmonydb.Tx, dataSetId int
 	return nil
 }
 
-func emitProvingSendErrorAlert(al curioalerting.AlertingInterface, subsystem string, err error) {
+// emitProvingSendErrorAlert records a proving failure for a data set; err must be non-nil.
+func emitProvingSendErrorAlert(al curioalerting.AlertingInterface, subsystem string, dataSetId int64, err error) {
 	_ = al.EmitEvent(context.Background(), curioalerting.AlertEvent{
 		System:    alertType,
 		Subsystem: subsystem,
 		Message:   err.Error(),
+		Context: map[string]string{
+			curioalerting.CONTEXT_KEY_DATASET: strconv.FormatInt(dataSetId, 10),
+		},
 	})
 }
