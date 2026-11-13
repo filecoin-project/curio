@@ -78,10 +78,10 @@ func TestSkiffCreateAddRetrieveLifecycle(t *testing.T) {
 	require.NoError(t, err)
 
 	// Skiff places PDP bytes in open-pieces and serves /piece from there.
-	hs, err := NewHashSpace(ctx, db, localStore, index, nil)
+	hashSpaces, err := NewHashSpace(ctx, db, localStore, index, nil)
 	require.NoError(t, err)
-	require.NotNil(t, hs)
-	t.Cleanup(func() { require.NoError(t, hs.Close()) })
+	require.NotNil(t, hashSpaces)
+	t.Cleanup(func() { require.NoError(t, hashSpaces.Close()) })
 
 	cpr := cachedreader.NewCachedPieceReader(
 		db,
@@ -89,7 +89,8 @@ func TestSkiffCreateAddRetrieveLifecycle(t *testing.T) {
 		pieceprovider.NewPieceParkReader(remote, index),
 		nil,
 	)
-	cpr.SetOpenPieceReader(pieceprovider.NewOpenPieceReader(hs))
+	cpr.SetOpenPieceReader(pieceprovider.NewOpenPieceReader(hashSpaces))
+	cpr.SetACLPieceReader(pieceprovider.NewACLPieceReader(hashSpaces))
 
 	cfg := config.DefaultCurioConfig()
 	cfg.HTTP.DenylistServers = config.NewDynamic([]string{})
@@ -131,12 +132,12 @@ func TestSkiffCreateAddRetrieveLifecycle(t *testing.T) {
 	svcCtx, svcCancel := context.WithCancel(ctx)
 	t.Cleanup(svcCancel)
 	require.NoError(t, pdp.MountRoutes(svcCtx, mux, pdp.MountDeps{
-		DB:        db,
-		PieceIO:   piecestore.New(remote, localStore, index),
-		EthClient: stubEthClient{},
-		EthSender: mockSender,
-		HashSpace: hs,
-		Local:     localStore,
+		DB:         db,
+		PieceIO:    piecestore.New(remote, localStore, index),
+		EthClient:  stubEthClient{},
+		EthSender:  mockSender,
+		HashSpaces: hashSpaces,
+		Local:      localStore,
 	}, nil))
 
 	srv := httptest.NewServer(mux)
@@ -153,11 +154,11 @@ func TestSkiffCreateAddRetrieveLifecycle(t *testing.T) {
 	createTxHash := strings.TrimPrefix(createLoc, "/pdp/data-sets/created/")
 
 	const dataSetID uint64 = 4242
-	// ipfs_indexing is resolved at create/watch time from extraData (or chain backfill).
-	// This fixture has no FWSS create metadata and a stub eth client, so set it explicitly.
+	// ipfs_indexing and acl are resolved at create/watch time from extraData (or chain backfill).
+	// This fixture has no FWSS create metadata and a stub eth client, so set them explicitly.
 	_, err = db.Exec(ctx, `
-		INSERT INTO pdp_data_sets (id, create_message_hash, service, proving_period, challenge_window, init_ready, ipfs_indexing)
-		VALUES ($1, $2, 'public', 100, 10, FALSE, FALSE)`,
+		INSERT INTO pdp_data_sets (id, create_message_hash, service, proving_period, challenge_window, init_ready, ipfs_indexing, acl)
+		VALUES ($1, $2, 'public', 100, 10, FALSE, FALSE, FALSE)`,
 		int64(dataSetID), createTxHash)
 	require.NoError(t, err)
 

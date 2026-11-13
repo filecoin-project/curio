@@ -103,11 +103,11 @@ func CurioHandler(
 			_ = json.NewEncoder(w).Encode(struct{ Error string }{"unauthorized: missing admin permission"})
 			return
 		}
-		if dependencies.HashSpace == nil {
+		if dependencies.HashSpaces == nil {
 			http.NotFound(w, r)
 			return
 		}
-		dependencies.HashSpace.ServeHTTP(w, r)
+		dependencies.HashSpaces.ServeHTTP(w, r)
 	})
 	mux.Handle("/debug/metrics", metrics.Exporter())
 	mux.Handle("/debug/service-discovery", prometheusSD)

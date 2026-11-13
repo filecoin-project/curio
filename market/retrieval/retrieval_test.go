@@ -724,6 +724,8 @@ func TestPiecePathHeadRouting(t *testing.T) {
 		rctx = chi.NewRouteContext()
 		matched = mux.Match(rctx, method, "/piece/bafkqaaa")
 		require.True(t, matched, "%s should match /piece/{cid}", method)
+		matched = mux.Match(rctx, method, "/download/bafkqaaa")
+		require.True(t, matched, "%s should match /download/{cid}", method)
 	}
 }
 

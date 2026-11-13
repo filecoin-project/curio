@@ -11,10 +11,10 @@ import (
 	"github.com/filecoin-project/curio/lib/paths"
 )
 
-// NewHashSpace joins this node's long-term storage paths into the cluster
-// hash spaces. A path that denies piece park is still joined: first setup
+// NewHashSpace joins this node's long-term storage paths into the hash
+// spaces. A path that denies piece park is still joined: first setup
 // and new disks are not given ranges there, and any pieces already on it
-// are vacated. Nodes with no long-term paths still get a cluster handle so
+// are vacated. Nodes with no long-term paths still get HashSpaces so
 // they can read and delete pieces held elsewhere. Returns nil on a
 // read-only database.
 func NewHashSpace(ctx context.Context, db *harmonydb.DB, local *paths.Local, si paths.SectorIndex, auth http.Header) (*hashfolder.Cluster, error) {

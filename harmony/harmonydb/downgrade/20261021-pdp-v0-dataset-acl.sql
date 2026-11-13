@@ -1,0 +1,1 @@
+ALTER TABLE pdp_data_sets DROP COLUMN IF EXISTS acl;

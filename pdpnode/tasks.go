@@ -86,12 +86,12 @@ func buildPDPTasks(ctx context.Context, d *Deps, chainSched *chainsched.CurioCha
 
 	notify := pdpv0.NewPDPNotifyTask(db)
 	pull := pdpv0.NewPDPPullPieceTask(ctx, db, d.PieceIO, cfg.Subsystems.PDPPullPieceMaxTasks)
-	if d.HashSpace != nil {
-		notify.UseOpenPieces(d.HashSpace, d.LocalStore, d.PieceIO)
-		pull.UseOpenPieces(d.HashSpace, d.LocalStore, d.PieceIO)
+	if d.HashSpaces != nil {
+		notify.UseOpenPieces(d.HashSpaces, d.LocalStore, d.PieceIO)
+		pull.UseOpenPieces(d.HashSpaces, d.LocalStore, d.PieceIO)
 		tasks = append(tasks,
-			openpieces.NewMoveTask(db, d.HashSpace),
-			openpieces.NewDropTask(db, d.HashSpace),
+			openpieces.NewMoveTask(db, d.HashSpaces),
+			openpieces.NewDropTask(db, d.HashSpaces),
 		)
 	}
 
@@ -111,7 +111,7 @@ func buildPDPTasks(ctx context.Context, d *Deps, chainSched *chainsched.CurioCha
 		pdpv0.NewPieceGCTask(&cfg.HTTP, db, d.IndexStore, ethClient, cfg.Subsystems.PDPUnclaimedUploadKeepHours),
 		pdpv0.NewReorgCheckTask(db, ethClient, d.Chain),
 		pdpv0.NewDatasetIdxTask(db, ethClient),
-		pdpv0.NewRepairMissingPiecesTask(db, ethClient, d.PieceIO, d.HashSpace),
+		pdpv0.NewRepairMissingPiecesTask(db, ethClient, d.PieceIO, d.HashSpaces),
 	)
 
 	// Start PDP watcher after all internal watcher are created

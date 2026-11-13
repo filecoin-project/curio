@@ -11,11 +11,14 @@ import (
 // version changed while it was being read.
 const SNAPSHOT_RETRIES = 3
 
-// mapSnapshot is the open-pieces map as of one refresh. Reads use it so that
+// mapSnapshot is the hash-space map as of one refresh. ranges and moves are
+// open-pieces; aclRanges and aclMoves are acl-pieces. Reads use it so that
 // finding the disks that may hold a piece needs no database round-trip.
 type mapSnapshot struct {
 	ranges    []rangeRow
 	moves     []moveSourceRow
+	aclRanges []rangeRow
+	aclMoves  []moveSourceRow
 	misplaced []string
 	urls      map[string]string
 }
@@ -26,9 +29,9 @@ type diskRow struct {
 	URLs         string `db:"urls"`
 }
 
-// loadSnapshot reads the open-pieces map. Moves are read before ranges: a
-// move that completes in between is then listed together with its new owner,
-// which only adds a place, instead of hiding one.
+// loadSnapshot reads the open-pieces and acl-pieces maps. Moves are read
+// before ranges: a move that completes in between is then listed together
+// with its new owner, which only adds a place, instead of hiding one.
 func (c *Cluster) loadSnapshot(ctx context.Context) (*mapSnapshot, error) {
 	snap := &mapSnapshot{urls: map[string]string{}}
 	err := c.db.Select(ctx, &snap.moves, `SELECT id, space, start_hash, end_hash, from_storage, to_storage, size
@@ -39,6 +42,15 @@ func (c *Cluster) loadSnapshot(ctx context.Context) (*mapSnapshot, error) {
 	err = c.db.Select(ctx, &snap.ranges, `SELECT end_hash, storage_id, size FROM hash_space_range WHERE space = $1 ORDER BY end_hash`, DIR_OPEN)
 	if err != nil {
 		return nil, xerrors.Errorf("reading hash space ranges: %w", err)
+	}
+	err = c.db.Select(ctx, &snap.aclMoves, `SELECT id, space, start_hash, end_hash, from_storage, to_storage, size
+		FROM hash_space_move_source WHERE space = $1`, DIR_ACL)
+	if err != nil {
+		return nil, xerrors.Errorf("reading acl-pieces moveSources: %w", err)
+	}
+	err = c.db.Select(ctx, &snap.aclRanges, `SELECT end_hash, storage_id, size FROM hash_space_range WHERE space = $1 ORDER BY end_hash`, DIR_ACL)
+	if err != nil {
+		return nil, xerrors.Errorf("reading acl-pieces ranges: %w", err)
 	}
 	var disks []diskRow
 	err = c.db.Select(ctx, &disks, `SELECT d.storage_id, d.has_misplaced, COALESCE(sp.urls, '') AS urls
@@ -90,33 +102,40 @@ func (c *Cluster) syncMap(ctx context.Context, force bool) error {
 
 // Candidates lists the disks that may hold pc, local ones first, from the
 // in-memory map: the range owner, both ends of a move covering its hash, and
-// disks with misplaced pieces. It runs no SQL. Writers reload this map and
-// notify the other nodes. It returns nothing when the cluster has no ranges.
-func (c *Cluster) Candidates(pc cid.Cid) ([]Location, error) {
+// disks with misplaced pieces. It runs no SQL. It returns nothing when this
+// space has no ranges.
+func (s *ClusterSpace) Candidates(pc cid.Cid) ([]Location, error) {
 	digest, err := CIDHash(pc)
 	if err != nil {
 		return nil, err
 	}
-	snap := c.snap.Load()
-	if snap == nil || len(snap.ranges) == 0 {
+	snap := s.c.snap.Load()
+	if snap == nil {
 		return nil, nil
 	}
-	return c.placesIn(snap.ranges, snap.moves, snap.misplaced, digest)
+	ranges, moves := snap.ranges, snap.moves
+	if s.kind == DIR_ACL {
+		ranges, moves = snap.aclRanges, snap.aclMoves
+	}
+	if len(ranges) == 0 {
+		return nil, nil
+	}
+	return s.c.placesIn(ranges, moves, snap.misplaced, digest)
 }
 
-// StatAt reports whether the open-pieces file for pc exists on storageID: a
-// stat on a local disk, otherwise a HEAD to the node that holds it. A file's
-// size is not compared with the CID.
-func (c *Cluster) StatAt(ctx context.Context, storageID string, pc cid.Cid) (bool, error) {
-	if c.HasLocal(storageID) {
-		_, ok, err := c.StatLocal(storageID, pc)
+// StatAt reports whether this space's file for pc exists on storageID: a stat
+// on a local disk, otherwise a HEAD to the node that holds it. A file's size
+// is not compared with the CID.
+func (s *ClusterSpace) StatAt(ctx context.Context, storageID string, pc cid.Cid) (bool, error) {
+	if s.c.HasLocal(storageID) {
+		_, ok, err := s.StatLocal(storageID, pc)
 		return ok, err
 	}
 	hexHash, _, err := cidHashHex(pc)
 	if err != nil {
 		return false, err
 	}
-	return c.hasHash(ctx, storageID, DIR_OPEN, hexHash)
+	return s.c.hasHash(ctx, storageID, s.kind, hexHash)
 }
 
 // storageURLs returns a storage path's urls, from the snapshot when it has them.

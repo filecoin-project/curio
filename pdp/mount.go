@@ -18,14 +18,14 @@ import (
 
 // MountDeps holds dependencies for mounting PDP HTTP routes.
 type MountDeps struct {
-	DB        *harmonydb.DB
-	PieceIO   piecestore.PieceIO
-	EthClient ethchain.EthClient
-	Chain     api.Chain
-	EthSender ETHTxSender
-	AlertTask *alertmanager.AlertTask
-	HashSpace *hashfolder.Cluster
-	Local     *paths.Local
+	DB         *harmonydb.DB
+	PieceIO    piecestore.PieceIO
+	EthClient  ethchain.EthClient
+	Chain      api.Chain
+	EthSender  ETHTxSender
+	AlertTask  *alertmanager.AlertTask
+	HashSpaces *hashfolder.Cluster
+	Local      *paths.Local
 }
 
 // MountRoutes registers PDP HTTP routes on an existing router.
@@ -37,7 +37,7 @@ func MountRoutes(ctx context.Context, r chi.Router, d MountDeps, ipp *ipni_provi
 		return xerrors.Errorf("piece IO required for PDP routes")
 	}
 
-	pdsvc := NewPDPService(ctx, d.DB, d.PieceIO, d.EthClient, d.Chain, d.EthSender, d.AlertTask, ipp, d.HashSpace, d.Local)
+	pdsvc := NewPDPService(ctx, d.DB, d.PieceIO, d.EthClient, d.Chain, d.EthSender, d.AlertTask, ipp, d.HashSpaces, d.Local)
 	Routes(r, pdsvc)
 	return nil
 }
