@@ -74,7 +74,6 @@ func (e *ExpMgrTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwn
 		TopUpCountLowWaterMark  *int64 `db:"top_up_count_low_water_mark"`
 		TopUpCountHighWaterMark *int64 `db:"top_up_count_high_water_mark"`
 		CC                      *bool  `db:"cc"`
-		DropClaims              bool   `db:"drop_claims"`
 	}
 
 	err = e.db.Select(ctx, &assignments, `
@@ -97,8 +96,7 @@ func (e *ExpMgrTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwn
 			p.max_candidate_days,
 			p.top_up_count_low_water_mark,
 			p.top_up_count_high_water_mark,
-			p.cc,
-			p.drop_claims
+			p.cc
 		FROM sectors_exp_manager_sp sp
 		INNER JOIN sectors_exp_manager_presets p ON sp.preset_name = p.name
 		INNER JOIN sp_message_status sms ON sp.sp_id = sms.sp_id
@@ -188,7 +186,6 @@ func (e *ExpMgrTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwn
 				TargetExpirationDays: *assignment.TargetExpirationDays,
 				MaxCandidateDays:     *assignment.MaxCandidateDays,
 				CC:                   assignment.CC,
-				DropClaims:           assignment.DropClaims,
 			})
 
 		case "top_up":
@@ -207,7 +204,6 @@ func (e *ExpMgrTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwn
 				TopUpCountLowWaterMark:  *assignment.TopUpCountLowWaterMark,
 				TopUpCountHighWaterMark: *assignment.TopUpCountHighWaterMark,
 				CC:                      assignment.CC,
-				DropClaims:              assignment.DropClaims,
 			})
 
 		default:

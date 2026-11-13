@@ -55,7 +55,7 @@ When `market_address` is provided, MK20 performs read-only contract verification
 Verification behavior:
 
 1. Contract must exist in `ddo_contracts` and be allowed.
-2. Contract must implement `CurioDealViewV1` and return `version() == 1`, both before and after NV29.
+2. Contract must implement `CurioDealViewV1` and return `version() == 1`.
 3. MK20 builds `CurioDealView` from local deal values and calls `verifyDeal(...)`.
 4. `verifyDeal(...)` must return `true`.
 
@@ -70,7 +70,7 @@ Curio passes these values into `verifyDeal(...)`:
 - piece CID v2
 - `start_epoch` or `0`
 - duration
-- `allocationId`: always `0` from NV29 onward; before NV29, the retained allocation ID for a previously accepted deal, or `0` when absent
+- `allocationId`: always `0`, including for previously accepted deals with a stored allocation ID
 - `finalizedEpoch` = `0`
 
 If `verifyDeal` reverts with `DealNotFound(uint256)`, MK20 rejects the deal as market-missing.
@@ -97,4 +97,4 @@ Operationally:
 - Client must pass provider allow/deny policy.
 - If `start_epoch` is set, it must be greater than or equal to current chain height plus `ExpectedPoRepSealDuration`.
 
-Previously accepted deals retain their allocation fields. Before NV29, processing still validates their allocation and term constraints. From NV29 onward, Curio sends `allocationId = 0` to `verifyDeal(...)`, including during upload finalization of previously accepted deals, without changing the stored deal.
+Previously accepted deals retain their allocation fields, but processing no longer looks up allocations or applies allocation term constraints. Curio sends `allocationId = 0` to `verifyDeal(...)`, including during upload finalization of previously accepted deals, without changing the stored deal.

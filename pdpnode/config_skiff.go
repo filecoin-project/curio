@@ -83,7 +83,7 @@ func configToTOML(cfg *config.CurioConfig) (string, error) {
 func writeConfigLayer(ctx context.Context, db *harmonydb.DB, title, text string) error {
 	_, err := db.Exec(ctx, `
 		INSERT INTO harmony_config (title, config) VALUES ($1, $2)
-		ON CONFLICT (title) DO UPDATE SET config = EXCLUDED.config
+		ON CONFLICT (title) DO UPDATE SET config = EXCLUDED.config, timestamp = NOW()
 	`, title, text)
 	return err
 }

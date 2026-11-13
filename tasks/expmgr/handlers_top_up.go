@@ -9,16 +9,12 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
-	"github.com/filecoin-project/go-bitfield"
 	"github.com/filecoin-project/go-state-types/abi"
-	"github.com/filecoin-project/go-state-types/builtin"
-	"github.com/filecoin-project/go-state-types/network"
 
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/blockstore"
 	"github.com/filecoin-project/lotus/chain/actors/adt"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
-	"github.com/filecoin-project/lotus/chain/actors/builtin/verifreg"
 	"github.com/filecoin-project/lotus/chain/actors/policy"
 )
 
@@ -30,9 +26,9 @@ type topUpPresetConfig struct {
 	TopUpCountLowWaterMark  int64
 	TopUpCountHighWaterMark int64
 	CC                      *bool
-	DropClaims              bool
 }
 
+// handleTopUp fills the expiration bucket for a validated preset.
 func (e *ExpMgrTask) handleTopUp(ctx context.Context, cfg topUpPresetConfig) (bool, error) {
 	log.Infow("handling top_up preset",
 		"preset", cfg.Name,
@@ -51,9 +47,6 @@ func (e *ExpMgrTask) handleTopUp(ctx context.Context, cfg topUpPresetConfig) (bo
 	if err != nil {
 		return false, xerrors.Errorf("getting network version: %w", err)
 	}
-	// TODO(NV29): Remove claim filtering, verifreg loading, DropClaims handling and
-	// claim declarations once pre-NV29 support is dropped.
-	useClaims := nv < network.Version29
 
 	maxExtension, err := policy.GetMaxSectorExpirationExtension(nv)
 	if err != nil {
@@ -131,36 +124,11 @@ func (e *ExpMgrTask) handleTopUp(ctx context.Context, cfg topUpPresetConfig) (bo
 	var sectors []SectorMeta
 
 	// Select sectors expiring before the bucket lower bound
-	// Before NV29, use pre-crawled claim data to filter sectors:
-	// - If drop_claims=false: exclude sectors where min_claim_epoch < bucket_below_epoch
-	// - If drop_claims=true: include sectors, we'll check max_claim_epoch later
-	// Exclude sectors in snap pipeline or with open pieces (not yet finalized)
-
-	// Use conditional queries based on CC filter and drop_claims setting
-	if cfg.CC != nil && useClaims && !cfg.DropClaims {
-		// CC filter + claim filter
-		err = e.db.Select(ctx, &sectors, `
-			SELECT sm.sector_num, sm.expiration_epoch, sm.deadline, sm.partition, sm.is_cc, sm.min_claim_epoch, sm.max_claim_epoch
-			FROM sectors_meta sm
-			WHERE sm.sp_id = $1
-			  AND sm.expiration_epoch IS NOT NULL
-			  AND sm.expiration_epoch > $2
-			  AND sm.expiration_epoch < $3
-			  AND sm.is_live = TRUE
-			  AND sm.is_faulty = FALSE
-			  AND sm.deadline IS NOT NULL
-			  AND sm.partition IS NOT NULL
-			  AND sm.is_cc = $4
-			  AND (sm.min_claim_epoch IS NULL OR sm.min_claim_epoch > $5)
-			  AND NOT EXISTS (SELECT 1 FROM sectors_snap_pipeline ssp WHERE ssp.sp_id = sm.sp_id AND ssp.sector_number = sm.sector_num)
-			  AND NOT EXISTS (SELECT 1 FROM open_sector_pieces osp WHERE osp.sp_id = sm.sp_id AND osp.sector_number = sm.sector_num)
-			ORDER BY sm.expiration_epoch ASC, sm.deadline, sm.partition, sm.sector_num
-			LIMIT $6`,
-			cfg.SpID, int64(currEpoch), int64(bucketAboveEpoch), *cfg.CC, int64(bucketBelowEpoch), needCount)
-	} else if cfg.CC != nil {
+	// Exclude sectors in snap pipeline or with open pieces (not yet finalized).
+	if cfg.CC != nil {
 		// CC filter only
 		err = e.db.Select(ctx, &sectors, `
-			SELECT sm.sector_num, sm.expiration_epoch, sm.deadline, sm.partition, sm.is_cc, sm.min_claim_epoch, sm.max_claim_epoch
+			SELECT sm.sector_num, sm.expiration_epoch, sm.deadline, sm.partition, sm.is_cc
 			FROM sectors_meta sm
 			WHERE sm.sp_id = $1
 			  AND sm.expiration_epoch IS NOT NULL
@@ -176,29 +144,10 @@ func (e *ExpMgrTask) handleTopUp(ctx context.Context, cfg topUpPresetConfig) (bo
 			ORDER BY sm.expiration_epoch ASC, sm.deadline, sm.partition, sm.sector_num
 			LIMIT $5`,
 			cfg.SpID, int64(currEpoch), int64(bucketAboveEpoch), *cfg.CC, needCount)
-	} else if useClaims && !cfg.DropClaims {
-		// Claim filter only
-		err = e.db.Select(ctx, &sectors, `
-			SELECT sm.sector_num, sm.expiration_epoch, sm.deadline, sm.partition, sm.is_cc, sm.min_claim_epoch, sm.max_claim_epoch
-			FROM sectors_meta sm
-			WHERE sm.sp_id = $1
-			  AND sm.expiration_epoch IS NOT NULL
-			  AND sm.expiration_epoch > $2
-			  AND sm.expiration_epoch < $3
-			  AND sm.is_live = TRUE
-			  AND sm.is_faulty = FALSE
-			  AND sm.deadline IS NOT NULL
-			  AND sm.partition IS NOT NULL
-			  AND (sm.min_claim_epoch IS NULL OR sm.min_claim_epoch > $4)
-			  AND NOT EXISTS (SELECT 1 FROM sectors_snap_pipeline ssp WHERE ssp.sp_id = sm.sp_id AND ssp.sector_number = sm.sector_num)
-			  AND NOT EXISTS (SELECT 1 FROM open_sector_pieces osp WHERE osp.sp_id = sm.sp_id AND osp.sector_number = sm.sector_num)
-			ORDER BY sm.expiration_epoch ASC, sm.deadline, sm.partition, sm.sector_num
-			LIMIT $5`,
-			cfg.SpID, int64(currEpoch), int64(bucketAboveEpoch), int64(bucketBelowEpoch), needCount)
 	} else {
 		// No filters
 		err = e.db.Select(ctx, &sectors, `
-			SELECT sm.sector_num, sm.expiration_epoch, sm.deadline, sm.partition, sm.is_cc, sm.min_claim_epoch, sm.max_claim_epoch
+			SELECT sm.sector_num, sm.expiration_epoch, sm.deadline, sm.partition, sm.is_cc
 			FROM sectors_meta sm
 			WHERE sm.sp_id = $1
 			  AND sm.expiration_epoch IS NOT NULL
@@ -251,58 +200,6 @@ func (e *ExpMgrTask) handleTopUp(ctx context.Context, cfg topUpPresetConfig) (bo
 	mas, err := miner.Load(adtStore, mact)
 	if err != nil {
 		return false, xerrors.Errorf("loading miner state: %w", err)
-	}
-
-	// Check if we need to load verifreg state (for validation or claim processing)
-	var needsVerifregState bool
-
-	// Need verifreg if any sector has claims in DB (for validation)
-	for _, s := range sectors {
-		if s.MinClaim != nil || s.MaxClaim != nil {
-			needsVerifregState = true
-			break
-		}
-	}
-
-	// Also need verifreg if we're dropping claims
-	if !needsVerifregState && cfg.DropClaims {
-		for _, s := range sectors {
-			if s.MaxClaim != nil && abi.ChainEpoch(*s.MaxClaim) < bucketBelowEpoch {
-				needsVerifregState = true
-				break
-			}
-		}
-	}
-
-	var claimsMap map[verifreg.ClaimId]verifreg.Claim
-	var claimIdsBySector map[abi.SectorNumber][]verifreg.ClaimId
-
-	if useClaims && needsVerifregState {
-		// Get verifreg state (used for both validation and claim processing)
-		verifregAct, err := e.chain.StateGetActor(ctx, builtin.VerifiedRegistryActorAddr, head.Key())
-		if err != nil {
-			return false, xerrors.Errorf("getting verifreg actor: %w", err)
-		}
-
-		verifregSt, err := verifreg.Load(adtStore, verifregAct)
-		if err != nil {
-			return false, xerrors.Errorf("loading verifreg state: %w", err)
-		}
-
-		claimsMap, err = verifregSt.GetClaims(maddr)
-		if err != nil {
-			return false, xerrors.Errorf("getting claims: %w", err)
-		}
-
-		claimIdsBySector, err = verifregSt.GetClaimIdsBySector(maddr)
-		if err != nil {
-			return false, xerrors.Errorf("getting claim IDs by sector: %w", err)
-		}
-
-		log.Infow("loaded verifreg state",
-			"preset", cfg.Name,
-			"sp_id", cfg.SpID,
-			"total_claims", len(claimsMap))
 	}
 
 	// Group sectors by deadline/partition
@@ -388,8 +285,6 @@ func (e *ExpMgrTask) handleTopUp(ctx context.Context, cfg topUpPresetConfig) (bo
 			continue
 		}
 
-		sectorsWithoutClaims := bitfield.New()
-		var sectorsWithClaims []miner.SectorClaim
 		numbersToExtend := make([]abi.SectorNumber, 0, len(sectorNums))
 
 		for _, sn := range sectorNums {
@@ -464,7 +359,7 @@ func (e *ExpMgrTask) handleTopUp(ctx context.Context, cfg topUpPresetConfig) (bo
 				continue
 			}
 
-			// Get the sector's claim info from the database query result
+			// Get the sector's metadata from the database query result
 			dbSector := sectors[0] // Find matching sector from our query
 			for _, s := range sectors {
 				if abi.SectorNumber(s.SectorNum) == sn {
@@ -474,7 +369,7 @@ func (e *ExpMgrTask) handleTopUp(ctx context.Context, cfg topUpPresetConfig) (bo
 			}
 
 			// Validate sector metadata against on-chain state
-			if err := validateSectorAgainstChain(sn, dbSector, si, useClaims, claimsMap, claimIdsBySector); err != nil {
+			if err := validateSectorAgainstChain(sn, dbSector, si); err != nil {
 				log.Errorw("sector metadata validation failed, skipping sector",
 					"preset", cfg.Name,
 					"sp_id", cfg.SpID,
@@ -483,120 +378,6 @@ func (e *ExpMgrTask) handleTopUp(ctx context.Context, cfg topUpPresetConfig) (bo
 				continue
 			}
 
-			// Handle claims using pre-crawled data
-			if !useClaims || (dbSector.MinClaim == nil && dbSector.MaxClaim == nil) {
-				sectorsWithoutClaims.Set(uint64(sn))
-				numbersToExtend = append(numbersToExtend, sn)
-				totalSectors++
-				continue
-			}
-
-			// Sector has claims
-			// If drop_claims=false, we already filtered these out at query time
-			// If drop_claims=true, check if we need to process individual claims
-			if !cfg.DropClaims {
-				// Check if claims are actually short (MaxClaim < bucketBelowEpoch)
-				// The SQL query filters on min_claim_epoch, but sectors with all claims
-				// long enough can still reach here with non-nil claim fields.
-				// Only skip if the max claim is actually shorter than the target.
-				if dbSector.MaxClaim != nil && abi.ChainEpoch(*dbSector.MaxClaim) < bucketBelowEpoch {
-					log.Warnw("sector with short claims in non-drop-claims mode, skipping",
-						"sector", sn,
-						"max_claim_epoch", *dbSector.MaxClaim,
-						"target_expiration", bucketBelowEpoch)
-					continue
-				}
-
-				// All claims live long enough, maintain all
-				claimIds := claimIdsBySector[sn]
-				if len(claimIds) > 0 {
-					sectorsWithClaims = append(sectorsWithClaims, miner.SectorClaim{
-						SectorNumber:   sn,
-						MaintainClaims: claimIds,
-						DropClaims:     []verifreg.ClaimId{},
-					})
-				} else {
-					sectorsWithoutClaims.Set(uint64(sn))
-				}
-				numbersToExtend = append(numbersToExtend, sn)
-				totalSectors++
-				continue
-			}
-
-			// drop_claims=true: check if any claims need dropping
-			if dbSector.MaxClaim == nil || abi.ChainEpoch(*dbSector.MaxClaim) >= bucketBelowEpoch {
-				// All claims live long enough, maintain all
-				claimIds := claimIdsBySector[sn]
-				if len(claimIds) > 0 {
-					sectorsWithClaims = append(sectorsWithClaims, miner.SectorClaim{
-						SectorNumber:   sn,
-						MaintainClaims: claimIds,
-						DropClaims:     []verifreg.ClaimId{},
-					})
-				} else {
-					sectorsWithoutClaims.Set(uint64(sn))
-				}
-				numbersToExtend = append(numbersToExtend, sn)
-				totalSectors++
-				continue
-			}
-
-			// Some claims need to be dropped - process individually
-			claimIds, hasClaims := claimIdsBySector[sn]
-			if !hasClaims {
-				sectorsWithoutClaims.Set(uint64(sn))
-				numbersToExtend = append(numbersToExtend, sn)
-				totalSectors++
-				continue
-			}
-
-			claimIdsToMaintain := make([]verifreg.ClaimId, 0)
-			claimIdsToDrop := make([]verifreg.ClaimId, 0)
-			canExtend := true
-
-			for _, claimId := range claimIds {
-				claim, ok := claimsMap[claimId]
-				if !ok {
-					log.Warnw("claim not found", "sector", sn, "claim_id", claimId)
-					canExtend = false
-					break
-				}
-
-				claimExpiration := claim.TermStart + claim.TermMax
-				if claimExpiration > bucketBelowEpoch {
-					claimIdsToMaintain = append(claimIdsToMaintain, claimId)
-				} else {
-					// Check FIP-0045 requirements
-					if currEpoch <= (claim.TermStart + claim.TermMin) {
-						log.Infow("skipping sector: claim minimum duration not met",
-							"sector", sn,
-							"claim_id", claimId)
-						canExtend = false
-						break
-					}
-
-					if currEpoch <= si.Expiration-builtin.EndOfLifeClaimDropPeriod {
-						log.Infow("skipping sector: not in last 30 days of life",
-							"sector", sn)
-						canExtend = false
-						break
-					}
-
-					claimIdsToDrop = append(claimIdsToDrop, claimId)
-				}
-			}
-
-			if !canExtend {
-				continue
-			}
-
-			if len(claimIdsToMaintain)+len(claimIdsToDrop) > 0 {
-				sectorsWithClaims = append(sectorsWithClaims, miner.SectorClaim{
-					SectorNumber:   sn,
-					MaintainClaims: claimIdsToMaintain,
-					DropClaims:     claimIdsToDrop,
-				})
-			}
 			numbersToExtend = append(numbersToExtend, sn)
 			totalSectors++
 		}
@@ -606,11 +387,10 @@ func (e *ExpMgrTask) handleTopUp(ctx context.Context, cfg topUpPresetConfig) (bo
 		}
 
 		extensions = append(extensions, miner.ExpirationExtension2{
-			Deadline:          dlPart.Deadline,
-			Partition:         dlPart.Partition,
-			Sectors:           sectorNumsToBitfield(numbersToExtend),
-			SectorsWithClaims: sectorsWithClaims,
-			NewExpiration:     bucketBelowEpoch,
+			Deadline:      dlPart.Deadline,
+			Partition:     dlPart.Partition,
+			Sectors:       sectorNumsToBitfield(numbersToExtend),
+			NewExpiration: bucketBelowEpoch,
 		})
 	}
 

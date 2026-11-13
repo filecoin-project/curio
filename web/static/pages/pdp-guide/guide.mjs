@@ -13,6 +13,7 @@ customElements.define('pdp-guide', class PDPGuideElement extends LitElement {
         registerDescription: { type: String },
         registerLocation: { type: String },
         registerCapacityGiB: { type: String },
+        registerContactEmail: { type: String },
         createdKey: { type: Object },
         actionMessage: { type: String },
         actionError: { type: String },
@@ -219,6 +220,7 @@ customElements.define('pdp-guide', class PDPGuideElement extends LitElement {
         this.registerDescription = '';
         this.registerLocation = '';
         this.registerCapacityGiB = '';
+        this.registerContactEmail = '';
         this.createdKey = null;
         this.actionMessage = '';
         this.actionError = '';
@@ -363,6 +365,7 @@ customElements.define('pdp-guide', class PDPGuideElement extends LitElement {
                 this.registerDescription.trim(),
                 this.registerLocation.trim(),
                 Number(this.registerCapacityGiB),
+                this.registerContactEmail.trim(),
             ]);
             await this.refresh();
             this.actionMessage = 'Registration submitted. Wait a few epochs for on-chain confirmation.';
@@ -585,6 +588,11 @@ customElements.define('pdp-guide', class PDPGuideElement extends LitElement {
                             <label for="reg-cap">Storage capacity (GiB)</label>
                             <input id="reg-cap" type="number" min="100" step="1" .value=${this.registerCapacityGiB}
                                    @input=${(e) => { this.registerCapacityGiB = e.target.value; }} required>
+                            <label for="reg-email">Contact info (email)</label>
+                            <input id="reg-email" type="email" .value=${this.registerContactEmail}
+                                   @input=${(e) => { this.registerContactEmail = e.target.value; }}
+                                   placeholder="optional">
+                            <p class="hint">Optional. Posted on-chain as capability key <span class="mono">contactEmail</span> so Filecoin Onchain Cloud (FOC) development can share updates with you.</p>
                             <div class="row-btns">
                                 <button class="btn btn-primary btn-sm" type="submit" ?disabled=${!!this.busy}>
                                     ${this.busy === 'register' ? 'Registering…' : 'Register with FOC'}

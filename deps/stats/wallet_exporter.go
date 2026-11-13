@@ -15,11 +15,13 @@ import (
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/big"
 
+	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/build"
 	"github.com/filecoin-project/lotus/chain/types"
+	"github.com/filecoin-project/lotus/node/modules/dtypes"
 )
 
 var log = logging.Logger("wallet_exporter")
@@ -137,7 +139,7 @@ func attoToNano(atto types.BigInt) int64 {
 	return big.Div(atto, big.NewInt(1e9)).Int64()
 }
 
-func StartWalletExporter(ctx context.Context, db *harmonydb.DB, api api.FullNode, spIDs []address.Address) {
+func StartWalletExporter(ctx context.Context, db *harmonydb.DB, api api.FullNode, maddrs *config.Dynamic[map[dtypes.MinerAddress]bool]) {
 	go func() {
 		ticker := time.NewTicker(WalletExporterInterval)
 		defer ticker.Stop()
@@ -147,19 +149,19 @@ func StartWalletExporter(ctx context.Context, db *harmonydb.DB, api api.FullNode
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				walletExporterCycle(ctx, db, api, spIDs)
+				walletExporterCycle(ctx, db, api, maddrs)
 			}
 		}
 	}()
 }
 
-func walletExporterCycle(ctx context.Context, db *harmonydb.DB, api api.FullNode, spIDs []address.Address) {
+func walletExporterCycle(ctx context.Context, db *harmonydb.DB, api api.FullNode, maddrs *config.Dynamic[map[dtypes.MinerAddress]bool]) {
 	names, err := walletExporterBalances(ctx, db, api)
 	if err != nil {
 		log.Errorf("failed to get balances: %v", err)
 		return
 	}
-	walletExporterSPs(ctx, db, api, spIDs)
+	walletExporterSPs(ctx, db, api, maddrs.Get())
 
 	walletExporterNewWatchedMsgs(ctx, db, api, names)
 	walletExporterObserveLandedMsgs(ctx, db, api, names)
@@ -222,7 +224,7 @@ func walletExporterBalances(ctx context.Context, db *harmonydb.DB, api api.FullN
 	return names, nil
 }
 
-func walletExporterSPs(ctx context.Context, db *harmonydb.DB, api api.FullNode, spIDs []address.Address) {
+func walletExporterSPs(ctx context.Context, db *harmonydb.DB, api api.FullNode, maddrs map[dtypes.MinerAddress]bool) {
 	// export SPIDs
 
 	ts, err := api.ChainHead(ctx)
@@ -231,7 +233,8 @@ func walletExporterSPs(ctx context.Context, db *harmonydb.DB, api api.FullNode, 
 		return
 	}
 
-	for _, spID := range spIDs {
+	for maddr := range maddrs {
+		spID := address.Address(maddr)
 		availableBalance, err := api.StateMinerAvailableBalance(ctx, spID, ts.Key())
 		if err != nil {
 			log.Errorf("failed to get balance for SPID: %v", err)

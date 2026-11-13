@@ -24,9 +24,6 @@ import (
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/builtin"
 	miner13 "github.com/filecoin-project/go-state-types/builtin/v13/miner"
-	verifreg13 "github.com/filecoin-project/go-state-types/builtin/v13/verifreg"
-	"github.com/filecoin-project/go-state-types/builtin/v9/verifreg"
-	"github.com/filecoin-project/go-state-types/network"
 
 	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -37,7 +34,6 @@ import (
 
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/proofs"
-	lethtypes "github.com/filecoin-project/lotus/chain/types/ethtypes"
 	lpiece "github.com/filecoin-project/lotus/storage/pipeline/piece"
 )
 
@@ -977,16 +973,12 @@ func (d *CurioStorageDealMarket) failMK20DealBeforeSector(ctx context.Context, i
 	}, harmonydb.OptionRetry())
 }
 
+// processMK20DealIngestion assigns aggregated DDO deals to sectors once their start epochs allow sealing.
 func (d *CurioStorageDealMarket) processMK20DealIngestion(ctx context.Context) {
 
 	head, err := d.api.ChainHead(ctx)
 	if err != nil {
 		log.Errorf("getting chain head: %w", err)
-		return
-	}
-	nv, err := d.api.StateNetworkVersion(ctx, head.Key())
-	if err != nil {
-		log.Errorw("getting network version", "error", err)
 		return
 	}
 	sealDuration := d.cfg.Market.StorageMarketConfig.MK20.ExpectedPoRepSealDuration
@@ -998,7 +990,6 @@ func (d *CurioStorageDealMarket) processMK20DealIngestion(ctx context.Context) {
 	var deals []struct {
 		ID        string `db:"id"`
 		SPID      int64  `db:"sp_id"`
-		Client    string `db:"client"`
 		PieceCID  string `db:"piece_cid"`
 		PieceSize int64  `db:"piece_size"`
 		RawSize   int64  `db:"raw_size"`
@@ -1010,7 +1001,6 @@ func (d *CurioStorageDealMarket) processMK20DealIngestion(ctx context.Context) {
 	err = d.db.Select(ctx, &deals, `SELECT 
 											  id,
 											  MIN(sp_id) AS sp_id,
-											  MIN(client) AS client,
 											  MIN(piece_cid) AS piece_cid,
 											  MIN(piece_size) AS piece_size,
 											  MIN(raw_size) AS raw_size,
@@ -1037,7 +1027,6 @@ func (d *CurioStorageDealMarket) processMK20DealIngestion(ctx context.Context) {
 			continue
 		}
 
-		// TODO(NV29): Remove allocation client resolution once pre-NV29 support is dropped.
 		aurl, err := url.Parse(deal.Url)
 		if err != nil {
 			log.Errorf("failed to parse aggregate url: %w", err)
@@ -1077,92 +1066,14 @@ func (d *CurioStorageDealMarket) processMK20DealIngestion(ctx context.Context) {
 			continue
 		}
 		end := start + abi.ChainEpoch(deal.Duration)
-		// TODO(NV29): Remove allocation validation and activation-key construction once pre-NV29 support is dropped.
-		var vak *miner.VerifiedAllocationKey
-		if nv < network.Version29 && mk20Deal.Products.DDOV1.AllocationId != nil {
-			var client address.Address
-			var clientId uint64
-			client, err = address.NewFromString(deal.Client)
-			if err != nil {
-				log.Errorw("failed to parse client address", "deal", deal.ID, "error", err)
-				continue
-			}
-			clientIdAddr, err := d.api.StateLookupID(ctx, client, head.Key())
-			if err != nil {
-				log.Errorw("failed to lookup client id", "deal", deal.ID, "error", err)
-				continue
-			}
-			clientId, err = address.IDFromAddress(clientIdAddr)
-			if err != nil {
-				log.Errorw("failed to parse client id", "deal", deal.ID, "error", err)
-				continue
-			}
-
-			allocClientID := clientId
-			alloc, err := d.api.StateGetAllocation(ctx, client, verifreg.AllocationId(*mk20Deal.Products.DDOV1.AllocationId), head.Key())
-			if err != nil {
-				log.Errorw("failed to get allocation", "deal", deal.ID, "error", err)
-				continue
-			}
-			if alloc == nil && mk20Deal.Products.DDOV1.MarketAddress != "" {
-				contractAddr, perr := lethtypes.ParseEthAddress(mk20Deal.Products.DDOV1.MarketAddress)
-				if perr != nil {
-					log.Errorw("bad market address", "deal", deal.ID, "error", perr)
-					continue
-				}
-				fc, cerr := contractAddr.ToFilecoinAddress()
-				if cerr != nil {
-					log.Errorw("bad market address to filecoin address", "deal", deal.ID, "error", cerr)
-					continue
-				}
-				cAdr, lerr := d.api.StateLookupID(ctx, fc, head.Key())
-				if lerr != nil {
-					log.Errorw("failed to lookup contract id", "deal", deal.ID, "error", lerr)
-					continue
-				}
-				cID, ierr := address.IDFromAddress(cAdr)
-				if ierr != nil {
-					log.Errorw("failed to parse contract id", "deal", deal.ID, "error", ierr)
-					continue
-				}
-				alloc, err = d.api.StateGetAllocation(ctx, fc, verifreg.AllocationId(*mk20Deal.Products.DDOV1.AllocationId), head.Key())
-				if err != nil {
-					log.Errorw("failed to get allocation via market", "deal", deal.ID, "error", err)
-					continue
-				}
-				allocClientID = cID
-			}
-			if alloc == nil {
-				log.Errorw("allocation not found", "deal", deal.ID, "error", err)
-				continue
-			}
-			if alloc.Expiration < start {
-				log.Errorw("allocation expired", "deal", deal.ID, "error", err)
-				continue
-			}
-			if abi.ChainEpoch(deal.Duration) < alloc.TermMin || abi.ChainEpoch(deal.Duration) > alloc.TermMax {
-				log.Errorw("deal duration outside allocation bounds",
-					"deal", deal.ID,
-					"duration", deal.Duration,
-					"term_min", alloc.TermMin,
-					"term_max", alloc.TermMax)
-				continue
-			}
-			vak = &miner.VerifiedAllocationKey{
-				Client: abi.ActorID(allocClientID),
-				ID:     verifreg13.AllocationId(*mk20Deal.Products.DDOV1.AllocationId),
-			}
-		}
-
 		pdi := lpiece.PieceDealInfo{
 			DealSchedule: lpiece.DealSchedule{
 				StartEpoch: start,
 				EndEpoch:   end,
 			},
 			PieceActivationManifest: &miner.PieceActivationManifest{
-				CID:                   pcid,
-				Size:                  abi.PaddedPieceSize(deal.PieceSize),
-				VerifiedAllocationKey: vak,
+				CID:  pcid,
+				Size: abi.PaddedPieceSize(deal.PieceSize),
 			},
 		}
 

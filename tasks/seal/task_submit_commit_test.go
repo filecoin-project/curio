@@ -10,7 +10,6 @@ import (
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/big"
-	"github.com/filecoin-project/go-state-types/network"
 
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/lib/multictladdr"
@@ -45,10 +44,6 @@ func (m *mockCommitAPI) StateSectorPreCommitInfo(context.Context, address.Addres
 
 func (m *mockCommitAPI) StateMinerAvailableBalance(context.Context, address.Address, types.TipSetKey) (big.Int, error) {
 	return m.minerBalance, nil
-}
-
-func (m *mockCommitAPI) StateNetworkVersion(context.Context, types.TipSetKey) (network.Version, error) {
-	return network.Version21, nil
 }
 
 func (m *mockCommitAPI) GasEstimateMessageGas(ctx context.Context, msg *types.Message, spec *api.MessageSendSpec, tsk types.TipSetKey) (*types.Message, error) {

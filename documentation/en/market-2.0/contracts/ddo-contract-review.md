@@ -10,7 +10,7 @@ Current checks:
 
 1. `market_address` must exist in `ddo_contracts` and be marked `allowed = true`.
 2. `market_deal_id` must be present.
-3. Curio calls `version()` and requires `1`, both before and after NV29.
+3. Curio calls `version()` and requires `1`.
 4. Curio builds `ICurioDealViewV1.CurioDealView` from the local deal and calls `verifyDeal(...)` via `eth_call`.
 5. `verifyDeal(...)` must return `true`.
 6. If `verifyDeal(...)` reverts with `DealNotFound(uint256)`, Curio rejects the deal as market-missing.
@@ -42,15 +42,15 @@ Before allowing a DDO market contract, providers should review:
 
 1. Verified contract source and ABI from a source they trust.
 2. The deployed address, preferably confirmed through a trusted builder channel.
-3. `verifyDeal(...)` behavior, including validation of `providerActorId`, `clientId`, `pieceCidV2`, `startEpoch`, `duration`, the expected `state` / `finalizedEpoch` semantics, and acceptance of `allocationId = 0` from NV29 onward.
+3. `verifyDeal(...)` behavior, including validation of `providerActorId`, `clientId`, `pieceCidV2`, `startEpoch`, `duration`, the expected `state` / `finalizedEpoch` semantics, and acceptance of `allocationId = 0`.
 4. Notification-driven settlement or callback paths separately from the intake verification path.
 5. Ownership, upgrade authority, and any governance or timelock around the contract if it is proxy-based or upgradeable.
 
 Allocation note:
 
 1. New deals and newly added DDO products must omit `allocation_id`.
-2. Previously accepted deals retain their allocation data. Before NV29, Curio can resolve those allocations against either the deal client or the market contract address.
-3. From NV29 onward, Curio always sends `allocationId = 0` to `verifyDeal(...)`, including when finalizing uploads for previously accepted deals. Contract verification must accept that value without requiring an allocation.
+2. Previously accepted deals retain their allocation data. Curio no longer looks up allocations or applies their term constraints.
+3. Curio always sends `allocationId = 0` to `verifyDeal(...)`, including when finalizing uploads for previously accepted deals. Contract verification must accept that value without requiring an allocation.
 
 ## Upgradeable Contract Risk
 
@@ -68,7 +68,7 @@ Providers should treat upgradeable contracts as an ongoing trust decision:
 Builders integrating a DDO market contract should:
 
 1. Publish verified source and a reliable ABI reference.
-2. Implement `CurioDealViewV1` exactly and return `version() == 1` across NV29. Keep the deprecated `allocationId` field in the ABI and support `0` from NV29 onward.
+2. Implement `CurioDealViewV1` exactly and return `version() == 1`. Keep the deprecated `allocationId` field in the ABI and support `0`.
 3. Keep `verifyDeal(...)` deterministic and read-only.
 4. Validate the fields Curio sends rather than blindly accepting every call.
 5. Use `DealNotFound(uint256)` for missing market deal identifiers.

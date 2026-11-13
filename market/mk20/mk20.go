@@ -21,10 +21,6 @@ import (
 
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
-	"github.com/filecoin-project/go-state-types/builtin/v16/miner"
-	"github.com/filecoin-project/go-state-types/builtin/v16/verifreg"
-	verifreg9 "github.com/filecoin-project/go-state-types/builtin/v9/verifreg"
-	"github.com/filecoin-project/go-state-types/network"
 
 	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps/config"
@@ -38,16 +34,13 @@ import (
 	"github.com/filecoin-project/curio/market/backpressure"
 
 	"github.com/filecoin-project/lotus/api"
-	"github.com/filecoin-project/lotus/chain/actors/policy"
 	"github.com/filecoin-project/lotus/chain/types"
 	lethtypes "github.com/filecoin-project/lotus/chain/types/ethtypes"
 )
 
 type MK20API interface {
 	ChainHead(context.Context) (*types.TipSet, error)
-	StateNetworkVersion(context.Context, types.TipSetKey) (network.Version, error)
 	StateMinerInfo(context.Context, address.Address, types.TipSetKey) (api.MinerInfo, error)
-	StateGetAllocation(ctx context.Context, clientAddr address.Address, allocationId verifreg9.AllocationId, tsk types.TipSetKey) (*verifreg9.Allocation, error)
 	StateLookupID(context.Context, address.Address, types.TipSetKey) (address.Address, error)
 }
 
@@ -261,6 +254,7 @@ func (m *MK20) processDDODeal(deal *Deal, tx *harmonydb.Tx) error {
 	return nil
 }
 
+// sanitizeDDODeal checks chain and market constraints for a validated deal with a DDO product.
 func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRejectionInfo, error) {
 	if !lo.Contains(m.miners.Get(), deal.Products.DDOV1.Provider) {
 		return &ProviderDealRejectionInfo{
@@ -317,14 +311,6 @@ func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 		}
 	}
 
-	pi, err := deal.PieceInfo()
-	if err != nil {
-		return &ProviderDealRejectionInfo{
-			HTTPCode: ErrBadProposal,
-			Reason:   "Error getting piece cid v1 from PieceCID",
-		}, xerrors.Errorf("getting piece info: %w", err)
-	}
-
 	head, err := m.api.ChainHead(ctx)
 	if err != nil {
 		return &ProviderDealRejectionInfo{
@@ -332,16 +318,6 @@ func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 			Reason:   "Server Internal Error",
 		}, xerrors.Errorf("getting chain head: %w", err)
 	}
-
-	nv, err := m.api.StateNetworkVersion(ctx, head.Key())
-	if err != nil {
-		return &ProviderDealRejectionInfo{
-			HTTPCode: ErrServerInternalError,
-			Reason:   "Server Internal Error",
-		}, xerrors.Errorf("getting network version: %w", err)
-	}
-
-	marketFilecoinAddress := address.Undef
 
 	if deal.Products.DDOV1.MarketAddress != "" {
 		contractAddr, perr := lethtypes.ParseEthAddress(deal.Products.DDOV1.MarketAddress)
@@ -371,7 +347,6 @@ func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 				Reason:   "Market address is not valid",
 			}, nil
 		}
-		marketFilecoinAddress = id
 	}
 
 	if deal.Products.DDOV1.NotificationAddress != address.Undef && !deal.Products.DDOV1.NotificationAddress.Empty() {
@@ -422,109 +397,7 @@ func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 		}
 	}
 
-	// TODO(NV29): Remove allocation validation once pre-NV29 support is dropped.
-	if nv < network.Version29 && deal.Products.DDOV1.AllocationId != nil {
-		if size < abi.PaddedPieceSize(verifreg.MinimumVerifiedAllocationSize) {
-			return &ProviderDealRejectionInfo{
-				HTTPCode: ErrBadProposal,
-				Reason:   "Verified piece size must be at least 1MB",
-			}, nil
-		}
-
-		client, err := address.NewFromString(deal.Client)
-		if err != nil {
-			return &ProviderDealRejectionInfo{
-				HTTPCode: ErrBadProposal,
-				Reason:   "Client address is not valid",
-			}, nil
-		}
-
-		alloc, err := m.api.StateGetAllocation(ctx, client, verifreg9.AllocationId(*deal.Products.DDOV1.AllocationId), head.Key())
-		if err != nil {
-			return &ProviderDealRejectionInfo{
-				HTTPCode: ErrServerInternalError,
-				Reason:   "Server Internal Error",
-			}, xerrors.Errorf("getting allocation: %w", err)
-		}
-
-		if alloc == nil && deal.Products.DDOV1.MarketAddress != "" {
-			alloc, err = m.api.StateGetAllocation(ctx, marketFilecoinAddress, verifreg9.AllocationId(*deal.Products.DDOV1.AllocationId), head.Key())
-			if err != nil {
-				return &ProviderDealRejectionInfo{
-					HTTPCode: ErrServerInternalError,
-					Reason:   "Server Internal Error",
-				}, xerrors.Errorf("getting allocation via market contract: %w", err)
-			}
-		}
-
-		if alloc == nil {
-			return &ProviderDealRejectionInfo{
-				HTTPCode: ErrBadProposal,
-				Reason:   "Verified piece must have a valid allocation ID",
-			}, nil
-		}
-
-		prov, err := address.NewIDAddress(uint64(alloc.Provider))
-		if err != nil {
-			return &ProviderDealRejectionInfo{
-				HTTPCode: ErrServerInternalError,
-				Reason:   "Server Internal Error",
-			}, xerrors.Errorf("getting provider address: %w", err)
-		}
-
-		if !lo.Contains(m.miners.Get(), prov) {
-			return &ProviderDealRejectionInfo{
-				HTTPCode: ErrBadProposal,
-				Reason:   "Allocation provider does not belong to the list of miners in Curio cluster",
-			}, nil
-		}
-
-		if !pi.PieceCIDV1.Equals(alloc.Data) {
-			return &ProviderDealRejectionInfo{
-				HTTPCode: ErrBadProposal,
-				Reason:   "Allocation data CID does not match the piece CID",
-			}, nil
-		}
-
-		if size != alloc.Size {
-			return &ProviderDealRejectionInfo{
-				HTTPCode: ErrBadProposal,
-				Reason:   "Allocation size does not match the piece size",
-			}, nil
-		}
-
-		if alloc.TermMin > miner.MaxSectorExpirationExtension-policy.SealRandomnessLookback {
-			return &ProviderDealRejectionInfo{
-				HTTPCode: ErrBadProposal,
-				Reason:   "Allocation term min is greater than the maximum sector expiration extension",
-			}, nil
-		}
-
-		if alloc.TermMin > deal.Products.DDOV1.Duration {
-			return &ProviderDealRejectionInfo{
-				HTTPCode: ErrBadProposal,
-				Reason:   "Allocation term min is greater than deal duration",
-			}, nil
-		}
-
-		if alloc.TermMax < deal.Products.DDOV1.Duration {
-			return &ProviderDealRejectionInfo{
-				HTTPCode: ErrBadProposal,
-				Reason:   "Allocation term max is less than deal duration",
-			}, nil
-		}
-
-		if deal.Products.DDOV1.StartEpoch != nil {
-			if alloc.Expiration < *deal.Products.DDOV1.StartEpoch {
-				return &ProviderDealRejectionInfo{
-					HTTPCode: ErrBadProposal,
-					Reason:   "Allocation expiration is less than deal start epoch",
-				}, nil
-			}
-		}
-	}
-
-	code, err := deal.Products.DDOV1.VerifyMarketDeal(ctx, m.DB, m.ethClient, deal, nv)
+	code, err := deal.Products.DDOV1.VerifyMarketDeal(ctx, m.DB, m.ethClient, deal)
 	if err != nil {
 		log.Errorw("error verifying market deal", "deal", deal.Identifier.String(), "error", err)
 		ret := &ProviderDealRejectionInfo{

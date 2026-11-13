@@ -680,7 +680,7 @@ func stepNewMinerConfig(d *MigrationData) {
 		d.say(notice, "Please do not run guided-setup again as miner creation is not idempotent. You need to run 'curio config new-cluster %s' to finish the configuration", d.MinerID.String())
 		os.Exit(1)
 	}
-	_, err = d.DB.Exec(d.ctx, "UPDATE harmony_config SET config=$1 WHERE title='base'", string(cb))
+	_, err = d.DB.Exec(d.ctx, "UPDATE harmony_config SET config=$1, timestamp=NOW() WHERE title='base'", string(cb))
 	if err != nil {
 		d.say(notice, "Failed to insert 'base' config layer in database: %s", err.Error())
 		d.say(notice, "Please do not run guided-setup again as miner creation is not idempotent. You need to run 'curio config new-cluster %s' to finish the configuration", d.MinerID.String())
@@ -1004,7 +1004,7 @@ func optionalPDPStep(d *MigrationData) {
 	}
 
 	// Save to database
-	_, err = d.DB.Exec(d.ctx, `INSERT INTO harmony_config (title, config) VALUES ('pdp', $1) ON CONFLICT (title) DO UPDATE SET config = $1`, string(cb))
+	_, err = d.DB.Exec(d.ctx, `INSERT INTO harmony_config (title, config) VALUES ('pdp', $1) ON CONFLICT (title) DO UPDATE SET config = $1, timestamp = NOW()`, string(cb))
 	if err != nil {
 		d.say(notice, "Error saving PDP config: %s", err.Error())
 		return

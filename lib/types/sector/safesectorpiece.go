@@ -1,7 +1,6 @@
 package sector
 
 import (
-	"context"
 	"encoding/json"
 	"io"
 
@@ -9,10 +8,8 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-state-types/abi"
-	"github.com/filecoin-project/go-state-types/builtin/v9/verifreg"
 
 	"github.com/filecoin-project/lotus/api"
-	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/storage/pipeline/piece"
 )
 
@@ -26,8 +23,6 @@ type UniversalPieceInfo interface {
 	EndEpoch() (abi.ChainEpoch, error)
 	PieceCID() cid.Cid
 	KeepUnsealedRequested() bool
-
-	GetAllocation(ctx context.Context, aapi piece.AllocationAPI, tsk types.TipSetKey) (*verifreg.Allocation, error)
 }
 
 // SafeSectorPiece is a wrapper around SectorPiece which makes it hard to misuse
@@ -128,13 +123,4 @@ func (sp *SafeSectorPiece) KeepUnsealedRequested() bool {
 	}
 
 	return sp.real.DealInfo.KeepUnsealedRequested()
-}
-
-// TODO(NV29): Remove this allocation lookup wrapper once pre-NV29 support is dropped.
-func (sp *SafeSectorPiece) GetAllocation(ctx context.Context, aapi piece.AllocationAPI, tsk types.TipSetKey) (*verifreg.Allocation, error) {
-	if !sp.HasDealInfo() {
-		return nil, xerrors.Errorf("no deal info")
-	}
-
-	return sp.real.DealInfo.GetAllocation(ctx, aapi, tsk)
 }
