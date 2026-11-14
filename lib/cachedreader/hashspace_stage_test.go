@@ -281,6 +281,53 @@ func TestReadACLPiece(t *testing.T) {
 	})
 }
 
+func TestReadPieceOrACLSkipsYCQLForACLOnly(t *testing.T) {
+	ctx := context.Background()
+	pc := testV2(t, 127)
+	aggs := &fakeAggs{records: []indexstore.Record{{Cid: testV2(t, 1016), Offset: 0, Size: 10}}}
+
+	cpr := &CachedPieceReader{aggs: aggs}
+	cpr.SetOpenPieceReader(&fakeOpen{files: map[cid.Cid][]byte{}})
+	cpr.SetACLPieceReader(&fakeOpen{files: map[cid.Cid][]byte{pc: []byte("acl-bytes")}})
+
+	r, size, fromACL, err := cpr.ReadPieceOrACL(ctx, pc, true)
+	require.NoError(t, err)
+	require.True(t, fromACL)
+	require.Equal(t, uint64(127), size)
+	require.Equal(t, []byte("acl-bytes"), readAll(t, r))
+	require.Empty(t, aggs.calls, "acl-only pieces must not consult YCQL for subpieces")
+}
+
+func TestReadForProof(t *testing.T) {
+	ctx := context.Background()
+	pc := testV2(t, 127)
+
+	t.Run("acl-only hit", func(t *testing.T) {
+		cpr := &CachedPieceReader{}
+		cpr.SetOpenPieceReader(&fakeOpen{files: map[cid.Cid][]byte{}})
+		cpr.SetACLPieceReader(&fakeOpen{files: map[cid.Cid][]byte{pc: []byte("acl-bytes")}})
+
+		r, size, err := cpr.ReadForProof(ctx, pc)
+		require.NoError(t, err)
+		require.Equal(t, uint64(127), size)
+		require.Equal(t, []byte("acl-bytes"), readAll(t, r))
+	})
+
+	t.Run("open hit prefers open-pieces", func(t *testing.T) {
+		open := &fakeOpen{files: map[cid.Cid][]byte{pc: []byte("open-bytes")}}
+		acl := &fakeOpen{files: map[cid.Cid][]byte{pc: []byte("acl-bytes")}}
+		cpr := NewCachedPieceReader(nil, nil, nil, nil)
+		cpr.SetOpenPieceReader(open)
+		cpr.SetACLPieceReader(acl)
+
+		r, size, err := cpr.ReadForProof(ctx, pc)
+		require.NoError(t, err)
+		require.Equal(t, uint64(127), size)
+		require.Equal(t, []byte("open-bytes"), readAll(t, r))
+		require.Empty(t, acl.calls)
+	})
+}
+
 func TestBoundedReader(t *testing.T) {
 	f := &fakeFile{Reader: bytes.NewReader([]byte("0123456789"))}
 	r := boundedReader(f, 4)

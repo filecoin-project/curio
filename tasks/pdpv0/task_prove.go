@@ -482,7 +482,7 @@ func (p *ProveTask) genSubPieceMemtree(ctx context.Context, subPieceCid cid.Cid,
 		return nil, xerrors.Errorf("subPiece size exceeds maximum: %d", subPieceSize)
 	}
 
-	subPieceReader, unssize, err := p.cpr.GetSharedPieceReader(ctx, subPieceCid, false)
+	subPieceReader, unssize, err := p.cpr.ReadForProof(ctx, subPieceCid)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to get subPiece reader: %w", err)
 	}
@@ -509,7 +509,7 @@ func (p *ProveTask) genSubPieceMemtree(ctx context.Context, subPieceCid cid.Cid,
 }
 
 func (p *ProveTask) GetPieceReader(ctx context.Context, pieceCid cid.Cid) (proof.SectionReadCloser, uint64, error) {
-	return p.cpr.GetSharedPieceReader(ctx, pieceCid, false)
+	return p.cpr.ReadForProof(ctx, pieceCid)
 }
 
 // idxProofCache adapts IndexStore to the proof.ProofCache interface.

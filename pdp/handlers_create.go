@@ -89,13 +89,18 @@ func (p *PDPService) handleCreateDataSetAndAddPieces(w http.ResponseWriter, r *h
 		log.Infow("ExtraData contains withIPFSIndexing metadata, pieces will be marked for indexing")
 	}
 
+	forceACL := false
+	if known, acl := ACLFromExtraData(extraDataBytes); known && acl {
+		forceACL = true
+	}
+
 	pieceDataArray, subPieceInfoMap, err := p.transformAddPiecesRequest(ctx, serviceLabel, reqBody.Pieces)
 	if err != nil {
 		log.Warnf("Failed to process AddPieces request data: %+v", err)
 		httpServerError(w, http.StatusBadRequest, "Failed to process request: "+err.Error(), err)
 		return
 	}
-	if known, acl := ACLFromExtraData(extraDataBytes); known && acl {
+	if forceACL {
 		if err := p.requireACLEnvelopes(workCtx, subPieceInfoMap); err != nil {
 			if errors.Is(err, keysmith.ErrInvalidEnvelope) {
 				httpServerError(w, http.StatusBadRequest, "Piece is missing a valid encryption envelope", err)
@@ -194,12 +199,13 @@ func (p *PDPService) handleCreateDataSetAndAddPieces(w http.ResponseWriter, r *h
 		return
 	}
 
-	if known, acl := ACLFromExtraData(extraDataBytes); known && acl {
-		if err := p.placePieceRefs(workCtx, subPieceInfoMap, true); err != nil {
-			log.Errorw("Failed to place ACL pieces for create-and-add", "error", err, "txHash", txHashLower)
-			httpPlaceError(w, err)
-			return
-		}
+	// Upload left the bytes in piece-park. This claim is the first time they
+	// leave it: acl-pieces when create extraData is restricted, open-pieces
+	// otherwise. The data set row does not exist until the create confirms.
+	if err := p.placePieceRefs(workCtx, subPieceInfoMap, forceACL, !forceACL); err != nil {
+		log.Errorw("Failed to place pieces for create-and-add", "error", err, "txHash", txHashLower, "acl", forceACL)
+		httpPlaceError(w, err)
+		return
 	}
 
 	// Step 7: Respond with 201 Created and Location header

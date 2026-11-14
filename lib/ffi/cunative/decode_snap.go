@@ -34,6 +34,7 @@ void snap_decode_loop(const uint8_t *replica, const uint8_t *key, const uint8_t 
 import "C"
 
 import (
+	"errors"
 	"io"
 	"math/big"
 	"math/bits"
@@ -177,8 +178,8 @@ func DecodeSnap(spt abi.RegisteredSealProof, commD, commK cid.Cid, key, replica 
 			if r.chunkID == expectedChunkID {
 				_, err := out.Write(r.data)
 				pool.Put(r.data)
-				if err != nil && writeErr == nil {
-					writeErr = err
+				if err != nil {
+					writeErr = errors.Join(writeErr, err)
 				}
 				expectedChunkID++
 
@@ -200,13 +201,12 @@ func DecodeSnap(spt abi.RegisteredSealProof, commD, commK cid.Cid, key, replica 
 	close(errChan)
 
 	// Check for any errors
+	var readErr error
 	for err := range errChan {
-		if err != nil {
-			return err
-		}
+		readErr = errors.Join(readErr, err)
 	}
 
-	return writeErr
+	return errors.Join(readErr, writeErr)
 }
 
 type jobSnap struct {

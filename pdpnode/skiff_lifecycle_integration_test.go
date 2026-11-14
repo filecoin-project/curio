@@ -78,10 +78,10 @@ func TestSkiffCreateAddRetrieveLifecycle(t *testing.T) {
 	require.NoError(t, err)
 
 	// Skiff places PDP bytes in open-pieces and serves /piece from there.
-	hashSpaces, err := NewHashSpace(ctx, db, localStore, index, nil)
+	hs, err := NewHashSpace(ctx, db, localStore, index, nil)
 	require.NoError(t, err)
-	require.NotNil(t, hashSpaces)
-	t.Cleanup(func() { require.NoError(t, hashSpaces.Close()) })
+	require.NotNil(t, hs)
+	t.Cleanup(func() { require.NoError(t, hs.Close()) })
 
 	cpr := cachedreader.NewCachedPieceReader(
 		db,
@@ -89,8 +89,8 @@ func TestSkiffCreateAddRetrieveLifecycle(t *testing.T) {
 		pieceprovider.NewPieceParkReader(remote, index),
 		nil,
 	)
-	cpr.SetOpenPieceReader(pieceprovider.NewOpenPieceReader(hashSpaces))
-	cpr.SetACLPieceReader(pieceprovider.NewACLPieceReader(hashSpaces))
+	cpr.SetOpenPieceReader(pieceprovider.NewOpenPieceReader(hs))
+	cpr.SetACLPieceReader(pieceprovider.NewACLPieceReader(hs))
 
 	cfg := config.DefaultCurioConfig()
 	cfg.HTTP.DenylistServers = config.NewDynamic([]string{})
@@ -136,7 +136,7 @@ func TestSkiffCreateAddRetrieveLifecycle(t *testing.T) {
 		PieceIO:    piecestore.New(remote, localStore, index),
 		EthClient:  stubEthClient{},
 		EthSender:  mockSender,
-		HashSpaces: hashSpaces,
+		HashSpaces: hs,
 		Local:      localStore,
 	}, nil))
 
@@ -158,7 +158,7 @@ func TestSkiffCreateAddRetrieveLifecycle(t *testing.T) {
 	// This fixture has no FWSS create metadata and a stub eth client, so set them explicitly.
 	_, err = db.Exec(ctx, `
 		INSERT INTO pdp_data_sets (id, create_message_hash, service, proving_period, challenge_window, init_ready, ipfs_indexing, acl)
-		VALUES ($1, $2, 'public', 100, 10, FALSE, FALSE, FALSE)`,
+		VALUES ($1, $2, 'public', 100, 10, FALSE, FALSE, 0)`,
 		int64(dataSetID), createTxHash)
 	require.NoError(t, err)
 

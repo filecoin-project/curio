@@ -18,7 +18,21 @@ import (
 func MountRetrievalPublicRoutes(ctx context.Context, r *chi.Mux, d *deps.Deps) *denylist.Filter {
 	df := denylist.NewFilter(ctx, d.Cfg.HTTP.DenylistServers)
 	rp := retrieval.NewRetrievalProvider(ctx, d.DB, d.IndexStore, d.CachedPieceReader, df)
-	setBlockChain(ctx, rp, d)
+	// A failure leaves the blockchain unset, and ACL downloads are refused until it is known.
+	if d.EthClient == nil {
+		log.Warn("FOC grant checks have no eth client; ACL downloads will be refused")
+	} else if eth, err := d.EthClient.Get(); err != nil {
+		log.Warnw("FOC grant checks could not open the eth client", "error", err)
+	} else {
+		cctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		defer cancel()
+		id, err := eth.ChainID(cctx)
+		if err != nil {
+			log.Warnw("FOC grant checks could not read the blockchain", "error", err)
+		} else {
+			rp.SetBlockChain(id)
+		}
+	}
 	retrieval.Router(r, rp, df)
 	return df
 }
@@ -37,26 +51,4 @@ func MountCommonPublicRoutes(ctx context.Context, r *chi.Mux, d *deps.Deps) (*ip
 	go ipp.StartPublishing(ctx)
 
 	return ipp, nil
-}
-
-// setBlockChain loads the blockchain FOC grants must name.
-// A failure leaves it unset, and ACL downloads are refused until it is known.
-func setBlockChain(ctx context.Context, rp *retrieval.Provider, d *deps.Deps) {
-	if d == nil || d.EthClient == nil {
-		log.Warn("FOC grant checks have no eth client; ACL downloads will be refused")
-		return
-	}
-	eth, err := d.EthClient.Get()
-	if err != nil {
-		log.Warnw("FOC grant checks could not open the eth client", "error", err)
-		return
-	}
-	cctx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-	id, err := eth.ChainID(cctx)
-	if err != nil {
-		log.Warnw("FOC grant checks could not read the blockchain", "error", err)
-		return
-	}
-	rp.SetBlockChain(id)
 }

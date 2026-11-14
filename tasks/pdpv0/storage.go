@@ -18,10 +18,10 @@ import (
 //	*cachedreader.CachedPieceReader -> PieceReader
 //	*indexstore.IndexStore          -> ProofCacheStore, IndexCleaner
 
-// PieceReader provides random-access reads of raw piece bytes by piece CID.
-// Satisfied by *cachedreader.CachedPieceReader.
+// PieceReader opens piece bytes for prove and save-cache, including acl-pieces.
+// Satisfied by *cachedreader.CachedPieceReader.ReadForProof.
 type PieceReader interface {
-	GetSharedPieceReader(ctx context.Context, pieceCid cid.Cid, retrieval bool) (storiface.Reader, uint64, error)
+	ReadForProof(ctx context.Context, pieceCid cid.Cid) (storiface.Reader, uint64, error)
 }
 
 // ProofCacheStore reads and writes the PDP Merkle-proof layer cache used by the

@@ -578,16 +578,16 @@ func copyPieceFile(src, dst string, size int64, buf []byte) (bool, string, error
 	if err == nil {
 		err = out.Sync()
 	}
-	if cerr := out.Close(); err == nil {
-		err = cerr
-	}
+	err = errors.Join(err, out.Close())
 	if err == nil && n != size {
 		log.Warnw("piece copy is the wrong size", "path", src, "dest", dst, "size", n, "expected", size)
 		_ = os.Remove(dst)
 		return false, "wrong-size", nil
 	}
 	if err != nil {
-		_ = os.Remove(dst)
+		if rmErr := os.Remove(dst); rmErr != nil && !os.IsNotExist(rmErr) {
+			err = errors.Join(err, rmErr)
+		}
 		return false, "", err
 	}
 	return true, "", nil

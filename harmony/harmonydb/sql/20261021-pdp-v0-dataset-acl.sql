@@ -9,9 +9,9 @@ BEGIN
           AND column_name = 'acl'
     ) THEN
         ALTER TABLE pdp_data_sets
-            ADD COLUMN acl BOOLEAN;
+            ADD COLUMN acl SMALLINT;
     END IF;
 END $$;
 
 COMMENT ON COLUMN pdp_data_sets.acl IS
-    'read-restricted intent: TRUE when metadata key read is "restricted", FALSE once known otherwise, NULL until resolved from create extra_data or chain';
+    'read-restricted intent: 1 when metadata key read is "restricted", 0 once known otherwise, NULL until resolved from create extra_data or chain';

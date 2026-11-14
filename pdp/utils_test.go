@@ -36,18 +36,18 @@ func packCombinedExtraData(t *testing.T, createPayload, addPayload []byte) []byt
 	return extra
 }
 
-func TestDecodeFWSSCreateIdentityFromExtraData_CombinedAndBare(t *testing.T) {
+func TestDecodeFWSSCreateIdentity_CombinedAndBare(t *testing.T) {
 	payer := common.HexToAddress("0x1111111111111111111111111111111111111111")
 	createPayload := packCreatePayload(t, payer, 42, []string{"withIPFSIndexing"})
 
 	combined := packCombinedExtraData(t, createPayload, []byte{0x01})
-	got, err := DecodeFWSSCreateIdentityFromExtraData(combined)
+	got, err := DecodeFWSSCreateIdentity(combined)
 	require.NoError(t, err)
 	require.Equal(t, payer, got.Payer)
 	require.Equal(t, int64(42), got.ClientDataSetId.Int64())
 	require.Equal(t, []string{"withIPFSIndexing"}, got.MetadataKeys)
 
-	gotBare, err := DecodeFWSSCreateIdentityFromExtraData(createPayload)
+	gotBare, err := DecodeFWSSCreateIdentity(createPayload)
 	require.NoError(t, err)
 	require.Equal(t, payer, gotBare.Payer)
 	require.Equal(t, int64(42), gotBare.ClientDataSetId.Int64())

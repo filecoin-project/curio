@@ -112,17 +112,25 @@ func processDataSetCreate(ctx context.Context, db *harmonydb.DB, psc DataSetCrea
 	}
 	var ipfsIndexingArg any
 	var ipfsIndexingTrue bool
-	if known, ipfsIndexing := pdp.IPFSIndexingFromExtraData(psc.ExtraData); known {
-		ipfsIndexingArg = ipfsIndexing
-		ipfsIndexingTrue = ipfsIndexing
-		log.Infow("Resolved data set IPFS indexing intent from create extra_data",
-			"txHash", psc.CreateMessageHash, "dataSetId", dataSetId, "ipfsIndexing", ipfsIndexing)
-	}
 	var aclArg any
-	if known, acl := pdp.ACLFromExtraData(psc.ExtraData); known {
-		aclArg = acl
-		log.Infow("Resolved data set ACL intent from create extra_data",
-			"txHash", psc.CreateMessageHash, "dataSetId", dataSetId, "acl", acl)
+	if len(psc.ExtraData) > 0 {
+		if identity, decErr := pdp.DecodeFWSSCreateIdentity(psc.ExtraData); decErr != nil {
+			log.Debugw("Failed to decode create extra_data for data set intent",
+				"txHash", psc.CreateMessageHash, "dataSetId", dataSetId, "error", decErr)
+		} else {
+			ipfsIndexing := identity.HasMetadataKey("withIPFSIndexing")
+			ipfsIndexingArg = ipfsIndexing
+			ipfsIndexingTrue = ipfsIndexing
+			log.Infow("Resolved data set IPFS indexing intent from create extra_data",
+				"txHash", psc.CreateMessageHash, "dataSetId", dataSetId, "ipfsIndexing", ipfsIndexing)
+			if identity.ReadRestricted() {
+				aclArg = pdp.ACL_SECURED
+			} else {
+				aclArg = pdp.ACL_PUBLIC
+			}
+			log.Infow("Resolved data set ACL intent from create extra_data",
+				"txHash", psc.CreateMessageHash, "dataSetId", dataSetId, "acl", aclArg)
+		}
 	}
 
 	comm, err := db.BeginTransaction(ctx, func(tx *harmonyquery.Tx) (commit bool, err error) {

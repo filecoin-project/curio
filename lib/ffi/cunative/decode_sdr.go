@@ -28,6 +28,7 @@ void curio_blst_decode(const uint8_t *replica, const uint8_t *key, uint8_t *out,
 */
 import "C"
 import (
+	"errors"
 	"io"
 	"runtime"
 	"sync"
@@ -170,8 +171,8 @@ func Decode(replica, key io.Reader, out io.Writer) error {
 			if r.chunkID == expectedChunkID {
 				_, err := out.Write(r.data)
 				pool.Put(r.data)
-				if err != nil && writeErr == nil {
-					writeErr = err
+				if err != nil {
+					writeErr = errors.Join(writeErr, err)
 				}
 				expectedChunkID++
 
@@ -193,13 +194,12 @@ func Decode(replica, key io.Reader, out io.Writer) error {
 	close(errChan)
 
 	// Check for any errors
+	var readErr error
 	for err := range errChan {
-		if err != nil {
-			return err
-		}
+		readErr = errors.Join(readErr, err)
 	}
 
-	return writeErr
+	return errors.Join(readErr, writeErr)
 }
 
 type job struct {

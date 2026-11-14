@@ -92,7 +92,7 @@ func (c *Cluster) refreshSnapshot(ctx context.Context) error {
 }
 
 // syncMap reloads the cluster map: the read snapshot on every node, and the
-// local space intervals on nodes with disks.
+// local ranges on nodes with disks.
 func (c *Cluster) syncMap(ctx context.Context, force bool) error {
 	if len(c.roots) > 0 {
 		return c.refresh(ctx, force)
@@ -109,25 +109,21 @@ func (s *ClusterSpace) Candidates(pc cid.Cid) ([]Location, error) {
 	if err != nil {
 		return nil, err
 	}
-	snap := s.c.snap.Load()
-	if snap == nil {
+	if s.layout == nil {
 		return nil, nil
 	}
-	ranges, moves := snap.ranges, snap.moves
-	if s.kind == DIR_ACL {
-		ranges, moves = snap.aclRanges, snap.aclMoves
-	}
-	if len(ranges) == 0 {
+	layout := s.layout()
+	if len(layout.ranges) == 0 {
 		return nil, nil
 	}
-	return s.c.placesIn(ranges, moves, snap.misplaced, digest)
+	return placesIn(s.HasLocal, layout.ranges, layout.moves, layout.misplaced, digest)
 }
 
 // StatAt reports whether this space's file for pc exists on storageID: a stat
 // on a local disk, otherwise a HEAD to the node that holds it. A file's size
 // is not compared with the CID.
 func (s *ClusterSpace) StatAt(ctx context.Context, storageID string, pc cid.Cid) (bool, error) {
-	if s.c.HasLocal(storageID) {
+	if s.HasLocal(storageID) {
 		_, ok, err := s.StatLocal(storageID, pc)
 		return ok, err
 	}
@@ -135,7 +131,7 @@ func (s *ClusterSpace) StatAt(ctx context.Context, storageID string, pc cid.Cid)
 	if err != nil {
 		return false, err
 	}
-	return s.c.hasHash(ctx, storageID, s.kind, hexHash)
+	return s.hasHash(ctx, storageID, hexHash)
 }
 
 // storageURLs returns a storage path's urls, from the snapshot when it has them.

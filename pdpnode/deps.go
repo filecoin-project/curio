@@ -158,7 +158,10 @@ func Open(ctx context.Context, cctx *cli.Context) (*Deps, error) {
 		return nil, xerrors.Errorf("start index store: %w", err)
 	}
 
-	hashSpaces, err := NewHashSpace(ctx, db, localStore, si, sa)
+	secret := cfg.Apis.StorageRPCSecret
+	hs, err := NewHashSpace(ctx, db, localStore, si, func() (http.Header, error) {
+		return curiodeps.StorageAuth(secret)
+	})
 	if err != nil {
 		return nil, xerrors.Errorf("hash space: %w", err)
 	}
@@ -166,9 +169,9 @@ func Open(ctx context.Context, cctx *cli.Context) (*Deps, error) {
 	sectorReader := pieceprovider.NewSectorReader(stor, si)
 	ppr := pieceprovider.NewPieceParkReader(stor, si)
 	cpr := cachedreader.NewCachedPieceReader(db, sectorReader, ppr, indexStore)
-	if hashSpaces != nil {
-		cpr.SetOpenPieceReader(pieceprovider.NewOpenPieceReader(hashSpaces))
-		cpr.SetACLPieceReader(pieceprovider.NewACLPieceReader(hashSpaces))
+	if hs != nil {
+		cpr.SetOpenPieceReader(pieceprovider.NewOpenPieceReader(hs))
+		cpr.SetACLPieceReader(pieceprovider.NewACLPieceReader(hs))
 	}
 	serveChunker := chunker.NewServeChunker(db, sectorReader, indexStore, cpr)
 
@@ -194,7 +197,7 @@ func Open(ctx context.Context, cctx *cli.Context) (*Deps, error) {
 		CachedPieceReader: cpr,
 		ServeChunker:      serveChunker,
 		EthClient:         ethLazy,
-		HashSpaces:        hashSpaces,
+		HashSpaces:        hs,
 		Al:                al,
 		Alert:             alertmanager.NewAlertNow(db, machineHost),
 		MachineHost:       machineHost,
