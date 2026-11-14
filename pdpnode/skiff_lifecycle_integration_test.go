@@ -158,7 +158,7 @@ func TestSkiffCreateAddRetrieveLifecycle(t *testing.T) {
 	// This fixture has no FWSS create metadata and a stub eth client, so set them explicitly.
 	_, err = db.Exec(ctx, `
 		INSERT INTO pdp_data_sets (id, create_message_hash, service, proving_period, challenge_window, init_ready, ipfs_indexing, acl)
-		VALUES ($1, $2, 'public', 100, 10, FALSE, FALSE, FALSE)`,
+		VALUES ($1, $2, 'public', 100, 10, FALSE, FALSE, 0)`,
 		int64(dataSetID), createTxHash)
 	require.NoError(t, err)
 
