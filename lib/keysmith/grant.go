@@ -27,7 +27,17 @@ const (
 
 	// blockChainField is the EIP-712 name of the chain id.
 	blockChainField = "chainId"
+
+	// DEALBOT_ROOT is the dealbot wallet on mainnet and calibnet.
+	// A grant it roots may read a piece whose foc/own names another wallet.
+	// FOC checks reliabiity and repairs SP outages by making another 2nd copy.
+	// The data remains entirely encryptied as only the root wallet can decrypt it.
+	DEALBOT_ROOT = "0x305025D07c1DEe47F25a4990179eFf2becddCA0B"
 )
+
+// extraGrantRoot is a grant-root wallet accepted besides the piece owner.
+// Tests replace it. Production is the dealbot wallet, on every network.
+var extraGrantRoot = common.HexToAddress(DEALBOT_ROOT)
 
 // PieceLabels are the foc fields a provider read from a piece envelope.
 // An empty Owner means foc/own was absent, so the piece is not gated.
@@ -130,7 +140,9 @@ var readRequestTypes = apitypes.Types{
 // VerifyPresentation checks a Keysmith FOC-Grant presentation.
 // pieceCID is the binary CID of the piece being served. blockChain is this
 // network. now is the provider clock. The checks match verifyPresentation
-// in @filoz/keysmith: a piece with no foc/own is not gated.
+// in @filoz/keysmith: a piece with no foc/own is not gated. A grant rooted
+// by the dealbot wallet may read a piece owned by another wallet; its node
+// must still reach that piece.
 func VerifyPresentation(presentation, pieceCID []byte, piece PieceLabels, blockChain *big.Int, now time.Time) (VerifiedClaim, error) {
 	if blockChain == nil {
 		return VerifiedClaim{}, fmt.Errorf("%w: blockchain is not configured", ErrInvalidGrant)
@@ -161,14 +173,17 @@ func VerifyPresentation(presentation, pieceCID []byte, piece PieceLabels, blockC
 		return VerifiedClaim{}, refuse("The request is not signed by the final bearer")
 	}
 	if piece.Owner != "" {
-		if !strings.EqualFold(piece.Owner, claim.Owner.Hex()) {
-			return VerifiedClaim{}, refuse("The piece belongs to another owner or keyspace")
-		}
-		keyspace, err := keyspaceID(piece.Keyspace)
-		if err != nil {
-			return VerifiedClaim{}, err
-		}
-		if keyspace != "0x"+hex.EncodeToString(claim.keyspace) {
+		sameOwner := strings.EqualFold(piece.Owner, claim.Owner.Hex())
+		// The dealbot root is not the piece's keyspace owner, so that comparison does not apply.
+		if sameOwner {
+			keyspace, err := keyspaceID(piece.Keyspace)
+			if err != nil {
+				return VerifiedClaim{}, err
+			}
+			if keyspace != "0x"+hex.EncodeToString(claim.keyspace) {
+				return VerifiedClaim{}, refuse("The piece belongs to another owner or keyspace")
+			}
+		} else if claim.Owner != extraGrantRoot {
 			return VerifiedClaim{}, refuse("The piece belongs to another owner or keyspace")
 		}
 		ok, err := reaches(claim.Node, piece)
