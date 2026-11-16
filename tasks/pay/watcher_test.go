@@ -25,12 +25,13 @@ type settleWatcherClient struct {
 	ethchain.EthClient
 	t          *testing.T
 	responses  map[string][]byte
+	block      uint64
 	blockCalls int
 }
 
 func (c *settleWatcherClient) BlockNumber(context.Context) (uint64, error) {
 	c.blockCalls++
-	return 1000, nil
+	return c.block, nil
 }
 
 func (c *settleWatcherClient) CallContract(_ context.Context, msg ethereum.CallMsg, _ *big.Int) ([]byte, error) {
@@ -42,11 +43,23 @@ func (c *settleWatcherClient) CallContract(_ context.Context, msg ethereum.CallM
 
 func newSettleWatcherClient(t *testing.T) *settleWatcherClient {
 	t.Helper()
+	return newSettleWatcherClientWith(t, settleWatcherRail{block: 1000, lockupPeriod: 30 * builtin.EpochsInDay, dataSetID: 1})
+}
+
+type settleWatcherRail struct {
+	block        uint64
+	lockupPeriod int64
+	endEpoch     int64
+	dataSetID    int64
+}
+
+func newSettleWatcherClientWith(t *testing.T, rail settleWatcherRail) *settleWatcherClient {
+	t.Helper()
 	t.Setenv("CURIO_DEVNET_PAYMENTS_ADDRESS", "0x0000000000000000000000000000000000000001")
 	t.Setenv("CURIO_DEVNET_PDP_VERIFIER_ADDRESS", "0x0000000000000000000000000000000000000002")
 	t.Setenv("CURIO_DEVNET_FWSS_ADDRESS", "0x0000000000000000000000000000000000000003")
 
-	c := &settleWatcherClient{t: t, responses: make(map[string][]byte)}
+	c := &settleWatcherClient{t: t, responses: make(map[string][]byte), block: rail.block}
 	addResponse := func(metadata *bind.MetaData, name string, args []any, value any) {
 		parsed, err := metadata.GetAbi()
 		require.NoError(t, err)
@@ -62,13 +75,13 @@ func newSettleWatcherClient(t *testing.T) *settleWatcherClient {
 		Operator:          serviceAddr,
 		Validator:         serviceAddr,
 		PaymentRate:       big.NewInt(1),
-		LockupPeriod:      big.NewInt(30 * builtin.EpochsInDay),
+		LockupPeriod:      big.NewInt(rail.lockupPeriod),
 		LockupFixed:       big.NewInt(0),
 		SettledUpTo:       big.NewInt(900),
-		EndEpoch:          big.NewInt(0),
+		EndEpoch:          big.NewInt(rail.endEpoch),
 		CommissionRateBps: big.NewInt(0),
 	})
-	addResponse(FWSS.FilecoinWarmStorageServiceStateViewMetaData, "railToDataSet", []any{big.NewInt(1)}, big.NewInt(1))
+	addResponse(FWSS.FilecoinWarmStorageServiceStateViewMetaData, "railToDataSet", []any{big.NewInt(1)}, big.NewInt(rail.dataSetID))
 	addResponse(contract.ContractWithViewMetaData, "viewContractAddress", nil, common.HexToAddress("0x0000000000000000000000000000000000000004"))
 	return c
 }
@@ -179,6 +192,91 @@ func TestIntegration_ProcessPendingTransactions_Retry(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestIntegration_ProcessPendingTransactions_RailDefaultAlert(t *testing.T) {
+	// The rail is settled up to epoch 900 with a 50-epoch lockup, so its lockup ends at epoch 950.
+	tests := []struct {
+		name            string
+		block           uint64
+		endEpoch        int64
+		wantMessage     string
+		wantTermination bool
+	}{
+		{
+			name:        "within grace",
+			block:       1000,
+			wantMessage: "Rail 1 is soon to default (dataSet 2)",
+		},
+		{
+			name:            "past grace",
+			block:           950 + temporaryDefaultGraceInEpochs + 1,
+			wantMessage:     "Rail 1 is past its default grace period, scheduling termination of dataSet 2",
+			wantTermination: true,
+		},
+		{
+			name:            "terminated rail",
+			block:           1000,
+			endEpoch:        2000,
+			wantMessage:     "Rail 1 is soon to default (dataSet 2)",
+			wantTermination: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			client := newSettleWatcherClientWith(t, settleWatcherRail{block: tc.block, lockupPeriod: 50, endEpoch: tc.endEpoch, dataSetID: 2})
+			db, err := harmonydb.NewFromConfigWithITestID(t)
+			require.NoError(t, err)
+			s := insertSettleWatcherState(t, db, false, false)
+			_, err = db.Exec(t.Context(), `
+				INSERT INTO message_waits_eth (signed_tx_hash, tx_status, tx_success)
+				VALUES ($1, 'confirmed', TRUE)
+			`, s.Hash)
+			require.NoError(t, err)
+
+			require.NoError(t, processPendingTransactions(t.Context(), db, client, curioalerting.NewAlertingSystem(db)))
+			requireSettleWatcherState(t, db, s, false, false)
+
+			var events []struct {
+				Message string `db:"message"`
+				Context []byte `db:"context"`
+			}
+			require.NoError(t, db.Select(t.Context(), &events, `SELECT message, context FROM alert_history WHERE kind = 'event'`))
+			if tc.wantMessage == "" {
+				require.Empty(t, events)
+			} else {
+				require.Len(t, events, 1)
+				require.Equal(t, tc.wantMessage, events[0].Message)
+				require.JSONEq(t, `{"dataset": "2", "rail": "1"}`, string(events[0].Context))
+			}
+
+			var terminationScheduled bool
+			require.NoError(t, db.QueryRow(t.Context(), `
+				SELECT EXISTS (SELECT 1 FROM pdp_delete_data_set WHERE id = 2)
+			`).Scan(&terminationScheduled))
+			require.Equal(t, tc.wantTermination, terminationScheduled)
+		})
+	}
+}
+
+func TestIntegration_VerifySettle_AlreadyProcessedSettleRaisesNoAlert(t *testing.T) {
+	client := newSettleWatcherClientWith(t, settleWatcherRail{block: 1000, lockupPeriod: 50, dataSetID: 2})
+	db, err := harmonydb.NewFromConfigWithITestID(t)
+	require.NoError(t, err)
+	s := insertSettleWatcherState(t, db, false, false)
+
+	serviceAddr := contract.ContractAddresses().AllowedPublicRecordKeepers.FWSService
+	viewAddr, err := contract.ResolveViewAddress(t.Context(), serviceAddr, client)
+	require.NoError(t, err)
+	view, err := FWSS.NewFilecoinWarmStorageServiceStateView(viewAddr, client)
+	require.NoError(t, err)
+
+	// The second run finds the settle already removed, as another node would.
+	alerts := &settleWatcherAlerts{}
+	require.NoError(t, verifySettle(t.Context(), db, client, view, serviceAddr, s, alerts))
+	require.NoError(t, verifySettle(t.Context(), db, client, view, serviceAddr, s, alerts))
+	require.Len(t, alerts.events, 1)
 }
 
 func TestIntegration_VerifySettle_RetryRollsBackWithCleanup(t *testing.T) {

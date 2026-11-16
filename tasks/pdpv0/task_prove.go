@@ -949,10 +949,10 @@ func (p *ProveTask) handleProvePreflightError(ctx context.Context, dataSetId int
 	case IsUnrecoverableError(err), IsPDPVerifierDataSetNotFound(err):
 		return p.applyProveErrorAction(ctx, dataSetId, currentHeight, proveSendErrorTerminateDataset, err)
 	case IsUnexpectedProvingInvariantError(err):
-		emitProvingSendErrorAlert(p.al, alertNameProving, err)
+		emitProvingSendErrorAlert(p.al, alertNameProving, dataSetId, err)
 		return p.applyProveErrorAction(ctx, dataSetId, currentHeight, proveSendErrorRetryTask, err)
 	case IsContractRevert(err):
-		emitProvingSendErrorAlert(p.al, alertNameProving, err)
+		emitProvingSendErrorAlert(p.al, alertNameProving, dataSetId, err)
 		return p.applyProveErrorAction(ctx, dataSetId, currentHeight, proveSendErrorRetryTask, err)
 	default:
 		return p.applyProveErrorAction(ctx, dataSetId, currentHeight, proveSendErrorRetryTask, err)
@@ -980,27 +980,27 @@ func handleProveSendError(al curioalerting.AlertingInterface, dataSetId int64, c
 	case IsUnexpectedProvingInvariantError(sendErr):
 		// Curio should not hit these in the normal prove path. Alert and retry
 		// without mutating proving state so the condition can be investigated.
-		emitProvingSendErrorAlert(al, alertNameProving, sendErr)
+		emitProvingSendErrorAlert(al, alertNameProving, dataSetId, sendErr)
 		return proveSendErrorRetryTask
 	case IsOperatorAttentionProvingError(sendErr):
 		// PDPVerifier rejected the caller before proof checking. This is an
 		// operator/config issue, not a normal proving-state recovery path.
-		emitProvingSendErrorAlert(al, alertNameProving, sendErr)
+		emitProvingSendErrorAlert(al, alertNameProving, dataSetId, sendErr)
 		return proveSendErrorRetryTask
 	case IsProofGenerationFailureError(sendErr):
 		// PDPVerifier rejected the generated proof itself. Surface it instead
 		// of treating it as an unknown contract revert.
-		emitProvingSendErrorAlert(al, alertNameProving, sendErr)
+		emitProvingSendErrorAlert(al, alertNameProving, dataSetId, sendErr)
 		return proveSendErrorRetryTask
 	case IsFWSSProvingNotStartedError(sendErr):
 		// PDPVerifier reached FWSS, but FWSS had no active proving deadline.
 		// Reset local schedule state so initPP re-establishes a FWSS deadline.
-		emitProvingSendErrorAlert(al, alertNameProving, sendErr)
+		emitProvingSendErrorAlert(al, alertNameProving, dataSetId, sendErr)
 		return proveSendErrorResetToInitPP
 	case IsContractRevert(sendErr):
 		// Fallback for unclassified contract reverts: alert and let Harmony
 		// retry without mutating proving state.
-		emitProvingSendErrorAlert(al, alertNameProving, sendErr)
+		emitProvingSendErrorAlert(al, alertNameProving, dataSetId, sendErr)
 		return proveSendErrorRetryTask
 	default:
 		// Non-contract send failures are transport/sender/task errors.

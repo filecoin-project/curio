@@ -221,18 +221,8 @@ func (ipp *InitProvingPeriodTask) Do(ctx context.Context, taskID harmonytask.Tas
 	txHash, sendErr := ipp.sender.Send(ctx, fromAddress, txEth, reason)
 	if sendErr != nil {
 		currentHeight := int64(ts.Height())
-		comm, err := ipp.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
-			handleErr := handleNextProvingPeriodSendError(ctx, tx, provingSchedule, ipp.al, alertNameInitPP, dataSetId, currentHeight, sendErr)
-			if handleErr != nil {
-				return false, xerrors.Errorf("failed to handle proving send error: %w", handleErr)
-			}
-			return true, nil
-		}, harmonydb.OptionRetry())
-		if err != nil {
-			return false, xerrors.Errorf("failed to send transaction: %w", err)
-		}
-		if !comm {
-			return false, xerrors.Errorf("failed to commit transaction")
+		if err := handleNextProvingPeriodSendFailure(ctx, ipp.db, provingSchedule, ipp.al, alertNameInitPP, dataSetId, currentHeight, sendErr); err != nil {
+			return false, err
 		}
 		return true, nil
 	}
