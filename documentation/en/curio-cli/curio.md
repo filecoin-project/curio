@@ -1046,7 +1046,7 @@ DESCRIPTION:
      In --db-readonly / CURIO_DB_READONLY mode, no config layer is written; the GUI is enabled in-memory.
 
 OPTIONS:
-   --gui-listen value                 Address to listen for the GUI on (default: "0.0.0.0:4701")
+   --gui-listen value                 Address to listen for the GUI on (default: "127.0.0.1:4701")
    --nosync                           don't check full-node sync status (default: false)
    --layers value [ --layers value ]  list of layers to be interpreted (atop defaults). Default: base
    --help, -h                         show help

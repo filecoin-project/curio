@@ -10,11 +10,11 @@ description: >-
 
 The default port is `4701` to access the Curio GUI. To enable GUI on a Curio node user must start a Curio node with `gui` layer. This is a pre-built layer shipped with Curio binaries.
 
-{% hint style="danger" %}
-**Do not expose the GUI or its APIs to the public internet or untrusted users.** They have no authentication. Anyone who can reach them can read credentials, change cluster configuration, move funds, and delete sector data.
-
-Full Curio defaults to `0.0.0.0:4701`, which listens on all network interfaces when the GUI is enabled. Set `Subsystems.GuiAddress = "127.0.0.1:4701"` in the `base` layer and use SSH port forwarding for remote access, or restrict access to trusted administrators through a private network or VPN. Changing only the port does not secure the GUI.
+{% hint style="warning" %}
+Prefer localhost (`127.0.0.1:4701`), an SSH tunnel, or a private network / VPN for GUI access. Do not expose port `4701` on the public firewall. On the public firewall, open only TCP **80** and **443** for the HTTP API.
 {% endhint %}
+
+On first visit, the GUI requires creating an admin username and password. After that, every page and API call requires that login. Use **Change password** in the sidebar to rotate credentials. The GUI listens with HTTPS only on port `4701`. When the public HTTP server has a `DomainName` and terminates TLS itself (`DelegateTLS = false`), requests for that hostname use the same Let's Encrypt certificate (`https://<DomainName>:4701`). Any other hostname or IP gets a self-signed certificate (browsers will warn until you accept it).
 
 ### Changing default GUI port
 
@@ -30,7 +30,7 @@ This will open the "base" layer in your default text editor.
   # The address that should listen for Web GUI requests.
   #
   # type: string
-  #GuiAddress = "0.0.0.0:4701"
+  #GuiAddress = "127.0.0.1:4701"
 
 should be changed to below
 

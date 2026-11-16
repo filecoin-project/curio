@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS gui_session;
+DROP TABLE IF EXISTS gui_admin;

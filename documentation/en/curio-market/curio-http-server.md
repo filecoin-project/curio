@@ -145,6 +145,8 @@ Curio can terminate TLS itself (autocert / Let’s Encrypt) or you can terminate
   - **80/tcp** (ACME HTTP-01) and
   - **443/tcp** (HTTPS)
 
+Only TCP **80** and **443** should be public. Keep the Curio API (`12300`), the admin GUI (`4701`), and an internal HTTP listen port such as the default `12310` on the private network or behind the reverse proxy.
+
 If ports 80/443 are blocked (cloud firewall, NAT, or corporate network), Let’s Encrypt cannot validate your domain.
 
 ### Mode A: Curio terminates TLS (DelegateTLS = false)

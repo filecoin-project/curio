@@ -10,7 +10,6 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	logging "github.com/ipfs/go-log/v2"
-	"golang.org/x/crypto/acme/autocert"
 
 	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/cuhttp/clientip"
@@ -69,19 +68,14 @@ func StartServer(ctx context.Context, cfg *config.HTTPConfig, db *harmonydb.DB, 
 		ReadHeaderTimeout: cfg.ReadHeaderTimeout,
 	}
 
-	if !cfg.DelegateTLS {
-		certManager := autocert.Manager{
-			Cache:      AutocertCache{DB: db},
-			Prompt:     autocert.AcceptTOS,
-			HostPolicy: autocert.HostWhitelist(cfg.DomainName),
-		}
-		server.TLSConfig = certManager.TLSConfig()
+	if TLSEnabled(cfg) {
+		server.TLSConfig = SharedTLSConfig(cfg, db)
 	}
 
 	go func() {
 		log.Infof("Starting %s for https://%s on %s", label, cfg.DomainName, cfg.ListenAddress)
 		var serr error
-		if !cfg.DelegateTLS {
+		if server.TLSConfig != nil {
 			serr = server.ListenAndServeTLS("", "")
 		} else {
 			serr = server.ListenAndServe()

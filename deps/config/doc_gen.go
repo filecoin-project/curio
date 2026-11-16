@@ -856,7 +856,7 @@ only need to be run on a single machine in the cluster. (Default: false)`,
 			Name: "GuiAddress",
 			Type: "string",
 
-			Comment: `The address that should listen for Web GUI requests. It should be in form "x.x.x.x:1234" (Default: 0.0.0.0:4701)`,
+			Comment: `The address that should listen for Web GUI requests. It should be in form "x.x.x.x:1234" (Default: 127.0.0.1:4701)`,
 		},
 		{
 			Name: "UseSyntheticPoRep",

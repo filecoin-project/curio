@@ -86,10 +86,13 @@ This starts:
 
 * **Forest** — Filecoin chain node (official `ghcr.io/chainsafe/forest:latest`, the latest stable release); first start downloads a snapshot (mainnet is large)
 * **Yugabyte** — YSQL and YCQL on the Compose network `skiff-net` only (not published on the host)
-* **Curio-PDP** — local admin GUI on `127.0.0.1:4701`; public PDP API on `80`/`443` only
+* **Curio-PDP** — local admin GUI on `127.0.0.1:4701`; public PDP API on `80`/`443`
+* **Forest libp2p** — public TCP and QUIC (UDP) so other Filecoin nodes can dial the chain node
 
 {% hint style="warning" %}
-**Public firewall: open only TCP 80 and 443.** The admin GUI on port `4701` is unauthenticated and for local operator access only — do not publish it to the internet. The Compose file maps host `127.0.0.1:4701` for the same reason. Use SSH port forwarding if you need remote GUI access (see [Admin GUI over SSH](#2-admin-gui-over-ssh)).
+**Public firewall:** open TCP **80** and **443** for the PDP API, and Forest's public libp2p ports. Forest listens on TCP and on QUIC over UDP. The image default is an ephemeral port for each (`/ip4/0.0.0.0/tcp/0` and `/ip4/0.0.0.0/udp/0/quic-v1`). Pin both with `--p2p-listen-address` (for example `/ip4/0.0.0.0/tcp/1347` and `/ip4/0.0.0.0/udp/1347/quic-v1`), publish that TCP port and UDP port on the Forest service, and allow both through the firewall. Forest RPC (`2345`) and the healthcheck (`2346`) stay on the Compose network.
+
+The admin GUI on port `4701` requires a first-run username and password. Keep it on localhost or behind SSH. The Compose file maps host `127.0.0.1:4701` for the same reason. Use SSH port forwarding if you need remote GUI access (see [Admin GUI over SSH](#2-admin-gui-over-ssh)).
 {% endhint %}
 
 HarmonyDB migrations run on connect. Curio starts once Forest RPC accepts connections; wallet balance and FWSS registration need Forest to finish syncing.
@@ -104,9 +107,9 @@ ssh -fN -L 4701:127.0.0.1:4701 $USER@$HOST
 ssh $USER@$HOST
 ```
 
-`-fN` forwards the port in the background with no remote shell. Then open **http://127.0.0.1:4701** on the laptop. The second `ssh` is a normal session on the host.
+`-fN` forwards the port in the background with no remote shell. Then open **https://127.0.0.1:4701** on the laptop (self-signed cert warning is expected). The second `ssh` is a normal session on the host.
 
-On the Docker host itself, browse **http://127.0.0.1:4701** directly.
+On the Docker host itself, browse **https://127.0.0.1:4701** directly.
 
 ### 3. Configure `docker/skiff/.env` (optional)
 
@@ -141,7 +144,7 @@ See [Skiff binary — Chain API](skiff-binary.md#chain-api) for config-layer alt
 
 ### 4. Select storage folders (admin GUI)
 
-Open **http://127.0.0.1:4701** → **Storage** (or **PDP Guide** → Select storage folders).
+Open **https://127.0.0.1:4701** → **Storage** (or **PDP Guide** → Select storage folders).
 
 1. Attach any existing directory Curio-PDP should use — enter a custom path, or pick a suggested folder under `/data` (compose bind-mounts `SKIFF_STORAGE` there; that can be slow disk).
 2. Paths are **not** auto-registered.
@@ -160,8 +163,8 @@ Go to **PDP** → wallet section.
 
 Only one PDP key is allowed per cluster. After create or import, fund the displayed **0x address** with enough FIL/tFIL for registration and ongoing on-chain messages (see [Enable PDP — Import your Filecoin Wallet Private Key](experimental-features/Enable-PDP.md#import-your-filecoin-wallet-private-key) for recommended amounts and a Lotus delegated-wallet import workflow).
 
-{% hint style="danger" %}
-The GUI has no login. Anyone who can reach port `4701` can manage keys and config. Keep it on localhost or behind an SSH tunnel only.
+{% hint style="info" %}
+On first visit the GUI asks you to create an admin username and password. Every page and API then requires that login. Change the password from the sidebar. Prefer localhost or an SSH tunnel. The GUI is HTTPS-only: with `HTTP.DomainName` and Curio-terminated TLS, `https://<DomainName>:4701` uses the public API certificate; otherwise (including `https://127.0.0.1:4701`) a self-signed certificate is presented.
 {% endhint %}
 
 The wallet private key is stored in Yugabyte and survives container restarts as long as `YUGABYTE_DATA` is preserved. Back up Yugabyte before redeploying (see [Yugabyte backup](administration/yugabyte-backup.md)).
@@ -187,7 +190,7 @@ Typical `base` values:
 * `Subsystems.GuiAddress = "127.0.0.1:4701"` (never bind the GUI to `0.0.0.0` on a host reachable from the internet)
 * `HTTP.Enable = false` until a domain is configured for the public API
 
-Only **TCP 80 and 443** should be exposed on your public firewall for FWSS registration and client traffic. See [Curio HTTP server](curio-market/curio-http-server.md) for built-in Let's Encrypt TLS, or [Optional TLS offloading and filtering](curio-market/optional-tls-offloading.md) for a reverse proxy that offloads TLS, keeps Curio hosts private, and can filter traffic.
+On the public firewall, open **TCP 80 and 443** for FWSS registration and client traffic, and the bundled Forest libp2p ports (TCP and QUIC UDP) described above. See [Curio HTTP server](curio-market/curio-http-server.md) for built-in Let's Encrypt TLS, or [Optional TLS offloading and filtering](curio-market/optional-tls-offloading.md) for a reverse proxy that offloads TLS, keeps Curio hosts private, and can filter traffic.
 
 Chain API: bundled Forest via compose, or set `FULLNODE_API_INFO` / `[APIs].ChainApiInfo` (see [Skiff binary — Chain API](skiff-binary.md#chain-api)).
 

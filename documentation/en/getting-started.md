@@ -39,19 +39,20 @@ Curio requires access to at least one Filecoin chain node like [Lotus](https://l
 
 ## Network
 
-The following ports are used by Curio. Restrict API and GUI access to trusted hosts, and open only the ports needed for each node's enabled services.
+On the public firewall, open only **TCP 80 and 443**. Those ports serve the HTTP API (market, retrieval, and PDP) and Let's Encrypt. The admin GUI, Curio API, database, and chain RPC stay on the private network or localhost.
 
-| Port  | Details                                                          |
-| ----- | ---------------------------------------------------------------- |
-| 12300 | Default API port                                                 |
-| 4701  | Default admin GUI port; trusted administrators only. Optional.     |
-| 12310 | HTTP server port                                                 |
+| Port    | Details                                                                                                      |
+| ------- | ------------------------------------------------------------------------------------------------------------ |
+| 80, 443 | Public HTTP API. These are the only ports to open on the public firewall.                                   |
+| 12300   | Default API port. Cluster administration on the private network.                                            |
+| 4701    | Default GUI port. Prefer localhost, an SSH tunnel, or Tailscale. Not every Curio node needs the GUI.        |
+| 12310   | Default HTTP listen port when it is not 80/443. Reach it from a reverse proxy on the private network.       |
 
-{% hint style="danger" %}
-**Do not open port `4701` to the public internet or untrusted users.** The GUI and its APIs have no authentication and provide administrative control of the cluster. See [GUI access and security](curio-gui.md#accessing-curio-gui) for binding and remote access guidance.
+{% hint style="warning" %}
+Do not open port `4701` on the public firewall. The GUI requires an admin login, but keep it on localhost or a private network. See [Curio GUI](curio-gui.md#accessing-curio-gui).
 {% endhint %}
 
-[Curio-PDP](curio-pdp.md) uses different public ports: open only TCP **80** and **443**. The admin GUI stays on localhost port **4701**.
+[Curio-PDP](curio-pdp.md) publishes the PDP API on 80 and 443 and keeps the admin GUI on localhost port **4701**. Its bundled Forest chain node also needs its libp2p ports public: TCP and QUIC (UDP). Forest picks an ephemeral port for each unless `--p2p-listen-address` pins them.
 
 ## Boost Compatibility (Deprecated)
 

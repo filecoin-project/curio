@@ -252,7 +252,7 @@ LIMIT 100`;
             <link rel="stylesheet" href="https://cdn.datatables.net/2.3.2/css/dataTables.dataTables.min.css">
 
             <h2>SQL Console</h2>
-            <p class="hint">Run read or write SQL against HarmonyDB. Results are limited to 1000 rows (10 minute timeout). Use Cmd/Ctrl+Enter to run; run again to cancel the previous query.</p>
+            <p class="hint">Read-only SQL against HarmonyDB via a restricted DB role (no eth_keys). Results are limited to 1000 rows (10 minute timeout). Use Cmd/Ctrl+Enter to run; run again to cancel the previous query.</p>
 
             <textarea
                 .value=${this.query}
@@ -264,7 +264,7 @@ LIMIT 100`;
                 <button class="btn btn-primary" @click=${this.runQuery}>
                     ${this.loading ? 'Cancel & Run' : 'Run Query'}
                 </button>
-                <span class="hint">${this.loading ? 'Query running… click again to cancel and start a new one.' : 'Read queries show a table; writes show affected row count.'}</span>
+                <span class="hint">${this.loading ? 'Query running… click again to cancel and start a new one.' : 'Results show as a table.'}</span>
             </div>
 
             ${this.error ? html`<div class="error">${this.error}</div>` : ''}
