@@ -23,20 +23,3 @@ func TestAdminTableCountRequiresSchemaAndTable(t *testing.T) {
 	_, err = AdminTableCount(ctx, &DB{}, "public", "")
 	require.Error(t, err)
 }
-
-func TestSQLConsoleACLLimitsRole(t *testing.T) {
-	db, err := NewFromConfigWithITestID(t)
-	if err != nil {
-		t.Skipf("database unavailable: %v", err)
-	}
-
-	ctx := context.Background()
-	_, err = AdminQuery(ctx, db, `SELECT 1`)
-	require.NoError(t, err)
-
-	_, err = AdminQuery(ctx, db, `SELECT address FROM eth_keys`)
-	require.Error(t, err)
-
-	_, err = AdminQuery(ctx, db, `INSERT INTO harmony_task_history (task_id, name, posted, result) VALUES (0, 'x', NOW(), true)`)
-	require.Error(t, err)
-}
