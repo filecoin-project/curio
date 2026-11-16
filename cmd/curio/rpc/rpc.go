@@ -539,16 +539,18 @@ func ListenAndServe(ctx context.Context, dependencies *deps.Deps, shutdownChan c
 		}
 
 		uiAddress := dependencies.Cfg.Subsystems.GuiAddress
-		if uiAddress == "" || uiAddress[0] == ':' || uiAddress == "0.0.0.0:4701" {
-			split := strings.Split(uiAddress, ":")
-			if len(split) == 2 {
-				uiAddress = "localhost:" + split[1]
-			}
+		port := "4701"
+		if split := strings.Split(uiAddress, ":"); len(split) == 2 && split[1] != "" {
+			port = split[1]
 		}
-
-		log.Infof("GUI:  http://%s", uiAddress)
+		if dependencies.Cfg.HTTP.DomainName != "" && !dependencies.Cfg.HTTP.DelegateTLS && dependencies.Cfg.HTTP.Enable {
+			uiAddress = dependencies.Cfg.HTTP.DomainName + ":" + port
+		} else if uiAddress == "" || uiAddress[0] == ':' || strings.HasPrefix(uiAddress, "0.0.0.0:") || uiAddress == "127.0.0.1:"+port {
+			uiAddress = "localhost:" + port
+		}
+		log.Infof("GUI:  https://%s", uiAddress)
 		eg.Go(func() error {
-			err := webSrv.ListenAndServe()
+			err := web.ListenAndServe(webSrv)
 			if errors.Is(err, http.ErrServerClosed) {
 				return nil
 			}

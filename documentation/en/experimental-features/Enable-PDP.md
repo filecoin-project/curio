@@ -397,7 +397,7 @@ curio run --layers=gui
 Then, open your browser and go to:
 
 ```sh
-http://127.0.0.1:4701
+https://127.0.0.1:4701
 ```
 
 This will launch the Curio web GUI locally.

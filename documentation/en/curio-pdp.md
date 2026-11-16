@@ -89,7 +89,7 @@ This starts:
 * **Curio-PDP** — local admin GUI on `127.0.0.1:4701`; public PDP API on `80`/`443` only
 
 {% hint style="warning" %}
-**Public firewall: open only TCP 80 and 443.** The admin GUI on port `4701` is unauthenticated and for local operator access only — do not publish it to the internet. The Compose file maps host `127.0.0.1:4701` for the same reason. Use SSH port forwarding if you need remote GUI access (see [Admin GUI over SSH](#2-admin-gui-over-ssh)).
+**Public firewall: open only TCP 80 and 443.** The admin GUI on port `4701` requires a first-run username and password, but keep it on localhost or behind SSH — do not publish it to the internet. The Compose file maps host `127.0.0.1:4701` for the same reason. Use SSH port forwarding if you need remote GUI access (see [Admin GUI over SSH](#2-admin-gui-over-ssh)).
 {% endhint %}
 
 HarmonyDB migrations run on connect. Curio starts once Forest RPC accepts connections; wallet balance and FWSS registration need Forest to finish syncing.
@@ -104,9 +104,9 @@ ssh -fN -L 4701:127.0.0.1:4701 $USER@$HOST
 ssh $USER@$HOST
 ```
 
-`-fN` forwards the port in the background with no remote shell. Then open **http://127.0.0.1:4701** on the laptop. The second `ssh` is a normal session on the host.
+`-fN` forwards the port in the background with no remote shell. Then open **https://127.0.0.1:4701** on the laptop (self-signed cert warning is expected). The second `ssh` is a normal session on the host.
 
-On the Docker host itself, browse **http://127.0.0.1:4701** directly.
+On the Docker host itself, browse **https://127.0.0.1:4701** directly.
 
 ### 3. Configure `docker/skiff/.env` (optional)
 
@@ -141,7 +141,7 @@ See [Skiff binary — Chain API](skiff-binary.md#chain-api) for config-layer alt
 
 ### 4. Select storage folders (admin GUI)
 
-Open **http://127.0.0.1:4701** → **Storage** (or **PDP Guide** → Select storage folders).
+Open **https://127.0.0.1:4701** → **Storage** (or **PDP Guide** → Select storage folders).
 
 1. Attach any existing directory Curio-PDP should use — enter a custom path, or pick a suggested folder under `/data` (compose bind-mounts `SKIFF_STORAGE` there; that can be slow disk).
 2. Paths are **not** auto-registered.
@@ -160,8 +160,8 @@ Go to **PDP** → wallet section.
 
 Only one PDP key is allowed per cluster. After create or import, fund the displayed **0x address** with enough FIL/tFIL for registration and ongoing on-chain messages (see [Enable PDP — Import your Filecoin Wallet Private Key](experimental-features/Enable-PDP.md#import-your-filecoin-wallet-private-key) for recommended amounts and a Lotus delegated-wallet import workflow).
 
-{% hint style="danger" %}
-The GUI has no login. Anyone who can reach port `4701` can manage keys and config. Keep it on localhost or behind an SSH tunnel only.
+{% hint style="info" %}
+On first visit the GUI asks you to create an admin username and password. Every page and API then requires that login. Change the password from the sidebar. Prefer localhost or an SSH tunnel. The GUI is HTTPS-only: with `HTTP.DomainName` and Curio-terminated TLS, `https://<DomainName>:4701` uses the public API certificate; otherwise (including `https://127.0.0.1:4701`) a self-signed certificate is presented.
 {% endhint %}
 
 The wallet private key is stored in Yugabyte and survives container restarts as long as `YUGABYTE_DATA` is preserved. Back up Yugabyte before redeploying (see [Yugabyte backup](administration/yugabyte-backup.md)).

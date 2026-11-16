@@ -182,7 +182,7 @@ var webCmd = &cli.Command{
 		&cli.StringFlag{
 			Name:  "gui-listen",
 			Usage: translations.T("Address to listen for the GUI on"),
-			Value: "0.0.0.0:4701",
+			Value: "127.0.0.1:4701",
 		},
 		&cli.BoolFlag{
 			Name:  "nosync",
@@ -201,7 +201,7 @@ var webCmd = &cli.Command{
 			// Do not persist a web layer; force GUI via gui-listen so deps enables it in-memory.
 			listen := cctx.String("gui-listen")
 			if listen == "" {
-				listen = "0.0.0.0:4701"
+				listen = "127.0.0.1:4701"
 			}
 			if err := cctx.Set("gui-listen", listen); err != nil {
 				return err

@@ -2,12 +2,15 @@ package cuhttp
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
+	"sync"
 
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/crypto/acme/autocert"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 )
 
@@ -50,3 +53,38 @@ func (c AutocertCache) Delete(ctx context.Context, key string) error {
 }
 
 var _ autocert.Cache = AutocertCache{}
+
+var sharedManagers sync.Map // domain -> *autocert.Manager
+
+// TLSEnabled reports whether Curio should terminate TLS with autocert for this HTTP config.
+func TLSEnabled(cfg *config.HTTPConfig) bool {
+	return cfg != nil && cfg.Enable && cfg.DomainName != "" && !cfg.DelegateTLS
+}
+
+// SharedCertManager returns the process-wide autocert manager for DomainName.
+// Public HTTPS and the admin GUI share one manager so TLS-ALPN renewals on :443
+// cover certificates presented on :4701. Returns nil when TLS is not configured.
+func SharedCertManager(cfg *config.HTTPConfig, db *harmonydb.DB) *autocert.Manager {
+	if !TLSEnabled(cfg) || db == nil {
+		return nil
+	}
+	if v, ok := sharedManagers.Load(cfg.DomainName); ok {
+		return v.(*autocert.Manager)
+	}
+	m := &autocert.Manager{
+		Cache:      AutocertCache{DB: db},
+		Prompt:     autocert.AcceptTOS,
+		HostPolicy: autocert.HostWhitelist(cfg.DomainName),
+	}
+	actual, _ := sharedManagers.LoadOrStore(cfg.DomainName, m)
+	return actual.(*autocert.Manager)
+}
+
+// SharedTLSConfig returns TLSConfig from SharedCertManager, or nil when TLS is off.
+func SharedTLSConfig(cfg *config.HTTPConfig, db *harmonydb.DB) *tls.Config {
+	m := SharedCertManager(cfg, db)
+	if m == nil {
+		return nil
+	}
+	return m.TLSConfig()
+}

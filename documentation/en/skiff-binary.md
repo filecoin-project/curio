@@ -27,11 +27,11 @@ Curio (`make build`) is unchanged and still builds with full FFI support.
 
 With defaults:
 
-- **Admin GUI**: `http://127.0.0.1:4701` (webrpc + config editor; local access only)
+- **Admin GUI**: `https://127.0.0.1:4701` (webrpc + config editor; first-run username/password; self-signed unless DomainName autocert applies; local access preferred)
 - **Public PDP API**: `HTTP.ListenAddress` / `HTTP.DomainName` from the `base` config layer (`80`/`443` only)
 - **Machine identity**: `127.0.0.1:skiff` (harmony task scheduling; not a public listener)
 
-Open **only TCP 80 and 443** on your public firewall for the PDP API. The admin GUI on port `4701` is unauthenticated — keep it on localhost (`127.0.0.1:4701`) and never expose it to the internet.
+Open **only TCP 80 and 443** on your public firewall for the PDP API. The admin GUI on port `4701` is HTTPS-only and requires login after first-run setup — keep it on localhost (`127.0.0.1:4701`) and never expose it without need. When `HTTP.DomainName` is set and Curio terminates TLS, `https://<DomainName>:4701` uses the same Let's Encrypt certificate; other names/IPs use a self-signed certificate.
 
 The admin GUI hides PoRep, sealing, and storage-market navigation when running Skiff. It shows PDP-focused pages (overview, PDP, config, wallets, IPNI, alerts) and displays **Curio PDP** as the product name in the navigation chrome.
 
