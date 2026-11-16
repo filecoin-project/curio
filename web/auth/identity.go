@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
@@ -21,6 +22,7 @@ type Identity struct {
 	Product    string   `json:"product"`
 	Miners     []string `json:"miners,omitempty"`
 	ProviderID *int64   `json:"providerId,omitempty"`
+	Domain     string   `json:"domain,omitempty"`
 }
 
 // buildIdentity returns the cached identity, computing it once on first call.
@@ -33,12 +35,14 @@ func (a *Auth) buildIdentity() Identity {
 	return a.identity
 }
 
-// computeIdentity returns product plus miner actor IDs / provider ID only.
+// computeIdentity returns product plus miner actor IDs, provider ID, and domain.
 func computeIdentity(ctx context.Context, d *deps.Deps) Identity {
 	id := Identity{Product: productName()}
 	if d == nil || d.Cfg == nil {
 		return id
 	}
+
+	id.Domain = strings.TrimSpace(d.Cfg.HTTP.DomainName)
 
 	if d.Cfg.Addresses != nil {
 		seen := map[string]struct{}{}

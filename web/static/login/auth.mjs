@@ -11,6 +11,14 @@ function field(id, label, type) {
   return `<label for="${id}">${label}</label><input id="${id}" name="${id}" type="${type}" required${min}>`;
 }
 
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
 if (mode === 'setup') {
   subtitle.textContent = 'Create the admin username and password for this cluster.';
   fields.innerHTML = field('username', 'Username', 'text')
@@ -74,7 +82,8 @@ async function loadIdentity() {
     }
     const parts = ['<h2>This node</h2>'];
     if (id.providerId != null) {
-      parts.push(`<div class="row"><span class="label">Provider:</span> #${id.providerId}</div>`);
+      const domain = id.domain ? ` (${escapeHtml(id.domain)})` : '';
+      parts.push(`<div class="row"><span class="label">Provider:</span> #${id.providerId}${domain}</div>`);
     }
     if (id.miners && id.miners.length) {
       parts.push(`<div class="row"><span class="label">Miner${id.miners.length > 1 ? 's' : ''}:</span> ${id.miners.join(', ')}</div>`);

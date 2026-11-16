@@ -189,6 +189,7 @@ func TestWebSocketUpgradeWithoutCookie(t *testing.T) {
 func TestIdentityPublic(t *testing.T) {
 	store := NewMemStore()
 	cfg := config.DefaultCurioConfig()
+	cfg.HTTP.DomainName = "sp.example.com"
 	cfg.Addresses = config.NewDynamic([]config.CurioAddresses{{
 		MinerAddresses:   []string{"f01234"},
 		PreCommitControl: []string{"f1abc"},
@@ -201,6 +202,7 @@ func TestIdentityPublic(t *testing.T) {
 	require.NoError(t, json.NewDecoder(rr.Body).Decode(&id))
 	require.Equal(t, "curio", id.Product)
 	require.Equal(t, []string{"f01234"}, id.Miners)
+	require.Equal(t, "sp.example.com", id.Domain)
 	body := rr.Body.String()
 	require.NotContains(t, body, "f1abc")
 	require.NotContains(t, body, "preCommit")
