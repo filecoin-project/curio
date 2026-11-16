@@ -31,7 +31,9 @@ type AdminQueryResult struct {
 	Truncated    bool       `json:"Truncated,omitempty"`
 }
 
-// AdminQuery runs arbitrary SQL for trusted admin consoles.
+// AdminQuery runs SQL for the admin GUI console as curio_sql_console
+// (SELECT-only, no eth_keys). The role is ensured once on first console query.
+// Access control is the DB role, not SQL parsing.
 //
 // HarmonyQuery's Query/Exec only accept compile-time string literals
 // (rawStringOnly). Admin consoles and ANALYZE need a runtime string, so we
@@ -49,21 +51,36 @@ func AdminQuery(ctx context.Context, db *DB, sql string) (*AdminQueryResult, err
 	if len(sql) > adminQueryMaxSQLLen {
 		return nil, fmt.Errorf("query too long (max %d bytes)", adminQueryMaxSQLLen)
 	}
-	if err := validateSingleStatement(sql); err != nil {
-		return nil, err
+	if err := ensureSQLConsoleACLOnce(db); err != nil {
+		return nil, fmt.Errorf("SQL console ACL: %w", err)
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, adminQueryTimeout)
 	defer cancel()
 
 	var result *AdminQueryResult
-	var err error
-	if isAdminReadQuery(sql) {
-		result, err = adminQueryRows(ctx, db, sql)
-	} else {
-		result, err = adminQueryExec(ctx, db, sql)
-	}
+	_, err := db.BeginTransaction(ctx, func(tx *Tx) (bool, error) {
+		if err := applyAdminConsoleSession(tx); err != nil {
+			return false, err
+		}
+		var qErr error
+		result, qErr = adminQueryRowsTx(ctx, tx, sql)
+		return qErr == nil, qErr
+	})
 	return result, mapAdminQueryError(err)
+}
+
+// applyAdminConsoleSession switches this transaction only to the limited SQL
+// console role. ensureSQLConsoleACLOnce must have succeeded first. Does not
+// change the pool login role used by the rest of Curio.
+func applyAdminConsoleSession(tx *Tx) error {
+	if _, err := tx.Exec(`SET LOCAL ROLE curio_sql_console`); err != nil {
+		return fmt.Errorf("SQL console ACL role unavailable: %w", err)
+	}
+	if _, err := tx.Exec(`SET LOCAL lock_timeout = '5s'`); err != nil {
+		return err
+	}
+	return nil
 }
 
 // AdminAnalyze runs ANALYZE on schema.table. On the same connection it first
@@ -204,29 +221,8 @@ func callErr(out []reflect.Value) error {
 	return out[len(out)-1].Interface().(error)
 }
 
-func validateSingleStatement(sql string) error {
-	trimmed := strings.TrimSuffix(sql, ";")
-	if strings.Contains(trimmed, ";") {
-		return fmt.Errorf("multiple statements are not allowed")
-	}
-	return nil
-}
-
-func isAdminReadQuery(sql string) bool {
-	fields := strings.Fields(strings.TrimSpace(sql))
-	if len(fields) == 0 {
-		return false
-	}
-	switch strings.ToUpper(fields[0]) {
-	case "SELECT", "WITH", "SHOW", "EXPLAIN", "TABLE", "VALUES":
-		return true
-	default:
-		return false
-	}
-}
-
-func adminQueryRows(ctx context.Context, db *DB, sql string) (*AdminQueryResult, error) {
-	out, err := callDB(db, "Query", ctx, sql)
+func adminQueryRowsTx(ctx context.Context, tx *Tx, sql string) (*AdminQueryResult, error) {
+	out, err := callTx(tx, "Query", sql)
 	if err != nil {
 		return nil, err
 	}
@@ -293,21 +289,6 @@ func queryColumnNames(q *Query) ([]string, error) {
 		names[i] = name.String()
 	}
 	return names, nil
-}
-
-func adminQueryExec(ctx context.Context, db *DB, sql string) (*AdminQueryResult, error) {
-	out, err := callDB(db, "Exec", ctx, sql)
-	if err != nil {
-		return nil, err
-	}
-	if err := callErr(out); err != nil {
-		return nil, err
-	}
-	affected := int64(out[0].Interface().(int))
-	return &AdminQueryResult{
-		RowsAffected: affected,
-		CommandTag:   fmt.Sprintf("%d rows affected", affected),
-	}, nil
 }
 
 func formatAdminCell(v any) string {

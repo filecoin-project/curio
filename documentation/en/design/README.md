@@ -126,6 +126,7 @@ Curio is cluster software which coordinates directly and through the database. I
 - virtual machine access (ssh) for Curio, Lotus, or Yugabyte
 - Curio or Lotus' or Yugabyte's open ports (with exceptions noted by Lotus, and the Curio market node)
  -- This includes the admin web ui for Curio which exposes numerous capabilities beyond viewing.
+- On the public internet, open only TCP 80 and 443 (the HTTP API and Let's Encrypt). Keep the admin GUI, Curio API, database, and chain RPC on the trusted network.
 
 Safe to share with untrusted parties: (will not receive private information)
 - Prometheus output 

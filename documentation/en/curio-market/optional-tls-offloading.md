@@ -48,7 +48,7 @@ This setup uses nginx as a reverse proxy with TLS termination:
 * Root or sudo access.
 * Domain name(s) pointing to the reverse-proxy server's public IP (not to the Curio node).
 * Curio HTTP server running on the internal network. For PDP, see [Enable PDP](../experimental-features/Enable-PDP.md).
-* Ports `80` and `443` open on the **proxy** firewall. Curio itself should not need public 80/443.
+* Open only TCP `80` and `443` on the **proxy** firewall. Curio listens on the private network.
 
 ***
 

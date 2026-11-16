@@ -234,13 +234,14 @@ func (a *Auth) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]string{"ok": "true"})
 }
 
-// issueSession mints a signed JWT cookie. Caller already authenticated.
+// issueSession mints a signed JWT cookie bound to the request client IP.
+// Caller already authenticated.
 func (a *Auth) issueSession(w http.ResponseWriter, r *http.Request) error {
 	admin, err := a.store.GetAdmin(r.Context())
 	if err != nil {
 		return err
 	}
-	raw, err := mintSessionToken(admin)
+	raw, err := mintSessionToken(admin, clientIP(r))
 	if err != nil {
 		return err
 	}

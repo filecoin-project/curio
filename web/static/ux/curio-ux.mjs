@@ -226,28 +226,19 @@ class CurioUX extends LitElement {
       font-weight: 500;
     }
 
-    .sidebar-auth {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-      padding: 0 8px;
-      margin-top: 8px;
-    }
-
-    .sidebar-auth a,
-    .sidebar-auth button {
+    .sidebar-meta a,
+    .sidebar-meta button {
       background: none;
       border: 0;
       padding: 0;
-      text-align: left;
-      font-size: 11px;
-      color: var(--color-text-secondary, #8b949e);
+      font: inherit;
+      color: inherit;
       cursor: pointer;
       text-decoration: none;
     }
 
-    .sidebar-auth a:hover,
-    .sidebar-auth button:hover {
+    .sidebar-meta a:hover,
+    .sidebar-meta button:hover {
       color: var(--color-text-primary, #e6edf3);
       text-decoration: underline;
     }
@@ -326,7 +317,7 @@ class CurioUX extends LitElement {
     } catch (_) {
       // still leave the console
     }
-    window.location.href = '/login';
+    window.location.href = '/login/';
   }
 
   render() {
@@ -455,10 +446,8 @@ class CurioUX extends LitElement {
           <div class="sidebar-meta">
             <div><strong>${this.version || 'curio'}</strong></div>
             <div>${this.nodeCount === 1 ? '1 node' : `${this.nodeCount} nodes`}</div>
-          </div>
-          <div class="sidebar-auth">
-            <a href="/password">Change password</a>
-            <button type="button" @click=${() => this.logout()}>Log out</button>
+            <div><a href="/password/">Change password</a></div>
+            <div><button type="button" @click=${() => this.logout()}>Log out</button></div>
           </div>
           <a href="/pages/alerts/" class="alert-indicator ${this.alertCount > 0 ? 'has-alerts' : 'no-alerts'}">
             <span class="alert-dot ${this.alertCount > 0 ? 'active' : 'ok'}"></span>

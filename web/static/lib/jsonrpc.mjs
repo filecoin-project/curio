@@ -157,12 +157,18 @@ class JsonRpcClient {
 
 let authRedirectStarted = false;
 
+function isAuthPagePath(path) {
+    return path === '/login' || path.startsWith('/login/')
+        || path === '/setup' || path.startsWith('/setup/')
+        || path === '/password' || path.startsWith('/password/');
+}
+
 async function redirectIfUnauthenticated() {
     if (authRedirectStarted) {
         return;
     }
     const path = window.location.pathname || '';
-    if (path === '/login' || path === '/setup' || path === '/password') {
+    if (isAuthPagePath(path)) {
         return;
     }
     try {
@@ -173,12 +179,12 @@ async function redirectIfUnauthenticated() {
                 return;
             }
             authRedirectStarted = true;
-            window.location.href = body?.configured ? '/login' : '/setup';
+            window.location.href = body?.configured ? '/login/' : '/setup/';
             return;
         }
         if (res.status === 401) {
             authRedirectStarted = true;
-            window.location.href = '/login';
+            window.location.href = '/login/';
         }
     } catch (_) {
         // backend may be unavailable during static-only dev
@@ -186,12 +192,15 @@ async function redirectIfUnauthenticated() {
 }
 
 async function init() {
+    await redirectIfUnauthenticated();
+    if (authRedirectStarted) {
+        return;
+    }
     try {
         const client = await JsonRpcClient.getInstance();
         console.log("webrpc backend:", await client.call('Version', []));
     } catch (_) {
-        // backend may be unavailable during static-only dev; check auth redirect
-        await redirectIfUnauthenticated();
+        // backend may be unavailable during static-only dev
     }
 }
 

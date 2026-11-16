@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/hex"
+	"net"
 	"net/http"
 	"time"
 
@@ -19,17 +20,19 @@ const (
 // guiSessionClaims is the JWT payload for an admin GUI session cookie.
 type guiSessionClaims struct {
 	Salt string `json:"salt"`
+	IP   string `json:"ip"`
 	jwt.Payload
 }
 
-// mintSessionToken signs a JWT with the admin session key; salt must match for verify.
-func mintSessionToken(admin Admin) (string, error) {
+// mintSessionToken signs a JWT bound to admin session key/salt and client IP.
+func mintSessionToken(admin Admin, ip string) (string, error) {
 	if len(admin.SessionKey) == 0 || len(admin.SessionSalt) == 0 {
 		return "", xerrors.Errorf("missing session signing material")
 	}
 	now := time.Now()
 	claims := guiSessionClaims{
 		Salt: hex.EncodeToString(admin.SessionSalt),
+		IP:   ip,
 		Payload: jwt.Payload{
 			IssuedAt:       jwt.NumericDate(now),
 			ExpirationTime: jwt.NumericDate(now.Add(sessionTTL)),
@@ -42,8 +45,9 @@ func mintSessionToken(admin Admin) (string, error) {
 	return string(token), nil
 }
 
-// verifySessionToken reports whether raw is a valid unexpired JWT for admin's key+salt.
-func verifySessionToken(admin Admin, raw string) bool {
+// verifySessionToken reports whether raw is a valid unexpired JWT for admin's
+// key+salt and was minted for ip.
+func verifySessionToken(admin Admin, raw, ip string) bool {
 	if raw == "" || len(admin.SessionKey) == 0 || len(admin.SessionSalt) == 0 {
 		return false
 	}
@@ -54,7 +58,19 @@ func verifySessionToken(admin Admin, raw string) bool {
 		return false
 	}
 	want := hex.EncodeToString(admin.SessionSalt)
-	return subtle.ConstantTimeCompare([]byte(claims.Salt), []byte(want)) == 1
+	if subtle.ConstantTimeCompare([]byte(claims.Salt), []byte(want)) != 1 {
+		return false
+	}
+	return sessionIPsEqual(claims.IP, ip)
+}
+
+// sessionIPsEqual compares minted and request IPs. Parses when possible so
+// equivalent forms match; otherwise constant-time string compare.
+func sessionIPsEqual(minted, got string) bool {
+	if a, b := net.ParseIP(minted), net.ParseIP(got); a != nil && b != nil {
+		return a.Equal(b)
+	}
+	return subtle.ConstantTimeCompare([]byte(minted), []byte(got)) == 1
 }
 
 // setSessionCookie writes the session cookie. secure is true when the GUI serves TLS.
@@ -92,7 +108,7 @@ func sessionRaw(r *http.Request) string {
 	return c.Value
 }
 
-// sessionAuthenticated loads admin secrets and verifies the request cookie.
+// sessionAuthenticated loads admin secrets and verifies the request cookie and IP.
 func (a *Auth) sessionAuthenticated(ctx context.Context, r *http.Request) bool {
 	raw := sessionRaw(r)
 	if raw == "" {
@@ -102,5 +118,5 @@ func (a *Auth) sessionAuthenticated(ctx context.Context, r *http.Request) bool {
 	if err != nil {
 		return false
 	}
-	return verifySessionToken(admin, raw)
+	return verifySessionToken(admin, raw, clientIP(r))
 }

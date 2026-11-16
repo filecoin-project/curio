@@ -62,6 +62,7 @@ func postJSON(t *testing.T, h http.Handler, path string, body any, cookies []*ht
 	req := httptest.NewRequest(http.MethodPost, path, &buf)
 	req.Header.Set("Content-Type", "application/json")
 	req.Host = "localhost:4701"
+	req.RemoteAddr = "127.0.0.1:12345"
 	for _, c := range cookies {
 		req.AddCookie(c)
 	}
@@ -74,6 +75,7 @@ func get(t *testing.T, h http.Handler, path string, cookies []*http.Cookie, acce
 	t.Helper()
 	req := httptest.NewRequest(http.MethodGet, path, nil)
 	req.Host = "localhost:4701"
+	req.RemoteAddr = "127.0.0.1:12345"
 	if accept != "" {
 		req.Header.Set("Accept", accept)
 	}
@@ -104,9 +106,9 @@ func TestUnauthenticatedDenied(t *testing.T) {
 		require.Equal(t, http.StatusUnauthorized, rr.Code, path)
 	}
 
+	// Static UI is public; JS routes to setup/login via /api/auth/status.
 	rr := get(t, h, "/pages/tasks/", nil, "text/html")
-	require.Equal(t, http.StatusFound, rr.Code)
-	require.Equal(t, "/setup", rr.Header().Get("Location"))
+	require.Equal(t, http.StatusOK, rr.Code)
 }
 
 func TestSetupLoginAndAccess(t *testing.T) {
@@ -132,7 +134,11 @@ func TestSetupLoginAndAccess(t *testing.T) {
 
 	rrPage := get(t, h, "/setup", nil, "text/html")
 	require.Equal(t, http.StatusFound, rrPage.Code)
-	require.Equal(t, "/login", rrPage.Header().Get("Location"))
+	require.Equal(t, "/setup/", rrPage.Header().Get("Location"))
+
+	rrLogin := get(t, h, "/login", nil, "text/html")
+	require.Equal(t, http.StatusFound, rrLogin.Code)
+	require.Equal(t, "/login/", rrLogin.Header().Get("Location"))
 
 	// Even an authenticated session cannot re-run first-time setup.
 	rr3 := postJSON(t, h, "/api/auth/setup", map[string]string{
@@ -194,13 +200,12 @@ func TestIdentityPublic(t *testing.T) {
 	var id Identity
 	require.NoError(t, json.NewDecoder(rr.Body).Decode(&id))
 	require.Equal(t, "curio", id.Product)
-	require.NotEmpty(t, id.Miners)
-	require.Equal(t, []string{"f01234"}, id.Miners[0].MinerAddresses)
-	require.Equal(t, []string{"f1abc"}, id.Miners[0].PreCommitControl)
-	require.Nil(t, id.PDPWallet)
+	require.Equal(t, []string{"f01234"}, id.Miners)
 	body := rr.Body.String()
+	require.NotContains(t, body, "f1abc")
+	require.NotContains(t, body, "preCommit")
+	require.NotContains(t, body, "pdpWallet")
 	require.NotContains(t, body, "private")
-	require.NotContains(t, body, "private_key")
 }
 
 func TestChangePassword(t *testing.T) {
@@ -308,4 +313,31 @@ func TestBcryptCost(t *testing.T) {
 	cost, err := bcrypt.Cost(hash)
 	require.NoError(t, err)
 	require.Equal(t, bcryptCost, cost)
+}
+
+func TestSessionBoundToClientIP(t *testing.T) {
+	store := NewMemStore()
+	_, h := testAuth(t, store, nil)
+	rr := postJSON(t, h, "/api/auth/setup", map[string]string{
+		"username": "admin",
+		"password": "password12345",
+		"confirm":  "password12345",
+	}, nil)
+	require.Equal(t, http.StatusOK, rr.Code)
+	cookies := sessionCookies(rr)
+	require.NotEmpty(t, cookies)
+
+	ok := get(t, h, "/api/webrpc/v0", cookies, "application/json")
+	require.Equal(t, http.StatusOK, ok.Code)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/webrpc/v0", nil)
+	req.Host = "localhost:4701"
+	req.RemoteAddr = "10.0.0.2:9999"
+	req.Header.Set("Accept", "application/json")
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
+	other := httptest.NewRecorder()
+	h.ServeHTTP(other, req)
+	require.Equal(t, http.StatusUnauthorized, other.Code)
 }

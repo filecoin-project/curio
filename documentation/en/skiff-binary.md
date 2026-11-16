@@ -31,7 +31,9 @@ With defaults:
 - **Public PDP API**: `HTTP.ListenAddress` / `HTTP.DomainName` from the `base` config layer (`80`/`443` only)
 - **Machine identity**: `127.0.0.1:skiff` (harmony task scheduling; not a public listener)
 
-Open **only TCP 80 and 443** on your public firewall for the PDP API. The admin GUI on port `4701` is HTTPS-only and requires login after first-run setup — keep it on localhost (`127.0.0.1:4701`) and never expose it without need. When `HTTP.DomainName` is set and Curio terminates TLS, `https://<DomainName>:4701` uses the same Let's Encrypt certificate; other names/IPs use a self-signed certificate.
+Open **TCP 80 and 443** on your public firewall for the PDP API. When this host also runs Forest, open Forest's public libp2p ports as well: TCP and QUIC over UDP. Forest's default listen addresses are ephemeral (`/ip4/0.0.0.0/tcp/0` and `/ip4/0.0.0.0/udp/0/quic-v1`); pin them with `--p2p-listen-address` and allow that TCP port and UDP port. The [Curio-PDP](curio-pdp.md) Compose stack runs Forest this way. Keep Forest RPC on the private network.
+
+The admin GUI on port `4701` is HTTPS-only and requires login after first-run setup — keep it on localhost (`127.0.0.1:4701`) and never expose it without need. When `HTTP.DomainName` is set and Curio terminates TLS, `https://<DomainName>:4701` uses the same Let's Encrypt certificate; other names/IPs use a self-signed certificate.
 
 The admin GUI hides PoRep, sealing, and storage-market navigation when running Skiff. It shows PDP-focused pages (overview, PDP, config, wallets, IPNI, alerts) and displays **Curio PDP** as the product name in the navigation chrome.
 

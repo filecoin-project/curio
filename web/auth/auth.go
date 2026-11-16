@@ -2,6 +2,7 @@ package auth
 
 import (
 	"net/http"
+	"sync"
 
 	"github.com/gorilla/mux"
 
@@ -14,6 +15,9 @@ type Auth struct {
 	deps          *deps.Deps
 	fails         *failLimiter
 	secureCookies bool
+
+	identityOnce sync.Once
+	identity     Identity
 }
 
 // Options configures Auth construction.
@@ -33,11 +37,16 @@ func New(opts Options) *Auth {
 	}
 }
 
-// Register mounts setup/login/password pages and auth API routes on r.
+// Register mounts auth API routes and bare-path redirects to static auth pages.
 func (a *Auth) Register(r *mux.Router) {
-	r.HandleFunc("/setup", a.handleSetupPage).Methods(http.MethodGet)
-	r.HandleFunc("/login", a.handleLoginPage).Methods(http.MethodGet)
-	r.HandleFunc("/password", a.handlePasswordPage).Methods(http.MethodGet)
+	redir := func(to string) http.HandlerFunc {
+		return func(w http.ResponseWriter, req *http.Request) {
+			http.Redirect(w, req, to, http.StatusFound)
+		}
+	}
+	r.HandleFunc("/login", redir("/login/")).Methods(http.MethodGet)
+	r.HandleFunc("/setup", redir("/setup/")).Methods(http.MethodGet)
+	r.HandleFunc("/password", redir("/password/")).Methods(http.MethodGet)
 
 	r.HandleFunc("/api/auth/status", a.handleStatus).Methods(http.MethodGet)
 	r.HandleFunc("/api/auth/identity", a.handleIdentity).Methods(http.MethodGet)
