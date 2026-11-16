@@ -66,6 +66,16 @@ func (a *Auth) handleSetup(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusForbidden, "origin not allowed")
 		return
 	}
+	has, err := a.store.HasAdmin(r.Context())
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	if has {
+		writeJSONError(w, http.StatusConflict, "admin already configured")
+		return
+	}
+
 	var body credentialsBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSONError(w, http.StatusBadRequest, "invalid json")

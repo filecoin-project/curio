@@ -40,18 +40,19 @@ func (a *Auth) Middleware(next http.Handler) http.Handler {
 }
 
 // isPublic reports routes that must work before authentication.
+// Setup routes are public only until the singleton admin exists.
 func (a *Auth) isPublic(r *http.Request) bool {
 	path := r.URL.Path
 	switch {
 	case path == "/setup" && r.Method == http.MethodGet:
-		return true
+		return a.setupStillOpen(r)
+	case path == "/api/auth/setup" && r.Method == http.MethodPost:
+		return a.setupStillOpen(r)
 	case path == "/login" && r.Method == http.MethodGet:
 		return true
 	case path == "/api/auth/status" && r.Method == http.MethodGet:
 		return true
 	case path == "/api/auth/identity" && r.Method == http.MethodGet:
-		return true
-	case path == "/api/auth/setup" && r.Method == http.MethodPost:
 		return true
 	case path == "/api/auth/login" && r.Method == http.MethodPost:
 		return true
@@ -60,6 +61,15 @@ func (a *Auth) isPublic(r *http.Request) bool {
 	default:
 		return false
 	}
+}
+
+// setupStillOpen is true when no admin row exists yet. Errors fail closed (not public).
+func (a *Auth) setupStillOpen(r *http.Request) bool {
+	has, err := a.store.HasAdmin(r.Context())
+	if err != nil {
+		return false
+	}
+	return !has
 }
 
 // wantsHTML prefers a redirect for browser navigations over a JSON 401.

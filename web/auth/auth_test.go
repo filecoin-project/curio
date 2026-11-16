@@ -122,12 +122,25 @@ func TestSetupLoginAndAccess(t *testing.T) {
 	cookies := sessionCookies(rr)
 	require.NotEmpty(t, cookies)
 
+	// Unauthenticated callers cannot reach setup once configured.
 	rr2 := postJSON(t, h, "/api/auth/setup", map[string]string{
 		"username": "other",
 		"password": "password12345",
 		"confirm":  "password12345",
 	}, nil)
-	require.Equal(t, http.StatusConflict, rr2.Code)
+	require.Equal(t, http.StatusUnauthorized, rr2.Code)
+
+	rrPage := get(t, h, "/setup", nil, "text/html")
+	require.Equal(t, http.StatusFound, rrPage.Code)
+	require.Equal(t, "/login", rrPage.Header().Get("Location"))
+
+	// Even an authenticated session cannot re-run first-time setup.
+	rr3 := postJSON(t, h, "/api/auth/setup", map[string]string{
+		"username": "other",
+		"password": "password12345",
+		"confirm":  "password12345",
+	}, cookies)
+	require.Equal(t, http.StatusConflict, rr3.Code)
 
 	for _, path := range []string{"/api/webrpc/v0", "/api/config/layers", "/debug/pprof/", "/pages/tasks/"} {
 		ok := get(t, h, path, cookies, "application/json")
