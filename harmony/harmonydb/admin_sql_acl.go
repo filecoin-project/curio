@@ -10,9 +10,10 @@ import (
 	"golang.org/x/xerrors"
 )
 
-// sqlConsoleRole is the NOLOGIN role used for AdminQuery. Created on first
-// console query with SELECT on schema tables and no privileges on eth_keys.
-const sqlConsoleRole = "curio_sql_console"
+// sqlConsoleUser is a LOGIN role used only by AdminQuery. It has SELECT on
+// schema tables and no privileges on eth_keys. Curio's pool login user is
+// never granted this role; the console assumes it via SET SESSION AUTHORIZATION.
+const sqlConsoleUser = "curio_sql_console"
 
 const sqlConsoleACLTimeout = 30 * time.Second
 
@@ -21,7 +22,7 @@ var (
 	sqlConsoleACLErr  error
 )
 
-// ensureSQLConsoleACLOnce creates/refreshes the SQL console role on first use.
+// ensureSQLConsoleACLOnce creates/refreshes the SQL console user on first use.
 func ensureSQLConsoleACLOnce(db *DB) error {
 	sqlConsoleACLOnce.Do(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), sqlConsoleACLTimeout)
@@ -31,8 +32,8 @@ func ensureSQLConsoleACLOnce(db *DB) error {
 	return sqlConsoleACLErr
 }
 
-// ensureSQLConsoleACL creates/refreshes the SQL console role ACLs.
-// Safe to call repeatedly: grants are re-applied and eth_keys stays revoked.
+// ensureSQLConsoleACL creates the restricted console LOGIN user and its ACLs.
+// Does not grant that user to Curio's shared pool role.
 func ensureSQLConsoleACL(ctx context.Context, db *DB) error {
 	if db == nil {
 		return fmt.Errorf("database not configured")
@@ -41,15 +42,33 @@ func ensureSQLConsoleACL(ctx context.Context, db *DB) error {
 	var exists bool
 	if err := db.QueryRow(ctx, `
 		SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'curio_sql_console')`).Scan(&exists); err != nil {
-		return xerrors.Errorf("check SQL console role: %w", err)
+		return xerrors.Errorf("check SQL console user: %w", err)
 	}
 	if !exists {
 		if db.ReadOnly() {
-			return xerrors.Errorf("SQL console role %s is missing (readonly mode cannot create it)", sqlConsoleRole)
+			return xerrors.Errorf("SQL console user %s is missing (readonly mode cannot create it)", sqlConsoleUser)
 		}
+		// LOGIN so SET SESSION AUTHORIZATION can target it. NOINHERIT so even
+		// if someone later grants this user other roles, it does not pick them up.
 		if _, err := db.Exec(ctx, `
-			CREATE ROLE curio_sql_console NOLOGIN NOSUPERUSER`); err != nil {
-			return xerrors.Errorf("create SQL console role: %w", err)
+			CREATE ROLE curio_sql_console
+				LOGIN
+				NOSUPERUSER
+				NOCREATEDB
+				NOCREATEROLE
+				NOINHERIT`); err != nil {
+			return xerrors.Errorf("create SQL console user: %w", err)
+		}
+	} else if !db.ReadOnly() {
+		// Upgrade older NOLOGIN installs and keep privilege flags tight.
+		if err := execRuntime(ctx, db, `
+			ALTER ROLE curio_sql_console
+				LOGIN
+				NOSUPERUSER
+				NOCREATEDB
+				NOCREATEROLE
+				NOINHERIT`); err != nil {
+			return xerrors.Errorf("alter SQL console user: %w", err)
 		}
 	}
 
@@ -61,14 +80,14 @@ func ensureSQLConsoleACL(ctx context.Context, db *DB) error {
 		schema = "public"
 	}
 	sch := pgx.Identifier{schema}.Sanitize()
-	role := pgx.Identifier{sqlConsoleRole}.Sanitize()
+	user := pgx.Identifier{sqlConsoleUser}.Sanitize()
 
 	for _, q := range []string{
-		fmt.Sprintf("GRANT USAGE ON SCHEMA %s TO %s", sch, role),
-		fmt.Sprintf("GRANT SELECT ON ALL TABLES IN SCHEMA %s TO %s", sch, role),
-		fmt.Sprintf("GRANT SELECT ON ALL SEQUENCES IN SCHEMA %s TO %s", sch, role),
-		fmt.Sprintf("ALTER DEFAULT PRIVILEGES IN SCHEMA %s GRANT SELECT ON TABLES TO %s", sch, role),
-		fmt.Sprintf("ALTER DEFAULT PRIVILEGES IN SCHEMA %s GRANT SELECT ON SEQUENCES TO %s", sch, role),
+		fmt.Sprintf("GRANT USAGE ON SCHEMA %s TO %s", sch, user),
+		fmt.Sprintf("GRANT SELECT ON ALL TABLES IN SCHEMA %s TO %s", sch, user),
+		fmt.Sprintf("GRANT SELECT ON ALL SEQUENCES IN SCHEMA %s TO %s", sch, user),
+		fmt.Sprintf("ALTER DEFAULT PRIVILEGES IN SCHEMA %s GRANT SELECT ON TABLES TO %s", sch, user),
+		fmt.Sprintf("ALTER DEFAULT PRIVILEGES IN SCHEMA %s GRANT SELECT ON SEQUENCES TO %s", sch, user),
 	} {
 		if err := execRuntime(ctx, db, q); err != nil {
 			return xerrors.Errorf("SQL console ACL grant: %w", err)
@@ -84,24 +103,20 @@ func ensureSQLConsoleACL(ctx context.Context, db *DB) error {
 		return xerrors.Errorf("check eth_keys: %w", err)
 	}
 	if hasEthKeys {
-		revoke := "REVOKE ALL ON TABLE " + pgx.Identifier{schema, "eth_keys"}.Sanitize() + " FROM " + role
+		revoke := "REVOKE ALL ON TABLE " + pgx.Identifier{schema, "eth_keys"}.Sanitize() + " FROM " + user
 		if err := execRuntime(ctx, db, revoke); err != nil {
-			return xerrors.Errorf("revoke eth_keys from SQL console role: %w", err)
+			return xerrors.Errorf("revoke eth_keys from SQL console user: %w", err)
 		}
 	}
 
-	// Membership is required for non-superusers to SET ROLE. This does not
-	// strip privileges from Curio's login role; AdminQuery still restricts
-	// only via SET LOCAL ROLE inside that transaction.
-	var user string
-	if err := db.QueryRow(ctx, `SELECT current_user`).Scan(&user); err != nil {
+	// Drop any prior membership of the pool login user in curio_sql_console so
+	// console privileges are not inherited by normal Curio queries.
+	var poolUser string
+	if err := db.QueryRow(ctx, `SELECT current_user`).Scan(&poolUser); err != nil {
 		return xerrors.Errorf("current_user: %w", err)
 	}
-
-	// Allow this user to `SET ROLE curio_sql_console``
-	member := "GRANT " + role + " TO " + pgx.Identifier{user}.Sanitize()
-	if err := execRuntime(ctx, db, member); err != nil {
-		return xerrors.Errorf("grant SQL console role membership: %w", err)
+	if poolUser != sqlConsoleUser {
+		_ = execRuntime(ctx, db, "REVOKE "+user+" FROM "+pgx.Identifier{poolUser}.Sanitize())
 	}
 	return nil
 }

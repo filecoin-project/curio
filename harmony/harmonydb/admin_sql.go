@@ -31,9 +31,10 @@ type AdminQueryResult struct {
 	Truncated    bool       `json:"Truncated,omitempty"`
 }
 
-// AdminQuery runs SQL for the admin GUI console as curio_sql_console
-// (SELECT-only, no eth_keys). The role is ensured once on first console query.
-// Access control is the DB role, not SQL parsing.
+// AdminQuery runs SQL for the admin GUI console as the curio_sql_console
+// LOGIN user (SELECT-only, no eth_keys). That user is ensured once on first
+// console query. Access control is DB privileges after SESSION AUTHORIZATION,
+// not SQL parsing.
 //
 // HarmonyQuery's Query/Exec only accept compile-time string literals
 // (rawStringOnly). Admin consoles and ANALYZE need a runtime string, so we
@@ -70,12 +71,13 @@ func AdminQuery(ctx context.Context, db *DB, sql string) (*AdminQueryResult, err
 	return result, mapAdminQueryError(err)
 }
 
-// applyAdminConsoleSession switches this transaction only to the limited SQL
-// console role. ensureSQLConsoleACLOnce must have succeeded first. Does not
-// change the pool login role used by the rest of Curio.
+// applyAdminConsoleSession runs the rest of this transaction as the restricted
+// curio_sql_console user. ensureSQLConsoleACLOnce must have succeeded first.
+// Requires the pool login role to be allowed to SET SESSION AUTHORIZATION
+// (typically a superuser). Resets at transaction end (SET LOCAL).
 func applyAdminConsoleSession(tx *Tx) error {
-	if _, err := tx.Exec(`SET LOCAL ROLE curio_sql_console`); err != nil {
-		return fmt.Errorf("SQL console ACL role unavailable: %w", err)
+	if _, err := tx.Exec(`SET LOCAL SESSION AUTHORIZATION curio_sql_console`); err != nil {
+		return fmt.Errorf("SQL console user unavailable: %w", err)
 	}
 	if _, err := tx.Exec(`SET LOCAL lock_timeout = '5s'`); err != nil {
 		return err
