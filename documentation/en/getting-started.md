@@ -39,13 +39,17 @@ Curio requires access to at least one Filecoin chain node like [Lotus](https://l
 
 ## Network
 
-Following port must be opened on each Curio node for API and GUI access
+The following ports are used by Curio. Restrict API and GUI access to trusted hosts, and open only the ports needed for each node's enabled services.
 
 | Port  | Details                                                          |
 | ----- | ---------------------------------------------------------------- |
 | 12300 | Default API port                                                 |
-| 4701  | Default GUI port. Not all Curio nodes are required to enable GUI |
+| 4701  | Default admin GUI port; trusted administrators only. Optional.     |
 | 12310 | HTTP server port                                                 |
+
+{% hint style="danger" %}
+**Do not open port `4701` to the public internet or untrusted users.** The GUI and its APIs have no authentication and provide administrative control of the cluster. See [GUI access and security](curio-gui.md#accessing-curio-gui) for binding and remote access guidance.
+{% endhint %}
 
 [Curio-PDP](curio-pdp.md) uses different public ports: open only TCP **80** and **443**. The admin GUI stays on localhost port **4701**.
 
