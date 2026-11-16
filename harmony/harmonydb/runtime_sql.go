@@ -44,7 +44,8 @@ func ClonePoolConfig(db *DB, username, password string) (*pgxpool.Config, error)
 	cfg.ConnConfig.User = username
 	cfg.ConnConfig.Password = password
 	cfg.AfterConnect = nil
-	cfg.BeforeAcquire = nil
+	cfg.PrepareConn = nil
+	cfg.BeforeAcquire = nil //nolint:staticcheck // pool still runs a copied BeforeAcquire when PrepareConn is nil
 	cfg.AfterRelease = nil
 	cfg.BeforeClose = nil
 	if cfg.ConnConfig != nil {
