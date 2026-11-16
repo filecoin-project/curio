@@ -10,7 +10,9 @@ description: >-
 
 The default port is `4701` to access the Curio GUI. To enable GUI on a Curio node user must start a Curio node with `gui` layer. This is a pre-built layer shipped with Curio binaries.
 
-Reach the GUI on localhost (`127.0.0.1:4701`) or through an SSH tunnel or Tailscale connection. On the public firewall, open only TCP **80** and **443** for the HTTP API.
+{% hint style="warning" %}
+Prefer localhost (`127.0.0.1:4701`), an SSH tunnel, or a private network / VPN for GUI access. Do not expose port `4701` on the public firewall. On the public firewall, open only TCP **80** and **443** for the HTTP API.
+{% endhint %}
 
 On first visit, the GUI requires creating an admin username and password. After that, every page and API call requires that login. Use **Change password** in the sidebar to rotate credentials. The GUI listens with HTTPS only on port `4701`. When the public HTTP server has a `DomainName` and terminates TLS itself (`DelegateTLS = false`), requests for that hostname use the same Let's Encrypt certificate (`https://<DomainName>:4701`). Any other hostname or IP gets a self-signed certificate (browsers will warn until you accept it).
 
