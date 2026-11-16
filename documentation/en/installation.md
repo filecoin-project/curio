@@ -244,7 +244,7 @@ You should now have Curio installed. You can now [finish setting up the Curio no
 You can build the Curio executables from source by following these steps.
 
 {% hint style="warning" %}
-Only Apple Silicon (M1 and later) Macs are supported. Intel Macs are not supported, because [filecoin-ffi dropped darwin/amd64 support](https://github.com/filecoin-project/filecoin-ffi/issues/601).
+Only Apple Silicon (M1 and later) Macs are supported.
 {% endhint %}
 
 ### Software dependencies
