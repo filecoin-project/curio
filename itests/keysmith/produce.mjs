@@ -1,8 +1,6 @@
 // Produce a FEE object and a FOC grant presentation with @filoz/keysmith
 // and filecoin-encryption-envelope from the synapse-sdk checkout this file
 // is copied into. Stdout is one JSON object. Diagnostics go to stderr.
-import { Readable } from 'node:stream'
-
 import * as fee from 'filecoin-encryption-envelope'
 import { privateKeyToAccount } from 'viem/accounts'
 import * as Keysmith from '@filoz/keysmith'
@@ -19,18 +17,10 @@ const chainId = 314159n
 const now = Math.floor(Date.now() / 1000)
 const ref = { owner: owner.address, groupKeyId: '0x00112233445566778899aabbccddeeff' }
 
-// Run bytes through a FEE stream and collect the output.
+// Collect the bytes a transform stream writes for one input chunk.
 async function through(bytes, pair) {
-  const reader = Readable.toWeb(Readable.from([bytes])).pipeThrough(pair).getReader()
-  const chunks = []
-  for (let next = await reader.read(); !next.done; next = await reader.read()) chunks.push(next.value)
-  const out = new Uint8Array(chunks.reduce((n, chunk) => n + chunk.length, 0))
-  let at = 0
-  for (const chunk of chunks) {
-    out.set(chunk, at)
-    at += chunk.length
-  }
-  return out
+  const stream = ReadableStream.from([bytes]).pipeThrough(pair)
+  return new Uint8Array(await new Response(stream).arrayBuffer())
 }
 
 const hex = (bytes) => Buffer.from(bytes).toString('hex')
