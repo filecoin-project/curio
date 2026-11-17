@@ -274,9 +274,17 @@ func TestDealbotRootReadsAnotherOwnersPiece(t *testing.T) {
 	require.ErrorContains(t, check(), "another owner or group key")
 
 	prev := extraGrantRoot
-	t.Cleanup(func() { extraGrantRoot = prev })
+	prevAllow := privateDatasetRepair.Load()
+	t.Cleanup(func() {
+		extraGrantRoot = prev
+		privateDatasetRepair.Store(prevAllow)
+	})
 	extraGrantRoot = owner
 	require.NoError(t, check())
+
+	SetPrivateDatasetRepair(false)
+	require.ErrorContains(t, check(), "another owner or group key")
+	SetPrivateDatasetRepair(true)
 
 	grouped := grant
 	grouped.links = []claimLink{{

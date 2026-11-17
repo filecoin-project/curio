@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -41,6 +42,20 @@ const (
 // extraGrantRoot is a grant-root wallet accepted besides the piece owner.
 // Tests replace it. Production is the dealbot wallet, on every network.
 var extraGrantRoot = common.HexToAddress(DEALBOT_ROOT)
+
+// privateDatasetRepair is set from HTTP.PrivateDatasetRepair.
+// It starts true: a dealbot grant may read another owner's piece.
+var privateDatasetRepair atomic.Bool
+
+func init() {
+	privateDatasetRepair.Store(true)
+}
+
+// SetPrivateDatasetRepair records whether a dealbot grant may read another owner's piece.
+// The caller has already read HTTP.PrivateDatasetRepair.
+func SetPrivateDatasetRepair(allow bool) {
+	privateDatasetRepair.Store(allow)
+}
 
 // PieceLabels are the foc fields a provider read from a piece envelope.
 // An empty Owner means foc/own was absent, so the piece is not gated.
@@ -147,6 +162,7 @@ func VerifyPresentation(presentation, pieceCID []byte, piece PieceLabels, blockC
 	if piece.Owner != "" {
 		sameOwner := strings.EqualFold(piece.Owner, claim.Owner.Hex())
 		// The dealbot root is not the piece's groupKey owner, so that comparison does not apply.
+		// PrivateDatasetRepair is what admits that root.
 		if sameOwner {
 			groupKey, err := groupKeyID(piece.GroupKey)
 			if err != nil {
@@ -155,7 +171,7 @@ func VerifyPresentation(presentation, pieceCID []byte, piece PieceLabels, blockC
 			if groupKey != "0x"+hex.EncodeToString(claim.groupKey) {
 				return VerifiedClaim{}, refuse("The piece belongs to another owner or group key")
 			}
-		} else if claim.Owner != extraGrantRoot {
+		} else if !privateDatasetRepair.Load() || claim.Owner != extraGrantRoot {
 			return VerifiedClaim{}, refuse("The piece belongs to another owner or group key")
 		}
 		ok, err := reaches(claim.Node, piece)

@@ -149,7 +149,8 @@ func DefaultCurioConfig() *CurioConfig {
 				BrotliLevel:  4,
 				DeflateLevel: 6,
 			},
-			DenylistServers: NewDynamic([]string{"https://badbits.dwebops.pub/denylist.json"}),
+			DenylistServers:      NewDynamic([]string{"https://badbits.dwebops.pub/denylist.json"}),
+			PrivateDatasetRepair: NewDynamic(true),
 		},
 	}
 }
@@ -1030,6 +1031,13 @@ type HTTPConfig struct {
 	// will receive HTTP 503. (Default: ["https://badbits.dwebops.pub/denylist.json"])
 	// Updates will affect running instances.
 	DenylistServers *Dynamic[[]string]
+
+	// PrivateDatasetRepair lets a FOC grant rooted by the dealbot
+	// wallet read a piece whose foc/own names another wallet. Turn this off if
+	// that wallet's private key has leaked or FOC is untrusted.
+	// The piece owner can still read their own piece. (Default: true)
+	// Updates will affect running instances.
+	PrivateDatasetRepair *Dynamic[bool]
 }
 
 // CompressionConfig holds the compression levels for supported types
