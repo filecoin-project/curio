@@ -18,6 +18,7 @@ import (
 	"github.com/filecoin-project/curio/lib/cachedreader"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/market/indexstore"
+	"github.com/filecoin-project/curio/pdp/pieceacl"
 	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
@@ -82,6 +83,64 @@ func (P *PDPIndexingV0Task) Do(ctx context.Context, taskID harmonytask.TaskID, s
 		return false, xerrors.Errorf("converting piece CID to v2: %w", err)
 	}
 
+	// A restricted piece is one CAR. Its block index stays private.
+	inOpen, inACL, err := P.cpr.PieceInSpaces(ctx, pcid2)
+	if err != nil {
+		return false, xerrors.Errorf("checking piece hash spaces: %w", err)
+	}
+	var unplacedRestricted bool
+	if !inOpen && !inACL {
+		links, err := pieceacl.ByPDPPieceRefID(ctx, P.db, task.ID)
+		if err != nil {
+			return false, err
+		}
+		unplacedRestricted = pieceacl.EverySecured(links)
+	}
+	if skipSubpieceIndex(inOpen, inACL, unplacedRestricted) {
+		has, err := P.indexStore.CheckHasPrivatePiece(ctx, pcid2)
+		if err != nil {
+			return false, xerrors.Errorf("checking private piece index: %w", err)
+		}
+		if has {
+			if err := P.recordCompletion(ctx, taskID, task.ID, false); err != nil {
+				return false, err
+			}
+			return true, nil
+		}
+
+		reader, _, _, err := P.cpr.ReadPieceOrACL(ctx, pcid2, false)
+		if err != nil {
+			return false, xerrors.Errorf("getting piece reader: %w", err)
+		}
+		defer func() {
+			_ = reader.Close()
+		}()
+
+		startTime := time.Now()
+		chanSize := P.insertConcurrency * P.insertBatchSize
+		recs := make(chan indexstore.Record, chanSize)
+		eg, addFail := startIndexWriters(func() error {
+			return P.indexStore.AddPrivateIndex(ctx, pcid2, recs)
+		}, nil)
+
+		_, blocks, interrupted, err := IndexCAR(reader, 4<<20, recs, addFail)
+		if err != nil {
+			close(recs)
+			_ = eg.Wait()
+			return false, xerrors.Errorf("indexing private CAR: %w", err)
+		}
+		close(recs)
+		if err := eg.Wait(); err != nil {
+			return false, xerrors.Errorf("adding private indexes (interrupted %t): %w", interrupted, err)
+		}
+		if err := P.recordCompletion(ctx, taskID, task.ID, true); err != nil {
+			return false, err
+		}
+
+		log.Infow("Private piece indexed", "piece_cid", pcid2, "id", task.ID, "blocks", blocks, "seconds", time.Since(startTime).Seconds())
+		return true, nil
+	}
+
 	hasIndex, err := P.indexStore.CheckHasPiece(ctx, pcid2)
 	if err != nil {
 		return false, xerrors.Errorf("checking if piece is already indexed: %w", err)
@@ -105,8 +164,7 @@ func (P *PDPIndexingV0Task) Do(ctx context.Context, taskID harmonytask.TaskID, s
 		return true, nil
 	}
 
-	// Fetch with pcid2, it should automatically give us correct pieceReader
-	reader, _, err := P.cpr.GetSharedPieceReader(ctx, pcid2, false)
+	reader, _, _, err := P.cpr.ReadPieceOrACL(ctx, pcid2, false)
 	if err != nil {
 		return false, xerrors.Errorf("getting piece reader: %w", err)
 	}
@@ -125,17 +183,20 @@ func (P *PDPIndexingV0Task) Do(ctx context.Context, taskID harmonytask.TaskID, s
 	var interrupted bool
 
 	aggRecs := make(chan indexstore.Record, chanSize)
+	addAggregate := func() error {
+		return P.indexStore.InsertAggregateIndex(ctx, pcid2, aggRecs)
+	}
 	eg, addFail := startIndexWriters(func() error {
 		return P.indexStore.AddIndex(ctx, pcid2, recs)
-	}, func() error {
-		return P.indexStore.InsertAggregateIndex(ctx, pcid2, aggRecs)
-	})
+	}, addAggregate)
 
 	blocks, interrupted, err = IndexPDPv0(pcid2, reader, task.PieceSize, recs, aggRecs, addFail)
 	if err != nil {
 		// Indexing itself failed, stop early
 		close(recs) // still safe to close, AddIndex will exit on channel close
-		close(aggRecs)
+		if aggRecs != nil {
+			close(aggRecs)
+		}
 		// wait for AddIndex goroutine to finish cleanly
 		_ = eg.Wait()
 		return false, xerrors.Errorf("indexing failed: %w", err)
@@ -143,7 +204,9 @@ func (P *PDPIndexingV0Task) Do(ctx context.Context, taskID harmonytask.TaskID, s
 
 	// Close the channel
 	close(recs)
-	close(aggRecs)
+	if aggRecs != nil {
+		close(aggRecs)
+	}
 
 	// Wait till AddIndex is finished
 	err = eg.Wait()
@@ -162,6 +225,18 @@ func (P *PDPIndexingV0Task) Do(ctx context.Context, taskID harmonytask.TaskID, s
 	log.Infow("Piece indexed", "piece_cid", task.PieceCID, "id", task.ID, "blocks", blocks, "blocks_per_second", blocksPerSecond)
 
 	return true, nil
+}
+
+// skipSubpieceIndex omits child piece CID records when the piece is restricted and not in open-pieces.
+// unplacedRestricted means every linked data set has acl = 1 and the piece is in neither hash folder.
+func skipSubpieceIndex(inOpen, inACL, unplacedRestricted bool) bool {
+	if inOpen {
+		return false
+	}
+	if inACL {
+		return true
+	}
+	return unplacedRestricted
 }
 
 func (P *PDPIndexingV0Task) recordCompletion(ctx context.Context, taskID harmonytask.TaskID, id int64, needsIPNI bool) error {

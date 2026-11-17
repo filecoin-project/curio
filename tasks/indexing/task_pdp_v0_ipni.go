@@ -30,6 +30,7 @@ import (
 	"github.com/filecoin-project/curio/market/ipni/chunker"
 	"github.com/filecoin-project/curio/market/ipni/ipniculib"
 	"github.com/filecoin-project/curio/market/ipni/types"
+	"github.com/filecoin-project/curio/pdp/pieceacl"
 	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
@@ -37,19 +38,25 @@ const (
 	PDP_v0_SP_ID = -2 // This is the SP ID for PDP in the IPNI table
 )
 
+// DatasetACLResolver returns whether a data set is read-restricted (acl = 1),
+// resolving and persisting a NULL column from chain metadata when needed.
+type DatasetACLResolver func(ctx context.Context, dataSetId uint64) (bool, error)
+
 type PDPV0IPNITask struct {
-	db  *harmonydb.DB
-	cfg *config.CurioConfig
-	max taskhelp.Limiter
-	idx *indexstore.IndexStore
+	db         *harmonydb.DB
+	cfg        *config.CurioConfig
+	max        taskhelp.Limiter
+	idx        *indexstore.IndexStore
+	resolveACL DatasetACLResolver
 }
 
-func NewPDPV0IPNITask(db *harmonydb.DB, cfg *config.CurioConfig, max taskhelp.Limiter, idx *indexstore.IndexStore) *PDPV0IPNITask {
+func NewPDPV0IPNITask(db *harmonydb.DB, cfg *config.CurioConfig, max taskhelp.Limiter, idx *indexstore.IndexStore, resolveACL DatasetACLResolver) *PDPV0IPNITask {
 	return &PDPV0IPNITask{
-		db:  db,
-		cfg: cfg,
-		max: max,
-		idx: idx,
+		db:         db,
+		cfg:        cfg,
+		max:        max,
+		idx:        idx,
+		resolveACL: resolveACL,
 	}
 }
 
@@ -125,14 +132,50 @@ func (P *PDPV0IPNITask) Do(ctx context.Context, taskID harmonytask.TaskID, still
 		return false, xerrors.Errorf("marshaling metadata: %w", err)
 	}
 
+	flags := types.PDP_IPNI_FLAG_PAYLOAD
+	// Resolve NULL acl from chain so a secured data set is not advertised without the encrypted bit.
+	links, err := pieceacl.ByPDPPieceRefID(ctx, P.db, task.ID)
+	if err != nil {
+		return false, err
+	}
+	encrypted := false
+	for _, link := range links {
+		if link.ACL.Valid {
+			if int(link.ACL.Int32) == pieceacl.Secured {
+				encrypted = true
+				break
+			}
+			continue
+		}
+		if P.resolveACL == nil {
+			return false, xerrors.Errorf("data set %d acl is unresolved and no resolver is configured", link.ID)
+		}
+		secured, err := P.resolveACL(ctx, uint64(link.ID))
+		if err != nil {
+			return false, err
+		}
+		if secured {
+			encrypted = true
+			break
+		}
+	}
+	if encrypted {
+		flags |= types.PDP_IPNI_FLAG_ENCRYPTED
+	}
+
 	pi := &types.PdpIpniContext{
 		PieceCID: pcidV2,
-		Flags:    types.PDP_IPNI_FLAG_PAYLOAD,
+		Flags:    flags,
 	}
 
 	iContext, err := pi.Marshal()
 	if err != nil {
 		return false, xerrors.Errorf("marshaling piece info: %w", err)
+	}
+
+	hashRange := P.idx.GetPieceHashRange
+	if encrypted {
+		hashRange = P.idx.GetPrivatePieceHashRange
 	}
 
 	chk := chunker.NewInitialChunker()
@@ -142,7 +185,7 @@ func (P *PDPV0IPNITask) Do(ctx context.Context, taskID harmonytask.TaskID, still
 	for {
 		// Get the next EntriesChunkSize+1 (16384+1) entries for chunking
 		// Use pcidv2 because indexStore resolves the appropriate v1 or v2 index
-		mhs, err := P.idx.GetPieceHashRange(ctx, pcidV2, offset, chunker.EntriesChunkSize+1, false)
+		mhs, err := hashRange(ctx, pcidV2, offset, chunker.EntriesChunkSize+1, false)
 		if err != nil {
 			return false, xerrors.Errorf("getting piece hashes: %w", err)
 		}

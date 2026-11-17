@@ -139,10 +139,10 @@ var (
 // the local piece file best-effort. Cleanup errors are logged and do not replace
 // the main task error.
 type PDPPullPieceTask struct {
-	db    *harmonydb.DB
-	pio   piecestore.PieceIO
-	hs    *hashfolder.Cluster
-	local *paths.Local
+	db         *harmonydb.DB
+	pio        piecestore.PieceIO
+	hashSpaces *hashfolder.Cluster
+	local      *paths.Local
 
 	TF promise.Promise[harmonytask.AddTaskFunc]
 
@@ -150,8 +150,8 @@ type PDPPullPieceTask struct {
 }
 
 // UseOpenPieces copies a piece into open-pieces when its PDP ref is published.
-func (t *PDPPullPieceTask) UseOpenPieces(hs *hashfolder.Cluster, local *paths.Local, pio piecestore.PieceIO) {
-	t.hs = hs
+func (t *PDPPullPieceTask) UseOpenPieces(hashSpaces *hashfolder.Cluster, local *paths.Local, pio piecestore.PieceIO) {
+	t.hashSpaces = hashSpaces
 	t.local = local
 	if pio != nil {
 		t.pio = pio
@@ -1282,7 +1282,7 @@ func cleanupPullCreatedParkedPieceTx(tx *harmonydb.Tx, parkedPieceID int64) (boo
 
 func (t *PDPPullPieceTask) placeRefs(ctx context.Context, refs []int64) error {
 	for _, ref := range refs {
-		if err := openpieces.Place(ctx, t.db, t.hs, t.local, t.pio, ref); err != nil {
+		if err := openpieces.Place(ctx, t.db, t.hashSpaces, t.local, t.pio, ref); err != nil {
 			return err
 		}
 	}

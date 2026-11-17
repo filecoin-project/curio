@@ -137,7 +137,7 @@ type saveCacheTestReader struct {
 	lastCID cid.Cid
 }
 
-func (r *saveCacheTestReader) GetSharedPieceReader(_ context.Context, pieceCID cid.Cid, _ bool) (storiface.Reader, uint64, error) {
+func (r *saveCacheTestReader) ReadForProof(_ context.Context, pieceCID cid.Cid) (storiface.Reader, uint64, error) {
 	r.opens++
 	r.lastCID = pieceCID
 	if r.err != nil {

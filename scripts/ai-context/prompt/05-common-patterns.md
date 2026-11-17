@@ -29,3 +29,4 @@ Output format:
 Be concrete.
 Describe patterns in terms of intent and constraints, not just syntax.
 In "Patterns an AI should reuse", keep this rule: a short comment on every unexported production function and method stating what it does and the caller conditions it relies on and does not re-check. Test helpers are exempt.
+Also keep these encapsulation rules: lower types receive only the fields they read and call upward through functions passed at init; do not introduce a child that holds its parent pointer, mutates the parent's fields, or receives a parent aggregate when it only needs a subset of that data.

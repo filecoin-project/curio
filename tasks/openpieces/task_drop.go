@@ -58,14 +58,14 @@ func QueueDrop(tx *harmonydb.Tx, id harmonytask.TaskID, pieceCID string) error {
 // DropTask removes a piece whose last PDP reference is gone from the range
 // owner and, when a move covers it, from both ends of that move.
 type DropTask struct {
-	db *harmonydb.DB
-	hs *hashfolder.Cluster
+	db         *harmonydb.DB
+	hashSpaces *hashfolder.Cluster
 
 	TF promise.Promise[harmonytask.AddTaskFunc]
 }
 
-func NewDropTask(db *harmonydb.DB, hs *hashfolder.Cluster) *DropTask {
-	return &DropTask{db: db, hs: hs}
+func NewDropTask(db *harmonydb.DB, hashSpaces *hashfolder.Cluster) *DropTask {
+	return &DropTask{db: db, hashSpaces: hashSpaces}
 }
 
 func (t *DropTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (bool, error) {
@@ -176,7 +176,7 @@ func (t *DropTask) dropOne(ctx context.Context, taskID harmonytask.TaskID, piece
 		return nil
 	}
 
-	if err := t.hs.DeleteCID(ctx, pieceCID); err != nil {
+	if err := t.hashSpaces.DeleteCID(ctx, pieceCID); err != nil {
 		return err
 	}
 	if _, err := t.db.Exec(ctx, `DELETE FROM hash_space_delete WHERE piece_cid = $1 AND task_id = $2`, pieceCID, taskID); err != nil {

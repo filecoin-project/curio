@@ -84,7 +84,7 @@ func (t *TaskPDPSaveCache) Do(ctx context.Context, taskID harmonytask.TaskID, st
 		if !has {
 			cp := commp.NewCalcWithSnapshot(commp.SnapshotLayerIndex(PaddedReadSize))
 			defer cp.Reset()
-			reader, _, err := t.cpr.GetSharedPieceReader(ctx, pcid, false)
+			reader, _, err := t.cpr.ReadForProof(ctx, pcid)
 			if err != nil {
 				return false, xerrors.Errorf("failed to get shared piece reader: %w", err)
 			}

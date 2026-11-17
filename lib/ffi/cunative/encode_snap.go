@@ -32,6 +32,7 @@ void snap_encode_loop(const uint8_t *key, const uint8_t *data, const uint8_t *rh
 import "C"
 
 import (
+	"errors"
 	"io"
 	"runtime"
 	"sync"
@@ -180,8 +181,8 @@ func EncodeSnap(spt abi.RegisteredSealProof, commD, commK cid.Cid, key, data io.
 			if r.chunkID == expectedChunkID {
 				_, err := out.Write(r.data)
 				pool.Put(r.data)
-				if err != nil && writeErr == nil {
-					writeErr = err
+				if err != nil {
+					writeErr = errors.Join(writeErr, err)
 				}
 				expectedChunkID++
 
@@ -203,13 +204,12 @@ func EncodeSnap(spt abi.RegisteredSealProof, commD, commK cid.Cid, key, data io.
 	close(errChan)
 
 	// Check for any errors
+	var readErr error
 	for err := range errChan {
-		if err != nil {
-			return err
-		}
+		readErr = errors.Join(readErr, err)
 	}
 
-	return writeErr
+	return errors.Join(readErr, writeErr)
 }
 
 type jobEnc struct {

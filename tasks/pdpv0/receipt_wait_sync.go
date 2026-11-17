@@ -310,7 +310,7 @@ func resolveCreateIdentity(ctx context.Context, db *harmonydb.DB, wait *Outstand
 		return nil, xerrors.Errorf("loading create extra_data for %s: %w", wait.TxHash, err)
 	}
 	if len(extraData) > 0 {
-		identity, decErr := pdp.DecodeFWSSCreateIdentityFromExtraData(extraData)
+		identity, decErr := pdp.DecodeFWSSCreateIdentity(extraData)
 		if decErr == nil {
 			return identity, nil
 		}
@@ -436,21 +436,32 @@ func ensureDataSetRow(ctx context.Context, db *harmonydb.DB, eth ethchain.EthCli
 	}
 
 	var ipfsIndexingArg any
-	if known, ipfsIndexing := pdp.IPFSIndexingFromExtraData(extraData); known {
-		ipfsIndexingArg = ipfsIndexing
+	var aclArg any
+	if len(extraData) > 0 {
+		if identity, decErr := pdp.DecodeFWSSCreateIdentity(extraData); decErr != nil {
+			log.Debugw("Failed to decode create extra_data for data set intent",
+				"txHash", wait.TxHash, "dataSetId", dataSetId, "error", decErr)
+		} else {
+			ipfsIndexingArg = identity.HasMetadataKey("withIPFSIndexing")
+			if identity.ReadRestricted() {
+				aclArg = pdp.ACL_SECURED
+			} else {
+				aclArg = pdp.ACL_PUBLIC
+			}
+		}
 	}
 
 	n, err := db.Exec(ctx, `
-		INSERT INTO pdp_data_sets (id, create_message_hash, service, proving_period, challenge_window, ipfs_indexing)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO pdp_data_sets (id, create_message_hash, service, proving_period, challenge_window, ipfs_indexing, acl)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		ON CONFLICT (id) DO NOTHING
-	`, dataSetId, normalizeTxHash(wait.TxHash), service, provingPeriod, challengeWindow, ipfsIndexingArg)
+	`, dataSetId, normalizeTxHash(wait.TxHash), service, provingPeriod, challengeWindow, ipfsIndexingArg, aclArg)
 	if err != nil {
 		return xerrors.Errorf("inserting pdp_data_sets %d: %w", dataSetId, err)
 	}
 	if n == 1 {
 		log.Infow("inserted pdp_data_sets row from clientNonces recovery",
-			"txHash", wait.TxHash, "dataSetId", dataSetId, "service", service, "ipfsIndexing", ipfsIndexingArg)
+			"txHash", wait.TxHash, "dataSetId", dataSetId, "service", service, "ipfsIndexing", ipfsIndexingArg, "acl", aclArg)
 	}
 	if ipfsIndexingArg == true {
 		// Persist path also repairs missed needs_indexing flags for create-and-add races.

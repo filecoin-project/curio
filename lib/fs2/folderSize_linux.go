@@ -161,8 +161,8 @@ func SumFileSizesRange(directory, low, high string, kBufSize uint32) (result Res
 		return Result{}, fmt.Errorf("sum file sizes: %w", err)
 	}
 	defer func() {
-		if cerr := ring.close(); cerr != nil && err == nil {
-			err = fmt.Errorf("close io_uring: %w", cerr)
+		if cerr := ring.close(); cerr != nil {
+			err = errors.Join(err, fmt.Errorf("close io_uring: %w", cerr))
 		}
 	}()
 
@@ -387,8 +387,8 @@ func sumDirLinux(ring *uring, path, prefix, low, high string, result *Result) (e
 		return fmt.Errorf("open %s: %w", path, err)
 	}
 	defer func() {
-		if cerr := unix.Close(dirfd); cerr != nil && err == nil {
-			err = fmt.Errorf("close %s: %w", path, cerr)
+		if cerr := unix.Close(dirfd); cerr != nil {
+			err = errors.Join(err, fmt.Errorf("close %s: %w", path, cerr))
 		}
 	}()
 
