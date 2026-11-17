@@ -127,7 +127,9 @@ var (
 // VerifyPresentation checks a Keysmith FOC-Grant presentation.
 // pieceCID is the binary CID of the piece being served. blockChain is this
 // network. now is the provider clock. The checks match verifyPresentation
-// in @filoz/keysmith: a piece with no foc/own is not gated.
+// in @filoz/keysmith: a piece with no foc/own is not gated. A grant rooted
+// by the dealbot wallet may read a piece owned by another wallet; its node
+// must still reach that piece.
 func VerifyPresentation(presentation, pieceCID []byte, piece PieceLabels, blockChain *big.Int, now time.Time) (VerifiedClaim, error) {
 	if blockChain == nil {
 		return VerifiedClaim{}, fmt.Errorf("%w: blockchain is not configured", ErrInvalidGrant)
