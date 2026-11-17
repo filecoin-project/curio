@@ -43,7 +43,7 @@ Symptoms:
 Checklist:
 - Outbound HTTPS works from Curio host.
 - The “public URL” for your provider is correct (reachable from the internet).
-- DNS + firewall allow inbound connectivity to your HTTP server.
+- DNS is correct, and the public firewall allows inbound traffic only on TCP 80 and 443.
 
 Temporary mitigation:
 - If you need onboarding to proceed while IPNI is unstable, you may temporarily disable IPNI publishing (only if supported by your release/config). Document and keep track of the change so it isn’t forgotten.

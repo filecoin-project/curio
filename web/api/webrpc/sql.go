@@ -8,21 +8,21 @@ import (
 
 	"golang.org/x/xerrors"
 
-	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/web/sqlconsole"
 )
 
 const sqlConsolePathPrefix = "/pages/sql"
 
 // SQLQuery runs arbitrary SQL against the HarmonyDB for the admin console.
 // Only requests whose Referer is the SQL Console page are allowed.
-func (a *WebRPC) SQLQuery(ctx context.Context, query string) (*harmonydb.AdminQueryResult, error) {
+func (a *WebRPC) SQLQuery(ctx context.Context, query string) (*sqlconsole.Result, error) {
 	if err := requireSQLConsoleReferer(ctx); err != nil {
 		return nil, err
 	}
 	if a.Deps.DB == nil {
 		return nil, xerrors.Errorf("database not configured")
 	}
-	return harmonydb.AdminQuery(ctx, a.Deps.DB, query)
+	return sqlconsole.Query(ctx, a.Deps.DB, query)
 }
 
 func requireSQLConsoleReferer(ctx context.Context) error {

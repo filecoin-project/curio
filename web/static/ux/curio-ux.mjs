@@ -225,6 +225,23 @@ class CurioUX extends LitElement {
       color: var(--color-text-secondary, #8b949e);
       font-weight: 500;
     }
+
+    .sidebar-meta a,
+    .sidebar-meta button {
+      background: none;
+      border: 0;
+      padding: 0;
+      font: inherit;
+      color: inherit;
+      cursor: pointer;
+      text-decoration: none;
+    }
+
+    .sidebar-meta a:hover,
+    .sidebar-meta button:hover {
+      color: var(--color-text-primary, #e6edf3);
+      text-decoration: underline;
+    }
   `;
 
   constructor() {
@@ -292,6 +309,15 @@ class CurioUX extends LitElement {
       this.alertCount = 0;
     }
     setTimeout(() => this.loadAlertStatus(), 30000);
+  }
+
+  async logout() {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
+    } catch (_) {
+      // still leave the console
+    }
+    window.location.href = '/login/';
   }
 
   render() {
@@ -420,6 +446,8 @@ class CurioUX extends LitElement {
           <div class="sidebar-meta">
             <div><strong>${this.version || 'curio'}</strong></div>
             <div>${this.nodeCount === 1 ? '1 node' : `${this.nodeCount} nodes`}</div>
+            <div><a href="/password/">Change password</a></div>
+            <div><button type="button" @click=${() => this.logout()}>Log out</button></div>
           </div>
           <a href="/pages/alerts/" class="alert-indicator ${this.alertCount > 0 ? 'has-alerts' : 'no-alerts'}">
             <span class="alert-dot ${this.alertCount > 0 ? 'active' : 'ok'}"></span>

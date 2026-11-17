@@ -397,7 +397,7 @@ curio run --layers=gui
 Then, open your browser and go to:
 
 ```sh
-http://127.0.0.1:4701
+https://127.0.0.1:4701
 ```
 
 This will launch the Curio web GUI locally.
@@ -629,7 +629,8 @@ Recommended patterns:
 
 Checklist:
 - Decide whether Curio terminates TLS or a reverse proxy does.
-- Ensure inbound 80/443 is reachable for Let’s Encrypt (if used).
+- On the public firewall, open only TCP 80 and 443. Those ports are the public HTTP API and Let's Encrypt validation.
+- Keep the admin GUI (`4701`), the Curio API (`12300`), Yugabyte, and Lotus RPC on the private network.
 
 See:
 - [Curio HTTP Server](../curio-market/curio-http-server.md) — Curio already serves HTTPS via Let's Encrypt when `DomainName` is set
@@ -646,7 +647,7 @@ Common causes:
 
 What to do:
 - test from an external host
-- confirm DNS and ports 80/443 (or your proxy) are correct
+- confirm DNS is correct and that the public firewall allows only TCP 80 and 443 (or your proxy)
 - include full logs + command used
 
 ***

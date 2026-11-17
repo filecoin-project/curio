@@ -28,38 +28,39 @@ func envelopeBytes(t *testing.T, meta map[string]any) []byte {
 
 func validMeta() map[string]any {
 	return map[string]any{
-		"foc/v":    uint64(1),
+		"foc/v":    uint64(2),
 		"foc/own":  "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
-		"foc/ks":   "0x00112233445566778899aabbccddeeff",
+		"foc/gkid": "0x00112233445566778899aabbccddeeff",
 		"foc/salt": "0x000102030405060708090a0b0c0d0e0f",
 	}
 }
 
 func TestReadEnvelopeLabels(t *testing.T) {
 	meta := validMeta()
-	meta["foc/scope"] = "agent-memory"
+	meta["foc/group"] = "agent-memory"
 	labels, err := ReadEnvelopeLabels(bytes.NewReader(makeFileRootCAR(t, envelopeBytes(t, meta))))
 	require.NoError(t, err)
-	require.Equal(t, int64(1), labels.Version)
+	require.Equal(t, int64(2), labels.Version)
 	require.Equal(t, meta["foc/own"], labels.Owner)
-	require.Equal(t, meta["foc/ks"], labels.Keyspace)
+	require.Equal(t, meta["foc/gkid"], labels.GroupKey)
 	require.Equal(t, meta["foc/salt"], labels.Salt)
-	require.True(t, labels.HasScope)
-	require.Equal(t, "agent-memory", labels.Scope)
+	require.True(t, labels.HasGroup)
+	require.Equal(t, "agent-memory", labels.Group)
 
 	_, err = ReadEnvelopeLabels(bytes.NewReader(envelopeBytes(t, validMeta())))
 	require.ErrorIs(t, err, ErrInvalidEnvelope)
 	require.ErrorContains(t, err, "not a CAR")
 
-	withoutScope := validMeta()
-	labels, err = LabelsFromPrefix(envelopeBytes(t, withoutScope))
+	withoutGroup := validMeta()
+	labels, err = LabelsFromPrefix(envelopeBytes(t, withoutGroup))
 	require.NoError(t, err)
-	require.False(t, labels.HasScope)
+	require.False(t, labels.HasGroup)
 
 	badVersion := validMeta()
-	badVersion["foc/v"] = uint64(2)
+	badVersion["foc/v"] = uint64(1)
 	_, err = LabelsFromPrefix(envelopeBytes(t, badVersion))
 	require.ErrorIs(t, err, ErrInvalidEnvelope)
+	require.ErrorContains(t, err, "foc/v must be 2")
 
 	missingSalt := validMeta()
 	delete(missingSalt, "foc/salt")
