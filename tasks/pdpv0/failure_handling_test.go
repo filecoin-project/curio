@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"math/big"
+	"strconv"
 	"sync/atomic"
 	"testing"
 
@@ -117,6 +118,7 @@ func TestIntegration_HandleProveSendError_FWSSProvingNotStartedResetsToInitPP(t 
 	action := handleProveSendError(alerts, dataSetID, 4350, sendErr)
 	require.Equal(t, proveSendErrorResetToInitPP, action)
 	require.Len(t, alerts.events, 1)
+	require.Equal(t, map[string]string{curioalerting.CONTEXT_KEY_DATASET: strconv.FormatInt(dataSetID, 10)}, alerts.events[0].Context)
 
 	require.NoError(t, resetDatasetToInitPP(ctx, db, dataSetID))
 	require.Equal(t, failureHandlingDataSetState{
@@ -137,7 +139,6 @@ func TestIntegration_HandleNextProvingPeriodSendError_SkipCurrentPeriodReconcile
 		PrevChallengeEpoch: sql.NullInt64{Int64: 1200, Valid: true},
 	}
 	dataSetID := insertFailureHandlingDataSet(t, ctx, db, initialState)
-	alerts := &recordingAlerting{}
 	var calls int
 	oldGetNextChallengeEpoch := getProvingScheduleNextChallengeWindowStart
 	getProvingScheduleNextChallengeWindowStart = func(_ context.Context, _ *contract.IPDPProvingSchedule, gotDataSetID int64) (*big.Int, error) {
@@ -151,8 +152,10 @@ func TestIntegration_HandleNextProvingPeriodSendError_SkipCurrentPeriodReconcile
 	sendErr := selectorRevert(contractErrorSelector(ErrFWSSNextProvingPeriodAlreadyCalled))
 	currentHeight := int64(4400)
 
+	var alert bool
 	committed, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
-		err := handleNextProvingPeriodSendError(ctx, tx, nil, alerts, alertNameNextPP, dataSetID, currentHeight, sendErr)
+		var err error
+		alert, err = handleNextProvingPeriodSendError(ctx, tx, nil, alertNameNextPP, dataSetID, currentHeight, sendErr)
 		require.NoError(t, err)
 		return true, nil
 	}, harmonydb.OptionRetry())
@@ -165,7 +168,7 @@ func TestIntegration_HandleNextProvingPeriodSendError_SkipCurrentPeriodReconcile
 		ProveAtEpoch:       sql.NullInt64{Int64: 5200, Valid: true},
 		PrevChallengeEpoch: sql.NullInt64{Int64: currentHeight, Valid: true},
 	}, loadFailureHandlingDataSet(t, ctx, db, dataSetID))
-	require.Empty(t, alerts.events)
+	require.False(t, alert)
 	require.Equal(t, 0, countFailureHandlingDeleteRows(t, ctx, db, dataSetID))
 }
 
@@ -173,6 +176,14 @@ func TestIntegration_HandleSplitProvingSendErrors_RetryAndAlertPathsDoNotMutateD
 	ctx := context.Background()
 	db, err := harmonydb.NewFromConfigWithITestID(t)
 	require.NoError(t, err)
+
+	nextPPSendError := func(tx *harmonydb.Tx, alerts *recordingAlerting, dataSetID int64, sendErr error) error {
+		alert, err := handleNextProvingPeriodSendError(ctx, tx, nil, alertNameNextPP, dataSetID, 4500, sendErr)
+		if alert {
+			emitProvingSendErrorAlert(alerts, alertNameNextPP, dataSetID, sendErr)
+		}
+		return err
+	}
 
 	tests := []struct {
 		name       string
@@ -192,24 +203,18 @@ func TestIntegration_HandleSplitProvingSendErrors_RetryAndAlertPathsDoNotMutateD
 			name:       "insufficient challenge delay alerts",
 			err:        selectorRevert(contractErrorSelector(ErrPDPVerifierInsufficientChallengeDelay)),
 			wantAlerts: 1,
-			handle: func(tx *harmonydb.Tx, alerts *recordingAlerting, dataSetID int64, sendErr error) error {
-				return handleNextProvingPeriodSendError(ctx, tx, nil, alerts, alertNameNextPP, dataSetID, 4500, sendErr)
-			},
+			handle:     nextPPSendError,
 		},
 		{
-			name: "refresh proving state retry",
-			err:  selectorRevert(contractErrorSelector(ErrFWSSInvalidChallengeEpoch)),
-			handle: func(tx *harmonydb.Tx, alerts *recordingAlerting, dataSetID int64, sendErr error) error {
-				return handleNextProvingPeriodSendError(ctx, tx, nil, alerts, alertNameNextPP, dataSetID, 4500, sendErr)
-			},
+			name:   "refresh proving state retry",
+			err:    selectorRevert(contractErrorSelector(ErrFWSSInvalidChallengeEpoch)),
+			handle: nextPPSendError,
 		},
 		{
 			name:       "unexpected proving invariant alerts",
 			err:        selectorRevert(contractErrorSelector(ErrPDPVerifierExcessiveChallengeDelay)),
 			wantAlerts: 1,
-			handle: func(tx *harmonydb.Tx, alerts *recordingAlerting, dataSetID int64, sendErr error) error {
-				return handleNextProvingPeriodSendError(ctx, tx, nil, alerts, alertNameNextPP, dataSetID, 4500, sendErr)
-			},
+			handle:     nextPPSendError,
 		},
 		{
 			name:       "operator attention alerts",
@@ -261,9 +266,41 @@ func TestIntegration_HandleSplitProvingSendErrors_RetryAndAlertPathsDoNotMutateD
 
 			require.Equal(t, initialState, loadFailureHandlingDataSet(t, ctx, db, dataSetID))
 			require.Len(t, alerts.events, tc.wantAlerts)
+			for _, event := range alerts.events {
+				require.Equal(t, map[string]string{curioalerting.CONTEXT_KEY_DATASET: strconv.FormatInt(dataSetID, 10)}, event.Context)
+			}
 			require.Equal(t, 0, countFailureHandlingDeleteRows(t, ctx, db, dataSetID))
 		})
 	}
+}
+
+func TestIntegration_HandleNextProvingPeriodSendFailure_RecordsAlert(t *testing.T) {
+	ctx := context.Background()
+	db, err := harmonydb.NewFromConfigWithITestID(t)
+	require.NoError(t, err)
+
+	initialState := failureHandlingDataSetState{
+		InitReady:          true,
+		ProveAtEpoch:       sql.NullInt64{Int64: 2300, Valid: true},
+		ChallengeHash:      sql.NullString{String: "0x00000000000000000000000000000000000000000000000000000000000000dd", Valid: true},
+		PrevChallengeEpoch: sql.NullInt64{Int64: 1300, Valid: true},
+	}
+	dataSetID := insertFailureHandlingDataSet(t, ctx, db, initialState)
+	sendErr := selectorRevert(contractErrorSelector(ErrPDPVerifierInsufficientChallengeDelay))
+
+	// The alerting cases roll the transaction back; the alert must still be recorded.
+	err = handleNextProvingPeriodSendFailure(ctx, db, nil, curioalerting.NewAlertingSystem(db), alertNameNextPP, dataSetID, 4500, sendErr)
+	require.Error(t, err)
+
+	var eventContext []byte
+	err = db.QueryRow(ctx, `
+		SELECT context
+		FROM alert_history
+		WHERE kind = 'event' AND system = $1 AND subsystem = $2
+	`, alertType, alertNameNextPP).Scan(&eventContext)
+	require.NoError(t, err)
+	require.JSONEq(t, fmt.Sprintf(`{"dataset": "%d"}`, dataSetID), string(eventContext))
+	require.Equal(t, initialState, loadFailureHandlingDataSet(t, ctx, db, dataSetID))
 }
 
 func insertFailureHandlingDataSet(t *testing.T, ctx context.Context, db *harmonydb.DB, state failureHandlingDataSetState) int64 {

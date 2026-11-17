@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Admin setup — Curio</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="stylesheet" href="/ux/fonts.css">
+  <style>
+:root {
+  --color-bg-canvas: #0d1117;
+  --color-bg-subtle: #161b22;
+  --color-bg-elevated: #21262d;
+  --color-border-default: #30363d;
+  --color-text-primary: #e6edf3;
+  --color-text-secondary: #8b949e;
+  --color-text-muted: #656d76;
+  --color-accent-emphasis: #5e6ad2;
+  --color-danger-fg: #f85149;
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--color-bg-canvas);
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
+  color-scheme: dark;
+}
+
+.auth-shell {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 32px 20px;
+  overflow: hidden;
+}
+
+.auth-glow {
+  position: absolute;
+  inset: -20% -10% auto;
+  height: 70vh;
+  background:
+    radial-gradient(ellipse 50% 45% at 30% 20%, rgba(136, 46, 232, 0.28), transparent 70%),
+    radial-gradient(ellipse 45% 40% at 70% 15%, rgba(29, 200, 204, 0.18), transparent 65%),
+    radial-gradient(ellipse 40% 35% at 50% 40%, rgba(39, 15, 61, 0.55), transparent 70%);
+  pointer-events: none;
+  animation: auth-glow-shift 14s ease-in-out infinite alternate;
+}
+
+@keyframes auth-glow-shift {
+  from { transform: translate3d(0, 0, 0) scale(1); opacity: 0.9; }
+  to { transform: translate3d(2%, 3%, 0) scale(1.05); opacity: 1; }
+}
+
+.auth-panel {
+  position: relative;
+  width: 100%;
+  max-width: 420px;
+  animation: auth-rise 420ms ease both;
+}
+
+@keyframes auth-rise {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.auth-brand {
+  text-align: center;
+  margin-bottom: 28px;
+}
+
+.auth-logo {
+  display: block;
+  margin: 0 auto 16px;
+  filter: drop-shadow(0 8px 24px rgba(136, 46, 232, 0.35));
+  animation: auth-logo-in 600ms ease both;
+}
+
+@keyframes auth-logo-in {
+  from { opacity: 0; transform: scale(0.92); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.auth-title {
+  margin: 0 0 8px;
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+}
+
+.auth-sub {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.auth-identity {
+  background: rgba(22, 27, 34, 0.85);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-lg);
+  padding: 14px 16px;
+  margin-bottom: 20px;
+  font-size: 12px;
+  line-height: 1.5;
+  backdrop-filter: blur(8px);
+}
+
+.auth-identity h2 {
+  margin: 0 0 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+}
+
+.auth-identity .row {
+  margin: 4px 0;
+  word-break: break-all;
+}
+
+.auth-identity .label {
+  color: var(--color-text-secondary);
+}
+
+.auth-identity .muted {
+  color: var(--color-text-muted);
+}
+
+.auth-form {
+  background: rgba(22, 27, 34, 0.92);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  backdrop-filter: blur(8px);
+}
+
+.auth-form label {
+  display: block;
+  margin: 12px 0 4px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.auth-form label:first-child {
+  margin-top: 0;
+}
+
+.auth-form input {
+  width: 100%;
+  background: var(--color-bg-canvas);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  padding: 10px 12px;
+  font-size: 14px;
+  font-family: inherit;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.auth-form input:focus {
+  outline: none;
+  border-color: var(--color-accent-emphasis);
+  box-shadow: 0 0 0 3px rgba(94, 106, 210, 0.25);
+}
+
+.auth-form button {
+  margin-top: 18px;
+  width: 100%;
+  background: var(--color-accent-emphasis);
+  color: #fff;
+  border: 0;
+  border-radius: var(--radius-md);
+  padding: 11px 12px;
+  font-size: 14px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: filter 150ms ease, transform 150ms ease;
+}
+
+.auth-form button:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.auth-form button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.auth-form button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.auth-err {
+  min-height: 18px;
+  margin-top: 12px;
+  color: var(--color-danger-fg);
+  font-size: 13px;
+}
+
+.auth-links {
+  margin-top: 16px;
+  text-align: center;
+}
+
+.auth-links a {
+  color: var(--color-accent-emphasis);
+  text-decoration: none;
+  font-size: 13px;
+}
+
+.auth-links a:hover {
+  text-decoration: underline;
+}
+
+  </style>
+</head>
+<body data-mode="setup">
+  <div class="auth-shell">
+    <div class="auth-glow" aria-hidden="true"></div>
+    <main class="auth-panel">
+      <header class="auth-brand">
+        <img class="auth-logo" src="/favicon.svg" width="56" height="56" alt="">
+        <h1 class="auth-title">Curio</h1>
+        <p class="auth-sub" id="subtitle">Create the admin account for this cluster</p>
+      </header>
+
+      <section class="auth-identity" id="identity" aria-live="polite">
+        <h2>This node</h2>
+        <div class="muted">Loading…</div>
+      </section>
+
+      <form class="auth-form" id="form" autocomplete="on">
+        <div id="fields"></div>
+        <button type="submit" id="submit">Create admin</button>
+        <div class="auth-err" id="err" role="alert"></div>
+      </form>
+      <div class="auth-links" id="links"></div>
+    </main>
+  </div>
+  <script type="module" src="/login/auth.mjs"></script>
+</body>
+</html>

@@ -3,6 +3,7 @@ package pdpnode
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
 	"strings"
 
@@ -54,7 +55,7 @@ func StartAdmin(ctx context.Context, d *Deps) (*http.Server, error) {
 	}()
 
 	go func() {
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := web.ListenAndServe(srv); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Errorf("admin GUI server failed: %s", err)
 		}
 	}()
@@ -66,14 +67,32 @@ func adminGUIURL(cfg *config.CurioConfig) string {
 	if !cfg.Subsystems.EnableWebGui {
 		return ""
 	}
+	port := guiListenPort(cfg.Subsystems.GuiAddress)
+	if cuhttp.TLSEnabled(&cfg.HTTP) {
+		return "https://" + cfg.HTTP.DomainName + ":" + port
+	}
+	host := "127.0.0.1"
 	addr := strings.TrimSpace(cfg.Subsystems.GuiAddress)
-	if addr == "" {
-		return ""
+	if h, p, err := net.SplitHostPort(addr); err == nil {
+		if h != "" && h != "0.0.0.0" && h != "::" {
+			host = h
+		}
+		if p != "" {
+			port = p
+		}
 	}
-	if strings.HasPrefix(addr, "http://") || strings.HasPrefix(addr, "https://") {
-		return addr
+	return "https://" + host + ":" + port
+}
+
+func guiListenPort(addr string) string {
+	addr = strings.TrimSpace(addr)
+	if _, port, err := net.SplitHostPort(addr); err == nil && port != "" {
+		return port
 	}
-	return "http://" + addr
+	if strings.HasPrefix(addr, ":") && len(addr) > 1 {
+		return addr[1:]
+	}
+	return "4701"
 }
 
 // announceReady logs the operator-facing endpoints once startup is complete.

@@ -54,7 +54,7 @@ The agent inspects the host and existing services, obtains any missing resource 
 
 1. Install supported prerequisites and obtain the selected release's deployment files, cloning Curio when required.
 2. Deploy the required services or adopt the existing provider, preserving its identity and data.
-3. Configure storage, the provider wallet, chain access and public endpoint; fund the next operations from an authorized source or ask you to supply funds.
+3. Configure storage, the provider wallet, chain access and public endpoint; fund the next operations from an authorized source or ask you to supply funds. On the public firewall, open TCP 80 and 443 for the PDP API, and Forest's public libp2p ports (TCP and QUIC UDP). Keep the admin GUI on localhost and Forest RPC on the private network.
 4. Register or reconcile the provider offering and verify readiness. Report upload, retrieval and proving verification separately from setup readiness.
 5. Schedule periodic health and earnings checks through the agent host's scheduler and verify that service supervision persists. Report whether scheduling and notifications are actually working.
 
