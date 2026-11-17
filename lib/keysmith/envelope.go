@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"reflect"
 
 	"github.com/fxamacker/cbor/v2"
 	blockservice "github.com/ipfs/boxo/blockservice"
@@ -34,22 +35,22 @@ const (
 )
 
 // Labels are the foc fields carried in a FEE envelope's protected app_metadata.
-// Scope is optional; the other fields are required and Version is 1.
+// json tags are the app_metadata keys. Group may be absent. Version is FOC_VERSION.
 type Labels struct {
-	Version  int64
-	Owner    string
-	Keyspace string
-	Scope    string
-	HasScope bool
-	Salt     string
+	Version  int64  `json:"foc/v"`
+	Owner    string `json:"foc/own"`
+	GroupKey string `json:"foc/gkid"`
+	Group    string `json:"foc/group,omitempty"`
+	HasGroup bool   `json:"-"`
+	Salt     string `json:"foc/salt"`
 }
 
 // Piece returns the labels a grant check compares against the envelope.
 func (l Labels) Piece() PieceLabels {
-	out := PieceLabels{Owner: l.Owner, Keyspace: l.Keyspace, Salt: l.Salt}
-	if l.HasScope {
-		scope := l.Scope
-		out.Scope = &scope
+	out := PieceLabels{Owner: l.Owner, GroupKey: l.GroupKey, Salt: l.Salt}
+	if l.HasGroup {
+		group := l.Group
+		out.Group = &group
 	}
 	return out
 }
@@ -231,46 +232,46 @@ func labelsFromItem(item []byte) (Labels, error) {
 	if !ok {
 		return Labels{}, fmt.Errorf("%w: app_metadata is not a map", ErrInvalidEnvelope)
 	}
-	version, ok := meta["foc/v"]
-	if !ok {
-		return Labels{}, fmt.Errorf("%w: foc/v is missing", ErrInvalidEnvelope)
-	}
-	v, ok := asUint(version)
-	if !ok || v != 1 {
-		return Labels{}, fmt.Errorf("%w: foc/v must be 1", ErrInvalidEnvelope)
-	}
-	ownerRaw, ok := meta["foc/own"]
-	if !ok {
-		return Labels{}, fmt.Errorf("%w: foc/own is missing", ErrInvalidEnvelope)
-	}
-	owner, ok := ownerRaw.(string)
-	if !ok || owner == "" {
-		return Labels{}, fmt.Errorf("%w: foc/own must be a non-empty string", ErrInvalidEnvelope)
-	}
-	keyspaceRaw, ok := meta["foc/ks"]
-	if !ok {
-		return Labels{}, fmt.Errorf("%w: foc/ks is missing", ErrInvalidEnvelope)
-	}
-	keyspace, ok := keyspaceRaw.(string)
-	if !ok || keyspace == "" {
-		return Labels{}, fmt.Errorf("%w: foc/ks must be a non-empty string", ErrInvalidEnvelope)
-	}
-	saltRaw, ok := meta["foc/salt"]
-	if !ok {
-		return Labels{}, fmt.Errorf("%w: foc/salt is missing", ErrInvalidEnvelope)
-	}
-	salt, ok := saltRaw.(string)
-	if !ok || salt == "" {
-		return Labels{}, fmt.Errorf("%w: foc/salt must be a non-empty string", ErrInvalidEnvelope)
-	}
-	out := Labels{Version: 1, Owner: owner, Keyspace: keyspace, Salt: salt}
-	if raw, ok := meta["foc/scope"]; ok {
-		scope, ok := raw.(string)
-		if !ok || scope == "" {
-			return Labels{}, fmt.Errorf("%w: foc/scope must be a non-empty string", ErrInvalidEnvelope)
+	return labelsFromMetadata(meta)
+}
+
+// labelsFromMetadata reads app_metadata into Labels using the json tags on Labels.
+// It rejects a missing required key and a value of the wrong type.
+func labelsFromMetadata(meta map[any]any) (Labels, error) {
+	var out Labels
+	v := reflect.ValueOf(&out).Elem()
+	t := v.Type()
+	for i := 0; i < t.NumField(); i++ {
+		f := t.Field(i)
+		key, optional, skip := jsonTag(f)
+		if skip {
+			continue
 		}
-		out.Scope = scope
-		out.HasScope = true
+		raw, ok := meta[key]
+		if !ok {
+			if optional {
+				continue
+			}
+			return Labels{}, fmt.Errorf("%w: %s is missing", ErrInvalidEnvelope, key)
+		}
+		field := v.Field(i)
+		switch field.Kind() {
+		case reflect.Int64:
+			n, isUint := asUint(raw)
+			if f.Name != "Version" || !isUint || n != FOC_VERSION {
+				return Labels{}, fmt.Errorf("%w: %s must be %d", ErrInvalidEnvelope, key, FOC_VERSION)
+			}
+			field.SetInt(int64(n))
+		case reflect.String:
+			s, isString := raw.(string)
+			if !isString || s == "" {
+				return Labels{}, fmt.Errorf("%w: %s must be a non-empty string", ErrInvalidEnvelope, key)
+			}
+			field.SetString(s)
+		default:
+			return Labels{}, fmt.Errorf("%w: %s has an unsupported type", ErrInvalidEnvelope, key)
+		}
 	}
+	out.HasGroup = out.Group != ""
 	return out, nil
 }

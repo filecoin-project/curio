@@ -40,8 +40,8 @@ type artifacts struct {
 	Now               int64  `json:"now"`
 	Owner             string `json:"owner"`
 	Bearer            string `json:"bearer"`
-	Keyspace          string `json:"keyspace"`
-	Scope             string `json:"scope"`
+	GroupKey          string `json:"groupKey"`
+	Group             string `json:"group"`
 	Salt              string `json:"salt"`
 	Node              string `json:"node"`
 }
@@ -61,11 +61,11 @@ func TestKeysmithInterop(t *testing.T) {
 		// FEEBytes is the file inside the piece CAR, not the piece itself.
 		labels, err := keysmith.LabelsFromPrefix(FEEBytes)
 		require.NoError(t, err)
-		require.Equal(t, int64(1), labels.Version)
+		require.Equal(t, int64(2), labels.Version)
 		require.Equal(t, art.Owner, strings.ToLower(labels.Owner))
-		require.Equal(t, art.Keyspace, strings.ToLower(labels.Keyspace))
-		require.True(t, labels.HasScope)
-		require.Equal(t, art.Scope, labels.Scope)
+		require.Equal(t, art.GroupKey, strings.ToLower(labels.GroupKey))
+		require.True(t, labels.HasGroup)
+		require.Equal(t, art.Group, labels.Group)
 		require.Equal(t, art.Salt, strings.ToLower(labels.Salt))
 
 		_, err = keysmith.ReadEnvelopeLabels(bytes.NewReader(FEEBytes))
@@ -113,7 +113,7 @@ func TestKeysmithInterop(t *testing.T) {
 		require.ErrorIs(t, checkGrant([]byte("hello")), keysmith.ErrInvalidGrant)
 		require.ErrorIs(t, checkGrant(bytes.Repeat([]byte{0xff}, 64)), keysmith.ErrInvalidGrant)
 		require.ErrorIs(t, checkGrant(FEEBytes), keysmith.ErrInvalidGrant)
-		require.ErrorIs(t, checkGrant([]byte(`{"node":"keyspace","bearer":"0x0"}`)), keysmith.ErrInvalidGrant)
+		require.ErrorIs(t, checkGrant([]byte(`{"node":"groupKey","bearer":"0x0"}`)), keysmith.ErrInvalidGrant)
 
 		junk, err := cbor.Marshal([]any{1, []any{"not a link"}, map[string]any{"ok": true}})
 		require.NoError(t, err)

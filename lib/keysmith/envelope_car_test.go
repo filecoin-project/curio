@@ -22,7 +22,7 @@ func TestReadEnvelopeLabelsFromCARFileRoot(t *testing.T) {
 	labels, err := ReadEnvelopeLabels(bytes.NewReader(carBytes))
 	require.NoError(t, err)
 	require.Equal(t, meta["foc/own"], labels.Owner)
-	require.Equal(t, meta["foc/ks"], labels.Keyspace)
+	require.Equal(t, meta["foc/gkid"], labels.GroupKey)
 	require.Equal(t, meta["foc/salt"], labels.Salt)
 
 	fromAt, err := ReadEnvelopeLabelsAt(bytes.NewReader(carBytes))
@@ -38,7 +38,7 @@ func TestReadEnvelopeLabelsFromCAREncryptedFee(t *testing.T) {
 	labels, err := ReadEnvelopeLabels(bytes.NewReader(carBytes))
 	require.NoError(t, err)
 	require.Equal(t, meta["foc/own"], labels.Owner)
-	require.Equal(t, meta["foc/ks"], labels.Keyspace)
+	require.Equal(t, meta["foc/gkid"], labels.GroupKey)
 	require.Equal(t, meta["foc/salt"], labels.Salt)
 }
 
