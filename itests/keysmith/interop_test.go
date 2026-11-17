@@ -23,10 +23,11 @@ import (
 	"github.com/filecoin-project/curio/lib/keysmith"
 )
 
-// TODO #1637: Point to the real synapse-sdk repo and target version when the repo is public.
+// Format 2 is the Keysmith on this branch. Master still exports keyspaceKeys.
+// TODO #1637: pin a released commit once format 2 is on the default branch.
 const (
-	synapseRepo   = "https://github.com/JAG-UK/synapse-sdk.git"
-	synapseBranch = "master"
+	synapseRepo   = "https://github.com/FilOzone/synapse-sdk.git"
+	synapseBranch = "feat/keysmith-metadata-v2"
 )
 
 // artifacts are a FEE object and grant presentations produced by keysmith.
@@ -130,8 +131,8 @@ func TestKeysmithInterop(t *testing.T) {
 	})
 }
 
-// produce builds keysmith from synapse-sdk master and returns one FEE and two presentations.
-// A passing run stays in the Go test cache until this package changes; -count=1 fetches master again.
+// produce builds keysmith from synapseBranch and returns one FEE and two presentations.
+// A passing run stays in the Go test cache until this package changes; -count=1 fetches the branch again.
 func produce(t *testing.T) artifacts {
 	t.Helper()
 	root := checkout(t)
@@ -158,11 +159,11 @@ func produce(t *testing.T) artifacts {
 	return art
 }
 
-// checkout returns a depth-1 clone of synapse-sdk at master, fetching when the clone already exists.
+// checkout returns a depth-1 clone of synapseBranch, fetching when the clone already exists.
 func checkout(t *testing.T) string {
 	t.Helper()
 	run(t, "", "git", "version")
-	root := filepath.Join(os.TempDir(), "curio-itest-jag-synapse-sdk")
+	root := filepath.Join(os.TempDir(), "curio-itest-synapse-sdk")
 	if _, err := os.Stat(filepath.Join(root, ".git")); errors.Is(err, os.ErrNotExist) {
 		run(t, "", "git", "clone", "--depth", "1", "--branch", synapseBranch, synapseRepo, root)
 		return root
