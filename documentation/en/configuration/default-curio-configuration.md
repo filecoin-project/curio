@@ -652,6 +652,15 @@ description: The default curio configuration
   # type: []string
   #DenylistServers = ["https://badbits.dwebops.pub/denylist.json"]
 
+  # PrivateDatasetRepair lets a FOC grant rooted by the dealbot
+  # wallet read a piece whose foc/own names another wallet. Turn this off if
+  # that wallet's private key has leaked or FOC is untrusted.
+  # The piece owner can still read their own piece. (Default: true)
+  # Updates will affect running instances.
+  #
+  # type: bool
+  #PrivateDatasetRepair = true
+
   # CompressionLevels hold the compression level for various compression methods supported by the server
   #
   # type: CompressionConfig

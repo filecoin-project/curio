@@ -213,14 +213,17 @@ func run(t *testing.T, dir, name string, args ...string) []byte {
 	return out
 }
 
+var ENV_DEFAULTS = []string{
+	"COREPACK_ENABLE_DOWNLOAD_PROMPT=0",
+}
+
 func commandEnv() []string {
-	return append(os.Environ(), "COREPACK_ENABLE_DOWNLOAD_PROMPT=0")
+	return append(os.Environ(), ENV_DEFAULTS...)
 }
 
 func moduleRoot(t *testing.T) string {
 	t.Helper()
-	out, err := exec.Command("go", "list", "-m", "-f", "{{.Dir}}").Output()
-	require.NoError(t, err)
+	out := run(t, "", "go", "list", "-m", "-f", "{{.Dir}}")
 	return strings.TrimSpace(string(out))
 }
 
