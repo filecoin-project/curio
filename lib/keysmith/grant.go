@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
 	"math/big"
 	"regexp"
 	"strconv"
@@ -22,11 +23,13 @@ const (
 	maxRequestLifetime  = int64(300)
 	clockSkew           = int64(60)
 
-	domainName    = "FOC Encryption"
-	domainVersion = "1"
+	// NO_EXPIRY is the ceiling before a link sets field 11.
+	// Omitting field 11 keeps the current ceiling. The value is not written
+	// on the wire: a CBOR integer above 2^53−1 is non-canonical.
+	NO_EXPIRY = int64(math.MaxInt64)
 
-	// blockChainField is the EIP-712 name of the chain id.
-	blockChainField = "chainId"
+	domainName    = "Filecoin Encryption"
+	domainVersion = "2"
 
 	// DEALBOT_ROOT is the dealbot wallet on mainnet and calibnet.
 	// A grant it roots may read a piece whose foc/own names another wallet.
@@ -41,11 +44,11 @@ var extraGrantRoot = common.HexToAddress(DEALBOT_ROOT)
 
 // PieceLabels are the foc fields a provider read from a piece envelope.
 // An empty Owner means foc/own was absent, so the piece is not gated.
-// A nil Scope means foc/scope was absent.
+// A nil Group means foc/group was absent.
 type PieceLabels struct {
 	Owner    string
-	Keyspace string
-	Scope    *string
+	GroupKey string
+	Group    *string
 	Salt     string
 }
 
@@ -54,7 +57,7 @@ type VerifiedClaim struct {
 	Owner    common.Address
 	Node     string
 	Bearer   common.Address
-	keyspace []byte
+	groupKey []byte
 }
 
 type claimLink struct {
@@ -68,10 +71,9 @@ type claimLink struct {
 
 type grantChain struct {
 	owner              common.Address
-	keyspace           []byte
+	groupKey           []byte
 	blockChain         *big.Int
-	keyspaceCommitment []byte
-	expires            int64
+	groupKeyCommitment []byte
 	links              []claimLink
 }
 
@@ -102,40 +104,10 @@ var (
 	secpHalfN = new(big.Int).Rsh(crypto.S256().Params().N, 1)
 
 	saltPattern     = regexp.MustCompile(`^0x(?:[0-9a-f]{2})+$`)
-	keyspacePattern = regexp.MustCompile(`^0x[0-9a-f]{32}$`)
+	groupKeyPattern = regexp.MustCompile(`^0x[0-9a-f]{32}$`)
 	// jsEdgeSpace matches a leading or trailing run of jsSpace.
 	jsEdgeSpace = regexp.MustCompile(`^[` + jsSpace + `]+|[` + jsSpace + `]+$`)
 )
-
-var eip712Domain = []apitypes.Type{
-	{Name: "name", Type: "string"},
-	{Name: "version", Type: "string"},
-}
-
-var readGrantTypes = apitypes.Types{
-	"EIP712Domain": eip712Domain,
-	"ReadGrant": {
-		{Name: "v", Type: "uint8"},
-		{Name: "node", Type: "string"},
-		{Name: "owner", Type: "address"},
-		{Name: "keyspace", Type: "bytes16"},
-		{Name: "bearer", Type: "address"},
-		{Name: "maxDepth", Type: "uint8"},
-		{Name: blockChainField, Type: "uint256"},
-		{Name: "keyCommitment", Type: "bytes16"},
-		{Name: "keyspaceCommitment", Type: "bytes16"},
-		{Name: "expires", Type: "uint64"},
-	},
-}
-
-var readRequestTypes = apitypes.Types{
-	"EIP712Domain": eip712Domain,
-	"ReadRequest": {
-		{Name: blockChainField, Type: "uint256"},
-		{Name: "pieceCid", Type: "bytes"},
-		{Name: "expires", Type: "uint64"},
-	},
-}
 
 // VerifyPresentation checks a Keysmith FOC-Grant presentation.
 // pieceCID is the binary CID of the piece being served. blockChain is this
@@ -174,46 +146,46 @@ func VerifyPresentation(presentation, pieceCID []byte, piece PieceLabels, blockC
 	}
 	if piece.Owner != "" {
 		sameOwner := strings.EqualFold(piece.Owner, claim.Owner.Hex())
-		// The dealbot root is not the piece's keyspace owner, so that comparison does not apply.
+		// The dealbot root is not the piece's groupKey owner, so that comparison does not apply.
 		if sameOwner {
-			keyspace, err := keyspaceID(piece.Keyspace)
+			groupKey, err := groupKeyID(piece.GroupKey)
 			if err != nil {
 				return VerifiedClaim{}, err
 			}
-			if keyspace != "0x"+hex.EncodeToString(claim.keyspace) {
-				return VerifiedClaim{}, refuse("The piece belongs to another owner or keyspace")
+			if groupKey != "0x"+hex.EncodeToString(claim.groupKey) {
+				return VerifiedClaim{}, refuse("The piece belongs to another owner or group key")
 			}
 		} else if claim.Owner != extraGrantRoot {
-			return VerifiedClaim{}, refuse("The piece belongs to another owner or keyspace")
+			return VerifiedClaim{}, refuse("The piece belongs to another owner or group key")
 		}
 		ok, err := reaches(claim.Node, piece)
 		if err != nil {
 			return VerifiedClaim{}, err
 		}
 		if !ok {
-			scope := "(none)"
-			if piece.Scope != nil {
-				scope = *piece.Scope
+			group := "(none)"
+			if piece.Group != nil {
+				group = *piece.Group
 			}
-			return VerifiedClaim{}, refuse("%s does not reach this piece (scope %s)", claim.Node, scope)
+			return VerifiedClaim{}, refuse("%s does not reach this piece (group %s)", claim.Node, group)
 		}
 	}
 	return claim, nil
 }
 
-// verifyGrantChain checks signatures, expiry, and scope narrowing. piece is
+// verifyGrantChain checks signatures, expiry, and group narrowing. piece is
 // required when a link names one piece; a nil piece means the caller has no labels.
 func verifyGrantChain(grant grantChain, piece *PieceLabels, now time.Time) (VerifiedClaim, error) {
 	links := grant.links
 	if len(links) < 1 || len(links) > maxGrantChainLength {
 		return VerifiedClaim{}, refuse("A chain has 1 to %d links", maxGrantChainLength)
 	}
-	if err := chainExpired(grant.expires, now); err != nil {
+	root := links[0]
+	if err := chainExpired(root.expires, now); err != nil {
 		return VerifiedClaim{}, err
 	}
-	root := links[0]
-	if root.node == "keyspace" && !bytes.Equal(root.keyCommitment, grant.keyspaceCommitment) {
-		return VerifiedClaim{}, refuse("A keyspace root must carry the keyspace commitment")
+	if root.node == NODE_GROUP_KEY && !bytes.Equal(root.keyCommitment, grant.groupKeyCommitment) {
+		return VerifiedClaim{}, refuse("A group key root must carry the group key commitment")
 	}
 	signer, err := recoverLink(grant, root)
 	if err != nil {
@@ -238,7 +210,7 @@ func verifyGrantChain(grant grantChain, piece *PieceLabels, now time.Time) (Veri
 		}
 	}
 	last := links[len(links)-1]
-	return VerifiedClaim{Owner: grant.owner, Node: last.node, Bearer: last.bearer, keyspace: grant.keyspace}, nil
+	return VerifiedClaim{Owner: grant.owner, Node: last.node, Bearer: last.bearer, groupKey: grant.groupKey}, nil
 }
 
 // checkStep requires the child to be no wider than its parent, no later than its
@@ -253,9 +225,9 @@ func checkStep(parent, child claimLink, piece *PieceLabels, index int) error {
 	}
 	var narrower bool
 	switch {
-	case parent.node == "keyspace":
+	case parent.node == NODE_GROUP_KEY:
 		narrower = true
-	case strings.HasPrefix(child.node, "piece:"):
+	case strings.HasPrefix(child.node, NODE_PIECE_PREFIX):
 		if piece == nil {
 			return refuse("Link %d names a piece: checking it needs the piece's labels", index)
 		}
@@ -269,7 +241,7 @@ func checkStep(parent, child claimLink, piece *PieceLabels, index int) error {
 		}
 		narrower = child.node == named && covered
 	default:
-		narrower = !strings.HasPrefix(parent.node, "piece:") && child.node != "keyspace" && within(parent.node, child.node)
+		narrower = !strings.HasPrefix(parent.node, NODE_PIECE_PREFIX) && child.node != NODE_GROUP_KEY && within(parent.node, child.node)
 	}
 	if !narrower {
 		return refuse("Link %d widens %s to %s", index, parent.node, child.node)
@@ -283,47 +255,47 @@ func within(parent, child string) bool {
 }
 
 // reaches reports whether node covers the piece these labels describe.
-// The caller passes a canonical node. Scope and salt labels are canonicalised here.
+// The caller passes a canonical node. Group and salt labels are canonicalised here.
 func reaches(node string, piece PieceLabels) (bool, error) {
-	if node == "keyspace" {
+	if node == NODE_GROUP_KEY {
 		return true, nil
 	}
-	if strings.HasPrefix(node, "piece:") {
+	if strings.HasPrefix(node, NODE_PIECE_PREFIX) {
 		named, err := pieceNodeOf(piece)
 		if err != nil {
 			return false, err
 		}
 		return node == named, nil
 	}
-	if piece.Scope == nil {
+	if piece.Group == nil {
 		return false, nil
 	}
-	path, err := scopePath(*piece.Scope)
+	path, err := groupPath(*piece.Group)
 	if err != nil {
 		return false, err
 	}
-	return within(node, "scope:"+path), nil
+	return within(node, NODE_GROUP_PREFIX+path), nil
 }
 
 // pieceNodeOf is the canonical piece node for these labels. The caller has a salt string.
 func pieceNodeOf(piece PieceLabels) (string, error) {
-	return canonicalNode("piece:" + piece.Salt)
+	return canonicalNode(NODE_PIECE_PREFIX + piece.Salt)
 }
 
-// canonicalNode accepts only the form Keysmith signs: keyspace, scope:<path>, or piece:<salt>.
+// canonicalNode accepts only the form Keysmith signs: groupKey, group:<path>, or piece:<salt>.
 // A node that is not already canonical returns a different string, or an error when it cannot be one.
 func canonicalNode(node string) (string, error) {
-	if node == "keyspace" {
-		return "keyspace", nil
+	if node == NODE_GROUP_KEY {
+		return NODE_GROUP_KEY, nil
 	}
-	if rest, ok := strings.CutPrefix(node, "scope:"); ok {
-		path, err := scopePath(rest)
+	if rest, ok := strings.CutPrefix(node, NODE_GROUP_PREFIX); ok {
+		path, err := groupPath(rest)
 		if err != nil {
 			return "", err
 		}
-		return "scope:" + path, nil
+		return NODE_GROUP_PREFIX + path, nil
 	}
-	if rest, ok := strings.CutPrefix(node, "piece:"); ok {
+	if rest, ok := strings.CutPrefix(node, NODE_PIECE_PREFIX); ok {
 		salt, err := saltOf(rest)
 		if err != nil {
 			return "", err
@@ -331,17 +303,17 @@ func canonicalNode(node string) (string, error) {
 		if len(salt) != 2+32 {
 			return "", refuse("A piece node names a 16-byte salt, got %s", jsonQuote(node))
 		}
-		return "piece:" + salt, nil
+		return NODE_PIECE_PREFIX + salt, nil
 	}
 	return "", refuse("Unrecognised grant node: %s", node)
 }
 
-// scopePath canonicalises a scope path: NFC names joined by "/". The caller passes the text after "scope:".
-func scopePath(path string) (string, error) {
+// groupPath canonicalises a group path: NFC names joined by "/". The caller passes the text after "group:".
+func groupPath(path string) (string, error) {
 	parts := strings.Split(path, "/")
 	out := make([]string, len(parts))
 	for i, part := range parts {
-		name, err := scopeName(part)
+		name, err := groupName(part)
 		if err != nil {
 			return "", err
 		}
@@ -350,11 +322,11 @@ func scopePath(path string) (string, error) {
 	return strings.Join(out, "/"), nil
 }
 
-// scopeName canonicalises one scope segment. A segment that is empty, padded, or contains "/" is refused.
-func scopeName(name string) (string, error) {
+// groupName canonicalises one group segment. A segment that is empty, padded, or contains "/" is refused.
+func groupName(name string) (string, error) {
 	normalised := norm.NFC.String(name)
 	if normalised == "" || jsEdgeSpace.MatchString(normalised) || strings.Contains(normalised, "/") {
-		return "", refuse("A scope name must be non-empty, with no leading or trailing whitespace and no \"/\", got %s", jsonQuote(name))
+		return "", refuse("A group name must be non-empty, with no leading or trailing whitespace and no \"/\", got %s", jsonQuote(name))
 	}
 	return normalised, nil
 }
@@ -368,12 +340,12 @@ func saltOf(salt string) (string, error) {
 	return lower, nil
 }
 
-// keyspaceID returns a keyspace id as 16 lowercase hex bytes with a 0x prefix.
-// The caller passes a foc/ks label.
-func keyspaceID(keyspace string) (string, error) {
-	lower := strings.ToLower(keyspace)
-	if !keyspacePattern.MatchString(lower) {
-		return "", refuse("A keyspace id is 16 bytes of hex, got %s", jsonQuote(keyspace))
+// groupKeyID returns a group key id as 16 lowercase hex bytes with a 0x prefix.
+// The caller passes a foc/gkid label.
+func groupKeyID(groupKey string) (string, error) {
+	lower := strings.ToLower(groupKey)
+	if !groupKeyPattern.MatchString(lower) {
+		return "", refuse("A group key id is 16 bytes of hex, got %s", jsonQuote(groupKey))
 	}
 	return lower, nil
 }
@@ -387,43 +359,62 @@ func jsonQuote(s string) string {
 	return string(b)
 }
 
+// readGrantMessage is the EIP-712 ReadGrant for link.
+// owner, groupKeyId, chainId, and groupKeyCommitment come from grant, which the caller filled from the first link.
+// link.expires is the ceiling after this link, NO_EXPIRY when the link sets none.
+func readGrantMessage(grant grantChain, link claimLink) readGrantWire {
+	return readGrantWire{
+		V:                  big.NewInt(FOC_VERSION),
+		Node:               link.node,
+		Owner:              grant.owner.Hex(),
+		GroupKeyID:         grant.groupKey,
+		Bearer:             link.bearer.Hex(),
+		MaxDepth:           big.NewInt(int64(link.maxDepth)),
+		ChainID:            grant.blockChain,
+		KeyCommitment:      link.keyCommitment,
+		GroupKeyCommitment: grant.groupKeyCommitment,
+		Expires:            big.NewInt(link.expires),
+	}
+}
+
+// readRequestMessage is the EIP-712 ReadRequest for these fields.
+// The caller has the request's chain, piece CID, and expiry.
+func readRequestMessage(blockChain *big.Int, piece []byte, expires int64) readRequestWire {
+	return readRequestWire{
+		ChainID:  blockChain,
+		PieceCID: piece,
+		Expires:  big.NewInt(expires),
+	}
+}
+
+// recoverLink returns the signer of link. The caller has decoded the link.
 func recoverLink(grant grantChain, link claimLink) (common.Address, error) {
-	sum, err := hashTyped("ReadGrant", readGrantTypes, apitypes.TypedDataMessage{
-		"v":                  big.NewInt(1),
-		"node":               link.node,
-		"owner":              grant.owner.Hex(),
-		"keyspace":           grant.keyspace,
-		"bearer":             link.bearer.Hex(),
-		"maxDepth":           big.NewInt(int64(link.maxDepth)),
-		blockChainField:      grant.blockChain,
-		"keyCommitment":      link.keyCommitment,
-		"keyspaceCommitment": grant.keyspaceCommitment,
-		"expires":            big.NewInt(link.expires),
-	})
+	sum, err := hashTyped("ReadGrant", readGrantMessage(grant, link))
 	if err != nil {
 		return common.Address{}, err
 	}
 	return recoverAddress(sum, link.signature)
 }
 
+// recoverRequest returns the signer of req. The caller has decoded the request.
 func recoverRequest(blockChain *big.Int, req readRequest) (common.Address, error) {
-	sum, err := hashTyped("ReadRequest", readRequestTypes, apitypes.TypedDataMessage{
-		blockChainField: blockChain,
-		"pieceCid":      req.pieceCID,
-		"expires":       big.NewInt(req.expires),
-	})
+	sum, err := hashTyped("ReadRequest", readRequestMessage(blockChain, req.pieceCID, req.expires))
 	if err != nil {
 		return common.Address{}, err
 	}
 	return recoverAddress(sum, req.signature)
 }
 
-func hashTyped(primary string, types apitypes.Types, msg apitypes.TypedDataMessage) ([]byte, error) {
+// hashTyped is the EIP-712 hash of msg. primary names the type, and msg is that type's wire struct.
+func hashTyped(primary string, msg any) ([]byte, error) {
 	sum, _, err := apitypes.TypedDataAndHash(apitypes.TypedData{
-		Types:       types,
+		Types: apitypes.Types{
+			"EIP712Domain": eip712Types(eip712DomainWire{}),
+			primary:        eip712Types(msg),
+		},
 		PrimaryType: primary,
 		Domain:      apitypes.TypedDataDomain{Name: domainName, Version: domainVersion},
-		Message:     msg,
+		Message:     eip712Message(msg),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("hashing %s: %w", primary, err)
@@ -497,16 +488,16 @@ func chainExpired(expires int64, now time.Time) error {
 	return refuse("The chain expired at %s", when)
 }
 
-// decodePresentation reads a version-1 presentation. The bytes must be the
-// core deterministic encoding of that value.
+// decodePresentation reads a version-2 presentation. The bytes must be the
+// core deterministic encoding of that value. Any other version is refused.
 func decodePresentation(b []byte) (grantChain, readRequest, error) {
 	value, err := decodeWithRoundTripCheck(b)
 	if err != nil {
 		return grantChain{}, readRequest{}, refuse("Not a presentation: the bytes are not canonical CBOR")
 	}
 	items, ok := value.([]any)
-	if !ok || len(items) != 3 || !isVersion1(items[0]) {
-		return grantChain{}, readRequest{}, refuse("Not a version 1 presentation")
+	if !ok || len(items) != 3 || !isVersion(items[0], FOC_VERSION) {
+		return grantChain{}, readRequest{}, refuse("Not a version 2 presentation")
 	}
 	reqMap, ok := asMap(items[2])
 	if !ok {
@@ -538,55 +529,57 @@ func decodePresentation(b []byte) (grantChain, readRequest, error) {
 	return grant, readRequest{pieceCID: pieceCID, expires: int64(expires), signature: sig}, nil
 }
 
-func isVersion1(v any) bool {
+// isVersion reports whether v is the unsigned integer want. The caller passes a decoded CBOR value.
+func isVersion(v any, want uint64) bool {
 	n, ok := asUint(v)
-	return ok && n == 1
+	return ok && n == want
 }
 
 // decodeGrantChain reads the root-first link array. Root-only fields on a later link are rejected.
 //
-// A chain of two links: the owner grants scope:team, and that bearer narrows it to
-// scope:team/alice. Integer keys are the CBOR fields. Field 9 is an optional
+// A chain of two links: the owner grants group:team, and that bearer narrows it to
+// group:team/alice. Integer keys are the CBOR fields. Field 9 is an optional
 // unsigned pieceCid and may appear on any link.
 //
 //	first link {
-//	  0:  1                    v
-//	  1:  "scope:team"         node
+//	  0:  2                    v
+//	  1:  "group:team"         node
 //	  2:  <20 bytes>           owner
-//	  3:  <16 bytes>           keyspace
+//	  3:  <16 bytes>           groupKeyId
 //	  4:  <20 bytes>           bearer
 //	  5:  1                    maxDepth
 //	  6:  314159               chainId
 //	  7:  <16 bytes>           keyCommitment
 //	  8:  <65 bytes>           signature, low s, v = 27 or 28
-//	  10: <16 bytes>           keyspaceCommitment
+//	  10: <16 bytes>           groupKeyCommitment
 //	  11: 1800604800           expires, unix seconds
 //	}
 //
 // Every link is signed as the same EIP-712 ReadGrant. The domain is name
-// "FOC Encryption", version "1", with no chain id. The first link is signed by
+// "Filecoin Encryption", version "2", with no chain id. The first link is signed by
 // owner. Link i is signed by link i-1's bearer. node, bearer, maxDepth, and
-// keyCommitment come from the link being signed. owner, keyspace, chainId, and
-// keyspaceCommitment come from the first link. expires is this link's field 11
-// when the link carries one, and otherwise the previous link's expiry. A later
-// link's expiry must be its parent's or earlier.
+// keyCommitment come from the link being signed. owner, groupKeyId, chainId, and
+// groupKeyCommitment come from the first link. Field 11 is optional on every link.
+// The ceiling starts at NO_EXPIRY. A link that omits field 11 keeps the current
+// ceiling. A link that sets it must be that ceiling or earlier, and the signed
+// expires is the ceiling after that link.
 //
 //	signed for the first link {
-//	  v:                  1
-//	  node:               "scope:team"
+//	  v:                  2
+//	  node:               "group:team"
 //	  owner:              <20 bytes>
-//	  keyspace:           <16 bytes>
+//	  groupKeyId:         <16 bytes>
 //	  bearer:             <20 bytes>
 //	  maxDepth:           1
 //	  chainId:            314159
 //	  keyCommitment:      <16 bytes>
-//	  keyspaceCommitment: <16 bytes>
+//	  groupKeyCommitment: <16 bytes>
 //	  expires:            1800604800
 //	}
 //
 //	next link, expiry brought forward {
-//	  0:  1
-//	  1:  "scope:team/alice"   node
+//	  0:  2
+//	  1:  "group:team/alice"   node
 //	  4:  <20 bytes>           bearer
 //	  5:  0                    maxDepth
 //	  7:  <16 bytes>           keyCommitment
@@ -595,16 +588,16 @@ func isVersion1(v any) bool {
 //	}
 //
 //	signed for the next link {
-//	  v:                  1
-//	  node:               "scope:team/alice"  // this link
+//	  v:                  2
+//	  node:               "group:team/alice"  // this link
 //	  owner:              <20 bytes>          // first link
-//	  keyspace:           <16 bytes>          // first link
+//	  groupKeyId:         <16 bytes>          // first link
 //	  bearer:             <20 bytes>          // this link
 //	  maxDepth:           0                   // this link
 //	  chainId:            314159              // first link
 //	  keyCommitment:      <16 bytes>          // this link
-//	  keyspaceCommitment: <16 bytes>          // first link
-//	  expires:            1800086400          // this link, or the parent's when 11 is omitted
+//	  groupKeyCommitment: <16 bytes>          // first link
+//	  expires:            1800086400          // this link, or the current ceiling when 11 is omitted
 //	}
 func decodeGrantChain(value any) (grantChain, error) {
 	items, ok := value.([]any)
@@ -626,8 +619,9 @@ func decodeGrantChain(value any) (grantChain, error) {
 				return grantChain{}, refuse("Link %d repeats a root-only field", i)
 			}
 		}
-		if !isVersion1(must(lookup(m, 0))) {
-			return grantChain{}, refuse("Link %d has an unsupported version", i)
+		rawV, _ := lookup(m, 0)
+		if !isVersion(rawV, FOC_VERSION) {
+			return grantChain{}, refuse("Link %d must be version %d", i, FOC_VERSION)
 		}
 		maps[i] = m
 	}
@@ -636,7 +630,7 @@ func decodeGrantChain(value any) (grantChain, error) {
 	if err != nil {
 		return grantChain{}, err
 	}
-	keyspace, err := bytesField(root, 3, 16, "keyspace")
+	groupKey, err := bytesField(root, 3, 16, "groupKeyId")
 	if err != nil {
 		return grantChain{}, err
 	}
@@ -644,15 +638,12 @@ func decodeGrantChain(value any) (grantChain, error) {
 	if err != nil {
 		return grantChain{}, err
 	}
-	commitment, err := bytesField(root, 10, 16, "keyspaceCommitment")
-	if err != nil {
-		return grantChain{}, err
-	}
-	expires, err := uintField(root, 11, "The root expiry")
+	commitment, err := bytesField(root, 10, 16, "groupKeyCommitment")
 	if err != nil {
 		return grantChain{}, err
 	}
 	links := make([]claimLink, len(maps))
+	ceiling := NO_EXPIRY
 	for i, m := range maps {
 		node, ok := lookup(m, 1)
 		text, isText := node.(string)
@@ -681,18 +672,6 @@ func decodeGrantChain(value any) (grantChain, error) {
 		if err != nil {
 			return grantChain{}, err
 		}
-		exp := int64(expires)
-		if i > 0 {
-			if _, ok := lookup(m, 11); ok {
-				n, err := uintField(m, 11, fmt.Sprintf("Link %d's expiry", i))
-				if err != nil {
-					return grantChain{}, err
-				}
-				exp = int64(n)
-			} else {
-				exp = links[i-1].expires
-			}
-		}
 		sig, err := signatureField(m, 8, fmt.Sprintf("Link %d's signature", i))
 		if err != nil {
 			return grantChain{}, err
@@ -701,6 +680,17 @@ func decodeGrantChain(value any) (grantChain, error) {
 			if _, isBytes := raw.([]byte); !isBytes {
 				return grantChain{}, refuse("Link %d's pieceCid must be bytes", i)
 			}
+		}
+		exp := ceiling
+		if _, ok := lookup(m, 11); ok {
+			n, err := uintField(m, 11, fmt.Sprintf("Link %d's expiry", i))
+			if err != nil {
+				return grantChain{}, err
+			}
+			exp = int64(n)
+		}
+		if exp <= ceiling {
+			ceiling = exp
 		}
 		links[i] = claimLink{
 			node:          text,
@@ -713,10 +703,9 @@ func decodeGrantChain(value any) (grantChain, error) {
 	}
 	return grantChain{
 		owner:              common.BytesToAddress(owner),
-		keyspace:           keyspace,
+		groupKey:           groupKey,
 		blockChain:         new(big.Int).SetUint64(blockChainNum),
-		keyspaceCommitment: commitment,
-		expires:            int64(expires),
+		groupKeyCommitment: commitment,
 		links:              links,
 	}, nil
 }
@@ -736,8 +725,6 @@ func cborKeyName(key any) string {
 		return fmt.Sprint(key)
 	}
 }
-
-func must(v any, _ bool) any { return v }
 
 func bytesField(m map[any]any, key int64, n int, what string) ([]byte, error) {
 	value, ok := lookup(m, key)

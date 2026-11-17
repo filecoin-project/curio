@@ -24,6 +24,7 @@ import (
 
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/web/api"
+	"github.com/filecoin-project/curio/web/auth"
 
 	"github.com/filecoin-project/lotus/metrics"
 )
@@ -41,6 +42,21 @@ func GetSrv(ctx context.Context, deps *deps.Deps, devMode bool) (*http.Server, e
 	mx := mux.NewRouter()
 	registerPprof(mx)
 	var basePath = "/static/"
+
+	tlsConfig, err := guiTLSConfig(deps.Cfg, deps.DB)
+	if err != nil {
+		return nil, fmt.Errorf("gui tls: %w", err)
+	}
+	var guiAuth *auth.Auth
+	if deps.DB != nil {
+		// Production GUI always has a DB. Static-only web/devsrv skips auth.
+		guiAuth = auth.New(auth.Options{
+			Store:         auth.NewDBStore(deps.DB),
+			Deps:          deps,
+			SecureCookies: true, // GUI is always HTTPS
+		})
+		guiAuth.Register(mx)
+	}
 
 	// Single CORS middleware that handles all CORS logic
 	// Wrap the entire router to ensure middleware runs for all requests including unmatched routes
@@ -155,16 +171,26 @@ func GetSrv(ctx context.Context, deps *deps.Deps, devMode bool) (*http.Server, e
 		http.ServeContent(w, r, fileInfo.Name(), fileInfo.ModTime(), file.(io.ReadSeeker))
 	})
 
+	handler := http.Handler(corsHandler(mx))
+	if guiAuth != nil {
+		handler = guiAuth.Middleware(handler)
+	}
 	return &http.Server{
-		Handler: corsHandler(mx),
+		Handler: handler,
 		BaseContext: func(listener net.Listener) context.Context {
 			ctx, _ := tag.New(context.Background(), tag.Upsert(metrics.APIInterface, "curio"))
 			return ctx
 		},
 		Addr:              deps.Cfg.Subsystems.GuiAddress,
+		TLSConfig:         tlsConfig,
 		ReadTimeout:       time.Minute * 3,
 		ReadHeaderTimeout: time.Minute * 3, // lint
 	}, nil
+}
+
+// ListenAndServe starts the admin GUI over HTTPS only.
+func ListenAndServe(srv *http.Server) error {
+	return srv.ListenAndServeTLS("", "")
 }
 
 type interceptResponseWriter struct {

@@ -15,3 +15,4 @@ description: Curio best practices
 9. Users utilizing a **reverse proxy** for delegated TLS configuration should enable the **market** service on multiple nodes to ensure **high availability** for the HTTP server. Additionally, **libp2p** should be enabled on multiple nodes to maintain **high availability** for peer-to-peer communications.
 10. It is recommended to create a distinct layer for each market adapter (Deprecated), corresponding to each minerID. This configuration enables precise control, allowing for the assignment of specific minerIDs to either the Snap Deals pipeline or the PoRep pipeline.
 11. It is advised to run the market adapter (Deprecated) on the same node that will execute the TreeD task for the PoRep pipeline or the Encode task for the Snap Deals pipeline.
+12. On the public firewall, open only TCP 80 and 443. Keep the admin GUI, Curio API, Yugabyte, and chain RPC on the private network.

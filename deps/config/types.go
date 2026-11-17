@@ -13,7 +13,7 @@ import (
 func DefaultCurioConfig() *CurioConfig {
 	return &CurioConfig{
 		Subsystems: CurioSubsystemsConfig{
-			GuiAddress:                     "0.0.0.0:4701",
+			GuiAddress:                     "127.0.0.1:4701",
 			RequireActivationSuccess:       true,
 			RequireNotificationSuccess:     true,
 			PDPPullPieceMaxTasks:           20,
@@ -392,7 +392,7 @@ type CurioSubsystemsConfig struct {
 	// only need to be run on a single machine in the cluster. (Default: false)
 	EnableWebGui bool
 
-	// The address that should listen for Web GUI requests. It should be in form "x.x.x.x:1234" (Default: 0.0.0.0:4701)
+	// The address that should listen for Web GUI requests. It should be in form "x.x.x.x:1234" (Default: 127.0.0.1:4701)
 	GuiAddress string
 
 	// UseSyntheticPoRep enables the synthetic PoRep for all new sectors. When set to true, will reduce the amount of

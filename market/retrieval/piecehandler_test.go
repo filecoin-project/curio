@@ -282,9 +282,9 @@ func testFEEBytes(t *testing.T) []byte {
 		5:  []byte{1, 2, 3, 4, 5, 6, 7},
 		-1: uint64(262144),
 		-65792: map[string]any{
-			"foc/v":    uint64(1),
+			"foc/v":    uint64(2),
 			"foc/own":  "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
-			"foc/ks":   "0x00112233445566778899aabbccddeeff",
+			"foc/gkid": "0x00112233445566778899aabbccddeeff",
 			"foc/salt": "0x000102030405060708090a0b0c0d0e0f",
 		},
 	})

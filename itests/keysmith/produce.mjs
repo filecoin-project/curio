@@ -17,7 +17,7 @@ const bearer = privateKeyToAccount(bearerKey)
 
 const chainId = 314159n
 const now = Math.floor(Date.now() / 1000)
-const ref = { owner: owner.address, keyspace: '0x00112233445566778899aabbccddeeff' }
+const ref = { owner: owner.address, groupKeyId: '0x00112233445566778899aabbccddeeff' }
 
 // Run bytes through a FEE stream and collect the output.
 async function through(bytes, pair) {
@@ -35,10 +35,10 @@ async function through(bytes, pair) {
 
 const hex = (bytes) => Buffer.from(bytes).toString('hex')
 
-const { kk } = await Keysmith.keyspaceKeys(owner, ref)
+const { groupKey } = await Keysmith.deriveGroupKey(owner, ref)
 const salt = Keysmith.newSalt()
-const target = Keysmith.writeTarget(Keysmith.grantDescriptor(ref, 'keyspace'), kk, 'team/alice')
-const metadata = Keysmith.pieceMetadata(target.ref, { salt, scope: target.scope })
+const target = Keysmith.writeTarget(Keysmith.grantDescriptor(ref, 'groupKey'), groupKey, 'team/alice')
+const metadata = Keysmith.pieceMetadata(target.ref, { salt, group: target.group })
 const plaintext = new TextEncoder().encode('curio keysmith itest')
 const cek = Keysmith.pieceKey(target.key, salt)
 const encrypted = await through(plaintext, fee.encrypt({ cek, appMetadata: metadata, contentLength: plaintext.length }))
@@ -49,17 +49,17 @@ pieceCid.set(cek.subarray(0, 32), 4)
 
 const rooted = await Keysmith.rootClaim(owner, {
   owner: owner.address,
-  keyspace: ref.keyspace,
+  groupKeyId: ref.groupKeyId,
   chainId,
-  kk,
-  node: 'scope:team',
+  groupKey,
+  node: 'group:team',
   bearer: delegate.address,
   maxDepth: 1,
   expires: now + 7 * 86400,
 })
 const delegated = await Keysmith.delegateClaim(delegate, rooted.chain, {
   parentKey: rooted.nodeKey,
-  node: 'scope:team/alice',
+  node: 'group:team/alice',
   bearer: bearer.address,
   maxDepth: 0,
 })
@@ -87,8 +87,8 @@ process.stdout.write(
     now,
     owner: owner.address.toLowerCase(),
     bearer: bearer.address.toLowerCase(),
-    keyspace: metadata['foc/ks'],
-    scope: metadata['foc/scope'],
+    groupKey: metadata['foc/gkid'],
+    group: metadata['foc/group'],
     salt: metadata['foc/salt'],
     node: delegated.chain.links.at(-1).node,
   }),

@@ -31,6 +31,7 @@ This is the compatibility matrix for the latest free Curio releases.
 | v1.29.0                                                      | v1.38.0       | Mainnet | NA         | v2025.1 / Automatic | 0.35 / Automatic |
 | v1.29.1                                                      | v1.38.0       | Mainnet | NA         | v2025.1 / Automatic | 0.35 / Automatic |
 | v1.29.2                                                      | v1.38.0       | Mainnet | NA         | v2025.1 / Automatic | 0.35 / Automatic |
+| v1.29.3                                                      | v1.38.0       | Mainnet | NA         | v2025.1 / Automatic | 0.35 / Automatic |
 
 
 {% hint style="danger" %}

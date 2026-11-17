@@ -62,6 +62,7 @@ class JsonRpcClient {
                             reject(new Error('WebSocket initial connection failed'));
                             this.connectPromise = null;
                         }
+                        redirectIfUnauthenticated();
                         return;
                     }
                     if (this.shouldReconnect) {
@@ -154,7 +155,47 @@ class JsonRpcClient {
     }
 }
 
+let authRedirectStarted = false;
+
+function isAuthPagePath(path) {
+    return path === '/login' || path.startsWith('/login/')
+        || path === '/setup' || path.startsWith('/setup/')
+        || path === '/password' || path.startsWith('/password/');
+}
+
+async function redirectIfUnauthenticated() {
+    if (authRedirectStarted) {
+        return;
+    }
+    const path = window.location.pathname || '';
+    if (isAuthPagePath(path)) {
+        return;
+    }
+    try {
+        const res = await fetch('/api/auth/status', { credentials: 'same-origin' });
+        if (res.status !== 401 && res.ok) {
+            const body = await res.json();
+            if (body?.authenticated) {
+                return;
+            }
+            authRedirectStarted = true;
+            window.location.href = body?.configured ? '/login/' : '/setup/';
+            return;
+        }
+        if (res.status === 401) {
+            authRedirectStarted = true;
+            window.location.href = '/login/';
+        }
+    } catch (_) {
+        // backend may be unavailable during static-only dev
+    }
+}
+
 async function init() {
+    await redirectIfUnauthenticated();
+    if (authRedirectStarted) {
+        return;
+    }
     try {
         const client = await JsonRpcClient.getInstance();
         console.log("webrpc backend:", await client.call('Version', []));
@@ -176,6 +217,7 @@ export default async function(method, params = []) {
 export async function RPCCallHTTP(method, params = [], opts = {}) {
     const res = await fetch('/api/webrpc/v0', {
         method: 'POST',
+        credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             jsonrpc: '2.0',
@@ -185,6 +227,11 @@ export async function RPCCallHTTP(method, params = [], opts = {}) {
         }),
         signal: opts.signal,
     });
+
+    if (res.status === 401) {
+        await redirectIfUnauthenticated();
+        throw new Error('authentication required');
+    }
 
     let body;
     try {

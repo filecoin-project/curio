@@ -103,7 +103,7 @@ services:
     init: true
     ports:
       - "12300:12300" # API
-      - "4701:4701" # UI
+      - "127.0.0.1:4701:4701" # Admin GUI (localhost only)
       - "12310:12310" # Market
     environment:
       - CURIO_REPO_PATH=/var/lib/curio
