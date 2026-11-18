@@ -16,6 +16,29 @@ const (
 	vtypeDir = 2
 )
 
+// libcCall6 uses the same runtime bridge as x/sys/unix's Darwin wrappers.
+// uintptr arguments may point into Go memory and must remain live during the call.
+//
+//go:linkname libcCall6 syscall.syscall6
+//go:uintptrescapes
+func libcCall6(fn, a1, a2, a3, a4, a5, a6 uintptr) (r1, r2 uintptr, errno unix.Errno)
+
+var libcGetAttrListBulkAddr uintptr
+
+//go:cgo_import_dynamic libc_getattrlistbulk getattrlistbulk "/usr/lib/libSystem.B.dylib"
+
+// getAttrListBulk calls libSystem with a valid attribute list and a nonempty
+// buffer, using the Go runtime's libc bridge without cgo.
+func getAttrListBulk(fd int, attr *unix.Attrlist, buf []byte, options uint64) (int, error) {
+	n, _, errno := libcCall6(libcGetAttrListBulkAddr, uintptr(fd),
+		uintptr(unsafe.Pointer(attr)), uintptr(unsafe.Pointer(&buf[0])),
+		uintptr(len(buf)), uintptr(options), 0)
+	if errno != 0 {
+		return 0, errno
+	}
+	return int(n), nil
+}
+
 // SumFileSizesRange sums logical file sizes for regular files under directory
 // whose concatenated hash paths compare in the bytewise interval (low, high].
 // An empty low or high bound leaves that side of the interval open.
@@ -72,22 +95,13 @@ func sumDirDarwin(path, prefix, low, high string, queueDepth uint32, result *Res
 	for {
 		var retcount int
 		for {
-			r1, _, errno := unix.Syscall6(
-				unix.SYS_GETATTRLISTBULK,
-				uintptr(dirfd),
-				uintptr(unsafe.Pointer(&attr)),
-				uintptr(unsafe.Pointer(&buf[0])),
-				uintptr(len(buf)),
-				0,
-				0,
-			)
-			if errno == unix.EINTR {
+			retcount, err = getAttrListBulk(dirfd, &attr, buf, 0)
+			if err == unix.EINTR {
 				continue
 			}
-			if errno != 0 {
-				return fmt.Errorf("getattrlistbulk %s: %w", path, errno)
+			if err != nil {
+				return fmt.Errorf("getattrlistbulk %s: %w", path, err)
 			}
-			retcount = int(r1)
 			break
 		}
 		if retcount == 0 {
