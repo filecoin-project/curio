@@ -181,6 +181,7 @@ func (t *DeleteDataSetTask) schedule(ctx context.Context, addTaskFunc harmonytas
 					  AND service_termination_epoch IS NOT NULL
 					  AND service_termination_epoch <= $2
 					  AND deletion_allowed = TRUE
+					  AND (client_requested_termination OR operator_requested_deletion)
 					LIMIT 1
 				)
 				UPDATE pdp_delete_data_set p
@@ -192,7 +193,8 @@ func (t *DeleteDataSetTask) schedule(ctx context.Context, addTaskFunc harmonytas
 				  AND p.after_terminate_service = TRUE
 				  AND p.service_termination_epoch IS NOT NULL
 				  AND p.service_termination_epoch <= $2
-				  AND p.deletion_allowed = TRUE`, taskID, current)
+				  AND p.deletion_allowed = TRUE
+				  AND (p.client_requested_termination OR p.operator_requested_deletion)`, taskID, current)
 			if err != nil {
 				return false, xerrors.Errorf("failed to update pdp_delete_data_set: %w", err)
 			}
@@ -216,6 +218,22 @@ func (t *DeleteDataSetTask) schedule(ctx context.Context, addTaskFunc harmonytas
 }
 
 func (t *DeleteDataSetTask) Adder(taskFunc harmonytask.AddTaskFunc) {}
+
+// DeletionRequested reports whether a client or the operator has asked for the
+// data set to be deleted.
+func DeletionRequested(tx *harmonydb.Tx, dataSetID int64) (bool, error) {
+	var requested bool
+	err := tx.QueryRow(`
+		SELECT EXISTS (
+			SELECT 1 FROM pdp_delete_data_set
+			WHERE id = $1 AND (client_requested_termination OR operator_requested_deletion)
+		)
+	`, dataSetID).Scan(&requested)
+	if err != nil {
+		return false, xerrors.Errorf("failed to check for a deletion request: %w", err)
+	}
+	return requested, nil
+}
 
 var _ = harmonytask.Reg(&DeleteDataSetTask{})
 var _ harmonytask.TaskInterface = &DeleteDataSetTask{}

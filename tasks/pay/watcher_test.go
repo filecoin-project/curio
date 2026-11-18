@@ -2,6 +2,7 @@ package pay
 
 import (
 	"context"
+	"fmt"
 	"math/big"
 	"testing"
 
@@ -197,11 +198,10 @@ func TestIntegration_ProcessPendingTransactions_Retry(t *testing.T) {
 func TestIntegration_ProcessPendingTransactions_RailDefaultAlert(t *testing.T) {
 	// The rail is settled up to epoch 900 with a 50-epoch lockup, so its lockup ends at epoch 950.
 	tests := []struct {
-		name            string
-		block           uint64
-		endEpoch        int64
-		wantMessage     string
-		wantTermination bool
+		name        string
+		block       uint64
+		endEpoch    int64
+		wantMessage string
 	}{
 		{
 			name:        "within grace",
@@ -209,17 +209,15 @@ func TestIntegration_ProcessPendingTransactions_RailDefaultAlert(t *testing.T) {
 			wantMessage: "Rail 1 is soon to default (dataSet 2)",
 		},
 		{
-			name:            "past grace",
-			block:           950 + temporaryDefaultGraceInEpochs + 1,
-			wantMessage:     "Rail 1 is past its default grace period, scheduling termination of dataSet 2",
-			wantTermination: true,
+			name:        "past grace",
+			block:       950 + temporaryDefaultGraceInEpochs + 1,
+			wantMessage: "Rail 1 is past its default grace period; Curio will not terminate dataSet 2 on its own",
 		},
 		{
-			name:            "terminated rail",
-			block:           1000,
-			endEpoch:        2000,
-			wantMessage:     "Rail 1 is soon to default (dataSet 2)",
-			wantTermination: true,
+			name:        "terminated rail",
+			block:       1000,
+			endEpoch:    2000,
+			wantMessage: "Rail 1 is soon to default (dataSet 2)",
 		},
 	}
 
@@ -251,11 +249,119 @@ func TestIntegration_ProcessPendingTransactions_RailDefaultAlert(t *testing.T) {
 				require.JSONEq(t, `{"dataset": "2", "rail": "1"}`, string(events[0].Context))
 			}
 
-			var terminationScheduled bool
+			var deletionQueued bool
 			require.NoError(t, db.QueryRow(t.Context(), `
 				SELECT EXISTS (SELECT 1 FROM pdp_delete_data_set WHERE id = 2)
-			`).Scan(&terminationScheduled))
-			require.Equal(t, tc.wantTermination, terminationScheduled)
+			`).Scan(&deletionQueued))
+			require.False(t, deletionQueued, "the watcher must not queue a data set for deletion")
+		})
+	}
+}
+
+// insertSettleWatcherDataSet adds the local data set that rail 1 pays for.
+func insertSettleWatcherDataSet(t *testing.T, db *harmonydb.DB) {
+	t.Helper()
+	_, err := db.Exec(t.Context(), `INSERT INTO pdp_services (pubkey, service_label) VALUES ($1, $2)`, []byte("settle-watcher"), "settle-watcher")
+	require.NoError(t, err)
+	_, err = db.Exec(t.Context(), `
+		INSERT INTO pdp_data_sets (id, create_message_hash, service, proving_period, challenge_window, init_ready)
+		VALUES (2, $1, 'settle-watcher', 100, 10, FALSE)
+	`, fmt.Sprintf("0x%064x", 2))
+	require.NoError(t, err)
+}
+
+// insertConfirmedSettle tracks a confirmed settlement of rail 1.
+func insertConfirmedSettle(t *testing.T, db *harmonydb.DB, hash string) {
+	t.Helper()
+	_, err := db.Exec(t.Context(), `
+		INSERT INTO filecoin_payment_transactions (tx_hash, rail_ids, retry)
+		VALUES ($1, $2, FALSE)
+	`, hash, []int64{1})
+	require.NoError(t, err)
+	_, err = db.Exec(t.Context(), `
+		INSERT INTO message_waits_eth (signed_tx_hash, tx_status, tx_success)
+		VALUES ($1, 'confirmed', TRUE)
+	`, hash)
+	require.NoError(t, err)
+}
+
+func TestIntegration_ProcessPendingTransactions_RailTerminatedAlert(t *testing.T) {
+	const terminatedMessage = "Rail 1 was terminated on chain (end epoch %d); Curio will not delete dataSet 2 on its own"
+	// Block 940 is inside the rail's lockup (settled up to 900, lockup 50), so no default alert fires.
+	// An end epoch of 900 equals settledUpTo: the rail is finalized.
+	tests := []struct {
+		name                string
+		endEpoch            int64
+		clientRequested     bool
+		wantMessages        []string
+		wantDeletionAllowed bool
+	}{
+		{
+			name:         "first sighting alerts once",
+			endEpoch:     2000,
+			wantMessages: []string{fmt.Sprintf(terminatedMessage, 2000)},
+		},
+		{
+			name:         "finalized rail without a deletion request",
+			endEpoch:     900,
+			wantMessages: []string{fmt.Sprintf(terminatedMessage, 900)},
+		},
+		{
+			name:                "requested deletion stays silent and is unblocked",
+			endEpoch:            900,
+			clientRequested:     true,
+			wantDeletionAllowed: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			client := newSettleWatcherClientWith(t, settleWatcherRail{block: 940, lockupPeriod: 50, endEpoch: tc.endEpoch, dataSetID: 2})
+			db, err := harmonydb.NewFromConfigWithITestID(t)
+			require.NoError(t, err)
+			insertSettleWatcherDataSet(t, db)
+			if tc.clientRequested {
+				_, err = db.Exec(t.Context(), `
+					INSERT INTO pdp_delete_data_set (id, client_requested_termination, termination_extra_data)
+					VALUES (2, TRUE, '\x01')
+				`)
+				require.NoError(t, err)
+			}
+
+			alerts := &settleWatcherAlerts{}
+			for _, hash := range []string{common.HexToHash("0x01").Hex(), common.HexToHash("0x02").Hex()} {
+				insertConfirmedSettle(t, db, hash)
+				require.NoError(t, processPendingTransactions(t.Context(), db, client, alerts))
+			}
+
+			var messages []string
+			for _, event := range alerts.events {
+				messages = append(messages, event.Message)
+				require.Equal(t, map[string]string{
+					curioalerting.CONTEXT_KEY_DATASET: "2",
+					curioalerting.CONTEXT_KEY_RAIL:    "1",
+				}, event.Context)
+			}
+			require.Equal(t, tc.wantMessages, messages)
+
+			var tracked int
+			require.NoError(t, db.QueryRow(t.Context(), `SELECT COUNT(*) FROM filecoin_payment_transactions`).Scan(&tracked))
+			require.Zero(t, tracked, "both settlements must be processed")
+
+			var railEndEpoch int64
+			require.NoError(t, db.QueryRow(t.Context(), `SELECT rail_end_epoch FROM pdp_data_sets WHERE id = 2`).Scan(&railEndEpoch))
+			require.Equal(t, tc.endEpoch, railEndEpoch)
+
+			var rows []struct {
+				DeletionAllowed bool `db:"deletion_allowed"`
+			}
+			require.NoError(t, db.Select(t.Context(), &rows, `SELECT deletion_allowed FROM pdp_delete_data_set WHERE id = 2`))
+			if tc.clientRequested {
+				require.Len(t, rows, 1)
+				require.Equal(t, tc.wantDeletionAllowed, rows[0].DeletionAllowed)
+			} else {
+				require.Empty(t, rows, "the watcher must not queue a data set for deletion")
+			}
 		})
 	}
 }

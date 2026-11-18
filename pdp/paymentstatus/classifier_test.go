@@ -38,11 +38,10 @@ func TestClassify_UnpaidGrace(t *testing.T) {
 	require.Equal(t, ReasonUnpaidGrace, snap.Reason)
 	require.NotNil(t, snap.GraceStartEpoch)
 	require.Equal(t, int64(1000+lockup), *snap.GraceStartEpoch)
-	require.NotNil(t, snap.ProjectedDeleteEpoch)
-	require.Equal(t, int64(1000+lockup+TemporaryDefaultGraceInEpochs+lockup), *snap.ProjectedDeleteEpoch)
+	require.Nil(t, snap.ProjectedDeleteEpoch, "an unpaid data set has no deletion date")
 }
 
-func TestClassify_PastAutoTerminateThreshold(t *testing.T) {
+func TestClassify_PastDefaultGrace(t *testing.T) {
 	lockup := int64(builtin.EpochsInDay * 30)
 	view := railView(1000, lockup, 0)
 	current := uint64(1000 + lockup + TemporaryDefaultGraceInEpochs + 1)
@@ -104,6 +103,17 @@ func TestClassify_ClientRequestedTerminationPendingEpoch(t *testing.T) {
 	require.True(t, snap.DeleteDatePending)
 }
 
+func TestClassify_OperatorRequestedDeletionReason(t *testing.T) {
+	failure := int64(6500)
+	view := railView(1000, builtin.EpochsInDay*30, 0)
+	snap := Classify(8000, view, "0xabc", DeletePipelineOverlay{
+		InPipeline:        true,
+		OperatorRequested: true,
+	}, ProvingOverlay{UnrecoverableFailureEpoch: &failure}, false)
+	require.Equal(t, StatusTerminating, snap.Status)
+	require.Equal(t, ReasonOperatorRequested, snap.Reason)
+}
+
 func TestClassify_ProvingFailureReason(t *testing.T) {
 	epoch := int64(7000)
 	failure := int64(6500)
@@ -115,11 +125,43 @@ func TestClassify_ProvingFailureReason(t *testing.T) {
 	require.Equal(t, ReasonProvingFailure, snap.Reason)
 }
 
-func TestEstimatedDeleteEpoch(t *testing.T) {
-	lockup := int64(builtin.EpochsInDay * 30)
-	got := EstimatedDeleteEpoch(big.NewInt(100), big.NewInt(lockup))
-	require.NotNil(t, got)
-	require.Equal(t, int64(100+lockup+TemporaryDefaultGraceInEpochs+lockup), *got)
+func TestClassify_TerminatedWithoutDeletionRequest(t *testing.T) {
+	endEpoch := int64(5000)
+	failure := int64(4800)
+	tests := []struct {
+		name       string
+		view       filecoinpayment.PaymentsRailView
+		overlay    DeletePipelineOverlay
+		proving    ProvingOverlay
+		wantReason string
+	}{
+		{
+			name: "terminated rail",
+			view: railView(1000, builtin.EpochsInDay*30, endEpoch),
+		},
+		{
+			name:    "finalized rail leaves only the termination epoch",
+			overlay: DeletePipelineOverlay{ServiceTerminationEpoch: &endEpoch},
+		},
+		{
+			name:       "proving stopped",
+			overlay:    DeletePipelineOverlay{ServiceTerminationEpoch: &endEpoch},
+			proving:    ProvingOverlay{UnrecoverableFailureEpoch: &failure},
+			wantReason: ReasonProvingFailure,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			snap := Classify(4000, tc.view, "0xabc", tc.overlay, tc.proving, false)
+			require.Equal(t, StatusTerminated, snap.Status)
+			require.Equal(t, tc.wantReason, snap.Reason)
+			require.Nil(t, snap.ProjectedDeleteEpoch)
+			require.False(t, snap.DeleteDatePending)
+			require.True(t, IsAtRisk(snap, 4000))
+			require.True(t, IsAtRisk(snap, uint64(endEpoch)+1_000_000), "it stays listed until someone deletes it")
+		})
+	}
 }
 
 func TestIsAtRisk_PastProjectedDelete(t *testing.T) {
@@ -141,13 +183,11 @@ func TestIsAtRisk_TerminatingWithoutDeleteEpoch(t *testing.T) {
 	require.True(t, IsAtRisk(snap, 9000))
 }
 
-func TestIsAtRisk_GraceBeforeProjectedDelete(t *testing.T) {
+func TestIsAtRisk_GraceHasNoEnd(t *testing.T) {
 	lockup := int64(builtin.EpochsInDay * 30)
 	view := railView(1000, lockup, 0)
 	current := uint64(1000 + lockup + 1)
 	snap := Classify(current, view, "0xabc", DeletePipelineOverlay{}, ProvingOverlay{}, false)
 	require.True(t, IsAtRisk(snap, current))
-
-	past := uint64(*snap.ProjectedDeleteEpoch + 1)
-	require.False(t, IsAtRisk(snap, past))
+	require.True(t, IsAtRisk(snap, current+uint64(10*lockup)))
 }

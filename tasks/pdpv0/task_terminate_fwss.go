@@ -205,6 +205,7 @@ func (t *TerminateFWSSTask) schedule(ctx context.Context, addTaskFunc harmonytas
 					FROM pdp_delete_data_set
 					WHERE terminate_service_task_id IS NULL
 					  AND after_terminate_service = FALSE
+					  AND (client_requested_termination OR operator_requested_deletion)
 					LIMIT 1
 				)
 				UPDATE pdp_delete_data_set p
@@ -216,7 +217,8 @@ func (t *TerminateFWSSTask) schedule(ctx context.Context, addTaskFunc harmonytas
 				FROM pending
 				WHERE p.id = pending.id
 				  AND p.terminate_service_task_id IS NULL
-				  AND p.after_terminate_service = FALSE`, taskID)
+				  AND p.after_terminate_service = FALSE
+				  AND (p.client_requested_termination OR p.operator_requested_deletion)`, taskID)
 			if err != nil {
 				return false, xerrors.Errorf("failed to update pdp_delete_data_set: %w", err)
 			}

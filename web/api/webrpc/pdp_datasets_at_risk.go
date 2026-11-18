@@ -29,11 +29,14 @@ type PDPDataSetAtRiskListResult struct {
 }
 
 // PDPDataSetAtRiskCounts splits at-risk datasets by status.
-// Grace can still be cured by payment. Terminating means service termination
-// is already confirmed. PendingDelete means deletion is allowed.
+// Grace can still be cured by payment. Terminated means the service was
+// terminated on chain and nobody asked for deletion. Terminating means a
+// requested deletion is waiting for its date. PendingDelete means deletion is
+// allowed.
 type PDPDataSetAtRiskCounts struct {
 	Total         int `json:"total"`
 	Grace         int `json:"grace"`
+	Terminated    int `json:"terminated"`
 	Terminating   int `json:"terminating"`
 	PendingDelete int `json:"pendingDelete"`
 }
@@ -317,14 +320,16 @@ func (a *WebRPC) PDPDataSetAtRiskCount(ctx context.Context) (PDPDataSetAtRiskCou
 }
 
 // countAtRiskByStatus groups entries the caller already resolved as at risk.
-// It does not re-check chain state. Statuses other than grace, terminating,
-// and pending_delete remain in Total only.
+// It does not re-check chain state. Statuses other than grace, terminated,
+// terminating, and pending_delete remain in Total only.
 func countAtRiskByStatus(entries []atRiskEntry) PDPDataSetAtRiskCounts {
 	out := PDPDataSetAtRiskCounts{Total: len(entries)}
 	for _, entry := range entries {
 		switch entry.snap.Status {
 		case paymentstatus.StatusGrace:
 			out.Grace++
+		case paymentstatus.StatusTerminated:
+			out.Terminated++
 		case paymentstatus.StatusTerminating:
 			out.Terminating++
 		case paymentstatus.StatusPendingDelete:

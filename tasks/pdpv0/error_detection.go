@@ -161,8 +161,8 @@ func contractErrorSelector(errDef abi.Error) string {
 }
 
 // IsUnrecoverableError returns true if the error contains a known unrecoverable
-// error selector. These errors indicate the dataset should be permanently terminated
-// and proving should stop immediately.
+// error selector: the data set's payment was terminated or is past its end
+// epoch, or the data set is not live on chain.
 func IsUnrecoverableError(err error) bool {
 	if err == nil {
 		return false

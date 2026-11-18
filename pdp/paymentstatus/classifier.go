@@ -13,20 +13,23 @@ const TemporaryDefaultGraceInEpochs = 30 * builtin.EpochsInDay
 const (
 	StatusOK            = "ok"
 	StatusGrace         = "grace"
+	StatusTerminated    = "terminated"
 	StatusTerminating   = "terminating"
 	StatusPendingDelete = "pending_delete"
 )
 
 const (
-	ReasonUnpaidGrace     = "unpaid_grace"
-	ReasonPaymentDefault  = "payment_default"
-	ReasonClientRequested = "client_requested"
-	ReasonProvingFailure  = "proving_failure"
+	ReasonUnpaidGrace       = "unpaid_grace"
+	ReasonPaymentDefault    = "payment_default"
+	ReasonClientRequested   = "client_requested"
+	ReasonOperatorRequested = "operator_requested"
+	ReasonProvingFailure    = "proving_failure"
 )
 
 type DeletePipelineOverlay struct {
 	InPipeline              bool
 	ClientRequested         bool
+	OperatorRequested       bool
 	AfterTerminateService   bool
 	ServiceTerminationEpoch *int64
 	DeletionAllowed         bool
@@ -80,20 +83,6 @@ func graceStartEpoch(settledUpTo, lockupPeriod *big.Int) *int64 {
 	return addEpochs(new(big.Int).Add(settledUpTo, lockupPeriod), 0)
 }
 
-func EstimatedDeleteEpoch(settledUpTo, lockupPeriod *big.Int) *int64 {
-	if settledUpTo == nil || lockupPeriod == nil || lockupPeriod.Sign() <= 0 {
-		return nil
-	}
-	threshold := new(big.Int).Add(settledUpTo, lockupPeriod)
-	threshold.Add(threshold, big.NewInt(TemporaryDefaultGraceInEpochs))
-	threshold.Add(threshold, lockupPeriod)
-	if threshold.Sign() <= 0 {
-		return nil
-	}
-	out := threshold.Int64()
-	return &out
-}
-
 func railLive(view filecoinpayment.PaymentsRailView) bool {
 	return view.EndEpoch == nil || view.EndEpoch.Sign() <= 0
 }
@@ -106,7 +95,9 @@ func lockupExhausted(view filecoinpayment.PaymentsRailView, currentEpoch uint64)
 	return threshold.Uint64() <= currentEpoch
 }
 
-func pastAutoTerminateThreshold(view filecoinpayment.PaymentsRailView, currentEpoch uint64) bool {
+// pastDefaultGrace reports whether a live rail is unpaid beyond its lockup
+// period plus the default grace.
+func pastDefaultGrace(view filecoinpayment.PaymentsRailView, currentEpoch uint64) bool {
 	if !railLive(view) || view.SettledUpTo == nil || view.LockupPeriod == nil {
 		return false
 	}
@@ -118,6 +109,9 @@ func pastAutoTerminateThreshold(view filecoinpayment.PaymentsRailView, currentEp
 func deleteReason(deleteOverlay DeletePipelineOverlay, proving ProvingOverlay) string {
 	if deleteOverlay.ClientRequested {
 		return ReasonClientRequested
+	}
+	if deleteOverlay.OperatorRequested {
+		return ReasonOperatorRequested
 	}
 	if proving.UnrecoverableFailureEpoch != nil {
 		return ReasonProvingFailure
@@ -171,21 +165,23 @@ func Classify(
 		return out
 	}
 
-	if !nothingOwed && lockupExhausted(view, currentEpoch) && railLive(view) {
-		out.Reason = ReasonUnpaidGrace
-		out.Status = StatusGrace
-		out.ProjectedDeleteEpoch = EstimatedDeleteEpoch(view.SettledUpTo, view.LockupPeriod)
-		if pastAutoTerminateThreshold(view, currentEpoch) {
-			out.Reason = ReasonPaymentDefault
+	// A finalized rail has an empty view, so the termination epoch alone is enough.
+	if deleteOverlay.ServiceTerminationEpoch != nil || !railLive(view) {
+		out.Status = StatusTerminated
+		out.PdpEndEpoch = deleteOverlay.ServiceTerminationEpoch
+		if proving.UnrecoverableFailureEpoch != nil {
+			out.Reason = ReasonProvingFailure
 		}
 		return out
 	}
 
-	if !railLive(view) && view.EndEpoch != nil && view.EndEpoch.Sign() > 0 {
-		out.Reason = ReasonPaymentDefault
-		out.Status = StatusTerminating
-		out.RailEndEpoch = bigIntEpoch(view.EndEpoch)
-		out.ProjectedDeleteEpoch = bigIntEpoch(view.EndEpoch)
+	if !nothingOwed && lockupExhausted(view, currentEpoch) {
+		out.Reason = ReasonUnpaidGrace
+		out.Status = StatusGrace
+		if pastDefaultGrace(view, currentEpoch) {
+			out.Reason = ReasonPaymentDefault
+		}
+		return out
 	}
 
 	return out
