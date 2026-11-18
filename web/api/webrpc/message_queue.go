@@ -43,11 +43,17 @@ func (a *WebRPC) MessageQueueSummary(ctx context.Context) (MessageQueueSummary, 
 		SendTime   *time.Time `db:"send_time"`
 	}
 	err = a.Deps.DB.Select(ctx, &ethRows, `
-		SELECT mwe.signed_tx_hash AS tx_hash, mse.send_reason, mse.send_time
+		SELECT mwe.signed_tx_hash AS tx_hash, ms.send_reason, ms.send_time
 		FROM message_waits_eth mwe
-		LEFT JOIN message_sends_eth mse ON mwe.signed_tx_hash = lower(trim(both from mse.signed_hash))
+		LEFT JOIN LATERAL (
+			SELECT mse.send_reason, mse.send_time
+			FROM message_sends_eth mse
+			WHERE lower(trim(both from mse.signed_hash)) = mwe.signed_tx_hash
+				AND mse.send_success = TRUE
+			LIMIT 1
+		) ms ON true
 		WHERE mwe.tx_status = 'pending'
-		ORDER BY mse.send_time DESC NULLS LAST, mwe.signed_tx_hash
+		ORDER BY ms.send_time DESC NULLS LAST, mwe.signed_tx_hash
 		LIMIT 20`)
 	if err != nil {
 		return MessageQueueSummary{}, xerrors.Errorf("eth pending messages: %w", err)
