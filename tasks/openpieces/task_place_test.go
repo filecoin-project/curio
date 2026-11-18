@@ -8,9 +8,8 @@ func TestPlacementDecision(t *testing.T) {
 		forceACL, forceOpen   bool
 		anySecured, anyPublic bool
 		wantACL, wantOpen     bool
-		stay                  bool
 	}{
-		{name: "upload before a data set claims it", stay: true},
+		{name: "upload before a data set claims it", wantOpen: true},
 		{name: "public data set", anyPublic: true, wantOpen: true},
 		{name: "restricted data set", anySecured: true, wantACL: true},
 		{name: "restricted and public data sets", anySecured: true, anyPublic: true, wantACL: true, wantOpen: true},
@@ -20,11 +19,11 @@ func TestPlacementDecision(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotACL, gotOpen, gotStay := placementDecision(tt.forceACL, tt.forceOpen, tt.anySecured, tt.anyPublic)
-			if gotACL != tt.wantACL || gotOpen != tt.wantOpen || gotStay != tt.stay {
-				t.Fatalf("placementDecision(%v, %v, %v, %v) = (%v, %v, %v), want (%v, %v, %v)",
+			gotACL, gotOpen := placementDecision(tt.forceACL, tt.forceOpen, tt.anySecured, tt.anyPublic)
+			if gotACL != tt.wantACL || gotOpen != tt.wantOpen {
+				t.Fatalf("placementDecision(%v, %v, %v, %v) = (%v, %v), want (%v, %v)",
 					tt.forceACL, tt.forceOpen, tt.anySecured, tt.anyPublic,
-					gotACL, gotOpen, gotStay, tt.wantACL, tt.wantOpen, tt.stay)
+					gotACL, gotOpen, tt.wantACL, tt.wantOpen)
 			}
 		})
 	}

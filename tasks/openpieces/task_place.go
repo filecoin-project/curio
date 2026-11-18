@@ -1,5 +1,5 @@
 // Package openpieces moves PDP pieces between piece-park and the cluster hash spaces.
-// Restricted data sets (acl = 1) use acl-pieces. A piece no data set has claimed stays in piece-park.
+// An upload is copied into open-pieces immediately. Restricted data sets (acl = 1) use acl-pieces.
 package openpieces
 
 import (
@@ -46,7 +46,8 @@ type parkedPiece struct {
 }
 
 // Place copies pieceRef into open-pieces, or acl-pieces when a linked data set has acl = 1.
-// A nil cluster skips placement. A hash_space_delete row leaves the bytes in piece-park.
+// A ref no data set has claimed still goes to open-pieces. A nil cluster skips placement.
+// A hash_space_delete row leaves the bytes in piece-park.
 func Place(ctx context.Context, db *harmonydb.DB, hs *hashfolder.Cluster, local *paths.Local, pieceIO piecestore.PieceIO, pieceRef int64) error {
 	return place(ctx, db, hs, local, pieceIO, pieceRef, false, false)
 }
@@ -93,30 +94,11 @@ func place(ctx context.Context, db *harmonydb.DB, hs *hashfolder.Cluster, local 
 	if err != nil {
 		return err
 	}
-	// AnyPublic counts acl NULL and 0 as public. An empty link list is neither.
+	// AnyPublic counts acl NULL and 0 as public. An empty link list is neither,
+	// and that upload still goes to open-pieces until a data set claims it.
 	secured := pieceacl.AnySecured(links)
 	publicLinks := pieceacl.AnyPublic(links)
-	creating := false
-	if !forceACL && !forceOpen && !secured && !publicLinks {
-		// A pull with data_set_id 0 does not store read metadata, so it is placed as public.
-		err = db.QueryRow(ctx, `SELECT EXISTS (
-			SELECT 1
-			FROM pdp_piece_pull_items fi
-			JOIN pdp_piece_pulls fp ON fp.id = fi.fetch_id
-			WHERE fi.parked_piece_ref = $1 AND fp.data_set_id = 0
-		)`, pieceRef).Scan(&creating)
-		if err != nil {
-			return xerrors.Errorf("checking create-new pull for ref %d: %w", pieceRef, err)
-		}
-	}
-	wantACL, wantOpen, stay := placementDecision(forceACL, forceOpen || creating, secured, publicLinks)
-	// No data set has claimed this upload. Leave it in piece-park until add or
-	// create places it. An ACL piece is also in open-pieces only when another
-	// data set is not ACL, or the caller is claiming a public data set.
-	if stay {
-		log.Debugw("leaving piece in piece-park until a data set claims it", "piece", pc, "ref", pieceRef)
-		return nil
-	}
+	wantACL, wantOpen := placementDecision(forceACL, forceOpen, secured, publicLinks)
 
 	ensure := func(space *hashfolder.ClusterSpace) error {
 		placed, err := space.HasFile(ctx, pc)
@@ -208,12 +190,12 @@ func place(ctx context.Context, db *harmonydb.DB, hs *hashfolder.Cluster, local 
 		if err != nil {
 			return xerrors.Errorf("checking acl-pieces for %s: %w", pc, err)
 		}
-		// The park file is still here the first time an ACL piece is finalized.
-		// A copy already in acl-pieces was checked on that write.
+		// A copy already in acl-pieces was checked on that write. Otherwise the
+		// envelope is read from piece-park, or from open-pieces once that file is gone.
 		if !placed {
-			rc, rerr := pieceIO.PieceReader(ctx, storiface.PieceNumber(pp.ID))
+			rc, rerr := OpenPieceBytes(ctx, hs, pieceIO, pp.ID, pc)
 			if rerr != nil {
-				return xerrors.Errorf("acl piece %s: %w", pc, xerrors.Errorf("reading parked piece %d: %w", pp.ID, rerr))
+				return xerrors.Errorf("acl piece %s: %w", pc, rerr)
 			}
 			_, rerr = keysmith.ReadEnvelopeLabels(rc)
 			_ = rc.Close()
@@ -285,15 +267,42 @@ func place(ctx context.Context, db *harmonydb.DB, hs *hashfolder.Cluster, local 
 	return nil
 }
 
-// placementDecision chooses hash spaces for one piece. stay leaves the bytes in piece-park.
+// placementDecision chooses hash spaces for one piece.
 // forceACL and forceOpen are the caller's claim; anySecured and anyPublic come from linked data sets.
-func placementDecision(forceACL, forceOpen, anySecured, anyPublic bool) (wantACL, wantOpen, stay bool) {
+// A piece with neither claim nor link goes to open-pieces.
+func placementDecision(forceACL, forceOpen, anySecured, anyPublic bool) (wantACL, wantOpen bool) {
 	wantACL = forceACL || anySecured
 	public := forceOpen || anyPublic
-	if !wantACL && !public {
-		return false, false, true
+	return wantACL, !wantACL || public
+}
+
+// OpenPieceBytes reads pc for an envelope check. It uses the piece-park file when that file is still present.
+// Otherwise it reads the open-pieces copy. The caller closes the reader. parkedID is parked_pieces.id, and pieceIO can read it.
+func OpenPieceBytes(ctx context.Context, hs *hashfolder.Cluster, pieceIO piecestore.PieceIO, parkedID int64, pc cid.Cid) (io.ReadCloser, error) {
+	rc, err := pieceIO.PieceReader(ctx, storiface.PieceNumber(parkedID))
+	if err == nil {
+		return rc, nil
 	}
-	return wantACL, !wantACL || public, false
+	if hs == nil || hs.Public == nil {
+		return nil, xerrors.Errorf("reading parked piece %d: %w", parkedID, err)
+	}
+	locs, lerr := hs.Public.Locations(ctx, pc.String())
+	if lerr != nil || len(locs) == 0 {
+		return nil, xerrors.Errorf("reading parked piece %d: %w", parkedID, err)
+	}
+	var last error
+	for _, l := range locs {
+		opened, oerr := hs.Public.Open(ctx, l.StorageID, pc)
+		if oerr != nil {
+			last = oerr
+			continue
+		}
+		return opened, nil
+	}
+	if last == nil {
+		last = err
+	}
+	return nil, xerrors.Errorf("reading open-pieces copy of %s: %w", pc, last)
 }
 
 // pieceCidV2 is the piece CID v2 of a PDP piece CID v1 and its raw size.
