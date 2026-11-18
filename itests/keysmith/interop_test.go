@@ -23,11 +23,10 @@ import (
 	"github.com/filecoin-project/curio/lib/keysmith"
 )
 
-// Format 2 is the Keysmith on this branch. Master still exports keyspaceKeys.
-// TODO #1637: pin a released commit once format 2 is on the default branch.
+// Format 2 is the Keysmith on synapse-sdk master. The checkout follows that branch.
 const (
 	synapseRepo   = "https://github.com/FilOzone/synapse-sdk.git"
-	synapseBranch = "feat/keysmith-metadata-v2"
+	synapseBranch = "master"
 )
 
 // artifacts are a FEE object and grant presentations produced by keysmith.
