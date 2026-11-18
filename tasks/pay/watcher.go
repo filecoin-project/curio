@@ -153,9 +153,9 @@ func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthC
 		return xerrors.Errorf("failed to get current block number: %w", err)
 	}
 
-	var defaultAlerts []curioalerting.AlertEvent
+	var alerts []curioalerting.AlertEvent
 	comm, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
-		defaultAlerts = nil
+		alerts = nil
 		for _, railId := range settle.Rails {
 			view, getRailErr := payment.GetRail(contract.EthCallOpts(ctx), big.NewInt(railId))
 
@@ -203,15 +203,24 @@ func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthC
 				continue
 			}
 
-			// If the rail is terminated ensure we are terminating the service in the deletion pipeline
+			// A rail terminated on chain ends the data set's service.
 			if view.EndEpoch.Int64() > 0 {
-				// Termination is also detected by proving-task error handling, so a
-				// transient DB failure here just delays cleanup rather than losing it.
-				if err := FWSS.EnsureServiceTermination(tx, dataSet.Int64()); err != nil {
-					log.Errorw("failed to ensure service termination", "dataSetId", dataSet.Int64(), "railId", railId, "error", err)
-					return false, xerrors.Errorf("failed to ensure service termination: %w", err)
+				alert, err := recordRailTermination(tx, dataSet.Int64(), view.EndEpoch.Int64())
+				if err != nil {
+					return false, xerrors.Errorf("failed to record rail termination: %w", err)
 				}
-				// When finalized, schedule dataset deletion. This may be the last
+				if alert {
+					alerts = append(alerts, curioalerting.AlertEvent{
+						Subsystem: alertName,
+						System:    alertType,
+						Message:   fmt.Sprintf("Rail %d was terminated on chain (end epoch %d); Curio will not delete dataSet %d on its own", railId, view.EndEpoch.Int64(), dataSet.Int64()),
+						Context: map[string]string{
+							curioalerting.CONTEXT_KEY_DATASET: dataSet.String(),
+							curioalerting.CONTEXT_KEY_RAIL:    strconv.FormatInt(railId, 10),
+						},
+					})
+				}
+				// A finalized rail unblocks a requested deletion. This may be the last
 				// time we see this rail in a finalized state, so we perform a hard-fail
 				// here to prevent tx cleanup to allow retry on next loop.
 				if view.EndEpoch.Cmp(view.SettledUpTo) == 0 {
@@ -228,9 +237,9 @@ func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthC
 			if threshold.Uint64() < current {
 				message := fmt.Sprintf("Rail %d is soon to default (dataSet %d)", railId, dataSet.Int64())
 				if thresholdWithGrace.Uint64() < current {
-					message = fmt.Sprintf("Rail %d is past its default grace period, scheduling termination of dataSet %d", railId, dataSet.Int64())
+					message = fmt.Sprintf("Rail %d is past its default grace period; Curio will not terminate dataSet %d on its own", railId, dataSet.Int64())
 				}
-				defaultAlerts = append(defaultAlerts, curioalerting.AlertEvent{
+				alerts = append(alerts, curioalerting.AlertEvent{
 					Subsystem: alertName,
 					System:    alertType,
 					Message:   message,
@@ -239,14 +248,6 @@ func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthC
 						curioalerting.CONTEXT_KEY_RAIL:    strconv.FormatInt(railId, 10),
 					},
 				})
-			}
-
-			if thresholdWithGrace.Uint64() < current {
-				log.Infow("Rail soon to default, terminating dataSet", "dataSetId", dataSet.Int64(), "railId", railId, "settleTxHash", settle.Hash)
-				if err := FWSS.EnsureServiceTermination(tx, dataSet.Int64()); err != nil {
-					log.Errorw("failed to ensure service termination for defaulting rail", "dataSetId", dataSet.Int64(), "railId", railId, "error", err)
-					return false, xerrors.Errorf("failed to ensure service termination for defaulting rail: %w", err)
-				}
 			}
 		}
 
@@ -257,7 +258,7 @@ func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthC
 		}
 		if deleted == 0 {
 			// Another node already processed this settle and raised its alerts.
-			defaultAlerts = nil
+			alerts = nil
 		}
 
 		if settle.Retry {
@@ -279,22 +280,44 @@ func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthC
 	}
 
 	// EmitEvent uses db.Exec, which cannot run inside a transaction.
-	for _, event := range defaultAlerts {
+	for _, event := range alerts {
 		_ = al.EmitEvent(ctx, event)
 	}
 
 	return nil
 }
 
+// ensureDataSetDeletion lets the data set's pipeline row proceed to
+// deleteDataSet. A data set nobody asked to delete has no row to update.
 func ensureDataSetDeletion(tx *harmonydb.Tx, dataSetID int64) error {
-	n, err := tx.Exec(`UPDATE pdp_delete_data_set SET deletion_allowed = TRUE WHERE id = $1`, dataSetID)
+	_, err := tx.Exec(`UPDATE pdp_delete_data_set SET deletion_allowed = TRUE WHERE id = $1`, dataSetID)
 	if err != nil {
 		return xerrors.Errorf("failed to set deletion_allowed for data set %d: %w", dataSetID, err)
 	}
-	if n != 1 {
-		return xerrors.Errorf("expected to update 1 row, updated %d", n)
-	}
 	return nil
+}
+
+// recordRailTermination stores the end epoch of a data set's terminated rail.
+// It reports whether the operator still has to be told: this call stored the
+// epoch and nobody has requested the data set's deletion.
+func recordRailTermination(tx *harmonydb.Tx, dataSetID int64, endEpoch int64) (alert bool, err error) {
+	recorded, err := tx.Exec(`
+		UPDATE pdp_data_sets
+		SET rail_end_epoch = $2
+		WHERE id = $1 AND rail_end_epoch IS NULL
+	`, dataSetID, endEpoch)
+	if err != nil {
+		return false, xerrors.Errorf("failed to set rail_end_epoch for data set %d: %w", dataSetID, err)
+	}
+	if recorded == 0 {
+		return false, nil
+	}
+
+	deletionRequested, err := pdpv0.DeletionRequested(tx, dataSetID)
+	if err != nil {
+		return false, err
+	}
+	return !deletionRequested, nil
 }
 
 // pipelineFinalizationElapsed reports whether after_terminate_service is set

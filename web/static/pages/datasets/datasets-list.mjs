@@ -48,6 +48,7 @@ function reasonLabel(reason) {
     case 'unpaid_grace': return 'Unpaid (grace period)'
     case 'payment_default': return 'Payment default'
     case 'client_requested': return 'Client requested termination'
+    case 'operator_requested': return 'Operator requested deletion'
     case 'proving_failure': return 'Proving failure'
     default: return reason || '—'
   }
@@ -71,16 +72,20 @@ function ownerContactLine(payer) {
 function atRiskContactNote(item) {
   const owner = ownerContactLine(item?.payer)
   const when = formatDeleteDate(item)
+  const contactOwner = item?.reason === 'operator_requested' ? '' : ` Contact the ${owner}.`
   if (item?.status === 'grace') {
-    return `Contact the ${owner} to bring payments current before deletion on ${when}.`
+    return `Contact the ${owner} to bring payments current.`
+  }
+  if (item?.status === 'terminated') {
+    return 'Service was terminated on chain. Curio keeps the data until its deletion is requested.'
   }
   if (item?.status === 'pending_delete') {
-    return `Pending deletion on ${when}. Contact the ${owner}.`
+    return `Pending deletion on ${when}.${contactOwner}`
   }
   if (item?.status === 'terminating') {
-    return `Service termination is confirmed. Scheduled for deletion on ${when}. Contact the ${owner}. Payment will not stop that.`
+    return `Service termination is confirmed. Scheduled for deletion on ${when}.${contactOwner} Payment will not stop that.`
   }
-  return `Scheduled for deletion on ${when}. Contact the ${owner}.`
+  return `Contact the ${owner}.`
 }
 
 customElements.define('pdp-datasets-list', class PdpDatasetsList extends LitElement {
@@ -571,7 +576,7 @@ customElements.define('pdp-datasets-list', class PdpDatasetsList extends LitElem
       </div>
 
       ${this.viewMode === 'all' ? html`<p class="hint">${SEARCH_HINT}</p>` : html`
-        <p class="hint">Datasets of at least 100 KiB in payment grace, with service termination confirmed, or pending deletion.</p>
+        <p class="hint">Datasets of at least 100 KiB in payment grace, with service terminated, or waiting for deletion.</p>
       `}
 
       ${this.viewMode === 'all' ? html`
@@ -600,7 +605,7 @@ customElements.define('pdp-datasets-list', class PdpDatasetsList extends LitElem
         : ''}
 
       ${!this.loadError && this.items.length === 0 && !this.scanning && !this.loading
-        ? html`<p class="hint">${this.viewMode === 'payment' ? 'No datasets in payment grace, with termination confirmed, or pending deletion.' : 'No datasets found.'}</p>`
+        ? html`<p class="hint">${this.viewMode === 'payment' ? 'No datasets in payment grace, with service terminated, or waiting for deletion.' : 'No datasets found.'}</p>`
         : this.items.length > 0 ? html`
           <table class="table table-dark table-striped table-sm">
             <thead>

@@ -12,10 +12,11 @@ func TestCountAtRiskByStatus(t *testing.T) {
 		{snap: paymentstatus.Snapshot{Status: paymentstatus.StatusTerminating}},
 		{snap: paymentstatus.Snapshot{Status: paymentstatus.StatusTerminating}},
 		{snap: paymentstatus.Snapshot{Status: paymentstatus.StatusPendingDelete}},
+		{snap: paymentstatus.Snapshot{Status: paymentstatus.StatusTerminated}},
 		{snap: paymentstatus.Snapshot{Status: paymentstatus.StatusOK}},
 	}
 	got := countAtRiskByStatus(entries)
-	if got.Total != 5 || got.Grace != 1 || got.Terminating != 2 || got.PendingDelete != 1 {
+	if got.Total != 6 || got.Grace != 1 || got.Terminated != 1 || got.Terminating != 2 || got.PendingDelete != 1 {
 		t.Fatalf("counts = %+v", got)
 	}
 }

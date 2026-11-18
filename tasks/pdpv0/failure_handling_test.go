@@ -43,7 +43,21 @@ type failureHandlingDataSetState struct {
 	PrevChallengeEpoch sql.NullInt64
 }
 
-func TestIntegration_HandleProveSendError_UnrecoverableActionMarksAndSchedulesTermination(t *testing.T) {
+func markFailureHandlingDataSetUnrecoverable(t *testing.T, ctx context.Context, db *harmonydb.DB, dataSetID, currentHeight int64) bool {
+	t.Helper()
+
+	var alert bool
+	committed, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		var err error
+		alert, err = markDatasetProvingUnrecoverable(tx, dataSetID, currentHeight)
+		return err == nil, err
+	}, harmonydb.OptionRetry())
+	require.NoError(t, err)
+	require.True(t, committed)
+	return alert
+}
+
+func TestIntegration_HandleProveSendError_UnrecoverableActionStopsProvingAndAlertsOnce(t *testing.T) {
 	ctx := context.Background()
 	db, err := harmonydb.NewFromConfigWithITestID(t)
 	require.NoError(t, err)
@@ -55,17 +69,18 @@ func TestIntegration_HandleProveSendError_UnrecoverableActionMarksAndSchedulesTe
 		PrevChallengeEpoch: sql.NullInt64{Int64: 1000, Valid: true},
 	})
 	alerts := &recordingAlerting{}
+	task := &ProveTask{db: db, al: alerts}
 	sendErr := selectorRevert(contractErrorSelector(ErrFWSSDataSetPaymentBeyondEndEpoch))
 	currentHeight := int64(4242)
 
 	action := handleProveSendError(alerts, dataSetID, currentHeight, sendErr)
-	require.Equal(t, proveSendErrorTerminateDataset, action)
+	require.Equal(t, proveSendErrorStopProving, action)
 
-	committed, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
-		return true, markDatasetProvingUnrecoverableAndTerminate(tx, dataSetID, currentHeight)
-	}, harmonydb.OptionRetry())
-	require.NoError(t, err)
-	require.True(t, committed)
+	for _, height := range []int64{currentHeight, currentHeight + 1} {
+		done, err := task.applyProveErrorAction(ctx, dataSetID, height, action, sendErr)
+		require.NoError(t, err)
+		require.True(t, done)
+	}
 
 	state := loadFailureHandlingDataSet(t, ctx, db, dataSetID)
 	require.Equal(t, failureHandlingDataSetState{
@@ -73,8 +88,63 @@ func TestIntegration_HandleProveSendError_UnrecoverableActionMarksAndSchedulesTe
 		InitReady:          false,
 		PrevChallengeEpoch: sql.NullInt64{Int64: 1000, Valid: true},
 	}, state)
-	require.Equal(t, 0, len(alerts.events))
-	require.Equal(t, 1, countFailureHandlingDeleteRows(t, ctx, db, dataSetID))
+	require.Len(t, alerts.events, 1, "a data set that is already marked must not alert again")
+	require.Equal(t, alertNameProving, alerts.events[0].Subsystem)
+	require.Equal(t, map[string]string{curioalerting.CONTEXT_KEY_DATASET: strconv.FormatInt(dataSetID, 10)}, alerts.events[0].Context)
+	require.Equal(t, 0, countFailureHandlingDeleteRows(t, ctx, db, dataSetID))
+}
+
+func TestIntegration_MarkDatasetProvingUnrecoverable_SilentWhenDeletionRequested(t *testing.T) {
+	ctx := context.Background()
+	db, err := harmonydb.NewFromConfigWithITestID(t)
+	require.NoError(t, err)
+
+	dataSetID := insertFailureHandlingDataSet(t, ctx, db, failureHandlingDataSetState{InitReady: true})
+	_, err = db.Exec(ctx, `INSERT INTO pdp_delete_data_set (id, operator_requested_deletion) VALUES ($1, TRUE)`, dataSetID)
+	require.NoError(t, err)
+
+	require.False(t, markFailureHandlingDataSetUnrecoverable(t, ctx, db, dataSetID, 4242))
+	require.Equal(t, sql.NullInt64{Int64: 4242, Valid: true}, loadFailureHandlingDataSet(t, ctx, db, dataSetID).UnrecoverableEpoch)
+}
+
+func TestIntegration_HandleNextProvingPeriodSendFailure_UnrecoverableAlertsOperator(t *testing.T) {
+	ctx := context.Background()
+	db, err := harmonydb.NewFromConfigWithITestID(t)
+	require.NoError(t, err)
+
+	dataSetID := insertFailureHandlingDataSet(t, ctx, db, failureHandlingDataSetState{InitReady: true})
+	alerts := &recordingAlerting{}
+	sendErr := selectorRevert(contractErrorSelector(ErrFWSSDataSetPaymentBeyondEndEpoch))
+
+	require.NoError(t, handleNextProvingPeriodSendFailure(ctx, db, nil, alerts, alertNameNextPP, dataSetID, 4500, sendErr))
+
+	require.Len(t, alerts.events, 1)
+	require.Equal(t, alertNameNextPP, alerts.events[0].Subsystem)
+	require.Equal(t, map[string]string{curioalerting.CONTEXT_KEY_DATASET: strconv.FormatInt(dataSetID, 10)}, alerts.events[0].Context)
+	require.NotEqual(t, sendErr.Error(), alerts.events[0].Message)
+	require.Equal(t, sql.NullInt64{Int64: 4500, Valid: true}, loadFailureHandlingDataSet(t, ctx, db, dataSetID).UnrecoverableEpoch)
+	require.Equal(t, 0, countFailureHandlingDeleteRows(t, ctx, db, dataSetID))
+}
+
+func TestIntegration_HandleNextProvingPeriodPreflightError_UnrecoverableAlertsOperator(t *testing.T) {
+	ctx := context.Background()
+	db, err := harmonydb.NewFromConfigWithITestID(t)
+	require.NoError(t, err)
+
+	dataSetID := insertFailureHandlingDataSet(t, ctx, db, failureHandlingDataSetState{InitReady: true})
+	alerts := &recordingAlerting{}
+	task := &NextProvingPeriodTask{db: db, al: alerts}
+	preflightErr := selectorRevert(contractErrorSelector(ErrFWSSDataSetPaymentBeyondEndEpoch))
+
+	done, err := task.handleNextProvingPeriodPreflightError(ctx, dataSetID, 4500, preflightErr)
+	require.NoError(t, err)
+	require.True(t, done)
+
+	require.Len(t, alerts.events, 1)
+	require.Equal(t, alertNameNextPP, alerts.events[0].Subsystem)
+	require.Equal(t, map[string]string{curioalerting.CONTEXT_KEY_DATASET: strconv.FormatInt(dataSetID, 10)}, alerts.events[0].Context)
+	require.Equal(t, sql.NullInt64{Int64: 4500, Valid: true}, loadFailureHandlingDataSet(t, ctx, db, dataSetID).UnrecoverableEpoch)
+	require.Equal(t, 0, countFailureHandlingDeleteRows(t, ctx, db, dataSetID))
 }
 
 func TestIntegration_HandleProveSendError_SkipCurrentPeriodLeavesDatasetStateUnchanged(t *testing.T) {
@@ -152,7 +222,7 @@ func TestIntegration_HandleNextProvingPeriodSendError_SkipCurrentPeriodReconcile
 	sendErr := selectorRevert(contractErrorSelector(ErrFWSSNextProvingPeriodAlreadyCalled))
 	currentHeight := int64(4400)
 
-	var alert bool
+	var alert provingAlert
 	committed, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
 		var err error
 		alert, err = handleNextProvingPeriodSendError(ctx, tx, nil, alertNameNextPP, dataSetID, currentHeight, sendErr)
@@ -168,7 +238,7 @@ func TestIntegration_HandleNextProvingPeriodSendError_SkipCurrentPeriodReconcile
 		ProveAtEpoch:       sql.NullInt64{Int64: 5200, Valid: true},
 		PrevChallengeEpoch: sql.NullInt64{Int64: currentHeight, Valid: true},
 	}, loadFailureHandlingDataSet(t, ctx, db, dataSetID))
-	require.False(t, alert)
+	require.Equal(t, provingAlertNone, alert)
 	require.Equal(t, 0, countFailureHandlingDeleteRows(t, ctx, db, dataSetID))
 }
 
@@ -179,7 +249,7 @@ func TestIntegration_HandleSplitProvingSendErrors_RetryAndAlertPathsDoNotMutateD
 
 	nextPPSendError := func(tx *harmonydb.Tx, alerts *recordingAlerting, dataSetID int64, sendErr error) error {
 		alert, err := handleNextProvingPeriodSendError(ctx, tx, nil, alertNameNextPP, dataSetID, 4500, sendErr)
-		if alert {
+		if alert == provingAlertSendError {
 			emitProvingSendErrorAlert(alerts, alertNameNextPP, dataSetID, sendErr)
 		}
 		return err

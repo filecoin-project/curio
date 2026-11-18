@@ -908,7 +908,7 @@ type proveSendErrorAction int
 const (
 	proveSendErrorRetryTask proveSendErrorAction = iota
 	proveSendErrorCompleteTask
-	proveSendErrorTerminateDataset
+	proveSendErrorStopProving
 	proveSendErrorResetToInitPP
 )
 
@@ -918,9 +918,11 @@ func (p *ProveTask) applyProveErrorAction(ctx context.Context, dataSetId int64, 
 		return false, taskErr
 	case proveSendErrorCompleteTask:
 		return true, nil
-	case proveSendErrorTerminateDataset:
+	case proveSendErrorStopProving:
+		var alert bool
 		committed, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
-			if err := markDatasetProvingUnrecoverableAndTerminate(tx, dataSetId, currentHeight); err != nil {
+			alert, err = markDatasetProvingUnrecoverable(tx, dataSetId, currentHeight)
+			if err != nil {
 				return false, err
 			}
 			return true, nil
@@ -930,6 +932,9 @@ func (p *ProveTask) applyProveErrorAction(ctx context.Context, dataSetId int64, 
 		}
 		if !committed {
 			return false, xerrors.Errorf("failed to commit terminal proving error handling")
+		}
+		if alert {
+			emitProvingStoppedAlert(p.al, alertNameProving, dataSetId)
 		}
 		log.Warnw("Terminal proving error, stopping proving attempts",
 			"dataSetId", dataSetId, "error", taskErr)
@@ -947,7 +952,7 @@ func (p *ProveTask) applyProveErrorAction(ctx context.Context, dataSetId int64, 
 func (p *ProveTask) handleProvePreflightError(ctx context.Context, dataSetId int64, currentHeight int64, err error) (bool, error) {
 	switch {
 	case IsUnrecoverableError(err), IsPDPVerifierDataSetNotFound(err):
-		return p.applyProveErrorAction(ctx, dataSetId, currentHeight, proveSendErrorTerminateDataset, err)
+		return p.applyProveErrorAction(ctx, dataSetId, currentHeight, proveSendErrorStopProving, err)
 	case IsUnexpectedProvingInvariantError(err):
 		emitProvingSendErrorAlert(p.al, alertNameProving, dataSetId, err)
 		return p.applyProveErrorAction(ctx, dataSetId, currentHeight, proveSendErrorRetryTask, err)
@@ -969,8 +974,8 @@ func handleProveSendError(al curioalerting.AlertingInterface, dataSetId int64, c
 		return proveSendErrorRetryTask
 	case IsUnrecoverableError(sendErr):
 		// FWSS payment/dataset state says proving cannot recover. The caller
-		// owns the transaction that marks local state terminal and terminates FWSS.
-		return proveSendErrorTerminateDataset
+		// owns the transaction that marks local state terminal.
+		return proveSendErrorStopProving
 	case IsSkipCurrentProvingPeriodError(sendErr):
 		// The current proof no longer needs to be submitted for this period.
 		// Complete the task without changing schedule state.

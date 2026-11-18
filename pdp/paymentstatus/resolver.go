@@ -45,7 +45,7 @@ func NewResolver(ttl time.Duration) *Resolver {
 
 func IsAtRisk(s Snapshot, currentEpoch uint64) bool {
 	switch s.Status {
-	case StatusGrace, StatusTerminating, StatusPendingDelete:
+	case StatusGrace, StatusTerminated, StatusTerminating, StatusPendingDelete:
 	default:
 		return false
 	}
@@ -389,9 +389,6 @@ func resolveFromChainWithClients(
 	if info.PdpEndEpoch != nil && info.PdpEndEpoch.Sign() > 0 {
 		epoch := info.PdpEndEpoch.Int64()
 		deleteOverlay.ServiceTerminationEpoch = &epoch
-		if !deleteOverlay.InPipeline {
-			deleteOverlay.InPipeline = true
-		}
 	}
 
 	payer := info.Payer.Hex()
@@ -432,6 +429,7 @@ type overlayRow struct {
 	ID                        int64  `db:"id"`
 	InDeletePipeline          bool   `db:"in_delete_pipeline"`
 	ClientRequested           bool   `db:"client_requested_termination"`
+	OperatorRequested         bool   `db:"operator_requested_deletion"`
 	AfterTerminateService     bool   `db:"after_terminate_service"`
 	ServiceTerminationEpoch   *int64 `db:"service_termination_epoch"`
 	DeletionAllowed           bool   `db:"deletion_allowed"`
@@ -460,8 +458,17 @@ func loadOverlayBundles(ctx context.Context, db *harmonydb.DB, ids []int64) (map
 	err := db.Select(ctx, &rows, `
 		SELECT
 			ds.id,
-			(dd.id IS NOT NULL AND COALESCE(dd.terminated, FALSE) = FALSE) AS in_delete_pipeline,
+			COALESCE(
+				dd.terminated = FALSE AND (
+					dd.client_requested_termination
+					OR dd.operator_requested_deletion
+					OR dd.after_delete_data_set
+					OR dd.delete_data_set_task_id IS NOT NULL
+				),
+				FALSE
+			) AS in_delete_pipeline,
 			COALESCE(dd.client_requested_termination, FALSE) AS client_requested_termination,
+			COALESCE(dd.operator_requested_deletion, FALSE) AS operator_requested_deletion,
 			COALESCE(dd.after_terminate_service, FALSE) AS after_terminate_service,
 			dd.service_termination_epoch,
 			COALESCE(dd.deletion_allowed, FALSE) AS deletion_allowed,
@@ -480,6 +487,7 @@ func loadOverlayBundles(ctx context.Context, db *harmonydb.DB, ids []int64) (map
 			delete: DeletePipelineOverlay{
 				InPipeline:              row.InDeletePipeline,
 				ClientRequested:         row.ClientRequested,
+				OperatorRequested:       row.OperatorRequested,
 				AfterTerminateService:   row.AfterTerminateService,
 				ServiceTerminationEpoch: row.ServiceTerminationEpoch,
 				DeletionAllowed:         row.DeletionAllowed,
