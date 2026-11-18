@@ -23,11 +23,11 @@ import (
 	"github.com/filecoin-project/curio/lib/keysmith"
 )
 
-// Format 2 is the Keysmith on this branch. Master still exports keyspaceKeys.
-// TODO #1637: pin a released commit once format 2 is on the default branch.
+// Keysmith format 2, pinned to the synapse-sdk master commit that merged it (FilOzone/synapse-sdk#1130, #1132).
+// A pinned commit keeps this test reproducible: bump it deliberately when keysmith changes.
 const (
 	synapseRepo   = "https://github.com/FilOzone/synapse-sdk.git"
-	synapseBranch = "feat/keysmith-metadata-v2"
+	synapseCommit = "061b1110f2d1461666874eebff3448a0fa7ff474"
 )
 
 // artifacts are a FEE object and grant presentations produced by keysmith.
@@ -131,8 +131,8 @@ func TestKeysmithInterop(t *testing.T) {
 	})
 }
 
-// produce builds keysmith from synapseBranch and returns one FEE and two presentations.
-// A passing run stays in the Go test cache until this package changes; -count=1 fetches the branch again.
+// produce builds keysmith at synapseCommit and returns one FEE and two presentations.
+// A passing run stays in the Go test cache until this package changes.
 func produce(t *testing.T) artifacts {
 	t.Helper()
 	root := checkout(t)
@@ -159,16 +159,17 @@ func produce(t *testing.T) artifacts {
 	return art
 }
 
-// checkout returns a depth-1 clone of synapseBranch, fetching when the clone already exists.
+// checkout returns a depth-1 checkout of synapseCommit, reusing the clone when it already exists.
+// git clone --branch takes no commit, so the commit is fetched by its hash.
 func checkout(t *testing.T) string {
 	t.Helper()
 	run(t, "", "git", "version")
 	root := filepath.Join(os.TempDir(), "curio-itest-synapse-sdk")
 	if _, err := os.Stat(filepath.Join(root, ".git")); errors.Is(err, os.ErrNotExist) {
-		run(t, "", "git", "clone", "--depth", "1", "--branch", synapseBranch, synapseRepo, root)
-		return root
+		run(t, "", "git", "init", "--quiet", root)
+		run(t, root, "git", "remote", "add", "origin", synapseRepo)
 	}
-	run(t, root, "git", "fetch", "--depth", "1", "origin", synapseBranch)
+	run(t, root, "git", "fetch", "--depth", "1", "origin", synapseCommit)
 	run(t, root, "git", "checkout", "--force", "FETCH_HEAD")
 	return root
 }
