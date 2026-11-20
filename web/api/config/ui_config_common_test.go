@@ -21,7 +21,9 @@ func TestBuildUISchema(t *testing.T) {
 
 func TestSchemaDynamicFieldsUseInnerType(t *testing.T) {
 	ref := jsonschema.Reflector{Mapper: uiSchemaMapper}
-	sch := ref.Reflect(uiSchemaRoot())
+	// This specifically asserts Curio fields; the Skiff build deliberately
+	// uses a different root. Actual selected-root completeness is tested below.
+	sch := ref.Reflect(depsconfig.CurioConfig{})
 
 	_, isWrapper := sch.Definitions["Dynamic[int]"]
 	assert.False(t, isWrapper, "Dynamic[int] must not appear as a schema object")
