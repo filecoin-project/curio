@@ -20,7 +20,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/resources/ffigpu"
 	"github.com/filecoin-project/curio/lib/hashfolder"
 	"github.com/filecoin-project/curio/lib/storiface"
-	"github.com/filecoin-project/curio/tasks/openpieces"
+	"github.com/filecoin-project/curio/tasks/hashspace"
 )
 
 const (
@@ -174,7 +174,7 @@ func TestHashSpaceArrivingDiskMovesPiecesOff(t *testing.T) {
 
 	// The move task runs for real: the cluster loop plans the moves once the
 	// engine exists, and the engine copies and hands them over.
-	engine, err := harmonytask.New(db, []harmonytask.TaskInterface{openpieces.NewMoveTask(db, hashSpaces)},
+	engine, err := harmonytask.New(db, []harmonytask.TaskInterface{hashspace.NewMoveTask(db, hashSpaces)},
 		"hashspace-itest:1234", hsNoopPeer{}, ffigpu.Inspector{})
 	require.NoError(t, err)
 	stop := sync.OnceFunc(func() {

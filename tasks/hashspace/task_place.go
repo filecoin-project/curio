@@ -1,6 +1,7 @@
-// Package openpieces moves PDP pieces between piece-park and the cluster hash spaces.
-// An upload is copied into open-pieces immediately. Restricted data sets (acl = 1) use acl-pieces.
-package openpieces
+// Package hashspace moves PDP pieces between piece-park and the cluster hash spaces.
+// A public upload is copied into open-pieces immediately. Restricted uploads and
+// data sets (acl = 1) use acl-pieces.
+package hashspace
 
 import (
 	"context"
@@ -46,10 +47,19 @@ type parkedPiece struct {
 }
 
 // Place copies pieceRef into open-pieces, or acl-pieces when a linked data set has acl = 1.
-// A ref no data set has claimed still goes to open-pieces. A nil cluster skips placement.
+// A ref no data set or restricted pull has claimed still goes to open-pieces. A nil cluster skips placement.
 // A hash_space_delete row leaves the bytes in piece-park.
 func Place(ctx context.Context, db *harmonydb.DB, hs *hashfolder.Cluster, local *paths.Local, pieceIO piecestore.PieceIO, pieceRef int64) error {
 	return place(ctx, db, hs, local, pieceIO, pieceRef, false, false)
+}
+
+// PlaceArrived places a piece at upload or finalize time. restricted puts it in
+// acl-pieces; otherwise open-pieces. Linked data sets and pull flags still apply.
+func PlaceArrived(ctx context.Context, db *harmonydb.DB, hs *hashfolder.Cluster, local *paths.Local, pieceIO piecestore.PieceIO, pieceRef int64, restricted bool) error {
+	if restricted {
+		return PlaceACL(ctx, db, hs, local, pieceIO, pieceRef)
+	}
+	return PlaceOpen(ctx, db, hs, local, pieceIO, pieceRef)
 }
 
 // PlaceACL copies the piece into acl-pieces. The caller knows the data set is read-restricted, even if that row is not linked yet.
@@ -95,7 +105,7 @@ func place(ctx context.Context, db *harmonydb.DB, hs *hashfolder.Cluster, local 
 		return err
 	}
 	// AnyPublic counts acl NULL and 0 as public. An empty link list is neither,
-	// and that upload still goes to open-pieces until a data set claims it.
+	// and that upload still goes to open-pieces until a data set or pull claims it.
 	secured := pieceacl.AnySecured(links)
 	publicLinks := pieceacl.AnyPublic(links)
 	wantACL, wantOpen := placementDecision(forceACL, forceOpen, secured, publicLinks)

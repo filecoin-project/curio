@@ -131,7 +131,7 @@ func NewPDPService(
 
 		alertTask: alertTask,
 
-		pullHandler: NewPullHandler(auth, pullStore, pullValidator, db),
+		pullHandler: NewPullHandler(auth, pullStore, pullValidator, db, ec),
 
 		ipp: ipp,
 

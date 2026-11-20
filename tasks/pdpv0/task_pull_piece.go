@@ -31,7 +31,7 @@ import (
 	"github.com/filecoin-project/curio/lib/robusthttp"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/pdp"
-	"github.com/filecoin-project/curio/tasks/openpieces"
+	"github.com/filecoin-project/curio/tasks/hashspace"
 	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
@@ -149,7 +149,8 @@ type PDPPullPieceTask struct {
 	max int
 }
 
-// UseOpenPieces copies a piece into open-pieces when its PDP ref is published.
+// UseOpenPieces copies a piece into its hash space when its PDP ref is published.
+// Restricted pulls are visible to Place through pieceacl and go to acl-pieces.
 func (t *PDPPullPieceTask) UseOpenPieces(hashSpaces *hashfolder.Cluster, local *paths.Local, pio piecestore.PieceIO) {
 	t.hashSpaces = hashSpaces
 	t.local = local
@@ -1292,7 +1293,7 @@ func cleanupPullCreatedParkedPieceTx(tx *harmonydb.Tx, parkedPieceID int64) (boo
 
 func (t *PDPPullPieceTask) placeRefs(ctx context.Context, refs []int64) error {
 	for _, ref := range refs {
-		if err := openpieces.Place(ctx, t.db, t.hashSpaces, t.local, t.pio, ref); err != nil {
+		if err := hashspace.Place(ctx, t.db, t.hashSpaces, t.local, t.pio, ref); err != nil {
 			return err
 		}
 	}

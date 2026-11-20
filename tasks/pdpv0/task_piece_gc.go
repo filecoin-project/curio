@@ -26,7 +26,7 @@ import (
 	"github.com/filecoin-project/curio/lib/urlhelper"
 	"github.com/filecoin-project/curio/market/ipni/ipniculib"
 	"github.com/filecoin-project/curio/pdp/contract"
-	"github.com/filecoin-project/curio/tasks/openpieces"
+	"github.com/filecoin-project/curio/tasks/hashspace"
 	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
@@ -210,7 +210,7 @@ func processIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *config.HTTPC
 		var cleanupReady bool
 		failed := true
 		for range 5 {
-			comm, err := harmonytask.TxWithTask(ctx, db, openpieces.DropAdder(), func(tx *harmonydb.Tx, dropTask harmonytask.TaskID) (commit bool, err error) {
+			comm, err := harmonytask.TxWithTask(ctx, db, hashspace.DropAdder(), func(tx *harmonydb.Tx, dropTask harmonytask.TaskID) (commit bool, err error) {
 				skipLoop = false
 				cleanupReady = false
 				piece.DeleteIndex = false
@@ -426,7 +426,7 @@ func processIndexCleanup(ctx context.Context, db *harmonydb.DB, idx IndexCleaner
 			}
 		}
 
-		_, err = harmonytask.TxWithTask(ctx, db, openpieces.DropAdder(), func(tx *harmonydb.Tx, dropTask harmonytask.TaskID) (bool, error) {
+		_, err = harmonytask.TxWithTask(ctx, db, hashspace.DropAdder(), func(tx *harmonydb.Tx, dropTask harmonytask.TaskID) (bool, error) {
 			return deletePieceRef(tx, piece, dropTask)
 		})
 		if err != nil {
@@ -482,7 +482,7 @@ func deletePieceRef(tx *harmonydb.Tx, piece pieceCleanup, dropTask harmonytask.T
 	if err != nil {
 		return false, xerrors.Errorf("constructing piece cid v2 for %s: %w", piece.PieceCID, err)
 	}
-	if err := openpieces.QueueDrop(tx, dropTask, pcidV2.String()); err != nil {
+	if err := hashspace.QueueDrop(tx, dropTask, pcidV2.String()); err != nil {
 		return false, err
 	}
 	return true, nil

@@ -12,7 +12,7 @@ import (
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
-	"github.com/filecoin-project/curio/tasks/openpieces"
+	"github.com/filecoin-project/curio/tasks/hashspace"
 )
 
 var (
@@ -58,7 +58,7 @@ func discardOrphanPiecrefsForSubPieces(ctx context.Context, db *harmonydb.DB, se
 		return nil
 	}
 
-	_, err := harmonytask.TxWithTask(ctx, db, openpieces.DropAdder(), func(tx *harmonydb.Tx, dropTask harmonytask.TaskID) (bool, error) {
+	_, err := harmonytask.TxWithTask(ctx, db, hashspace.DropAdder(), func(tx *harmonydb.Tx, dropTask harmonytask.TaskID) (bool, error) {
 		n, err := tx.Exec(`
 			WITH doomed AS (
 				SELECT pr.id, pr.piece_ref
@@ -117,7 +117,7 @@ func discardOrphanPiecrefsForSubPieces(ctx context.Context, db *harmonydb.DB, se
 			if err != nil {
 				return false, fmt.Errorf("piece cid v2 for %s: %w", g.PieceCID, err)
 			}
-			if err := openpieces.QueueDrop(tx, dropTask, v2.String()); err != nil {
+			if err := hashspace.QueueDrop(tx, dropTask, v2.String()); err != nil {
 				return false, err
 			}
 		}

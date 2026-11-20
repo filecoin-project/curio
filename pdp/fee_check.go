@@ -7,7 +7,7 @@ import (
 	"net/http"
 
 	"github.com/filecoin-project/curio/lib/keysmith"
-	"github.com/filecoin-project/curio/tasks/openpieces"
+	"github.com/filecoin-project/curio/tasks/hashspace"
 )
 
 // requireACLEnvelopes checks each piece added to a read-restricted data set.
@@ -34,7 +34,7 @@ func (p *PDPService) requireACLEnvelopes(ctx context.Context, infos map[string]*
 		if err != nil {
 			return err
 		}
-		rc, err := openpieces.OpenPieceBytes(ctx, p.hashSpaces, p.pieceIO, parkedID, parsed.CidV2)
+		rc, err := hashspace.OpenPieceBytes(ctx, p.hashSpaces, p.pieceIO, parkedID, parsed.CidV2)
 		if err != nil {
 			if p.hashSpaces != nil && p.hashSpaces.ACL != nil {
 				if ok, herr := p.hashSpaces.ACL.HasFile(ctx, parsed.CidV2); herr == nil && ok {

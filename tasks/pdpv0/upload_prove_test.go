@@ -83,6 +83,59 @@ func TestUploadThenProve(t *testing.T) {
 		h := newUploadProveHarness(t)
 		runUploadProve(t, h, feePayload(t), 1 /* restricted */, false, http.StatusBadRequest)
 	})
+	t.Run("restricted upload arrives in acl-pieces", func(t *testing.T) {
+		h := newUploadProveHarness(t)
+		fee := feePayload(t)
+		sum, err := mh.Sum(fee, mh.SHA2_256, -1)
+		require.NoError(t, err)
+		leafCID := cid.NewCidV1(cid.Raw, sum)
+		fsn := unixfs.NewFSNode(unixfs.TFile)
+		fsn.AddBlockSize(uint64(len(fee)))
+		fsBytes, err := fsn.GetBytes()
+		require.NoError(t, err)
+		nd := new(merkledag.ProtoNode)
+		require.NoError(t, nd.SetCidBuilder(merkledag.V1CidPrefix()))
+		nd.SetData(fsBytes)
+		require.NoError(t, nd.AddRawLink("", &ipldformat.Link{Name: "", Size: uint64(len(fee)), Cid: leafCID}))
+		var buf bytes.Buffer
+		require.NoError(t, car.WriteHeader(&car.CarHeader{Roots: []cid.Cid{nd.Cid()}, Version: 1}, &buf))
+		require.NoError(t, util.LdWrite(&buf, nd.Cid().Bytes(), nd.RawData()))
+		require.NoError(t, util.LdWrite(&buf, leafCID.Bytes(), fee))
+		raw := buf.Bytes()
+
+		cp := &commp.Calc{}
+		_, err = cp.Write(raw)
+		require.NoError(t, err)
+		digest, _, err := cp.Digest()
+		require.NoError(t, err)
+		pieceCidV2, err := commcid.DataCommitmentToPieceCidv2(digest, uint64(len(raw)))
+		require.NoError(t, err)
+
+		postBody, err := json.Marshal(map[string]string{
+			"pieceCid": pieceCidV2.String(),
+			"read":     "restricted",
+		})
+		require.NoError(t, err)
+		postRes, err := http.Post(h.srv.URL+"/pdp/piece", "application/json", bytes.NewReader(postBody))
+		require.NoError(t, err)
+		require.Equal(t, http.StatusCreated, postRes.StatusCode, uploadProveHTTPBody(t, postRes))
+		uploadLoc := postRes.Header.Get("Location")
+		require.NoError(t, postRes.Body.Close())
+
+		putReq, err := http.NewRequest(http.MethodPut, h.srv.URL+uploadLoc, bytes.NewReader(raw))
+		require.NoError(t, err)
+		putRes, err := http.DefaultClient.Do(putReq)
+		require.NoError(t, err)
+		require.Equal(t, http.StatusNoContent, putRes.StatusCode, uploadProveHTTPBody(t, putRes))
+		require.NoError(t, putRes.Body.Close())
+
+		inOpen, err := h.hs.Public.HasFile(h.ctx, pieceCidV2)
+		require.NoError(t, err)
+		inACL, err := h.hs.ACL.HasFile(h.ctx, pieceCidV2)
+		require.NoError(t, err)
+		require.False(t, inOpen, "restricted upload must not land in open-pieces")
+		require.True(t, inACL, "restricted upload must arrive in acl-pieces")
+	})
 }
 
 type uploadProveHarness struct {
