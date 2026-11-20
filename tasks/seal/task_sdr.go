@@ -52,8 +52,9 @@ type SDRTask struct {
 
 	sc *ffi2.SealCalls
 
-	max taskhelp.Limiter
-	min int
+	max        taskhelp.Limiter
+	min        int
+	startPacer *sdrStartPacer
 }
 
 func NewSDRTask(api SDRAPI, db *harmonydb.DB, sp *SealPoller, sc *ffi2.SealCalls, maxSDR taskhelp.Limiter, minSDR int) *SDRTask {

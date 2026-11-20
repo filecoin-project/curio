@@ -87,6 +87,19 @@ description: The default curio configuration
   # type: int
   #SealSDRMaxTasks = 0
 
+  # Minimum interval between process-local SDR Do entries. Zero disables pacing.
+  # Negative values are invalid. Requires restart; spacing history is not persisted.
+  #
+  # type: time.Duration
+  #SealSDRMinStartInterval = "0s"
+
+  # Choose a stable phase at startup or after long idle within SealSDRMinStartInterval.
+  # Requires CURIO_NODE_NAME and a stable listen identity. Hash collisions are possible;
+  # this is not a cluster-wide rate limit. Disabled by default. Requires restart.
+  #
+  # type: bool
+  #SealSDRStartJitter = false
+
   # The maximum amount of SDR tasks that need to be queued before the system will start accepting new tasks.
   # The main purpose of this setting is to allow for enough tasks to accumulate for batch sealing. When batch sealing
   # nodes are present in the cluster, this value should be set to batch_size+1 to allow for the batch sealing node to
