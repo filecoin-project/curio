@@ -155,15 +155,17 @@ type PullHandler struct {
 	store     PullStore
 	validator AddPiecesValidator
 	db        *harmonydb.DB
+	ethClient ethchain.EthClient
 }
 
 // NewPullHandler creates a new PullHandler
-func NewPullHandler(auth Auth, store PullStore, validator AddPiecesValidator, db *harmonydb.DB) *PullHandler {
+func NewPullHandler(auth Auth, store PullStore, validator AddPiecesValidator, db *harmonydb.DB, ethClient ethchain.EthClient) *PullHandler {
 	return &PullHandler{
 		auth:      auth,
 		store:     store,
 		validator: validator,
 		db:        db,
+		ethClient: ethClient,
 	}
 }
 
@@ -374,6 +376,20 @@ func (h *PullHandler) HandlePull(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	readRestricted := false
+	if dataSetId > 0 {
+		// Unit tests pass a nil DB; production always has one after verifyDataSetForService.
+		if h.db != nil {
+			readRestricted, err = ResolveDatasetACL(ctx, h.db, h.ethClient, dataSetId)
+			if err != nil {
+				httpServerError(w, http.StatusBadRequest, "Failed to resolve data set read access: "+err.Error(), err)
+				return
+			}
+		}
+	} else if known, acl := ACLFromExtraData(extraDataBytes); known && acl {
+		readRestricted = true
+	}
+
 	var payer common.Address
 	if dataSetId == 0 {
 		payer, err = FWSSPayerFromExtraData(extraDataBytes)
@@ -451,11 +467,12 @@ func (h *PullHandler) HandlePull(w http.ResponseWriter, r *http.Request) {
 
 	// Create pull record
 	pullRecord := &PullRecord{
-		Service:       service,
-		ExtraDataHash: extraDataHash[:],
-		DataSetId:     dataSetId,
-		RecordKeeper:  recordKeeperStr,
-		ClientAddress: payer.Hex(),
+		Service:        service,
+		ExtraDataHash:  extraDataHash[:],
+		DataSetId:      dataSetId,
+		RecordKeeper:   recordKeeperStr,
+		ClientAddress:  payer.Hex(),
+		ReadRestricted: readRestricted,
 	}
 
 	pullID, backpressure, err := h.store.CreatePullWithPieces(ctx, pullRecord, pullPieces)

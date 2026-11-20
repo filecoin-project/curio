@@ -1,4 +1,4 @@
-package openpieces
+package hashspace
 
 import (
 	"context"
@@ -24,7 +24,7 @@ const (
 	COPY_PARALLEL = 4
 )
 
-var log = logging.Logger("cu-openpieces")
+var log = logging.Logger("cu-hashspace")
 
 // MoveTask copies one destination disk's rebalance intervals onto that disk
 // and then hands each interval over. The task is created in the map

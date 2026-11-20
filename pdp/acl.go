@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"math/big"
 	"strings"
 
@@ -22,11 +23,27 @@ const MetadataKeyACL = "read"
 // DATASET_READ_RESTRICTED is the read-metadata value that marks an ACL data set.
 const DATASET_READ_RESTRICTED = "restricted"
 
+// DATASET_READ_PUBLIC is the read value for a public piece or data set.
+const DATASET_READ_PUBLIC = "public"
+
 // ACL_SECURED is the pdp_data_sets.acl value for a read-restricted data set.
 const ACL_SECURED = pieceacl.Secured
 
 // ACL_PUBLIC is the pdp_data_sets.acl value once resolved and not restricted.
 const ACL_PUBLIC = 0
+
+// ParsePieceRead reports whether an upload should arrive in acl-pieces.
+// Empty or "public" is public. "restricted" is private. Anything else is an error.
+func ParsePieceRead(read string) (restricted bool, err error) {
+	switch strings.ToLower(strings.TrimSpace(read)) {
+	case "", DATASET_READ_PUBLIC:
+		return false, nil
+	case DATASET_READ_RESTRICTED:
+		return true, nil
+	default:
+		return false, fmt.Errorf("read must be %q or %q", DATASET_READ_RESTRICTED, DATASET_READ_PUBLIC)
+	}
+}
 
 // ACLFromExtraData reports whether create extraData sets read to restricted.
 // known is false when extraData is empty or cannot be decoded as FWSS create metadata.

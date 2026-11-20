@@ -59,7 +59,7 @@ func TestHandlePull_BackpressureStress(t *testing.T) {
 
 	stats := &pdpPullStressStats{}
 	ensurePullTestDataSet(t, db, testDataSetId, "public")
-	handler := NewPullHandler(&NullAuth{}, NewDBPullStore(db), &mockValidator{shouldPass: true}, db)
+	handler := NewPullHandler(&NullAuth{}, NewDBPullStore(db), &mockValidator{shouldPass: true}, db, nil)
 	dataSetID := testDataSetId
 
 	testCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -214,7 +214,7 @@ func TestHandlePull_BackpressureSoloClientCanUseNinetyPercent(t *testing.T) {
 	require.NoError(t, err)
 
 	ensurePullTestDataSet(t, db, testDataSetId, "public")
-	handler := NewPullHandler(&NullAuth{}, NewDBPullStore(db), &mockValidator{shouldPass: true}, db)
+	handler := NewPullHandler(&NullAuth{}, NewDBPullStore(db), &mockValidator{shouldPass: true}, db, nil)
 	dataSetID := testDataSetId
 	rawSizes := []uint64{127, 254, 508, 1016}
 	piecePool := make([]string, pullStressSoloClientLimit+1)
@@ -235,7 +235,7 @@ func TestHandlePull_BackpressureClientCanBorrowUnusedSlots(t *testing.T) {
 	require.NoError(t, err)
 
 	ensurePullTestDataSet(t, db, testDataSetId, "public")
-	handler := NewPullHandler(&NullAuth{}, NewDBPullStore(db), &mockValidator{shouldPass: true}, db)
+	handler := NewPullHandler(&NullAuth{}, NewDBPullStore(db), &mockValidator{shouldPass: true}, db, nil)
 	dataSetID := testDataSetId
 	rawSizes := []uint64{127, 254, 508, 1016}
 	piecePool := make([]string, 31)
@@ -257,7 +257,7 @@ func TestHandlePull_BackpressureClientLimitAppliesNearGlobalReserve(t *testing.T
 	require.NoError(t, err)
 
 	ensurePullTestDataSet(t, db, testDataSetId, "public")
-	handler := NewPullHandler(&NullAuth{}, NewDBPullStore(db), &mockValidator{shouldPass: true}, db)
+	handler := NewPullHandler(&NullAuth{}, NewDBPullStore(db), &mockValidator{shouldPass: true}, db, nil)
 	dataSetID := testDataSetId
 	rawSizes := []uint64{127, 254, 508, 1016}
 	piecePool := make([]string, pullStressSoloClientLimit+1)
@@ -291,7 +291,7 @@ func TestHandlePull_PermanentAdmissionLimit(t *testing.T) {
 			require.NoError(t, err)
 
 			ensurePullTestDataSet(t, db, testDataSetId, "public")
-			handler := NewPullHandler(&NullAuth{}, NewDBPullStore(db), &mockValidator{shouldPass: true}, db)
+			handler := NewPullHandler(&NullAuth{}, NewDBPullStore(db), &mockValidator{shouldPass: true}, db, nil)
 			pieceCIDs := make([]string, tt.pieceCount)
 			for i := range pieceCIDs {
 				pieceCIDs[i] = generatedPieceCIDV2(t, i+40_000, 127)
@@ -580,8 +580,8 @@ func ensurePullTestDataSet(t *testing.T, db *harmonydb.DB, dataSetID uint64, ser
 	ctx := context.Background()
 	txHash := fmt.Sprintf("0x%064x", dataSetID)
 	_, err := db.Exec(ctx, `
-		INSERT INTO pdp_data_sets (id, create_message_hash, service, proving_period, challenge_window, init_ready)
-		VALUES ($1, $2, $3, 100, 10, FALSE)
+		INSERT INTO pdp_data_sets (id, create_message_hash, service, proving_period, challenge_window, init_ready, acl)
+		VALUES ($1, $2, $3, 100, 10, FALSE, 0)
 		ON CONFLICT (id) DO NOTHING
 	`, int64(dataSetID), txHash, service)
 	require.NoError(t, err)
@@ -594,7 +594,7 @@ func TestHandlePull_DataSetNotFound(t *testing.T) {
 	db, err := harmonydb.NewFromConfigWithITestID(t)
 	require.NoError(t, err)
 
-	handler := NewPullHandler(&NullAuth{}, NewDBPullStore(db), &mockValidator{shouldPass: true}, db)
+	handler := NewPullHandler(&NullAuth{}, NewDBPullStore(db), &mockValidator{shouldPass: true}, db, nil)
 	body := PullRequest{
 		ExtraData: testAddPiecesOnlyExtraData(t),
 		DataSetId: &testDataSetId,

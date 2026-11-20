@@ -1,4 +1,4 @@
-package openpieces
+package hashspace
 
 import (
 	"context"
@@ -29,18 +29,18 @@ func DropAdder() harmonytask.AddTaskFunc {
 	return harmonytask.AdderFor(tasknames.HashSpaceDrop)
 }
 
-// QueueDrop queues removal of piece CID v2 pieceCID from open-pieces from
+// QueueDrop queues removal of piece CID v2 pieceCID from the hash spaces from
 // inside a harmonytask.TxWithTask body that uses DropAdder, in the
 // transaction that drops its last PDP ref. With id 0 it asks for a task
-// when some node has open-pieces disks and no drop is queued yet. The drop
-// deletes whatever copies the hash map still names; a piece that was never
-// placed is a no-op.
+// when some node has hash-space disks and no drop is queued yet. The drop
+// deletes open-pieces and acl-pieces copies the hash map still names; a piece
+// that was never placed is a no-op.
 func QueueDrop(tx *harmonydb.Tx, id harmonytask.TaskID, pieceCID string) error {
 	if id == 0 {
 		var needed bool
 		if err := tx.QueryRow(`SELECT EXISTS (SELECT 1 FROM hash_space_disk)
 			AND NOT EXISTS (SELECT 1 FROM hash_space_delete WHERE piece_cid = $1)`, pieceCID).Scan(&needed); err != nil {
-			return xerrors.Errorf("checking open-pieces delete of %s: %w", pieceCID, err)
+			return xerrors.Errorf("checking hash space delete of %s: %w", pieceCID, err)
 		}
 		if needed {
 			return harmonytask.ErrNeedTask
@@ -50,13 +50,13 @@ func QueueDrop(tx *harmonydb.Tx, id harmonytask.TaskID, pieceCID string) error {
 	_, err := tx.Exec(`INSERT INTO hash_space_delete (piece_cid, task_id) VALUES ($1, $2)
 		ON CONFLICT (piece_cid) DO NOTHING`, pieceCID, id)
 	if err != nil {
-		return xerrors.Errorf("queueing open-pieces delete of %s: %w", pieceCID, err)
+		return xerrors.Errorf("queueing hash space delete of %s: %w", pieceCID, err)
 	}
 	return nil
 }
 
-// DropTask removes a piece whose last PDP reference is gone from the range
-// owner and, when a move covers it, from both ends of that move.
+// DropTask removes a piece whose last PDP reference is gone from open-pieces
+// and acl-pieces on the range owner and, when a move covers it, from both ends.
 type DropTask struct {
 	db         *harmonydb.DB
 	hashSpaces *hashfolder.Cluster
@@ -71,11 +71,11 @@ func NewDropTask(db *harmonydb.DB, hashSpaces *hashfolder.Cluster) *DropTask {
 func (t *DropTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (bool, error) {
 	var cids []string
 	if err := t.db.Select(ctx, &cids, `SELECT piece_cid FROM hash_space_delete WHERE task_id = $1`, taskID); err != nil {
-		return false, xerrors.Errorf("reading open-pieces delete: %w", err)
+		return false, xerrors.Errorf("reading hash space delete: %w", err)
 	}
 	for _, c := range cids {
 		if !stillOwned() {
-			return false, xerrors.Errorf("lost ownership of open-pieces delete task %d", taskID)
+			return false, xerrors.Errorf("lost ownership of hash space delete task %d", taskID)
 		}
 		if err := t.dropOne(ctx, taskID, c, stillOwned); err != nil {
 			return false, err
@@ -90,11 +90,11 @@ func (t *DropTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned
 func (t *DropTask) dropOne(ctx context.Context, taskID harmonytask.TaskID, pieceCID string, stillOwned func() bool) error {
 	v2, err := cid.Parse(pieceCID)
 	if err != nil {
-		return xerrors.Errorf("parsing open-pieces delete cid %s: %w", pieceCID, err)
+		return xerrors.Errorf("parsing hash space delete cid %s: %w", pieceCID, err)
 	}
 	v1, rawSize, err := commcid.PieceCidV1FromV2(v2)
 	if err != nil {
-		return xerrors.Errorf("open-pieces delete cid %s is not a piece cid v2: %w", pieceCID, err)
+		return xerrors.Errorf("hash space delete cid %s is not a piece cid v2: %w", pieceCID, err)
 	}
 	v1s := v1.String()
 	padded := int64(padreader.PaddedSize(rawSize).Padded())
@@ -123,7 +123,7 @@ func (t *DropTask) dropOne(ctx context.Context, taskID harmonytask.TaskID, piece
 				_, err := tx.Exec(`DELETE FROM hash_space_delete WHERE piece_cid = $1 AND task_id = $2`, pieceCID, taskID)
 				return err == nil, err
 			}
-			// A parked piece whose piece-park file was moved into open-pieces has
+			// A parked piece whose piece-park file was moved into a hash space has
 			// its bytes only there; while such a piece still has references the
 			// drop waits.
 			if err := tx.QueryRow(`SELECT EXISTS (
@@ -150,7 +150,7 @@ func (t *DropTask) dropOne(ctx context.Context, taskID harmonytask.TaskID, piece
 			return err == nil, err
 		}, harmonydb.OptionRetry())
 		if err != nil {
-			return xerrors.Errorf("starting open-pieces delete of %s: %w", pieceCID, err)
+			return xerrors.Errorf("starting hash space delete of %s: %w", pieceCID, err)
 		}
 		if skip {
 			return nil
@@ -171,7 +171,7 @@ func (t *DropTask) dropOne(ctx context.Context, taskID harmonytask.TaskID, piece
 	}
 	if live {
 		if _, err := t.db.Exec(ctx, `DELETE FROM hash_space_delete WHERE piece_cid = $1 AND task_id = $2`, pieceCID, taskID); err != nil {
-			return xerrors.Errorf("removing open-pieces delete of %s: %w", pieceCID, err)
+			return xerrors.Errorf("removing hash space delete of %s: %w", pieceCID, err)
 		}
 		return nil
 	}
@@ -180,7 +180,7 @@ func (t *DropTask) dropOne(ctx context.Context, taskID harmonytask.TaskID, piece
 		return err
 	}
 	if _, err := t.db.Exec(ctx, `DELETE FROM hash_space_delete WHERE piece_cid = $1 AND task_id = $2`, pieceCID, taskID); err != nil {
-		return xerrors.Errorf("removing open-pieces delete: %w", err)
+		return xerrors.Errorf("removing hash space delete: %w", err)
 	}
 	return nil
 }

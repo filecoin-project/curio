@@ -1,4 +1,4 @@
-package openpieces
+package hashspace
 
 import "testing"
 
