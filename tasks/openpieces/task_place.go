@@ -53,7 +53,7 @@ func Place(ctx context.Context, db *harmonydb.DB, hs *hashfolder.Cluster, local 
 }
 
 // PlaceACL copies the piece into acl-pieces. The caller knows the data set is read-restricted, even if that row is not linked yet.
-// An open-pieces copy is removed unless the piece is also in a data set whose acl is not 1.
+// An open-pieces copy is removed only when this is the sole PDP ref and none of its linked data sets require public access.
 func PlaceACL(ctx context.Context, db *harmonydb.DB, hs *hashfolder.Cluster, local *paths.Local, pieceIO piecestore.PieceIO, pieceRef int64) error {
 	return place(ctx, db, hs, local, pieceIO, pieceRef, true, false)
 }
@@ -210,8 +210,17 @@ func place(ctx context.Context, db *harmonydb.DB, hs *hashfolder.Cluster, local 
 			return err
 		}
 		if !wantOpen {
-			if err := hs.Public.DeleteCID(ctx, pc.String()); err != nil {
-				return xerrors.Errorf("removing open-pieces copy of ACL piece %s: %w", pc, err)
+			// Public bytes are shared by CID, including refs whose data sets are not linked yet.
+			var shared bool
+			if err := db.QueryRow(ctx, `SELECT EXISTS (
+				SELECT 1 FROM pdp_piecerefs WHERE piece_cid = $1 AND piece_ref <> $2
+			)`, pp.PieceCID, pieceRef).Scan(&shared); err != nil {
+				return xerrors.Errorf("checking other PDP refs before removing public copy of %s: %w", pc, err)
+			}
+			if !shared {
+				if err := hs.Public.DeleteCID(ctx, pc.String()); err != nil {
+					return xerrors.Errorf("removing open-pieces copy of ACL piece %s: %w", pc, err)
+				}
 			}
 		}
 	}

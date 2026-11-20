@@ -35,6 +35,7 @@ import (
 	"github.com/filecoin-project/curio/lib/cuzk"
 	"github.com/filecoin-project/curio/lib/fastparamfetch"
 	"github.com/filecoin-project/curio/lib/ffi"
+	"github.com/filecoin-project/curio/lib/hashfolder"
 	"github.com/filecoin-project/curio/lib/lazy"
 	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/lib/paths"
@@ -51,6 +52,7 @@ import (
 	"github.com/filecoin-project/curio/tasks/indexing"
 	"github.com/filecoin-project/curio/tasks/message"
 	"github.com/filecoin-project/curio/tasks/metadata"
+	"github.com/filecoin-project/curio/tasks/openpieces"
 	piece2 "github.com/filecoin-project/curio/tasks/piece"
 	"github.com/filecoin-project/curio/tasks/proofshare"
 	"github.com/filecoin-project/curio/tasks/scrub"
@@ -265,10 +267,26 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 			if err != nil {
 				return nil, err
 			}
-			cleanupPiecePoll = piece2.NewCleanupPieceTask(db, must.One(slrLazy.Val()), cfg.Subsystems.ParkPieceMaxTasks)
 			aggregateChunksTask := piece2.NewAggregateChunksTask(db, stor, must.One(slrLazy.Val()))
 			pfix := piece2.NewFixParkPieceTask(db, must.One(slrLazy.Val()))
-			activeTasks = append(activeTasks, parkPiecePoll, cleanupPiecePoll, aggregateChunksTask, pfix)
+			activeTasks = append(activeTasks, parkPiecePoll, aggregateChunksTask, pfix)
+		}
+		if cfg.Subsystems.EnableParkPiece || cfg.Subsystems.EnableMoveStorage || cfg.Subsystems.EnablePDP {
+			maxTasks := cfg.Subsystems.ParkPieceMaxTasks
+			if !cfg.Subsystems.EnableParkPiece && cfg.Subsystems.EnableMoveStorage {
+				maxTasks = cfg.Subsystems.MoveStorageMaxTasks
+			}
+			cleanupPiecePoll = piece2.NewCleanupPieceTask(db, must.One(slrLazy.Val()), maxTasks)
+			activeTasks = append(activeTasks, cleanupPiecePoll)
+			if !cfg.Subsystems.EnablePDP {
+				// PDP registers its own drop worker. Other cleanup nodes use remote
+				// storage access without joining their local disks to hashspace.
+				auth, err := deps.StorageAuth(cfg.Apis.StorageRPCSecret)
+				if err != nil {
+					return nil, xerrors.Errorf("piece cleanup storage auth: %w", err)
+				}
+				activeTasks = append(activeTasks, openpieces.NewDropTask(db, hashfolder.NewRemoteClient(db, auth)))
+			}
 		}
 	}
 
@@ -650,12 +668,6 @@ func addSealingTasks(
 		storePiecePoll = storePieceTask
 
 		activeTasks = append(activeTasks, storePieceTask)
-		if !cfg.Subsystems.EnableParkPiece {
-			// add cleanup if it's not added above with park piece
-			cleanupPieceTask := piece2.NewCleanupPieceTask(db, must.One(slrLazy.Val()), cfg.Subsystems.MoveStorageMaxTasks)
-			activeTasks = append(activeTasks, cleanupPieceTask)
-		}
-
 		if !cfg.Subsystems.NoUnsealedDecode {
 			unsealTask := unseal.NewTaskUnsealDecode(slr, db, cfg.Subsystems.MoveStorageMaxTasks, full)
 			activeTasks = append(activeTasks, unsealTask)
