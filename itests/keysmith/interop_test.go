@@ -23,6 +23,7 @@ import (
 	"github.com/filecoin-project/curio/lib/keysmith"
 )
 
+
 // Keysmith format 2, pinned to the synapse-sdk master commit that merged it (FilOzone/synapse-sdk#1130, #1132).
 // A pinned commit keeps this test reproducible: bump it deliberately when keysmith changes.
 const (

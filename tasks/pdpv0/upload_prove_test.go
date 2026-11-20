@@ -50,8 +50,8 @@ import (
 	"github.com/filecoin-project/curio/pdp/contract"
 )
 
-// TestUploadThenProve uploads a piece, places it, and generates a possession proof.
-// A public piece lands in open-pieces; a restricted piece lands only in acl-pieces.
+// TestUploadThenProve uploads a piece into open-pieces, adds it to a data set, and generates a possession proof.
+// A public data set leaves it in open-pieces. A restricted data set moves it to acl-pieces.
 func TestUploadThenProve(t *testing.T) {
 	t.Run("public", func(t *testing.T) {
 		h := newUploadProveHarness(t)
@@ -258,6 +258,10 @@ func runUploadProve(t *testing.T, h *uploadProveHarness, raw []byte, acl int, ex
 	require.Equal(t, http.StatusNoContent, putRes.StatusCode, uploadProveHTTPBody(t, putRes))
 	require.NoError(t, putRes.Body.Close())
 
+	uploadedOpen, err := h.hs.Public.HasFile(ctx, pieceCidV2)
+	require.NoError(t, err)
+	require.True(t, uploadedOpen, "an upload is in open-pieces before a data set claims it")
+
 	var parkedID, pieceRef, pdpPieceRefID int64
 	var parkedComplete bool
 	err = h.db.QueryRow(ctx, `
@@ -291,6 +295,9 @@ func runUploadProve(t *testing.T, h *uploadProveHarness, raw []byte, acl int, ex
 		inACL, err := h.hs.ACL.HasFile(ctx, pieceCidV2)
 		require.NoError(t, err)
 		require.False(t, inACL, "a piece without an outer CAR must not be stored in acl-pieces")
+		stillOpen, err := h.hs.Public.HasFile(ctx, pieceCidV2)
+		require.NoError(t, err)
+		require.True(t, stillOpen, "a rejected restricted add leaves the upload in open-pieces")
 		return
 	}
 	addLoc := addRes.Header.Get("Location")

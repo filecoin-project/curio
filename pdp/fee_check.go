@@ -7,11 +7,12 @@ import (
 	"net/http"
 
 	"github.com/filecoin-project/curio/lib/keysmith"
-	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/tasks/openpieces"
 )
 
 // requireACLEnvelopes checks each piece added to a read-restricted data set.
 // A missing park file is accepted when an acl-pieces copy already exists.
+// An open-pieces copy is read when the upload was placed before this claim.
 func (p *PDPService) requireACLEnvelopes(ctx context.Context, infos map[string]*SubPieceInfo) error {
 	if p.pieceIO == nil {
 		return fmt.Errorf("piece IO is not configured")
@@ -29,16 +30,18 @@ func (p *PDPService) requireACLEnvelopes(ctx context.Context, infos map[string]*
 		if err := p.db.QueryRow(ctx, `SELECT piece_id FROM parked_piece_refs WHERE ref_id = $1`, info.PieceRef).Scan(&parkedID); err != nil {
 			return fmt.Errorf("reading parked piece for ref %d: %w", info.PieceRef, err)
 		}
-		rc, err := p.pieceIO.PieceReader(ctx, storiface.PieceNumber(parkedID))
+		parsed, err := PieceCidV2FromV1(info.PieceCIDv1, info.RawSize)
+		if err != nil {
+			return err
+		}
+		rc, err := openpieces.OpenPieceBytes(ctx, p.hashSpaces, p.pieceIO, parkedID, parsed.CidV2)
 		if err != nil {
 			if p.hashSpaces != nil && p.hashSpaces.ACL != nil {
-				if parsed, perr := PieceCidV2FromV1(info.PieceCIDv1, info.RawSize); perr == nil {
-					if ok, herr := p.hashSpaces.ACL.HasFile(ctx, parsed.CidV2); herr == nil && ok {
-						continue
-					}
+				if ok, herr := p.hashSpaces.ACL.HasFile(ctx, parsed.CidV2); herr == nil && ok {
+					continue
 				}
 			}
-			return fmt.Errorf("reading parked piece %d: %w", parkedID, err)
+			return err
 		}
 		_, err = keysmith.ReadEnvelopeLabels(rc)
 		_ = rc.Close()
