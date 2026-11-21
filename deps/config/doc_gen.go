@@ -1124,6 +1124,16 @@ Denylisted CIDs will be rejected with HTTP 451. Requests arriving before denylis
 will receive HTTP 503. (Default: ["https://badbits.dwebops.pub/denylist.json"])
 Updates will affect running instances.`,
 		},
+		{
+			Name: "PrivateDatasetRepair",
+			Type: "bool",
+
+			Comment: `PrivateDatasetRepair lets a FOC grant rooted by the dealbot
+wallet read a piece whose foc/own names another wallet. Turn this off if
+that wallet's private key has leaked or FOC is untrusted.
+The piece owner can still read their own piece. (Default: true)
+Updates will affect running instances.`,
+		},
 	},
 	"IPNIConfig": {
 		{

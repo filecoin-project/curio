@@ -3,6 +3,7 @@ package pdp
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -324,6 +325,43 @@ func TestHandlePull_NewRequest_Success(t *testing.T) {
 	}
 	require.True(t, cidSet[testCid1])
 	require.True(t, cidSet[testCid2])
+}
+
+func TestHandlePull_GrantBecomesBasicAuthUserinfo(t *testing.T) {
+	store := &mockPullStore{}
+	handler := NewPullHandler(&NullAuth{}, store, &mockValidator{shouldPass: true}, nil)
+
+	token := base64.RawURLEncoding.EncodeToString([]byte("presentation"))
+	own := "https://FOC%20Grant:already@first.example/download/" + testCid1
+	body := PullRequest{
+		ExtraData: testExtraData(t),
+		DataSetId: &testDataSetId,
+		Pieces: []PullPieceRequest{
+			{PieceCid: testCid1, SourceURLs: []string{
+				"https://first.example/download/" + testCid1,
+				own,
+			}},
+		},
+	}
+	bodyBytes := must.One(json.Marshal(body))
+	req := httptest.NewRequest(http.MethodPost, "/pdp/piece/pull", bytes.NewReader(bodyBytes))
+	req.Header.Set("Authorization", "FOC-Grant "+token)
+	rec := httptest.NewRecorder()
+
+	handler.HandlePull(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Len(t, store.createdPieces, 2)
+
+	clean, user, err := SplitPullGrantURL(store.createdPieces[0].SourceURL)
+	require.NoError(t, err)
+	require.Equal(t, "https://first.example/download/"+testCid1, clean)
+	require.Equal(t, "FOC Grant", user.Username())
+	pass, ok := user.Password()
+	require.True(t, ok)
+	require.Equal(t, token, pass)
+
+	require.Equal(t, own, store.createdPieces[1].SourceURL)
 }
 
 func TestHandlePull_MultipleSourceURLs(t *testing.T) {

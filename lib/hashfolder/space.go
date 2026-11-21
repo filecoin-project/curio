@@ -3,6 +3,7 @@ package hashfolder
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -118,20 +119,17 @@ func (s *Space) Flush() error {
 
 func (s *Space) flushLocked() error {
 	now := time.Now().UTC().Truncate(time.Second)
-	var first error
+	var err error
 	for _, d := range s.disks {
-		err := writeLayout(d.root, s.kind, Layout{
+		err = errors.Join(err, writeLayout(d.root, s.kind, Layout{
 			Version:     d.version,
 			Used:        d.tracker.Used(),
 			CommittedAt: now,
 			Ranges:      encodeIntervals(d.intervals),
 			MoveDests:   encodeIntervals(d.moveDests),
-		})
-		if err != nil && first == nil {
-			first = err
-		}
+		}))
 	}
-	return first
+	return err
 }
 
 // Close stops the periodic flush and writes the layout once more.
@@ -764,15 +762,14 @@ func (w *cidWriter) Close() error {
 		return w.err
 	}
 	w.done = true
-	err := w.f.Sync()
-	if cerr := w.f.Close(); err == nil {
-		err = cerr
-	}
+	err := errors.Join(w.f.Sync(), w.f.Close())
 	w.space.mu.Lock()
 	defer w.space.mu.Unlock()
 	delete(w.space.writing, w.path)
 	if err != nil {
-		_ = os.Remove(w.path)
+		if rmErr := os.Remove(w.path); rmErr != nil && !os.IsNotExist(rmErr) {
+			err = errors.Join(err, rmErr)
+		}
 		w.err = err
 		return err
 	}
@@ -792,8 +789,8 @@ func (w *cidWriter) Abort() error {
 	w.space.mu.Lock()
 	defer w.space.mu.Unlock()
 	delete(w.space.writing, w.path)
-	if rmErr := os.Remove(w.path); rmErr != nil && !os.IsNotExist(rmErr) && err == nil {
-		err = rmErr
+	if rmErr := os.Remove(w.path); rmErr != nil && !os.IsNotExist(rmErr) {
+		err = errors.Join(err, rmErr)
 	}
 	w.err = err
 	return err

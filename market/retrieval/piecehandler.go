@@ -1,6 +1,7 @@
 package retrieval
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -11,9 +12,12 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/ipfs/go-cid"
+	"github.com/multiformats/go-multihash"
 	"go.opencensus.io/stats"
 
 	"github.com/filecoin-project/curio/lib/cachedreader"
+	"github.com/filecoin-project/curio/lib/commcidv2"
+	"github.com/filecoin-project/curio/lib/keysmith"
 	"github.com/filecoin-project/curio/lib/pieceprovider"
 	"github.com/filecoin-project/curio/market/retrieval/remoteblockstore"
 )
@@ -87,6 +91,118 @@ func (rp *Provider) handleByPieceCid(w http.ResponseWriter, r *http.Request) {
 	stats.Record(ctx, remoteblockstore.HttpPieceByCid200ResponseCount.M(1))
 	stats.Record(ctx, remoteblockstore.HttpPieceByCidRequestDuration.M(float64(time.Since(startTime).Milliseconds())))
 
+}
+
+// handleDownload serves a piece from acl-pieces. A missing piece is 404.
+// The caller has already applied the denylist and the piece request limiter.
+func (rp *Provider) handleDownload(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	prefixLen := len(downloadPrefix)
+	if len(r.URL.Path) <= prefixLen {
+		log.Errorf("path '%s' is missing piece CID", r.URL.Path)
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	pieceCidStr := r.URL.Path[prefixLen:]
+	pieceCid, err := cid.Parse(pieceCidStr)
+	if err != nil {
+		log.Errorf("parsing piece CID '%s': %s", pieceCidStr, err.Error())
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	// A piece CID is that piece. Any other CID is a block of a private CAR.
+	if !commcidv2.IsPieceCidV2(pieceCid) && !commcidv2.IsCidV1PieceCid(pieceCid) {
+		if rp.privateIdx == nil {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		piece, ok, err := rp.privateIdx.PrivatePieceByMultihash(ctx, pieceCid.Hash())
+		if err != nil {
+			log.Errorf("resolving download CID '%s': %s", pieceCidStr, err.Error())
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		if !ok {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		pieceCid = piece
+	}
+
+	if rp.cpr == nil {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	reader, rawSize, err := rp.cpr.ReadACLPiece(ctx, pieceCid)
+	if err != nil {
+		log.Errorf("server error getting acl piece %s: %s", pieceCid, err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	if reader == nil {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	defer func() {
+		_ = reader.Close()
+	}()
+
+	// The piece is a CAR whose file starts with a FEE envelope.
+	raw, err := keysmith.Credential(r)
+	if err == nil && rp.blockChain == nil {
+		err = errBlockChainUnset
+	}
+	if err == nil {
+		var labels keysmith.Labels
+		labels, err = keysmith.ReadEnvelopeLabelsAt(reader)
+		if err == nil {
+			_, err = keysmith.VerifyPresentation(raw, pieceCid.Bytes(), labels.Piece(), rp.blockChain, time.Now())
+		}
+	}
+	if err != nil {
+		if errors.Is(err, errBlockChainUnset) {
+			log.Warnw("acl download refused: blockchain is not configured", "piece", pieceCid)
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		if errors.Is(err, keysmith.ErrNoGrant) {
+			log.Debugw("acl download refused", "piece", pieceCid, "error", err)
+			w.Header().Set("WWW-Authenticate", "FOC-Grant")
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if errors.Is(err, keysmith.ErrInvalidGrant) {
+			log.Debugw("acl download refused", "piece", pieceCid, "error", err)
+			http.Error(w, err.Error(), http.StatusForbidden)
+			return
+		}
+		if errors.Is(err, keysmith.ErrInvalidEnvelope) {
+			log.Debugw("acl download refused", "piece", pieceCid, "error", err)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		log.Errorw("acl download could not read the piece", "piece", pieceCid, "error", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	contentType, err := sniffContentType(reader)
+	if err != nil {
+		log.Errorf("error sniffing content type for piece CID %s: %s", pieceCid, err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	setHeaders(w, pieceCid, contentType)
+	http.ServeContent(w, r, "", lastModified, io.NewSectionReader(reader, 0, int64(rawSize)))
+}
+
+var errBlockChainUnset = errors.New("blockchain is not configured")
+
+// privatePieceIndex looks up the restricted piece that contains a CAR block.
+type privatePieceIndex interface {
+	PrivatePieceByMultihash(ctx context.Context, payload multihash.Multihash) (cid.Cid, bool, error)
 }
 
 func sniffContentType(r io.ReaderAt) (string, error) {

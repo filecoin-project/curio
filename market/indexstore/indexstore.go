@@ -152,11 +152,25 @@ func (i *IndexStore) Start(ctx context.Context, test bool) error {
 
 // AddIndex adds multihash -> piece cid (v2) mappings, along with offset and size information for the piece.
 func (i *IndexStore) AddIndex(ctx context.Context, pieceCidv2 cid.Cid, recordsChan chan Record) error {
+	return i.addBlockIndex(ctx, pieceCidv2, recordsChan,
+		`INSERT INTO PieceBlockOffsetSize (PieceCid, PayloadMultihash, BlockOffset) VALUES (?, ?, ?)`,
+		`INSERT INTO PayloadToPieces (PayloadMultihash, PieceCid, BlockSize) VALUES (?, ?, ?)`)
+}
+
+// AddPrivateIndex writes a restricted piece's CAR blocks into the private index.
+// The caller passes the piece CID v2 and owns recordsChan. These rows are not the public payload index.
+func (i *IndexStore) AddPrivateIndex(ctx context.Context, pieceCidv2 cid.Cid, recordsChan chan Record) error {
+	return i.addBlockIndex(ctx, pieceCidv2, recordsChan,
+		`INSERT INTO PrivatePieceBlock (PieceCid, PayloadMultihash, BlockOffset) VALUES (?, ?, ?)`,
+		`INSERT INTO PrivatePayloadToPiece (PayloadMultihash, PieceCid, BlockSize) VALUES (?, ?, ?)`)
+}
+
+// addBlockIndex inserts block records with the given statements.
+// The caller owns recordsChan and has chosen the public or private tables.
+func (i *IndexStore) addBlockIndex(ctx context.Context, pieceCidv2 cid.Cid, recordsChan chan Record, insertBlock, insertPayload string) error {
 	if err := i.requireSession(); err != nil {
 		return err
 	}
-	insertPieceBlockOffsetSize := `INSERT INTO PieceBlockOffsetSize (PieceCid, PayloadMultihash, BlockOffset) VALUES (?, ?, ?)`
-	insertPayloadToPieces := `INSERT INTO PayloadToPieces (PayloadMultihash, PieceCid, BlockSize) VALUES (?, ?, ?)`
 	pieceCidBytes := pieceCidv2.Bytes()
 
 	var eg errgroup.Group
@@ -195,13 +209,13 @@ func (i *IndexStore) AddIndex(ctx context.Context, pieceCidv2 cid.Cid, recordsCh
 				payloadMultihashBytes := []byte(rec.Cid.Hash())
 
 				batchPieceBlockOffsetSize.Entries = append(batchPieceBlockOffsetSize.Entries, gocql.BatchEntry{
-					Stmt:       insertPieceBlockOffsetSize,
+					Stmt:       insertBlock,
 					Args:       []any{pieceCidBytes, payloadMultihashBytes, rec.Offset},
 					Idempotent: true,
 				})
 
 				batchPayloadToPieces.Entries = append(batchPayloadToPieces.Entries, gocql.BatchEntry{
-					Stmt:       insertPayloadToPieces,
+					Stmt:       insertPayload,
 					Args:       []any{payloadMultihashBytes, pieceCidBytes, rec.Size},
 					Idempotent: true,
 				})
@@ -282,15 +296,23 @@ func (i *IndexStore) executeBatchWithRetry(ctx context.Context, batch *gocql.Bat
 }
 
 // RemoveIndexes removes all multihash -> piece cid mappings, and all
-// offset information for the piece.
+// offset information for the piece, including a private CAR index.
 func (i *IndexStore) RemoveIndexes(ctx context.Context, pieceCidv2 cid.Cid) error {
 	if err := i.requireSession(); err != nil {
 		return err
 	}
+	if err := i.deletePieceBlocks(ctx, pieceCidv2, "PieceBlockOffsetSize", "PayloadToPieces"); err != nil {
+		return err
+	}
+	return i.deletePieceBlocks(ctx, pieceCidv2, "PrivatePieceBlock", "PrivatePayloadToPiece")
+}
+
+// deletePieceBlocks removes one piece from a block-offset table and its payload table.
+// The caller passes table names owned by this package and has a session.
+func (i *IndexStore) deletePieceBlocks(ctx context.Context, pieceCidv2 cid.Cid, blockTable, payloadTable string) error {
 	pieceCidBytes := pieceCidv2.Bytes()
 
-	// First, select all PayloadMultihash for the given PieceCid from PieceBlockOffsetSize
-	selectQry := `SELECT PayloadMultihash FROM PieceBlockOffsetSize WHERE PieceCid = ?`
+	selectQry := `SELECT PayloadMultihash FROM ` + blockTable + ` WHERE PieceCid = ?`
 	iter := i.session.Query(selectQry, pieceCidBytes).WithContext(ctx).Iter()
 
 	var payloadMultihashBytes []byte
@@ -305,8 +327,7 @@ func (i *IndexStore) RemoveIndexes(ctx context.Context, pieceCidv2 cid.Cid) erro
 		return xerrors.Errorf("scanning PayloadMultihash for piece %s: %w", pieceCidv2, err)
 	}
 
-	// Prepare batch deletes for PayloadToPieces
-	delPayloadToPiecesQry := `DELETE FROM PayloadToPieces WHERE PayloadMultihash = ? AND PieceCid = ?`
+	delPayloadToPiecesQry := `DELETE FROM ` + payloadTable + ` WHERE PayloadMultihash = ? AND PieceCid = ?`
 	batch := i.session.NewBatch(gocql.UnloggedBatch).WithContext(ctx)
 	batchSize := i.settings.InsertBatchSize
 
@@ -331,8 +352,7 @@ func (i *IndexStore) RemoveIndexes(ctx context.Context, pieceCidv2 cid.Cid) erro
 		}
 	}
 
-	// Delete from PieceBlockOffsetSize
-	delPieceBlockOffsetSizeRowQry := `DELETE FROM PieceBlockOffsetSize WHERE PieceCid = ? AND PayloadMultihash = ?`
+	delPieceBlockOffsetSizeRowQry := `DELETE FROM ` + blockTable + ` WHERE PieceCid = ? AND PayloadMultihash = ?`
 	batch = i.session.NewBatch(gocql.UnloggedBatch).WithContext(ctx)
 	for idx, payloadMH := range payloadMultihashes {
 		batch.Entries = append(batch.Entries, gocql.BatchEntry{
@@ -349,6 +369,33 @@ func (i *IndexStore) RemoveIndexes(ctx context.Context, pieceCidv2 cid.Cid) erro
 	}
 
 	return nil
+}
+
+// CheckHasPrivatePiece reports whether piece has a private CAR block index.
+// The caller passes a piece CID v2.
+func (i *IndexStore) CheckHasPrivatePiece(ctx context.Context, pieceCidv2 cid.Cid) (bool, error) {
+	return i.hasBlock(ctx, pieceCidv2, "PrivatePieceBlock")
+}
+
+// PrivatePieceByMultihash returns the restricted piece that contains payload.
+// The caller passes a CAR block multihash. ok is false when no private row matches.
+func (i *IndexStore) PrivatePieceByMultihash(ctx context.Context, payload multihash.Multihash) (cid.Cid, bool, error) {
+	if err := i.requireSession(); err != nil {
+		return cid.Undef, false, err
+	}
+	var raw []byte
+	err := i.session.Query(`SELECT PieceCid FROM PrivatePayloadToPiece WHERE PayloadMultihash = ? LIMIT 1`, []byte(payload)).WithContext(ctx).Scan(&raw)
+	if errors.Is(err, gocql.ErrNotFound) {
+		return cid.Undef, false, nil
+	}
+	if err != nil {
+		return cid.Undef, false, xerrors.Errorf("reading private piece for multihash %s: %w", payload, err)
+	}
+	piece, err := cid.Cast(raw)
+	if err != nil {
+		return cid.Undef, false, xerrors.Errorf("parsing private piece for multihash %s: %w", payload, err)
+	}
+	return piece, true, nil
 }
 
 // PieceInfo contains PieceCid and BlockSize. PieceCid can be either v1 or v2.
@@ -401,11 +448,23 @@ func (i *IndexStore) GetOffset(ctx context.Context, pieceCidv2 cid.Cid, hash mul
 }
 
 func (i *IndexStore) GetPieceHashRange(ctx context.Context, piecev2 cid.Cid, start multihash.Multihash, num int64, strictCheck bool) ([]multihash.Multihash, error) {
+	return i.pieceHashRange(ctx, piecev2, start, num, strictCheck, "PieceBlockOffsetSize")
+}
+
+// GetPrivatePieceHashRange returns the same page as GetPieceHashRange from the private CAR index.
+// The caller passes a piece CID v2 whose blocks were stored with AddPrivateIndex.
+func (i *IndexStore) GetPrivatePieceHashRange(ctx context.Context, piecev2 cid.Cid, start multihash.Multihash, num int64, strictCheck bool) ([]multihash.Multihash, error) {
+	return i.pieceHashRange(ctx, piecev2, start, num, strictCheck, "PrivatePieceBlock")
+}
+
+// pieceHashRange pages payload multihashes for one piece from blockTable.
+// The caller passes a table owned by this package and has chosen the public or private index.
+func (i *IndexStore) pieceHashRange(ctx context.Context, piecev2 cid.Cid, start multihash.Multihash, num int64, strictCheck bool, blockTable string) ([]multihash.Multihash, error) {
 	if err := i.requireSession(); err != nil {
 		return nil, err
 	}
 	getHashes := func(pieceCid cid.Cid, start multihash.Multihash, num int64) ([]multihash.Multihash, error) {
-		qry := "SELECT PayloadMultihash FROM PieceBlockOffsetSize WHERE PieceCid = ? AND PayloadMultihash >= ? ORDER BY PayloadMultihash ASC LIMIT ?"
+		qry := "SELECT PayloadMultihash FROM " + blockTable + " WHERE PieceCid = ? AND PayloadMultihash >= ? ORDER BY PayloadMultihash ASC LIMIT ?"
 		iter := i.session.Query(qry, pieceCid.Bytes(), []byte(start), num).WithContext(ctx).Iter()
 
 		var hashes []multihash.Multihash
@@ -448,10 +507,16 @@ func (i *IndexStore) GetPieceHashRange(ctx context.Context, piecev2 cid.Cid, sta
 }
 
 func (i *IndexStore) CheckHasPiece(ctx context.Context, piecev2 cid.Cid) (bool, error) {
+	return i.hasBlock(ctx, piecev2, "PieceBlockOffsetSize")
+}
+
+// hasBlock reports whether piece has at least one row in blockTable.
+// The caller passes a table owned by this package.
+func (i *IndexStore) hasBlock(ctx context.Context, piecev2 cid.Cid, blockTable string) (bool, error) {
 	if err := i.requireSession(); err != nil {
 		return false, err
 	}
-	qry := "SELECT PayloadMultihash FROM PieceBlockOffsetSize WHERE PieceCid = ? AND PayloadMultihash >= ? ORDER BY PayloadMultihash ASC LIMIT ?"
+	qry := "SELECT PayloadMultihash FROM " + blockTable + " WHERE PieceCid = ? AND PayloadMultihash >= ? ORDER BY PayloadMultihash ASC LIMIT ?"
 	iter := i.session.Query(qry, piecev2.Bytes(), []byte{0}, 1).WithContext(ctx).Iter()
 
 	var hashes []multihash.Multihash

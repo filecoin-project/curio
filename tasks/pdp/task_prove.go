@@ -395,7 +395,7 @@ type cprPieceReader struct {
 }
 
 func (r *cprPieceReader) GetPieceReader(ctx context.Context, pieceCid cid.Cid) (proof.SectionReadCloser, uint64, error) {
-	rdr, size, err := r.cpr.GetSharedPieceReader(ctx, pieceCid, false)
+	rdr, size, err := r.cpr.ReadForProof(ctx, pieceCid)
 	return rdr, size, err
 }
 
@@ -467,7 +467,7 @@ func (p *ProveTask) proveRoot(ctx context.Context, dataSetID int64, pieceID int6
 		}
 		mProof = cachedProof
 	} else {
-		reader, rawSize, err := p.cpr.GetSharedPieceReader(ctx, pcid, false)
+		reader, rawSize, err := p.cpr.ReadForProof(ctx, pcid)
 		if err != nil {
 			return contract.IPDPTypesProof{}, xerrors.Errorf("failed to get piece reader: %w", err)
 		}

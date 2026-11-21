@@ -41,6 +41,7 @@ import (
 	"github.com/filecoin-project/curio/lib/ethchain"
 	harmonypeerhttp "github.com/filecoin-project/curio/lib/harmony_peer_http"
 	"github.com/filecoin-project/curio/lib/hashfolder"
+	"github.com/filecoin-project/curio/lib/keysmith"
 	"github.com/filecoin-project/curio/lib/lazy"
 	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/lib/paths"
@@ -180,7 +181,7 @@ type Deps struct {
 	EthSender         *message.SenderETH // set when PDP ETH send task is registered; nil otherwise
 	PeerHTTP          *harmonypeerhttp.PeerHTTP
 	WakeDealPoller    func()
-	HashSpace         *hashfolder.Cluster // set when PDP is enabled; nil otherwise
+	HashSpaces        *hashfolder.Cluster // set when PDP is enabled; nil otherwise
 }
 
 const (
@@ -219,6 +220,7 @@ func (deps *Deps) PopulateRemainingDeps(ctx context.Context, cctx *cli.Context, 
 	log.Debugw("config", "config", deps.Cfg)
 
 	ConfigureSSRF(deps.Cfg.Ingest)
+	ConfigurePrivateDatasetRepair(deps.Cfg.HTTP)
 
 	if deps.As == nil {
 		deps.As, err = multictladdr.AddressSelector(deps.Cfg.Addresses)()
@@ -423,6 +425,22 @@ func ConfigureSSRF(ingest config.CurioIngestConfig) {
 	applySSRFOverride()
 	ingest.DisableSSRFProtection.OnChange(applySSRFOverride)
 	ingest.SSRFAllowedHosts.OnChange(applySSRFOverride)
+}
+
+// ConfigurePrivateDatasetRepair applies the dealbot-grant setting and keeps it updated.
+func ConfigurePrivateDatasetRepair(http config.HTTPConfig) {
+	if http.PrivateDatasetRepair == nil {
+		return
+	}
+	apply := func() {
+		allow := http.PrivateDatasetRepair.Get()
+		keysmith.SetPrivateDatasetRepair(allow)
+		if !allow {
+			log.Warnw("dealbot grants are limited to pieces that wallet owns")
+		}
+	}
+	apply()
+	http.PrivateDatasetRepair.OnChange(apply)
 }
 
 func LoadConfigWithUpgrades(text string, curioConfigWithDefaults *config.CurioConfig) (toml.MetaData, error) {

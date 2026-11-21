@@ -17,6 +17,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/keysmith"
 	"github.com/filecoin-project/curio/pdp/contract"
 )
 
@@ -88,11 +89,26 @@ func (p *PDPService) handleCreateDataSetAndAddPieces(w http.ResponseWriter, r *h
 		log.Infow("ExtraData contains withIPFSIndexing metadata, pieces will be marked for indexing")
 	}
 
+	forceACL := false
+	if known, acl := ACLFromExtraData(extraDataBytes); known && acl {
+		forceACL = true
+	}
+
 	pieceDataArray, subPieceInfoMap, err := p.transformAddPiecesRequest(ctx, serviceLabel, reqBody.Pieces)
 	if err != nil {
 		log.Warnf("Failed to process AddPieces request data: %+v", err)
 		httpServerError(w, http.StatusBadRequest, "Failed to process request: "+err.Error(), err)
 		return
+	}
+	if forceACL {
+		if err := p.requireACLEnvelopes(workCtx, subPieceInfoMap); err != nil {
+			if errors.Is(err, keysmith.ErrInvalidEnvelope) {
+				httpServerError(w, http.StatusBadRequest, "Piece is missing a valid encryption envelope", err)
+				return
+			}
+			httpServerError(w, http.StatusInternalServerError, "Failed to read piece envelope", err)
+			return
+		}
 	}
 
 	abiData, err := contract.PDPVerifierMetaData.GetAbi()
@@ -180,6 +196,15 @@ func (p *PDPService) handleCreateDataSetAndAddPieces(w http.ResponseWriter, r *h
 	if !comm {
 		log.Error("Failed to commit database transaction")
 		httpServerError(w, http.StatusInternalServerError, "Internal server error", err)
+		return
+	}
+
+	// Upload left the bytes in piece-park. This claim is the first time they
+	// leave it: acl-pieces when create extraData is restricted, open-pieces
+	// otherwise. The data set row does not exist until the create confirms.
+	if err := p.placePieceRefs(workCtx, subPieceInfoMap, forceACL, !forceACL); err != nil {
+		log.Errorw("Failed to place pieces for create-and-add", "error", err, "txHash", txHashLower, "acl", forceACL)
+		httpPlaceError(w, err)
 		return
 	}
 

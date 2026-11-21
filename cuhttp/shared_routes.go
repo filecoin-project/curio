@@ -2,6 +2,7 @@ package cuhttp
 
 import (
 	"context"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"golang.org/x/xerrors"
@@ -17,6 +18,21 @@ import (
 func MountRetrievalPublicRoutes(ctx context.Context, r *chi.Mux, d *deps.Deps) *denylist.Filter {
 	df := denylist.NewFilter(ctx, d.Cfg.HTTP.DenylistServers)
 	rp := retrieval.NewRetrievalProvider(ctx, d.DB, d.IndexStore, d.CachedPieceReader, df)
+	// A failure leaves the blockchain unset, and ACL downloads are refused until it is known.
+	if d.EthClient == nil {
+		log.Warn("FOC grant checks have no eth client; ACL downloads will be refused")
+	} else if eth, err := d.EthClient.Get(); err != nil {
+		log.Warnw("FOC grant checks could not open the eth client", "error", err)
+	} else {
+		cctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		defer cancel()
+		id, err := eth.ChainID(cctx)
+		if err != nil {
+			log.Warnw("FOC grant checks could not read the blockchain", "error", err)
+		} else {
+			rp.SetBlockChain(id)
+		}
+	}
 	retrieval.Router(r, rp, df)
 	return df
 }

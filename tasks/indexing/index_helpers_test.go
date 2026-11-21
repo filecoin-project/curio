@@ -2,6 +2,7 @@ package indexing
 
 import (
 	"bytes"
+	"database/sql"
 	"errors"
 	"io"
 	"math/bits"
@@ -9,9 +10,15 @@ import (
 	"testing"
 	"testing/synctest"
 
+	"github.com/ipfs/boxo/ipld/merkledag"
+	"github.com/ipfs/boxo/ipld/unixfs"
 	"github.com/ipfs/go-cid"
+	ipldformat "github.com/ipfs/go-ipld-format"
+	car "github.com/ipld/go-car"
+	"github.com/ipld/go-car/util"
 	carv2 "github.com/ipld/go-car/v2"
 	carblockstore "github.com/ipld/go-car/v2/blockstore"
+	mh "github.com/multiformats/go-multihash"
 	"github.com/stretchr/testify/require"
 
 	"github.com/filecoin-project/go-data-segment/datasegment"
@@ -22,6 +29,7 @@ import (
 	"github.com/filecoin-project/curio/lib/testutils"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/mk20"
+	"github.com/filecoin-project/curio/pdp/pieceacl"
 )
 
 func TestAggregateWriterFailureUnblocksIndexing(t *testing.T) {
@@ -121,6 +129,53 @@ func TestIndexCARReturnsRawLengthAndFirstBlockRecord(t *testing.T) {
 	require.Equal(t, wantRecords[0].Size, gotRecords[0].Size)
 }
 
+func TestIndexCARIndexesPrivatePieceFileCID(t *testing.T) {
+	payload := []byte("encrypted-fee-payload")
+	sum, err := mh.Sum(payload, mh.SHA2_256, -1)
+	require.NoError(t, err)
+	leafCID := cid.NewCidV1(cid.Raw, sum)
+	leafData := payload
+	fsn := unixfs.NewFSNode(unixfs.TFile)
+	fsn.AddBlockSize(uint64(len(payload)))
+	fsBytes, err := fsn.GetBytes()
+	require.NoError(t, err)
+	file := new(merkledag.ProtoNode)
+	require.NoError(t, file.SetCidBuilder(merkledag.V1CidPrefix()))
+	file.SetData(fsBytes)
+	require.NoError(t, file.AddRawLink("", &ipldformat.Link{Name: "", Size: uint64(len(payload)), Cid: leafCID}))
+	fileCID, fileData := file.Cid(), file.RawData()
+
+	dirNode := unixfs.NewFSNode(unixfs.TDirectory)
+	dirBytes, err := dirNode.GetBytes()
+	require.NoError(t, err)
+	dir := new(merkledag.ProtoNode)
+	require.NoError(t, dir.SetCidBuilder(merkledag.V1CidPrefix()))
+	dir.SetData(dirBytes)
+	require.NoError(t, dir.AddRawLink("encrypted.fee", &ipldformat.Link{Name: "encrypted.fee", Size: uint64(len(fileData) + len(leafData)), Cid: fileCID}))
+	dirCID, dirData := dir.Cid(), dir.RawData()
+	require.False(t, fileCID.Equals(dirCID))
+	require.False(t, fileCID.Equals(leafCID))
+
+	t.Run("directory root", func(t *testing.T) {
+		raw := writePrivateCAR(t, dirCID, []privateCARBlock{
+			{dirCID, dirData},
+			{fileCID, fileData},
+			{leafCID, leafData},
+		})
+		fileRec := recordByCID(t, indexCARRecords(t, raw), fileCID)
+		require.Equal(t, uint64(len(fileData)), fileRec.Size)
+	})
+
+	t.Run("file root", func(t *testing.T) {
+		raw := writePrivateCAR(t, fileCID, []privateCARBlock{
+			{fileCID, fileData},
+			{leafCID, leafData},
+		})
+		fileRec := recordByCID(t, indexCARRecords(t, raw), fileCID)
+		require.Equal(t, uint64(len(fileData)), fileRec.Size)
+	})
+}
+
 func TestIndexAggregateUsesSuppliedSubPieceCIDs(t *testing.T) {
 	subA := makeCARPiece(t, 384)
 	subB := makeCARPiece(t, 768)
@@ -177,6 +232,43 @@ func TestIndexPDPv0AggregateUsesSegmentCARRawSizesForChildPieceCIDV2(t *testing.
 
 	assertPDPv0ChildCID(t, subA, children[0])
 	assertPDPv0ChildCID(t, subB, children[1])
+}
+
+func TestSkipSubpieceIndex(t *testing.T) {
+	require.False(t, skipSubpieceIndex(true, true, true))
+	require.False(t, skipSubpieceIndex(true, false, false))
+	require.True(t, skipSubpieceIndex(false, true, false))
+	require.False(t, skipSubpieceIndex(false, false, false))
+	require.True(t, skipSubpieceIndex(false, false, true))
+}
+
+func TestEveryACLRestricted(t *testing.T) {
+	secured := pieceacl.Link{ID: 1, ACL: sql.NullInt32{Int32: pieceacl.Secured, Valid: true}}
+	public0 := pieceacl.Link{ID: 2, ACL: sql.NullInt32{Int32: 0, Valid: true}}
+	unresolved := pieceacl.Link{ID: 3, ACL: sql.NullInt32{Valid: false}}
+
+	require.False(t, pieceacl.EverySecured(nil))
+	require.True(t, pieceacl.EverySecured([]pieceacl.Link{secured}))
+	require.True(t, pieceacl.EverySecured([]pieceacl.Link{secured, secured}))
+	require.False(t, pieceacl.EverySecured([]pieceacl.Link{unresolved}))
+	require.False(t, pieceacl.EverySecured([]pieceacl.Link{public0}))
+	require.False(t, pieceacl.EverySecured([]pieceacl.Link{secured, unresolved}))
+}
+
+func TestIndexPDPv0AggregateIndexesBlocksWithoutChildPieceCIDs(t *testing.T) {
+	subA := makeCARPiece(t, 384)
+	subB := makeCARPiece(t, 768)
+	aggregate := makeAggregatePiece(t, subA, subB)
+
+	recs := make(chan indexstore.Record, 128)
+	blocks, interrupted, err := IndexPDPv0(aggregate.pieceCIDV2, bytes.NewReader(aggregate.raw), aggregate.pieceSize, recs, nil, make(chan struct{}))
+	close(recs)
+	gotRecords := collectRecords(recs)
+
+	require.NoError(t, err)
+	require.False(t, interrupted)
+	require.NotZero(t, blocks)
+	require.Len(t, gotRecords, int(blocks))
 }
 
 func TestIndexPDPv0AggregateFailsWhenSegmentIsNotCAR(t *testing.T) {
@@ -404,6 +496,43 @@ func collectRecords(recs <-chan indexstore.Record) []indexstore.Record {
 		records = append(records, rec)
 	}
 	return records
+}
+
+func indexCARRecords(t *testing.T, raw []byte) []indexstore.Record {
+	t.Helper()
+	recs := make(chan indexstore.Record, 16)
+	_, _, interrupted, err := IndexCAR(bytes.NewReader(raw), 4<<20, recs, make(chan struct{}))
+	close(recs)
+	got := collectRecords(recs)
+	require.NoError(t, err)
+	require.False(t, interrupted)
+	return got
+}
+
+func recordByCID(t *testing.T, recs []indexstore.Record, id cid.Cid) indexstore.Record {
+	t.Helper()
+	for _, rec := range recs {
+		if rec.Cid.Equals(id) {
+			return rec
+		}
+	}
+	t.Fatalf("index is missing %s", id)
+	return indexstore.Record{}
+}
+
+type privateCARBlock struct {
+	id   cid.Cid
+	data []byte
+}
+
+func writePrivateCAR(t *testing.T, root cid.Cid, blocks []privateCARBlock) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	require.NoError(t, car.WriteHeader(&car.CarHeader{Roots: []cid.Cid{root}, Version: 1}, &buf))
+	for _, block := range blocks {
+		require.NoError(t, util.LdWrite(&buf, block.id.Bytes(), block.data))
+	}
+	return buf.Bytes()
 }
 
 func assertPDPv0ChildCID(t *testing.T, subPiece testPiece, got indexstore.Record) {

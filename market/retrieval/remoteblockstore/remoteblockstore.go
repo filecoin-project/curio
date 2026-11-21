@@ -115,6 +115,8 @@ func (ro *RemoteBlockstore) Get(ctx context.Context, c cid.Cid) (b blocks.Block,
 	var merr error
 	for _, piece := range pieces {
 		data, err := func() ([]byte, error) {
+			// /ipfs/ does not authenticate, so it reads only the public copy.
+			// acl-pieces is served by /download/, which checks a grant first.
 			reader, _, err := ro.cpr.GetSharedPieceReader(ctx, piece.PieceCid, true)
 			if err != nil {
 				return nil, fmt.Errorf("getting piece reader: %w", err)

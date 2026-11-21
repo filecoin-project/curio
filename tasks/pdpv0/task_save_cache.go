@@ -95,7 +95,7 @@ func (t *TaskPDPSaveCache) Do(ctx context.Context, taskID harmonytask.TaskID, st
 			log.Debugw("PDPv0_SaveCache: building PDP layer cache", "pieceCID", task.PieceCID, "pcidV2", pcidV2, "rawSize", task.RawSize)
 			cp := commp.NewCalcWithSnapshot(layerIndex)
 			defer cp.Reset()
-			reader, _, err := t.cpr.GetSharedPieceReader(ctx, pcidV1, false)
+			reader, _, err := t.cpr.ReadForProof(ctx, pcidV1)
 			if err != nil {
 				return false, xerrors.Errorf("failed to get shared piece reader: %w", err)
 			}

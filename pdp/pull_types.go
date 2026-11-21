@@ -54,6 +54,10 @@ func ValidatePullSourceURL(sourceURL string) error {
 		return fmt.Errorf("invalid URL: %w", err)
 	}
 
+	if err := validateFOCUserinfo(parsed); err != nil {
+		return err
+	}
+
 	// Must be HTTPS (or HTTP if explicitly allowed for development)
 	if parsed.Scheme != "https" && (!pullAllowInsecure || parsed.Scheme != "http") {
 		return fmt.Errorf("URL must use HTTPS scheme, got %q", parsed.Scheme)

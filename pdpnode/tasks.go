@@ -12,6 +12,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/resources/ffigpu"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/chainsched"
+	pdpsvc "github.com/filecoin-project/curio/pdp"
 	"github.com/filecoin-project/curio/tasks/dbmaint"
 	"github.com/filecoin-project/curio/tasks/gc"
 	"github.com/filecoin-project/curio/tasks/indexing"
@@ -86,12 +87,12 @@ func buildPDPTasks(ctx context.Context, d *Deps, chainSched *chainsched.CurioCha
 
 	notify := pdpv0.NewPDPNotifyTask(db)
 	pull := pdpv0.NewPDPPullPieceTask(ctx, db, d.PieceIO, cfg.Subsystems.PDPPullPieceMaxTasks)
-	if d.HashSpace != nil {
-		notify.UseOpenPieces(d.HashSpace, d.LocalStore, d.PieceIO)
-		pull.UseOpenPieces(d.HashSpace, d.LocalStore, d.PieceIO)
+	if d.HashSpaces != nil {
+		notify.UseOpenPieces(d.HashSpaces, d.LocalStore, d.PieceIO)
+		pull.UseOpenPieces(d.HashSpaces, d.LocalStore, d.PieceIO)
 		tasks = append(tasks,
-			openpieces.NewMoveTask(db, d.HashSpace),
-			openpieces.NewDropTask(db, d.HashSpace),
+			openpieces.NewMoveTask(db, d.HashSpaces),
+			openpieces.NewDropTask(db, d.HashSpaces),
 		)
 	}
 
@@ -111,7 +112,7 @@ func buildPDPTasks(ctx context.Context, d *Deps, chainSched *chainsched.CurioCha
 		pdpv0.NewPieceGCTask(&cfg.HTTP, db, d.IndexStore, ethClient, cfg.Subsystems.PDPUnclaimedUploadKeepHours),
 		pdpv0.NewReorgCheckTask(db, ethClient, d.Chain),
 		pdpv0.NewDatasetIdxTask(db, ethClient),
-		pdpv0.NewRepairMissingPiecesTask(db, ethClient, d.PieceIO, d.HashSpace),
+		pdpv0.NewRepairMissingPiecesTask(db, ethClient, d.PieceIO, d.HashSpaces),
 	)
 
 	// Start PDP watcher after all internal watcher are created
@@ -122,7 +123,9 @@ func buildPDPTasks(ctx context.Context, d *Deps, chainSched *chainsched.CurioCha
 		indexing.NewPDPIndexingTask(db, d.IndexStore, d.CachedPieceReader, cfg, idxMax),
 		indexing.NewPDPIPNITask(db, cfg, idxMax, d.IndexStore),
 		indexing.NewPDPV0IndexingTask(db, d.IndexStore, d.CachedPieceReader, cfg, idxMax),
-		indexing.NewPDPV0IPNITask(db, cfg, idxMax, d.IndexStore),
+		indexing.NewPDPV0IPNITask(db, cfg, idxMax, d.IndexStore, func(ctx context.Context, dataSetId uint64) (bool, error) {
+			return pdpsvc.ResolveDatasetACL(ctx, db, ethClient, dataSetId)
+		}),
 	)
 
 	if pdponly {

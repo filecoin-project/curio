@@ -71,8 +71,8 @@ func (c *Cluster) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	sp := c.space(kind)
-	if sp == nil {
+	ranges := c.localRanges(kind)
+	if ranges == nil {
 		http.NotFound(w, r)
 		return
 	}
@@ -84,7 +84,7 @@ func (c *Cluster) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet, http.MethodHead:
-		f, err := sp.openHashOn(root, hexHash)
+		f, err := ranges.openHashOn(root, hexHash)
 		if err != nil {
 			if os.IsNotExist(err) {
 				http.NotFound(w, r)
@@ -102,10 +102,56 @@ func (c *Cluster) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/octet-stream")
 		http.ServeContent(w, r, "", info.ModTime(), f)
 	case http.MethodPut:
-		n, existed, err := putHash(sp, root, hexHash, r.Body, r.ContentLength)
+		var body io.Reader = r.Body
+		if body == nil {
+			body = bytes.NewReader(nil)
+		}
+		var dst io.WriteCloser
+		var n int64
+		var existed bool
+		// Known length replaces a shorter partial. An existing full file stays.
+		if r.ContentLength >= 0 {
+			var existing int64
+			dst, existing, err = ranges.ReplaceShorterHashOn(root, hexHash, r.ContentLength)
+			if err == nil && dst == nil {
+				_, _ = io.Copy(io.Discard, body)
+				n, existed = existing, true
+			}
+		} else {
+			dst, err = ranges.WriteHashOn(root, hexHash)
+		}
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
+			if errors.Is(err, os.ErrExist) {
+				// The client is already streaming. Drain it so the 204 can be delivered.
+				_, _ = io.Copy(io.Discard, body)
+				n, err = hashSize(ranges, root, hexHash)
+				existed = err == nil
+			}
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+		} else if dst != nil {
+			n, err = io.CopyBuffer(dst, body, make([]byte, 8<<20))
+			if err != nil {
+				if a, ok := dst.(interface{ Abort() error }); ok {
+					_ = a.Abort()
+				}
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			if err = dst.Close(); err != nil {
+				if !errors.Is(err, os.ErrExist) {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
+				n, err = hashSize(ranges, root, hexHash)
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
+				existed = true
+			}
 		}
 		c.publishOne(r.Context(), storageID, root)
 		if err := c.MaybeRebalance(r.Context(), storageID); err != nil {
@@ -117,7 +163,7 @@ func (c *Cluster) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	case http.MethodDelete:
-		if err := sp.deleteHashOn(root, hexHash); err != nil && !os.IsNotExist(err) {
+		if err := ranges.deleteHashOn(root, hexHash); err != nil && !os.IsNotExist(err) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -128,54 +174,8 @@ func (c *Cluster) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// putHash streams r into the piece file. With a known length, an existing
-// shorter file is a partial copy and is replaced. Otherwise an existing file
-// is left in place and its size returned with existed set.
-func putHash(sp *Space, root, hexHash string, r io.Reader, size int64) (int64, bool, error) {
-	if r == nil {
-		r = bytes.NewReader(nil)
-	}
-	var w io.WriteCloser
-	var err error
-	if size >= 0 {
-		var existing int64
-		w, existing, err = sp.ReplaceShorterHashOn(root, hexHash, size)
-		if err == nil && w == nil {
-			_, _ = io.Copy(io.Discard, r)
-			return existing, true, nil
-		}
-	} else {
-		w, err = sp.WriteHashOn(root, hexHash)
-	}
-	if err != nil {
-		if errors.Is(err, os.ErrExist) {
-			// The client is already streaming. Drain it so the 204 can be
-			// delivered instead of resetting the connection.
-			_, _ = io.Copy(io.Discard, r)
-			n, err := hashSize(sp, root, hexHash)
-			return n, true, err
-		}
-		return 0, false, err
-	}
-	n, err := io.CopyBuffer(w, r, make([]byte, 8<<20))
-	if err != nil {
-		if a, ok := w.(interface{ Abort() error }); ok {
-			_ = a.Abort()
-		}
-		return 0, false, err
-	}
-	if err := w.Close(); err != nil {
-		if errors.Is(err, os.ErrExist) {
-			n, err := hashSize(sp, root, hexHash)
-			return n, true, err
-		}
-		return 0, false, err
-	}
-	return n, false, nil
-}
-
-func hashSize(sp *Space, root, hexHash string) (int64, error) {
-	f, err := sp.openHashOn(root, hexHash)
+func hashSize(ranges *Space, root, hexHash string) (int64, error) {
+	f, err := ranges.openHashOn(root, hexHash)
 	if err != nil {
 		return 0, err
 	}
