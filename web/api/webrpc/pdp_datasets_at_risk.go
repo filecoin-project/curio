@@ -30,9 +30,9 @@ type PDPDataSetAtRiskListResult struct {
 
 // PDPDataSetAtRiskCounts splits at-risk datasets by status.
 // Grace can still be cured by payment. Terminated means the service was
-// terminated on chain and nobody asked for deletion. Terminating means a
-// requested deletion is waiting for its date. PendingDelete means deletion is
-// allowed.
+// terminated on chain or proving stopped, and nobody asked for deletion.
+// Terminating means a requested deletion is waiting for its date. PendingDelete
+// means deletion is allowed.
 type PDPDataSetAtRiskCounts struct {
 	Total         int `json:"total"`
 	Grace         int `json:"grace"`
@@ -184,7 +184,98 @@ func (a *WebRPC) PDPDataSetAtRiskScanBatch(
 	return a.scanAtRiskBatch(ctx, afterSize, afterID, scannedSoFar, maxScan, minSizeBytes)
 }
 
+// awaitingDecisionEntries returns the datasets recorded for the operator's
+// decision, with their local stats. It reads the database only.
+func (a *WebRPC) awaitingDecisionEntries(ctx context.Context) ([]atRiskEntry, error) {
+	snaps, err := paymentstatus.AwaitingDecision(ctx, a.Deps.DB)
+	if err != nil {
+		return nil, err
+	}
+	if len(snaps) == 0 {
+		return nil, nil
+	}
+
+	ids := make([]int64, len(snaps))
+	for i, snap := range snaps {
+		ids[i] = snap.DataSetID
+	}
+	stats, err := a.loadDataSetStatsByIDs(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	statsByID := make(map[int64]pdpDataSetStatsRow, len(stats))
+	for _, row := range stats {
+		statsByID[row.ID] = row
+	}
+
+	entries := make([]atRiskEntry, 0, len(snaps))
+	for _, snap := range snaps {
+		row, ok := statsByID[snap.DataSetID]
+		if !ok {
+			continue
+		}
+		entries = append(entries, atRiskEntry{stats: row, snap: snap})
+	}
+	return entries, nil
+}
+
+// PDPDataSetAwaitingDecision lists the datasets whose service was terminated on
+// chain or whose proving stopped, and whose deletion nobody has requested. It
+// reads Curio's own record: it answers while the chain is unreachable and
+// includes datasets of any size.
+func (a *WebRPC) PDPDataSetAwaitingDecision(ctx context.Context) (PDPDataSetAtRiskListResult, error) {
+	out := PDPDataSetAtRiskListResult{Items: []PDPDataSetAtRiskSummary{}}
+
+	entries, err := a.awaitingDecisionEntries(ctx)
+	if err != nil {
+		return out, err
+	}
+
+	head := a.chainHeadEpoch(ctx)
+	headTime := a.chainHeadTime(ctx)
+	blockDelay := time.Duration(build.BlockDelaySecs) * time.Second
+	for _, entry := range entries {
+		out.Items = append(out.Items, atRiskSummaryFromEntry(entry, head, headTime, blockDelay))
+	}
+	out.Total = len(out.Items)
+	return out, nil
+}
+
+// resolveAllAtRiskEntries returns every at-risk dataset: the ones recorded for
+// the operator's decision merged with the chain scan. When the scan fails it
+// returns the recorded entries together with the scan error.
 func (a *WebRPC) resolveAllAtRiskEntries(ctx context.Context) ([]atRiskEntry, error) {
+	recorded, err := a.awaitingDecisionEntries(ctx)
+	if err != nil {
+		return nil, err
+	}
+	scanned, err := a.scanAllAtRiskEntries(ctx)
+	if err != nil {
+		return recorded, err
+	}
+	return mergeAtRiskEntries(recorded, scanned), nil
+}
+
+// mergeAtRiskEntries joins the recorded entries with the scanned ones. A
+// dataset present in both keeps its scanned entry, which carries the payer.
+func mergeAtRiskEntries(recorded, scanned []atRiskEntry) []atRiskEntry {
+	inScan := make(map[int64]struct{}, len(scanned))
+	for _, entry := range scanned {
+		inScan[entry.stats.ID] = struct{}{}
+	}
+
+	out := make([]atRiskEntry, 0, len(recorded)+len(scanned))
+	for _, entry := range recorded {
+		if _, ok := inScan[entry.stats.ID]; !ok {
+			out = append(out, entry)
+		}
+	}
+	return append(out, scanned...)
+}
+
+// scanAllAtRiskEntries resolves payment status from chain for every local
+// dataset the scan covers and returns the at-risk ones.
+func (a *WebRPC) scanAllAtRiskEntries(ctx context.Context) ([]atRiskEntry, error) {
 	var all []atRiskEntry
 	afterSize := int64(0)
 	afterID := int64(0)
@@ -314,7 +405,10 @@ func sortAtRiskEntries(entries []atRiskEntry, sortBy string, ascending bool) {
 func (a *WebRPC) PDPDataSetAtRiskCount(ctx context.Context) (PDPDataSetAtRiskCounts, error) {
 	entries, err := a.resolveAllAtRiskEntries(ctx)
 	if err != nil {
-		return PDPDataSetAtRiskCounts{}, err
+		if len(entries) == 0 {
+			return PDPDataSetAtRiskCounts{}, err
+		}
+		log.Warnw("payment status scan failed, counting only datasets recorded for a decision", "error", err)
 	}
 	return countAtRiskByStatus(entries), nil
 }

@@ -149,6 +149,11 @@ func TestClassify_TerminatedWithoutDeletionRequest(t *testing.T) {
 			proving:    ProvingOverlay{UnrecoverableFailureEpoch: &failure},
 			wantReason: ReasonProvingFailure,
 		},
+		{
+			name:       "proving stopped, data set removed on chain",
+			proving:    ProvingOverlay{UnrecoverableFailureEpoch: &failure},
+			wantReason: ReasonProvingFailure,
+		},
 	}
 
 	for _, tc := range tests {

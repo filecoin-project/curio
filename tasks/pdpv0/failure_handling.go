@@ -20,9 +20,10 @@ const (
 )
 
 // markDatasetProvingUnrecoverable stops proving for a data set that can no
-// longer be proven (for example after DataSetPaymentBeyondEndEpoch). It reports
-// whether the operator still has to be told: this call set the mark and nobody
-// has requested the data set's deletion.
+// longer be proven (for example after DataSetPaymentBeyondEndEpoch). When this
+// call set the mark and no deletion of the data set is in progress, it records
+// the data set in pdp_data_set_review and reports that the operator still has
+// to be told.
 func markDatasetProvingUnrecoverable(tx *harmonydb.Tx, dataSetId int64, currentHeight int64) (alert bool, err error) {
 	marked, err := tx.Exec(`
 		UPDATE pdp_data_sets
@@ -40,11 +41,23 @@ func markDatasetProvingUnrecoverable(tx *harmonydb.Tx, dataSetId int64, currentH
 		return false, nil
 	}
 
-	deletionRequested, err := DeletionRequested(tx, dataSetId)
+	deleting, err := DeletionInProgress(tx, dataSetId)
 	if err != nil {
 		return false, err
 	}
-	return !deletionRequested, nil
+	if deleting {
+		return false, nil
+	}
+
+	_, err = tx.Exec(`
+		INSERT INTO pdp_data_set_review (data_set)
+		VALUES ($1)
+		ON CONFLICT (data_set) DO NOTHING
+	`, dataSetId)
+	if err != nil {
+		return false, xerrors.Errorf("failed to record dataset for review: %w", err)
+	}
+	return true, nil
 }
 
 // emitProvingSendErrorAlert records a proving failure for a data set; err must be non-nil.

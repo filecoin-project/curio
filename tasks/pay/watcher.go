@@ -178,13 +178,16 @@ func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthC
 					log.Errorw("rail finalized but no FWSS dataset mapping, skipping", "railId", railId)
 					continue
 				}
-				finalized, finErr := pipelineFinalizationElapsed(tx, dataSet.Int64(), current)
+				finalized, requested, finErr := pipelineFinalizationElapsed(tx, dataSet.Int64(), current)
 				if finErr != nil {
 					log.Warnw("failed to check deletion pipeline state, skipping", "railId", railId, "dataSetId", dataSet.Int64(), "error", finErr)
 					continue
 				}
 				if !finalized {
-					log.Warnw("rail finalized on chain but pipeline state not caught up, skipping", "railId", railId, "dataSetId", dataSet.Int64())
+					// Only a requested deletion follows the rail; without one there is nothing to catch up.
+					if requested {
+						log.Warnw("rail finalized on chain but pipeline state not caught up, skipping", "railId", railId, "dataSetId", dataSet.Int64())
+					}
 					continue
 				}
 				log.Infow("rail finalized, inferred from getRail revert", "railId", railId, "dataSetId", dataSet.Int64())
@@ -203,41 +206,22 @@ func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthC
 				continue
 			}
 
-			// A rail terminated on chain ends the data set's service.
-			if view.EndEpoch.Int64() > 0 {
-				alert, err := recordRailTermination(tx, dataSet.Int64(), view.EndEpoch.Int64())
-				if err != nil {
-					return false, xerrors.Errorf("failed to record rail termination: %w", err)
-				}
-				if alert {
-					alerts = append(alerts, curioalerting.AlertEvent{
-						Subsystem: alertName,
-						System:    alertType,
-						Message:   fmt.Sprintf("Rail %d was terminated on chain (end epoch %d); Curio will not delete dataSet %d on its own", railId, view.EndEpoch.Int64(), dataSet.Int64()),
-						Context: map[string]string{
-							curioalerting.CONTEXT_KEY_DATASET: dataSet.String(),
-							curioalerting.CONTEXT_KEY_RAIL:    strconv.FormatInt(railId, 10),
-						},
-					})
-				}
-				// A finalized rail unblocks a requested deletion. This may be the last
-				// time we see this rail in a finalized state, so we perform a hard-fail
-				// here to prevent tx cleanup to allow retry on next loop.
-				if view.EndEpoch.Cmp(view.SettledUpTo) == 0 {
-					if err := ensureDataSetDeletion(tx, dataSet.Int64()); err != nil {
-						return false, xerrors.Errorf("failed to ensure deletion of dataSet: %w", err)
-					}
+			// A finalized rail unblocks a requested deletion. This may be the last
+			// time we see this rail in a finalized state, so we perform a hard-fail
+			// here to prevent tx cleanup to allow retry on next loop.
+			if view.EndEpoch.Int64() > 0 && view.EndEpoch.Cmp(view.SettledUpTo) == 0 {
+				if err := ensureDataSetDeletion(tx, dataSet.Int64()); err != nil {
+					return false, xerrors.Errorf("failed to ensure deletion of dataSet: %w", err)
 				}
 			}
 
-			// For live rails, allow a temporary 30 day grace beyond the lockup period.
 			threshold := big.NewInt(0).Add(view.SettledUpTo, view.LockupPeriod)
 			thresholdWithGrace := big.NewInt(0).Add(threshold, big.NewInt(temporaryDefaultGraceInEpochs))
 
 			if threshold.Uint64() < current {
 				message := fmt.Sprintf("Rail %d is soon to default (dataSet %d)", railId, dataSet.Int64())
 				if thresholdWithGrace.Uint64() < current {
-					message = fmt.Sprintf("Rail %d is past its default grace period; Curio will not terminate dataSet %d on its own", railId, dataSet.Int64())
+					message = fmt.Sprintf("Rail %d has been unpaid for more than 30 days past its lockup period; Curio will not terminate dataSet %d on its own", railId, dataSet.Int64())
 				}
 				alerts = append(alerts, curioalerting.AlertEvent{
 					Subsystem: alertName,
@@ -288,7 +272,7 @@ func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthC
 }
 
 // ensureDataSetDeletion lets the data set's pipeline row proceed to
-// deleteDataSet. A data set nobody asked to delete has no row to update.
+// deleteDataSet. It changes nothing when the data set has no pipeline row.
 func ensureDataSetDeletion(tx *harmonydb.Tx, dataSetID int64) error {
 	_, err := tx.Exec(`UPDATE pdp_delete_data_set SET deletion_allowed = TRUE WHERE id = $1`, dataSetID)
 	if err != nil {
@@ -297,48 +281,31 @@ func ensureDataSetDeletion(tx *harmonydb.Tx, dataSetID int64) error {
 	return nil
 }
 
-// recordRailTermination stores the end epoch of a data set's terminated rail.
-// It reports whether the operator still has to be told: this call stored the
-// epoch and nobody has requested the data set's deletion.
-func recordRailTermination(tx *harmonydb.Tx, dataSetID int64, endEpoch int64) (alert bool, err error) {
-	recorded, err := tx.Exec(`
-		UPDATE pdp_data_sets
-		SET rail_end_epoch = $2
-		WHERE id = $1 AND rail_end_epoch IS NULL
-	`, dataSetID, endEpoch)
-	if err != nil {
-		return false, xerrors.Errorf("failed to set rail_end_epoch for data set %d: %w", dataSetID, err)
-	}
-	if recorded == 0 {
-		return false, nil
-	}
-
-	deletionRequested, err := pdpv0.DeletionRequested(tx, dataSetID)
-	if err != nil {
-		return false, err
-	}
-	return !deletionRequested, nil
-}
-
 // pipelineFinalizationElapsed reports whether after_terminate_service is set
 // and service_termination_epoch (pdpEndEpoch) has elapsed. With both met, a
-// GetRail revert on the rail uniquely indicates finalization.
-func pipelineFinalizationElapsed(tx *harmonydb.Tx, dataSetID int64, current uint64) (bool, error) {
+// GetRail revert on the rail uniquely indicates finalization. requested reports
+// whether a client or the operator asked for the data set's deletion.
+func pipelineFinalizationElapsed(tx *harmonydb.Tx, dataSetID int64, current uint64) (finalized bool, requested bool, err error) {
 	type row struct {
-		Epoch *int64 `db:"service_termination_epoch"`
-		After bool   `db:"after_terminate_service"`
+		Epoch     *int64 `db:"service_termination_epoch"`
+		After     bool   `db:"after_terminate_service"`
+		Requested bool   `db:"requested"`
 	}
 	var rows []row
-	err := tx.Select(&rows, `
-		SELECT service_termination_epoch, after_terminate_service
+	err = tx.Select(&rows, `
+		SELECT service_termination_epoch, after_terminate_service,
+		       (client_requested_termination OR operator_requested_deletion) AS requested
 		FROM pdp_delete_data_set
 		WHERE id = $1
 	`, dataSetID)
 	if err != nil {
-		return false, xerrors.Errorf("query pdp_delete_data_set: %w", err)
+		return false, false, xerrors.Errorf("query pdp_delete_data_set: %w", err)
 	}
-	if len(rows) == 0 || !rows[0].After || rows[0].Epoch == nil {
-		return false, nil
+	if len(rows) == 0 {
+		return false, false, nil
 	}
-	return uint64(*rows[0].Epoch) <= current, nil
+	if !rows[0].After || rows[0].Epoch == nil {
+		return false, rows[0].Requested, nil
+	}
+	return uint64(*rows[0].Epoch) <= current, rows[0].Requested, nil
 }

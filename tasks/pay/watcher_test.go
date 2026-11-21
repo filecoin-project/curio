@@ -2,6 +2,7 @@ package pay
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/big"
 	"testing"
@@ -211,7 +212,7 @@ func TestIntegration_ProcessPendingTransactions_RailDefaultAlert(t *testing.T) {
 		{
 			name:        "past grace",
 			block:       950 + temporaryDefaultGraceInEpochs + 1,
-			wantMessage: "Rail 1 is past its default grace period; Curio will not terminate dataSet 2 on its own",
+			wantMessage: "Rail 1 has been unpaid for more than 30 days past its lockup period; Curio will not terminate dataSet 2 on its own",
 		},
 		{
 			name:        "terminated rail",
@@ -270,7 +271,6 @@ func insertSettleWatcherDataSet(t *testing.T, db *harmonydb.DB) {
 	require.NoError(t, err)
 }
 
-// insertConfirmedSettle tracks a confirmed settlement of rail 1.
 func insertConfirmedSettle(t *testing.T, db *harmonydb.DB, hash string) {
 	t.Helper()
 	_, err := db.Exec(t.Context(), `
@@ -285,29 +285,25 @@ func insertConfirmedSettle(t *testing.T, db *harmonydb.DB, hash string) {
 	require.NoError(t, err)
 }
 
-func TestIntegration_ProcessPendingTransactions_RailTerminatedAlert(t *testing.T) {
-	const terminatedMessage = "Rail 1 was terminated on chain (end epoch %d); Curio will not delete dataSet 2 on its own"
+func TestIntegration_ProcessPendingTransactions_TerminatedRail(t *testing.T) {
 	// Block 940 is inside the rail's lockup (settled up to 900, lockup 50), so no default alert fires.
 	// An end epoch of 900 equals settledUpTo: the rail is finalized.
 	tests := []struct {
 		name                string
 		endEpoch            int64
 		clientRequested     bool
-		wantMessages        []string
 		wantDeletionAllowed bool
 	}{
 		{
-			name:         "first sighting alerts once",
-			endEpoch:     2000,
-			wantMessages: []string{fmt.Sprintf(terminatedMessage, 2000)},
+			name:     "terminated rail",
+			endEpoch: 2000,
 		},
 		{
-			name:         "finalized rail without a deletion request",
-			endEpoch:     900,
-			wantMessages: []string{fmt.Sprintf(terminatedMessage, 900)},
+			name:     "finalized rail without a deletion request",
+			endEpoch: 900,
 		},
 		{
-			name:                "requested deletion stays silent and is unblocked",
+			name:                "finalized rail unblocks a requested deletion",
 			endEpoch:            900,
 			clientRequested:     true,
 			wantDeletionAllowed: true,
@@ -329,39 +325,135 @@ func TestIntegration_ProcessPendingTransactions_RailTerminatedAlert(t *testing.T
 			}
 
 			alerts := &settleWatcherAlerts{}
-			for _, hash := range []string{common.HexToHash("0x01").Hex(), common.HexToHash("0x02").Hex()} {
-				insertConfirmedSettle(t, db, hash)
-				require.NoError(t, processPendingTransactions(t.Context(), db, client, alerts))
+			insertConfirmedSettle(t, db, common.HexToHash("0x01").Hex())
+			require.NoError(t, processPendingTransactions(t.Context(), db, client, alerts))
+
+			require.Empty(t, alerts.events, "the watcher does not report a terminated service")
+			requireSettleWatcherOutcome(t, db, tc.clientRequested, tc.wantDeletionAllowed)
+		})
+	}
+}
+
+// settleWatcherFinalizedClient answers getRail(1) with the RailInactiveOrSettled
+// revert that FilecoinPay returns once the final settlement has zeroed the rail.
+type settleWatcherFinalizedClient struct {
+	*settleWatcherClient
+	getRail string
+}
+
+func (c *settleWatcherFinalizedClient) CallContract(ctx context.Context, msg ethereum.CallMsg, block *big.Int) ([]byte, error) {
+	if string(msg.Data) == c.getRail {
+		return nil, errors.New("execution reverted: 0x" + filecoinpayment.ErrSelectorRailInactiveOrSettled)
+	}
+	return c.settleWatcherClient.CallContract(ctx, msg, block)
+}
+
+func newSettleWatcherFinalizedClient(t *testing.T, rail settleWatcherRail) *settleWatcherFinalizedClient {
+	t.Helper()
+	parsed, err := filecoinpayment.PaymentsMetaData.GetAbi()
+	require.NoError(t, err)
+	data, err := parsed.Pack("getRail", big.NewInt(1))
+	require.NoError(t, err)
+	return &settleWatcherFinalizedClient{settleWatcherClient: newSettleWatcherClientWith(t, rail), getRail: string(data)}
+}
+
+func TestIntegration_ProcessPendingTransactions_FinalizedRailRevert(t *testing.T) {
+	tests := []struct {
+		name      string
+		requested bool
+	}{
+		{name: "nobody requested deletion"},
+		{name: "requested deletion is unblocked", requested: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			client := newSettleWatcherFinalizedClient(t, settleWatcherRail{block: 940, lockupPeriod: 50, endEpoch: 900, dataSetID: 2})
+			db, err := harmonydb.NewFromConfigWithITestID(t)
+			require.NoError(t, err)
+			insertSettleWatcherDataSet(t, db)
+			if tc.requested {
+				_, err = db.Exec(t.Context(), `
+					INSERT INTO pdp_delete_data_set (id, operator_requested_deletion, after_terminate_service, service_termination_epoch)
+					VALUES (2, TRUE, TRUE, 900)
+				`)
+				require.NoError(t, err)
 			}
 
-			var messages []string
-			for _, event := range alerts.events {
-				messages = append(messages, event.Message)
-				require.Equal(t, map[string]string{
-					curioalerting.CONTEXT_KEY_DATASET: "2",
-					curioalerting.CONTEXT_KEY_RAIL:    "1",
-				}, event.Context)
-			}
-			require.Equal(t, tc.wantMessages, messages)
+			alerts := &settleWatcherAlerts{}
+			insertConfirmedSettle(t, db, common.HexToHash("0x01").Hex())
+			require.NoError(t, processPendingTransactions(t.Context(), db, client, alerts))
 
-			var tracked int
-			require.NoError(t, db.QueryRow(t.Context(), `SELECT COUNT(*) FROM filecoin_payment_transactions`).Scan(&tracked))
-			require.Zero(t, tracked, "both settlements must be processed")
+			require.Empty(t, alerts.events)
+			requireSettleWatcherOutcome(t, db, tc.requested, tc.requested)
+		})
+	}
+}
 
-			var railEndEpoch int64
-			require.NoError(t, db.QueryRow(t.Context(), `SELECT rail_end_epoch FROM pdp_data_sets WHERE id = 2`).Scan(&railEndEpoch))
-			require.Equal(t, tc.endEpoch, railEndEpoch)
+// requireSettleWatcherOutcome checks that the settlement was processed and that
+// data set 2 has a pipeline row only when its deletion was requested.
+func requireSettleWatcherOutcome(t *testing.T, db *harmonydb.DB, requested, wantDeletionAllowed bool) {
+	t.Helper()
 
-			var rows []struct {
-				DeletionAllowed bool `db:"deletion_allowed"`
+	var tracked int
+	require.NoError(t, db.QueryRow(t.Context(), `SELECT COUNT(*) FROM filecoin_payment_transactions`).Scan(&tracked))
+	require.Zero(t, tracked, "the settlement must be processed")
+
+	var rows []struct {
+		DeletionAllowed bool `db:"deletion_allowed"`
+	}
+	require.NoError(t, db.Select(t.Context(), &rows, `SELECT deletion_allowed FROM pdp_delete_data_set WHERE id = 2`))
+	if !requested {
+		require.Empty(t, rows, "the watcher must not queue a data set for deletion")
+		return
+	}
+	require.Len(t, rows, 1)
+	require.Equal(t, wantDeletionAllowed, rows[0].DeletionAllowed)
+}
+
+func TestIntegration_PipelineFinalizationElapsed(t *testing.T) {
+	const current = 940
+	tests := []struct {
+		name          string
+		row           bool
+		requested     bool
+		terminated    bool
+		endEpoch      int64
+		wantFinalized bool
+		wantRequested bool
+	}{
+		{name: "no pipeline row"},
+		{name: "requested, service not terminated yet", row: true, requested: true, wantRequested: true},
+		{name: "requested, service end ahead", row: true, requested: true, terminated: true, endEpoch: current + 1, wantRequested: true},
+		{name: "requested, service ended", row: true, requested: true, terminated: true, endEpoch: current, wantFinalized: true, wantRequested: true},
+		{name: "unrequested row, service ended", row: true, terminated: true, endEpoch: current, wantFinalized: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			db, err := harmonydb.NewFromConfigWithITestID(t)
+			require.NoError(t, err)
+			if tc.row {
+				var endEpoch *int64
+				if tc.terminated {
+					endEpoch = &tc.endEpoch
+				}
+				_, err = db.Exec(t.Context(), `
+					INSERT INTO pdp_delete_data_set (id, operator_requested_deletion, after_terminate_service, service_termination_epoch)
+					VALUES (2, $1, $2, $3)
+				`, tc.requested, tc.terminated, endEpoch)
+				require.NoError(t, err)
 			}
-			require.NoError(t, db.Select(t.Context(), &rows, `SELECT deletion_allowed FROM pdp_delete_data_set WHERE id = 2`))
-			if tc.clientRequested {
-				require.Len(t, rows, 1)
-				require.Equal(t, tc.wantDeletionAllowed, rows[0].DeletionAllowed)
-			} else {
-				require.Empty(t, rows, "the watcher must not queue a data set for deletion")
-			}
+
+			var finalized, requested bool
+			_, err = db.BeginTransaction(t.Context(), func(tx *harmonydb.Tx) (bool, error) {
+				var err error
+				finalized, requested, err = pipelineFinalizationElapsed(tx, 2, current)
+				return false, err
+			})
+			require.NoError(t, err)
+			require.Equal(t, tc.wantFinalized, finalized, "finalized")
+			require.Equal(t, tc.wantRequested, requested, "requested")
 		})
 	}
 }
