@@ -181,6 +181,7 @@ func (t *DeleteDataSetTask) schedule(ctx context.Context, addTaskFunc harmonytas
 					  AND service_termination_epoch IS NOT NULL
 					  AND service_termination_epoch <= $2
 					  AND deletion_allowed = TRUE
+					  AND (client_requested_termination OR operator_requested_deletion)
 					LIMIT 1
 				)
 				UPDATE pdp_delete_data_set p
@@ -192,7 +193,8 @@ func (t *DeleteDataSetTask) schedule(ctx context.Context, addTaskFunc harmonytas
 				  AND p.after_terminate_service = TRUE
 				  AND p.service_termination_epoch IS NOT NULL
 				  AND p.service_termination_epoch <= $2
-				  AND p.deletion_allowed = TRUE`, taskID, current)
+				  AND p.deletion_allowed = TRUE
+				  AND (p.client_requested_termination OR p.operator_requested_deletion)`, taskID, current)
 			if err != nil {
 				return false, xerrors.Errorf("failed to update pdp_delete_data_set: %w", err)
 			}
@@ -216,6 +218,27 @@ func (t *DeleteDataSetTask) schedule(ctx context.Context, addTaskFunc harmonytas
 }
 
 func (t *DeleteDataSetTask) Adder(taskFunc harmonytask.AddTaskFunc) {}
+
+// DeletionInProgress reports whether the data set is being deleted: a client
+// or the operator asked for it, or its pipeline row is already in the
+// deleteDataSet stage.
+func DeletionInProgress(tx *harmonydb.Tx, dataSetID int64) (bool, error) {
+	var inProgress bool
+	err := tx.QueryRow(`
+		SELECT EXISTS (
+			SELECT 1 FROM pdp_delete_data_set
+			WHERE id = $1
+			  AND (client_requested_termination
+			       OR operator_requested_deletion
+			       OR after_delete_data_set
+			       OR delete_data_set_task_id IS NOT NULL)
+		)
+	`, dataSetID).Scan(&inProgress)
+	if err != nil {
+		return false, xerrors.Errorf("failed to check for a deletion in progress: %w", err)
+	}
+	return inProgress, nil
+}
 
 var _ = harmonytask.Reg(&DeleteDataSetTask{})
 var _ harmonytask.TaskInterface = &DeleteDataSetTask{}

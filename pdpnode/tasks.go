@@ -106,7 +106,7 @@ func buildPDPTasks(ctx context.Context, d *Deps, chainSched *chainsched.CurioCha
 		pdpv0.NewTerminateServiceTask(db, ethClient, senderEth),
 		pdpv0.NewDeleteDataSetTask(db, ethClient, senderEth),
 		pdpv0.NewCleanupPiecesTask(db, ethClient, senderEth),
-		pdpv0.NewTaskChainSync(db, ethClient, senderEth),
+		pdpv0.NewTaskChainSync(db, ethClient, senderEth, d.Al),
 		pay.NewSettleTask(db, ethClient, senderEth, d.Al), // Move this to a common section once PDP v1 is live
 		pdpv0.NewTaskPDPSaveCache(db, d.CachedPieceReader, d.IndexStore),
 		pdpv0.NewPieceGCTask(&cfg.HTTP, db, d.IndexStore, ethClient, cfg.Subsystems.PDPUnclaimedUploadKeepHours),
