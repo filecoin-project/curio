@@ -457,10 +457,11 @@ func (t *TaskChainSync) syncFinalizedDataSetDeletionRails(ctx context.Context) e
 	return nil
 }
 
-// syncPDPVerifierDeletionState reconciles rows whose payment rail is final with
-// PDPVerifier state. This catches externally submitted deleteDataSet and
-// cleanupPieces transactions and keeps local cleanup behind final on-chain
-// PDP cleanup.
+// syncPDPVerifierDeletionState reconciles rows that have a deletion in
+// progress and a final payment rail with PDPVerifier state. This catches
+// externally submitted deleteDataSet and cleanupPieces transactions and keeps
+// local cleanup behind final on-chain PDP cleanup. Any other row keeps its
+// local data, also when its data set is gone on chain: the operator decides.
 func (t *TaskChainSync) syncPDPVerifierDeletionState(ctx context.Context) error {
 	var pending []struct {
 		ID int64 `db:"id"`
@@ -470,6 +471,10 @@ func (t *TaskChainSync) syncPDPVerifierDeletionState(ctx context.Context) error 
 		WHERE deletion_allowed = TRUE
 		  AND service_termination_epoch IS NOT NULL
 		  AND terminated = FALSE
+		  AND (client_requested_termination
+		       OR operator_requested_deletion
+		       OR after_delete_data_set
+		       OR delete_data_set_task_id IS NOT NULL)
 		ORDER BY id`); err != nil {
 		return xerrors.Errorf("failed to select PDP deletion rows for verifier sync: %w", err)
 	}
