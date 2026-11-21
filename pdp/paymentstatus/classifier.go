@@ -165,8 +165,9 @@ func Classify(
 		return out
 	}
 
-	// A finalized rail has an empty view, so the termination epoch alone is enough.
-	if deleteOverlay.ServiceTerminationEpoch != nil || !railLive(view) {
+	// Each sign is enough on its own: a finalized rail has an empty view, and a
+	// data set removed on chain has neither a rail nor a termination epoch.
+	if deleteOverlay.ServiceTerminationEpoch != nil || !railLive(view) || proving.UnrecoverableFailureEpoch != nil {
 		out.Status = StatusTerminated
 		out.PdpEndEpoch = deleteOverlay.ServiceTerminationEpoch
 		if proving.UnrecoverableFailureEpoch != nil {

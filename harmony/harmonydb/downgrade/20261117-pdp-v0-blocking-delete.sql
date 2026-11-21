@@ -1,1 +1,0 @@
--- no-op downgrade: added columns are retained

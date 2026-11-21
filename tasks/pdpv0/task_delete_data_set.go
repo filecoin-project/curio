@@ -219,20 +219,25 @@ func (t *DeleteDataSetTask) schedule(ctx context.Context, addTaskFunc harmonytas
 
 func (t *DeleteDataSetTask) Adder(taskFunc harmonytask.AddTaskFunc) {}
 
-// DeletionRequested reports whether a client or the operator has asked for the
-// data set to be deleted.
-func DeletionRequested(tx *harmonydb.Tx, dataSetID int64) (bool, error) {
-	var requested bool
+// DeletionInProgress reports whether the data set is being deleted: a client
+// or the operator asked for it, or its pipeline row is already in the
+// deleteDataSet stage.
+func DeletionInProgress(tx *harmonydb.Tx, dataSetID int64) (bool, error) {
+	var inProgress bool
 	err := tx.QueryRow(`
 		SELECT EXISTS (
 			SELECT 1 FROM pdp_delete_data_set
-			WHERE id = $1 AND (client_requested_termination OR operator_requested_deletion)
+			WHERE id = $1
+			  AND (client_requested_termination
+			       OR operator_requested_deletion
+			       OR after_delete_data_set
+			       OR delete_data_set_task_id IS NOT NULL)
 		)
-	`, dataSetID).Scan(&requested)
+	`, dataSetID).Scan(&inProgress)
 	if err != nil {
-		return false, xerrors.Errorf("failed to check for a deletion request: %w", err)
+		return false, xerrors.Errorf("failed to check for a deletion in progress: %w", err)
 	}
-	return requested, nil
+	return inProgress, nil
 }
 
 var _ = harmonytask.Reg(&DeleteDataSetTask{})

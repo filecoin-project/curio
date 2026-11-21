@@ -86,3 +86,63 @@ func TestIntegration_LoadOverlayBundles_PipelineMembership(t *testing.T) {
 	require.True(t, bundles[clientRequested].delete.ClientRequested)
 	require.False(t, bundles[clientRequested].delete.OperatorRequested)
 }
+
+func TestIntegration_AwaitingDecision(t *testing.T) {
+	const (
+		serviceTerminated     = int64(931_000_000_001)
+		provingStopped        = int64(931_000_000_002)
+		operatorRequested     = int64(931_000_000_003)
+		unrequestedDeleteSent = int64(931_000_000_004)
+		notRecorded           = int64(931_000_000_005)
+	)
+
+	ctx := context.Background()
+	db, err := harmonydb.NewFromConfigWithITestID(t)
+	require.NoError(t, err)
+
+	for _, id := range []int64{serviceTerminated, provingStopped, operatorRequested, unrequestedDeleteSent, notRecorded} {
+		service := fmt.Sprintf("awaiting-%d", id)
+		_, err := db.Exec(ctx, `INSERT INTO pdp_services (pubkey, service_label) VALUES ($1, $2)`, []byte(service), service)
+		require.NoError(t, err)
+		_, err = db.Exec(ctx, `
+			INSERT INTO pdp_data_sets (id, create_message_hash, service, proving_period, challenge_window, init_ready)
+			VALUES ($1, $2, $3, 100, 10, FALSE)
+		`, id, fmt.Sprintf("0x%064x", id), service)
+		require.NoError(t, err)
+	}
+	_, err = db.Exec(ctx, `UPDATE pdp_data_sets SET unrecoverable_proving_failure_epoch = 4800 WHERE id = $1`, provingStopped)
+	require.NoError(t, err)
+
+	_, err = db.Exec(ctx, `
+		INSERT INTO pdp_data_set_review (data_set, service_end_epoch)
+		VALUES ($1, 5000), ($2, NULL), ($3, 5100), ($4, 5200)
+	`, serviceTerminated, provingStopped, operatorRequested, unrequestedDeleteSent)
+	require.NoError(t, err)
+	_, err = db.Exec(ctx, `
+		INSERT INTO pdp_delete_data_set (id, operator_requested_deletion, after_delete_data_set)
+		VALUES ($1, TRUE, FALSE), ($2, FALSE, TRUE)
+	`, operatorRequested, unrequestedDeleteSent)
+	require.NoError(t, err)
+
+	snaps, err := AwaitingDecision(ctx, db)
+	require.NoError(t, err)
+
+	type awaiting struct {
+		id          int64
+		status      string
+		reason      string
+		pdpEndEpoch int64
+	}
+	var got []awaiting
+	for _, snap := range snaps {
+		entry := awaiting{id: snap.DataSetID, status: snap.Status, reason: snap.Reason}
+		if snap.PdpEndEpoch != nil {
+			entry.pdpEndEpoch = *snap.PdpEndEpoch
+		}
+		got = append(got, entry)
+	}
+	require.Equal(t, []awaiting{
+		{id: serviceTerminated, status: StatusTerminated, pdpEndEpoch: 5000},
+		{id: provingStopped, status: StatusTerminated, reason: ReasonProvingFailure},
+	}, got)
+}

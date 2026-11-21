@@ -77,6 +77,9 @@ function atRiskContactNote(item) {
     return `Contact the ${owner} to bring payments current.`
   }
   if (item?.status === 'terminated') {
+    if (item?.reason === 'proving_failure') {
+      return 'Proving stopped: the service ended or the dataset was removed on chain. Curio keeps the data until its deletion is requested.'
+    }
     return 'Service was terminated on chain. Curio keeps the data until its deletion is requested.'
   }
   if (item?.status === 'pending_delete') {
@@ -309,6 +312,21 @@ customElements.define('pdp-datasets-list', class PdpDatasetsList extends LitElem
     const minScanSizeBytes = 100 * 1024
 
     try {
+      // Datasets recorded for the operator's decision come from Curio's own
+      // record, so they show before, and regardless of, the chain scan.
+      const recorded = await RPCCall('PDPDataSetAwaitingDecision', [])
+      if (generation !== this.loadGeneration) {
+        this.scanProgress = {
+          ...this.scanProgress,
+          awaiting: false,
+          stopped: true,
+        }
+        return
+      }
+      this.allAtRiskItems = recorded?.items ?? []
+      this.applyAtRiskPagination()
+      this.requestUpdate()
+
       while (!complete) {
         if (generation !== this.loadGeneration) {
           this.scanProgress = {
@@ -368,7 +386,9 @@ customElements.define('pdp-datasets-list', class PdpDatasetsList extends LitElem
 
         const found = batch?.items ?? []
         if (found.length > 0) {
-          this.allAtRiskItems = this.allAtRiskItems.concat(found)
+          // A scanned entry replaces the recorded one for the same dataset: it carries the payer.
+          const scannedIds = new Set(found.map((item) => item.id))
+          this.allAtRiskItems = this.allAtRiskItems.filter((item) => !scannedIds.has(item.id)).concat(found)
           this.applyAtRiskPagination()
         }
 
@@ -576,7 +596,7 @@ customElements.define('pdp-datasets-list', class PdpDatasetsList extends LitElem
       </div>
 
       ${this.viewMode === 'all' ? html`<p class="hint">${SEARCH_HINT}</p>` : html`
-        <p class="hint">Datasets of at least 100 KiB in payment grace, with service terminated, or waiting for deletion.</p>
+        <p class="hint">Datasets with service terminated or proving stopped, and datasets of at least 100 KiB in payment grace or waiting for deletion.</p>
       `}
 
       ${this.viewMode === 'all' ? html`
@@ -605,7 +625,7 @@ customElements.define('pdp-datasets-list', class PdpDatasetsList extends LitElem
         : ''}
 
       ${!this.loadError && this.items.length === 0 && !this.scanning && !this.loading
-        ? html`<p class="hint">${this.viewMode === 'payment' ? 'No datasets in payment grace, with service terminated, or waiting for deletion.' : 'No datasets found.'}</p>`
+        ? html`<p class="hint">${this.viewMode === 'payment' ? 'No datasets in payment grace, with service terminated or proving stopped, or waiting for deletion.' : 'No datasets found.'}</p>`
         : this.items.length > 0 ? html`
           <table class="table table-dark table-striped table-sm">
             <thead>

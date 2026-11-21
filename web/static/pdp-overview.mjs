@@ -95,9 +95,9 @@ function paymentAtRiskLines(counts) {
     lines.push(`${counts.grace} datasets are in payment grace. Contact the owners to bring payments current.`)
   }
   if (counts.terminated === 1) {
-    lines.push('1 dataset had its service terminated on chain. Curio keeps its data until deletion is requested.')
+    lines.push('1 dataset had its service terminated or its proving stopped. Curio keeps its data until deletion is requested.')
   } else if (counts.terminated > 1) {
-    lines.push(`${counts.terminated} datasets had their service terminated on chain. Curio keeps their data until deletion is requested.`)
+    lines.push(`${counts.terminated} datasets had their service terminated or their proving stopped. Curio keeps their data until deletion is requested.`)
   }
   if (counts.terminating === 1) {
     lines.push('1 dataset has service termination confirmed and is waiting for its deletion date. Payment will not stop that.')

@@ -92,19 +92,40 @@ func TestIntegration_HandleProveSendError_UnrecoverableActionStopsProvingAndAler
 	require.Equal(t, alertNameProving, alerts.events[0].Subsystem)
 	require.Equal(t, map[string]string{curioalerting.CONTEXT_KEY_DATASET: strconv.FormatInt(dataSetID, 10)}, alerts.events[0].Context)
 	require.Equal(t, 0, countFailureHandlingDeleteRows(t, ctx, db, dataSetID))
+	require.Equal(t, []dataSetReview{{}}, loadDataSetReviews(t, ctx, db, dataSetID), "the data set must be recorded for the operator's review")
 }
 
-func TestIntegration_MarkDatasetProvingUnrecoverable_SilentWhenDeletionRequested(t *testing.T) {
+func TestIntegration_MarkDatasetProvingUnrecoverable_SilentOnlyWhenDeletionInProgress(t *testing.T) {
 	ctx := context.Background()
 	db, err := harmonydb.NewFromConfigWithITestID(t)
 	require.NoError(t, err)
 
-	dataSetID := insertFailureHandlingDataSet(t, ctx, db, failureHandlingDataSetState{InitReady: true})
-	_, err = db.Exec(ctx, `INSERT INTO pdp_delete_data_set (id, operator_requested_deletion) VALUES ($1, TRUE)`, dataSetID)
+	requested := insertFailureHandlingDataSet(t, ctx, db, failureHandlingDataSetState{InitReady: true})
+	deleteSent := insertFailureHandlingDataSet(t, ctx, db, failureHandlingDataSetState{InitReady: true})
+	deleteQueued := insertFailureHandlingDataSet(t, ctx, db, failureHandlingDataSetState{InitReady: true})
+	deleteFailed := insertFailureHandlingDataSet(t, ctx, db, failureHandlingDataSetState{InitReady: true})
+
+	var deleteTaskID int64
+	require.NoError(t, db.QueryRow(ctx, `
+		INSERT INTO harmony_task (posted_time, added_by, name)
+		VALUES (NOW(), 1, 'test')
+		RETURNING id
+	`).Scan(&deleteTaskID))
+	_, err = db.Exec(ctx, `
+		INSERT INTO pdp_delete_data_set (id, operator_requested_deletion, after_delete_data_set, delete_data_set_task_id)
+		VALUES ($1, TRUE, FALSE, NULL), ($2, FALSE, TRUE, NULL), ($3, FALSE, FALSE, $5), ($4, FALSE, FALSE, NULL)
+	`, requested, deleteSent, deleteQueued, deleteFailed, deleteTaskID)
 	require.NoError(t, err)
 
-	require.False(t, markFailureHandlingDataSetUnrecoverable(t, ctx, db, dataSetID, 4242))
-	require.Equal(t, sql.NullInt64{Int64: 4242, Valid: true}, loadFailureHandlingDataSet(t, ctx, db, dataSetID).UnrecoverableEpoch)
+	for _, dataSetID := range []int64{requested, deleteSent, deleteQueued} {
+		require.False(t, markFailureHandlingDataSetUnrecoverable(t, ctx, db, dataSetID, 4242))
+		require.Equal(t, sql.NullInt64{Int64: 4242, Valid: true}, loadFailureHandlingDataSet(t, ctx, db, dataSetID).UnrecoverableEpoch)
+		require.Empty(t, loadDataSetReviews(t, ctx, db, dataSetID))
+	}
+
+	// A row nobody requested that is not in the deleteDataSet stage is not a deletion in progress.
+	require.True(t, markFailureHandlingDataSetUnrecoverable(t, ctx, db, deleteFailed, 4242))
+	require.Equal(t, []dataSetReview{{}}, loadDataSetReviews(t, ctx, db, deleteFailed))
 }
 
 func TestIntegration_HandleNextProvingPeriodSendFailure_UnrecoverableAlertsOperator(t *testing.T) {
@@ -430,6 +451,18 @@ func countFailureHandlingDeleteRows(t *testing.T, ctx context.Context, db *harmo
 	err := db.QueryRow(ctx, `SELECT COUNT(*) FROM pdp_delete_data_set WHERE id = $1`, dataSetID).Scan(&count)
 	require.NoError(t, err)
 	return count
+}
+
+type dataSetReview struct {
+	ServiceEndEpoch *int64 `db:"service_end_epoch"`
+}
+
+func loadDataSetReviews(t *testing.T, ctx context.Context, db *harmonydb.DB, dataSetID int64) []dataSetReview {
+	t.Helper()
+
+	var reviews []dataSetReview
+	require.NoError(t, db.Select(ctx, &reviews, `SELECT service_end_epoch FROM pdp_data_set_review WHERE data_set = $1`, dataSetID))
+	return reviews
 }
 
 func nullableInt64Arg(value sql.NullInt64) any {

@@ -94,7 +94,7 @@ Curio waits for the `init_ready` flag to be set for a data set table entry.  Thi
 
 ## Retries and unrecoverable errors
 
-Curio classifies contract reverts from `provePossession` and `nextProvingPeriod` before deciding how to proceed. Known terminal proving errors mark `unrecoverable_proving_failure_epoch` and alert the operator, who decides whether to delete the data set. Non-terminal contract reverts are handled by their specific category or surfaced through alerting while Harmony task retry controls subsequent attempts.
+Curio classifies contract reverts from `provePossession` and `nextProvingPeriod` before deciding how to proceed. Known terminal proving errors mark `unrecoverable_proving_failure_epoch`. Unless a deletion of the data set is already in progress, Curio also records it in `pdp_data_set_review` and alerts the operator, who decides whether to delete it. Non-terminal contract reverts are handled by their specific category or surfaced through alerting while Harmony task retry controls subsequent attempts.
 
 Scheduling of the three proving-clock tasks only checks that `unrecoverable_proving_failure_epoch` is unset in addition to the normal scheduling conditions already described.
 
@@ -131,10 +131,9 @@ The task sends a separate `settleRail` transaction for each selected rail and at
 
 The settle is a chain handler triggered on new blocks.  It waits for `filecoin_payment_transactions` table entries to be marked as confirmed by `message_waits_eth` and then verifies that settlement worked correctly and runs follow on work.
 
-If the settle transaction fails on chain then watcher logs an error. Each rail is checked for three end of life conditions:
-1. The rail has been terminated on chain, potentially by the client. The watcher records the rail's end epoch in `pdp_data_sets.rail_end_epoch` and alerts the operator once, unless deletion of the data set was already requested.
-2. The rail is unpaid past its lockup period. The watcher alerts the operator, with a different message once the rail is also past the 1 month grace period. Terminating the service is the operator's decision.
-3. The rail has previously been terminated and is now finalized, i.e. settled through the entire lockup period.  In this case the watcher calls `ensureDataSetDeletion` to unlock the final gate of the service termination pipeline for a data set whose deletion was requested.
+If the settle transaction fails on chain then watcher logs an error. Each rail is checked for two end of life conditions:
+1. The rail is unpaid past its lockup period. The watcher alerts the operator, with a different message once it has been unpaid for a further 30 days. Terminating the service is the operator's decision.
+2. The rail has previously been terminated and is now finalized, i.e. settled through the entire lockup period.  In this case the watcher calls `ensureDataSetDeletion` to unlock the final gate of the service termination pipeline for a data set whose deletion was requested.
 
 For a more complete description of the fwss service termination pipeline see [the section above](#fwss-termination)
 
@@ -179,7 +178,7 @@ These are not harmony tasks but chain-event handlers registered via `chainsched.
 | `TerminateServiceWatcher` | `tasks/pdpv0/watch_fwss_terminate.go` | Monitors `terminateService` transaction completion. Retrieves `PdpEndEpoch` from the FWSS contract and updates `service_termination_epoch` in `pdp_delete_data_set`. |
 | `DataSetDeleteWatcher` | `tasks/pdpv0/watch_data_set_delete.go` | Monitors `deleteDataSet` transaction completion. Verifies dataset is no longer live on-chain, then deletes the `pdp_data_sets` row (CASCADE deletes pieces and prove tasks). |
 | `PieceDeleteWatcher` | `tasks/pdpv0/watch_piece_delete.go` | Cleans up orphaned PDP piece refs and, when appropriate, publishes IPNI removal advertisements. The earlier liveness-driven deletion of `pdp_data_set_pieces` rows is currently disabled while removed-piece proving behavior is investigated. |
-| `SettleWatcher` | `tasks/pay/watcher.go` | Monitors settlement transaction completion. Verifies settlement status on-chain via the FWSS contract. Alerts the operator about terminated or defaulting rails and, once a terminated rail is finalized, unlocks a requested dataset deletion via `ensureDataSetDeletion`. |
+| `SettleWatcher` | `tasks/pay/watcher.go` | Monitors settlement transaction completion. Verifies settlement status on-chain via the FWSS contract. Alerts the operator about defaulting rails and, once a terminated rail is finalized, unlocks a requested dataset deletion via `ensureDataSetDeletion`. |
 
 # Task Dependency Tree
 
@@ -221,14 +220,15 @@ During the upload-pipeline rollout, a compatibility-only PDP v0 task publishes c
 ## Payment Settlement and Termination
 
 1. **Settle** periodically calls `filecoinpayment.SettleLockupPeriod()` and writes the transaction to `filecoin_payment_transactions` + `message_waits_eth`.
-2. When the transaction lands, **SettleWatcher** verifies settlement on-chain, inspects each rail's status, and alerts the operator about a terminated or defaulting rail.
+2. When the transaction lands, **SettleWatcher** verifies settlement on-chain, inspects each rail's status, and alerts the operator about a defaulting rail.
+3. **PDPv0_ChainSync** periodically reads each data set's `PdpEndEpoch` from the FWSS contract. A service terminated on chain is recorded in `pdp_data_set_review` and raises one alert, unless a deletion of the data set is already in progress.
 
 **When a client or the operator requests deletion:**
-3. The client's `POST /pdp/data-sets/{dataSetId}/terminate` or the operator's `PDPDataSetRequestDeletion` Web RPC call creates a `pdp_delete_data_set` row.
-4. **PDPv0_TermFWSS** picks it up, calls `FWSS.terminateService()`.
-5. When that transaction lands, **TerminateServiceWatcher** retrieves `PdpEndEpoch` from the FWSS contract and sets `service_termination_epoch`.
-6. Once `service_termination_epoch <= current_block` and `deletion_allowed = TRUE`, **PDPv0_DelDataSet** calls `PDPVerifier.deleteDataSet()`.
-7. When the delete transaction lands, **DataSetDeleteWatcher** verifies the dataset is no longer live on-chain and deletes the `pdp_data_sets` row (CASCADE removes pieces and prove tasks).
+4. The client's `POST /pdp/data-sets/{dataSetId}/terminate` or the operator's `PDPDataSetRequestDeletion` Web RPC call creates a `pdp_delete_data_set` row.
+5. **PDPv0_TermFWSS** picks it up, calls `FWSS.terminateService()`.
+6. When that transaction lands, **TerminateServiceWatcher** retrieves `PdpEndEpoch` from the FWSS contract and sets `service_termination_epoch`.
+7. Once `service_termination_epoch <= current_block` and `deletion_allowed = TRUE`, **PDPv0_DelDataSet** calls `PDPVerifier.deleteDataSet()`.
+8. When the delete transaction lands, **DataSetDeleteWatcher** verifies the dataset is no longer live on-chain and deletes the `pdp_data_sets` row (CASCADE removes pieces and prove tasks).
 
 ## Piece Removal
 

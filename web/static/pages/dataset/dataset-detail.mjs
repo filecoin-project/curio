@@ -119,7 +119,7 @@ function formatAtRiskDeleteDate(atRisk) {
 function atRiskBannerTitle(atRisk) {
   switch (atRisk?.status) {
     case 'grace': return 'Payment grace'
-    case 'terminated': return 'Service terminated'
+    case 'terminated': return atRisk?.reason === 'proving_failure' ? 'Proving stopped' : 'Service terminated'
     case 'terminating': return 'Service termination'
     case 'pending_delete': return 'Pending deletion'
     default: return 'Payment status'
@@ -134,6 +134,9 @@ function atRiskBannerMessage(atRisk) {
     return `Contact the ${owner} to bring payments current.`
   }
   if (atRisk?.status === 'terminated') {
+    if (atRisk?.reason === 'proving_failure') {
+      return 'The service for this dataset ended or the dataset was removed on chain. Curio keeps the data until its deletion is requested.'
+    }
     return 'Service for this dataset was terminated on chain. Curio keeps the data until its deletion is requested.'
   }
   if (atRisk?.status === 'pending_delete') {

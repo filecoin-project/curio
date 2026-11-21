@@ -2,11 +2,14 @@ package pdpv0
 
 import (
 	"context"
+	"fmt"
 	"math/big"
+	"strconv"
 	"time"
 
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/curio/alertmanager/curioalerting"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
@@ -19,21 +22,33 @@ import (
 	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
+const alertNameChainSync = "ChainSync"
+
 type TaskChainSync struct {
 	db        *harmonydb.DB
 	ethClient ethchain.EthClient
 	sender    *message.SenderETH
+	al        curioalerting.AlertingInterface
 }
 
-func NewTaskChainSync(db *harmonydb.DB, ethClient ethchain.EthClient, sender *message.SenderETH) *TaskChainSync {
+func NewTaskChainSync(db *harmonydb.DB, ethClient ethchain.EthClient, sender *message.SenderETH, al curioalerting.AlertingInterface) *TaskChainSync {
 	return &TaskChainSync{
 		db:        db,
 		ethClient: ethClient,
 		sender:    sender,
+		al:        al,
 	}
 }
 
 func (t *TaskChainSync) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
+	if !stillOwned() {
+		return false, nil
+	}
+	// Runs first: a later step ends the whole run when one data set fails.
+	if err := t.syncServiceTerminations(ctx); err != nil {
+		return false, xerrors.Errorf("syncing PDP service terminations: %w", err)
+	}
+
 	if !stillOwned() {
 		return false, nil
 	}
@@ -523,4 +538,130 @@ func (t *TaskChainSync) ensureDataSetDeletion(ctx context.Context, dataSetID int
 	}
 
 	return nil
+}
+
+// syncServiceTerminations records data sets whose FWSS service was terminated
+// on chain while no deletion of theirs was in progress, and alerts the operator
+// once per data set. A chain that cannot be read is logged and skipped, so it
+// does not hold back the steps that follow; database errors are returned.
+func (t *TaskChainSync) syncServiceTerminations(ctx context.Context) error {
+	var pending []struct {
+		ID int64 `db:"id"`
+	}
+	if err := t.db.Select(ctx, &pending, `
+		SELECT ds.id
+		FROM pdp_data_sets ds
+		LEFT JOIN pdp_data_set_review r ON r.data_set = ds.id
+		WHERE r.service_end_epoch IS NULL
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM pdp_delete_data_set dd
+			WHERE dd.id = ds.id
+			  AND (dd.client_requested_termination
+			       OR dd.operator_requested_deletion
+			       OR dd.after_delete_data_set
+			       OR dd.delete_data_set_task_id IS NOT NULL)
+		  )
+		ORDER BY ds.id
+	`); err != nil {
+		return xerrors.Errorf("failed to select data sets without a recorded service end: %w", err)
+	}
+	if len(pending) == 0 {
+		return nil
+	}
+
+	sAddr := contract.ContractAddresses().AllowedPublicRecordKeepers.FWSService
+	viewAddr, err := contract.ResolveViewAddress(ctx, sAddr, t.ethClient)
+	if err != nil {
+		log.Warnw("skipping PDP service termination sync, FWSS view address unavailable", "error", err)
+		return nil
+	}
+	fwssv, err := FWSS.NewFilecoinWarmStorageServiceStateView(viewAddr, t.ethClient)
+	if err != nil {
+		log.Warnw("skipping PDP service termination sync, FWSS view unavailable", "error", err)
+		return nil
+	}
+
+	var unread int
+	for _, dataSet := range pending {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		info, err := fwssv.GetDataSet(contract.EthCallOpts(ctx), big.NewInt(dataSet.ID))
+		if err != nil {
+			unread++
+			log.Debugw("failed to read data set from FWSS view", "dataSetId", dataSet.ID, "error", err)
+			continue
+		}
+		if info.PdpEndEpoch == nil || info.PdpEndEpoch.Sign() <= 0 {
+			continue
+		}
+
+		endEpoch := info.PdpEndEpoch.Int64()
+		alert, err := recordServiceTermination(ctx, t.db, dataSet.ID, endEpoch)
+		if err != nil {
+			return err
+		}
+		if alert {
+			emitServiceTerminatedAlert(ctx, t.al, dataSet.ID, endEpoch, info.PdpRailId)
+		}
+	}
+
+	if unread > 0 {
+		log.Warnw("PDP service termination sync could not read some data sets from FWSS",
+			"unread", unread, "checked", len(pending))
+	}
+	return nil
+}
+
+// recordServiceTermination stores the service end epoch FWSS reports for a
+// data set in pdp_data_set_review. It reports whether the operator still has
+// to be told: this call stored the epoch and no deletion of the data set is
+// in progress. endEpoch must be greater than zero.
+func recordServiceTermination(ctx context.Context, db *harmonydb.DB, dataSetID int64, endEpoch int64) (alert bool, err error) {
+	n, err := db.Exec(ctx, `
+		INSERT INTO pdp_data_set_review (data_set, service_end_epoch)
+		SELECT ds.id, $2
+		FROM pdp_data_sets ds
+		WHERE ds.id = $1
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM pdp_delete_data_set dd
+			WHERE dd.id = ds.id
+			  AND (dd.client_requested_termination
+			       OR dd.operator_requested_deletion
+			       OR dd.after_delete_data_set
+			       OR dd.delete_data_set_task_id IS NOT NULL)
+		  )
+		ON CONFLICT (data_set) DO UPDATE
+		SET service_end_epoch = EXCLUDED.service_end_epoch
+		WHERE pdp_data_set_review.service_end_epoch IS NULL
+	`, dataSetID, endEpoch)
+	if err != nil {
+		return false, xerrors.Errorf("failed to record service termination of data set %d: %w", dataSetID, err)
+	}
+	return n == 1, nil
+}
+
+// emitServiceTerminatedAlert tells the operator that a data set's service was
+// terminated on chain. The data set is already recorded for review, so a
+// failed alert is only logged.
+func emitServiceTerminatedAlert(ctx context.Context, al curioalerting.AlertingInterface, dataSetID int64, endEpoch int64, railID *big.Int) {
+	eventContext := map[string]string{
+		curioalerting.CONTEXT_KEY_DATASET: strconv.FormatInt(dataSetID, 10),
+	}
+	if railID != nil && railID.Sign() > 0 {
+		eventContext[curioalerting.CONTEXT_KEY_RAIL] = railID.String()
+	}
+
+	err := al.EmitEvent(ctx, curioalerting.AlertEvent{
+		System:    alertType,
+		Subsystem: alertNameChainSync,
+		Message:   fmt.Sprintf("Service for dataset %d was terminated on chain (end epoch %d). Curio will not delete it on its own.", dataSetID, endEpoch),
+		Context:   eventContext,
+	})
+	if err != nil {
+		log.Warnw("failed to raise the service termination alert", "dataSetId", dataSetID, "error", err)
+	}
 }
