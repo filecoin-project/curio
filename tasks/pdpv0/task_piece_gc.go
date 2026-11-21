@@ -26,7 +26,6 @@ import (
 	"github.com/filecoin-project/curio/lib/urlhelper"
 	"github.com/filecoin-project/curio/market/ipni/ipniculib"
 	"github.com/filecoin-project/curio/pdp/contract"
-	"github.com/filecoin-project/curio/tasks/openpieces"
 	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
@@ -210,7 +209,7 @@ func processIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *config.HTTPC
 		var cleanupReady bool
 		failed := true
 		for range 5 {
-			comm, err := harmonytask.TxWithTask(ctx, db, openpieces.DropAdder(), func(tx *harmonydb.Tx, dropTask harmonytask.TaskID) (commit bool, err error) {
+			comm, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 				skipLoop = false
 				cleanupReady = false
 				piece.DeleteIndex = false
@@ -243,7 +242,7 @@ func processIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *config.HTTPC
 
 				if skipCleanup {
 					log.Debugf("Skipping IPNI removal ad for piece %s as it is referenced by another piece", piece.PieceCID)
-					deleted, err := deletePieceRef(tx, piece, dropTask)
+					deleted, err := deletePieceRef(tx, piece)
 					skipLoop = !deleted
 					return deleted, err
 				}
@@ -356,7 +355,7 @@ func processIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *config.HTTPC
 
 				return true, nil
 
-			})
+			}, harmonydb.OptionRetry())
 
 			if err != nil {
 				return nil, xerrors.Errorf("failed to create IPNI removal ad for piece %s: %w", piece.PieceCID, err)
@@ -426,9 +425,9 @@ func processIndexCleanup(ctx context.Context, db *harmonydb.DB, idx IndexCleaner
 			}
 		}
 
-		_, err = harmonytask.TxWithTask(ctx, db, openpieces.DropAdder(), func(tx *harmonydb.Tx, dropTask harmonytask.TaskID) (bool, error) {
-			return deletePieceRef(tx, piece, dropTask)
-		})
+		_, err = db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+			return deletePieceRef(tx, piece)
+		}, harmonydb.OptionRetry())
 		if err != nil {
 			return xerrors.Errorf("finalizing cleanup for piece %s: %w", piece.PieceCID, err)
 		}
@@ -437,11 +436,9 @@ func processIndexCleanup(ctx context.Context, db *harmonydb.DB, idx IndexCleaner
 	return nil
 }
 
-// deletePieceRef removes one unreferenced PDP ref, its parked ref, and that
-// ref's hash-space placement row. When no other PDP ref names the piece, it
-// queues removal of the hash-space file. dropTask comes from TxWithTask; 0
-// asks for a task when some node has hash-space disks.
-func deletePieceRef(tx *harmonydb.Tx, piece pieceCleanup, dropTask harmonytask.TaskID) (bool, error) {
+// deletePieceRef removes a PDP ref and its parked ref only if no dataset or
+// pending add still uses it. PiecePark handles the unreferenced piece's files.
+func deletePieceRef(tx *harmonydb.Tx, piece pieceCleanup) (bool, error) {
 	n, err := tx.Exec(`DELETE FROM pdp_piecerefs
 		WHERE id = $1 AND data_set_refcount = 0
 		  AND NOT EXISTS (
@@ -461,29 +458,6 @@ func deletePieceRef(tx *harmonydb.Tx, piece pieceCleanup, dropTask harmonytask.T
 	_, err = tx.Exec(`DELETE FROM parked_piece_refs WHERE ref_id = $1`, piece.PieceRef)
 	if err != nil {
 		return false, xerrors.Errorf("failed to delete parked piece ref %d: %w", piece.PieceRef, err)
-	}
-	_, err = tx.Exec(`DELETE FROM hash_space_place WHERE pdp_pieceref = $1`, piece.ID)
-	if err != nil {
-		return false, xerrors.Errorf("failed to drop hash space placement for piece ref %d: %w", piece.ID, err)
-	}
-	var others bool
-	err = tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM pdp_piecerefs WHERE piece_cid = $1)`, piece.PieceCID).Scan(&others)
-	if err != nil {
-		return false, xerrors.Errorf("checking remaining PDP refs for %s: %w", piece.PieceCID, err)
-	}
-	if others {
-		return true, nil
-	}
-	pcid1, err := cid.Parse(piece.PieceCID)
-	if err != nil {
-		return false, xerrors.Errorf("parsing piece CID %s: %w", piece.PieceCID, err)
-	}
-	pcidV2, err := commcid.PieceCidV2FromV1(pcid1, uint64(piece.RawSize))
-	if err != nil {
-		return false, xerrors.Errorf("constructing piece cid v2 for %s: %w", piece.PieceCID, err)
-	}
-	if err := openpieces.QueueDrop(tx, dropTask, pcidV2.String()); err != nil {
-		return false, err
 	}
 	return true, nil
 }

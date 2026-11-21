@@ -4,13 +4,21 @@ package fs2
 
 import (
 	"encoding/binary"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
-	"unsafe"
 
 	"golang.org/x/sys/unix"
 )
+
+func TestGetAttrListBulkError(t *testing.T) {
+	attr := unix.Attrlist{Bitmapcount: unix.ATTR_BIT_MAP_COUNT}
+	_, err := getAttrListBulk(-1, &attr, make([]byte, 8192), 0)
+	if !errors.Is(err, unix.EBADF) {
+		t.Fatalf("invalid descriptor: got %v, want EBADF", err)
+	}
+}
 
 // bulkEntry is one getattrlistbulk record parsed the same way as the scanner.
 type bulkEntry struct {
@@ -25,7 +33,7 @@ type bulkEntry struct {
 // readBulk asks the kernel for the same attributes the scanner uses.
 // options is passed through so a test can force ATTR_CMN_ERROR into the
 // buffer with FSOPT_PACK_INVAL_ATTRS.
-func readBulk(t *testing.T, dir string, options uintptr) []bulkEntry {
+func readBulk(t *testing.T, dir string, options uint64) []bulkEntry {
 	t.Helper()
 
 	dirfd, err := unix.Open(dir, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
@@ -46,19 +54,13 @@ func readBulk(t *testing.T, dir string, options uintptr) []bulkEntry {
 	buf := make([]byte, 8192)
 	var out []bulkEntry
 	for {
-		r1, _, errno := unix.Syscall6(
-			unix.SYS_GETATTRLISTBULK,
-			uintptr(dirfd),
-			uintptr(unsafe.Pointer(&attr)),
-			uintptr(unsafe.Pointer(&buf[0])),
-			uintptr(len(buf)),
-			options,
-			0,
-		)
-		if errno != 0 {
-			t.Fatalf("getattrlistbulk: %v", errno)
+		retcount, err := getAttrListBulk(dirfd, &attr, buf, options)
+		if err == unix.EINTR {
+			continue
 		}
-		retcount := int(r1)
+		if err != nil {
+			t.Fatalf("getattrlistbulk: %v", err)
+		}
 		if retcount == 0 {
 			return out
 		}
@@ -105,7 +107,7 @@ func TestParseAttrEntryDarwin(t *testing.T) {
 	// Default options omit ATTR_CMN_ERROR on success. FSOPT_PACK_INVAL_ATTRS
 	// packs a zero error word immediately after the returned bitmap, which is
 	// the same slot a real per-entry errno occupies.
-	for _, options := range []uintptr{0, unix.FSOPT_PACK_INVAL_ATTRS} {
+	for _, options := range []uint64{0, unix.FSOPT_PACK_INVAL_ATTRS} {
 		entries := readBulk(t, dir, options)
 		got := map[string]bulkEntry{}
 		for _, e := range entries {

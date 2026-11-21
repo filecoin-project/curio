@@ -16,7 +16,6 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
-	"github.com/filecoin-project/curio/lib/hashfolder"
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/tasks/tasknames"
 )
@@ -29,10 +28,10 @@ func DropAdder() harmonytask.AddTaskFunc {
 	return harmonytask.AdderFor(tasknames.HashSpaceDrop)
 }
 
-// QueueDrop queues removal of piece CID v2 pieceCID from open-pieces from
-// inside a harmonytask.TxWithTask body that uses DropAdder, in the
-// transaction that drops its last PDP ref. With id 0 it asks for a task
-// when some node has open-pieces disks and no drop is queued yet. The drop
+// QueueDrop queues removal of piece CID v2 pieceCID from both Public and ACL
+// inside a harmonytask.TxWithTask body that uses DropAdder, in PiecePark's
+// transaction that removes an unreferenced parked row. With id 0 it asks for a task
+// when some node has hashspace disks and no drop is queued yet. The drop
 // deletes whatever copies the hash map still names; a piece that was never
 // placed is a no-op.
 func QueueDrop(tx *harmonydb.Tx, id harmonytask.TaskID, pieceCID string) error {
@@ -55,17 +54,21 @@ func QueueDrop(tx *harmonydb.Tx, id harmonytask.TaskID, pieceCID string) error {
 	return nil
 }
 
-// DropTask removes a piece whose last PDP reference is gone from the range
-// owner and, when a move covers it, from both ends of that move.
+type pieceDeleter interface {
+	DeleteCID(context.Context, string) error
+}
+
+// DropTask executes PiecePark's queued deletion in both Public and ACL, from
+// each range owner and, when a move covers it, from both ends of that move.
 type DropTask struct {
-	db         *harmonydb.DB
-	hashSpaces *hashfolder.Cluster
+	db     *harmonydb.DB
+	pieces pieceDeleter
 
 	TF promise.Promise[harmonytask.AddTaskFunc]
 }
 
-func NewDropTask(db *harmonydb.DB, hashSpaces *hashfolder.Cluster) *DropTask {
-	return &DropTask{db: db, hashSpaces: hashSpaces}
+func NewDropTask(db *harmonydb.DB, pieces pieceDeleter) *DropTask {
+	return &DropTask{db: db, pieces: pieces}
 }
 
 func (t *DropTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (bool, error) {
@@ -176,7 +179,7 @@ func (t *DropTask) dropOne(ctx context.Context, taskID harmonytask.TaskID, piece
 		return nil
 	}
 
-	if err := t.hashSpaces.DeleteCID(ctx, pieceCID); err != nil {
+	if err := t.pieces.DeleteCID(ctx, pieceCID); err != nil {
 		return err
 	}
 	if _, err := t.db.Exec(ctx, `DELETE FROM hash_space_delete WHERE piece_cid = $1 AND task_id = $2`, pieceCID, taskID); err != nil {
