@@ -24,8 +24,8 @@ var (
 	chainSyncViewAddress = common.HexToAddress("0x00000000000000000000000000000000000c5a12")
 )
 
-// chainSyncViewClient answers the FWSS view calls made by the service
-// termination sync. A call it has no answer for fails the test.
+// chainSyncViewClient answers the contract calls made by the chain sync steps
+// under test. A call it has no answer for fails the test.
 type chainSyncViewClient struct {
 	ethchain.EthClient
 	t         *testing.T
@@ -89,6 +89,24 @@ func (c *chainSyncViewClient) setDataSet(dataSetID, railID, endEpoch int64) {
 			ProviderId:      big.NewInt(0),
 			DataSetId:       big.NewInt(dataSetID),
 		})
+}
+
+// setRemoved makes PDPVerifier report the data set as removed.
+func (c *chainSyncViewClient) setRemoved(dataSetID int64) {
+	c.failures[c.callData(contract.PDPVerifierMetaData, "dataSetLive", big.NewInt(dataSetID))] =
+		selectorRevert(contractErrorSelector(ErrPDPVerifierDataSetNotFound))
+}
+
+// setCleanupMode makes PDPVerifier report the data set as deleted with pieces
+// left to clean up.
+func (c *chainSyncViewClient) setCleanupMode(dataSetID int64) {
+	id := big.NewInt(dataSetID)
+	c.responses[c.callData(contract.PDPVerifierMetaData, "dataSetLive", id)] =
+		c.pack(contract.PDPVerifierMetaData, "dataSetLive", false)
+	c.responses[c.callData(contract.PDPVerifierMetaData, "getNextPieceId", id)] =
+		c.pack(contract.PDPVerifierMetaData, "getNextPieceId", big.NewInt(1))
+	c.responses[c.callData(contract.PDPVerifierMetaData, "getNextChallengeEpoch", id)] =
+		c.pack(contract.PDPVerifierMetaData, "getNextChallengeEpoch", cleanupModeSentinel)
 }
 
 type failingAlerting struct {
@@ -200,4 +218,94 @@ func TestIntegration_SyncServiceTerminations_RecordsWhenAlertFails(t *testing.T)
 
 	endEpoch := int64(5000)
 	require.Equal(t, []dataSetReview{{ServiceEndEpoch: &endEpoch}}, loadDataSetReviews(t, ctx, db, dataSetID))
+}
+
+// loadKeptDataSets maps each data set that still has its local row to whether
+// its pipeline row is past deleteDataSet.
+func loadKeptDataSets(t *testing.T, ctx context.Context, db *harmonydb.DB) map[int64]bool {
+	t.Helper()
+
+	var rows []struct {
+		ID          int64 `db:"id"`
+		AfterDelete bool  `db:"after_delete"`
+	}
+	require.NoError(t, db.Select(ctx, &rows, `
+		SELECT ds.id, COALESCE(dd.after_delete_data_set, FALSE) AS after_delete
+		FROM pdp_data_sets ds
+		LEFT JOIN pdp_delete_data_set dd ON dd.id = ds.id
+	`))
+	kept := make(map[int64]bool, len(rows))
+	for _, row := range rows {
+		kept[row.ID] = row.AfterDelete
+	}
+	return kept
+}
+
+func TestIntegration_SyncPDPVerifierDeletionState_OnlyDeletionsInProgress(t *testing.T) {
+	ctx := context.Background()
+	db, err := harmonydb.NewFromConfigWithITestID(t)
+	require.NoError(t, err)
+
+	newDataSet := func() int64 {
+		return insertFailureHandlingDataSet(t, ctx, db, failureHandlingDataSetState{InitReady: true})
+	}
+	undecided := newDataSet()
+	undecidedCleanup := newDataSet()
+	deleteSent := newDataSet()
+	deleteQueued := newDataSet()
+	operatorRequested := newDataSet()
+	clientRequested := newDataSet()
+
+	var deleteTaskID int64
+	require.NoError(t, db.QueryRow(ctx, `
+		INSERT INTO harmony_task (posted_time, added_by, name)
+		VALUES (NOW(), 1, 'test')
+		RETURNING id
+	`).Scan(&deleteTaskID))
+
+	// Every row has its service terminated and its rail final. Nobody asked
+	// for the first four; the third and fourth are in the deleteDataSet stage.
+	_, err = db.Exec(ctx, `
+		INSERT INTO pdp_delete_data_set (
+			id, after_terminate_service, service_termination_epoch, deletion_allowed,
+			after_delete_data_set, delete_data_set_task_id,
+			operator_requested_deletion, client_requested_termination, termination_extra_data
+		)
+		VALUES
+			($1, TRUE, 5300, TRUE, FALSE, NULL, FALSE, FALSE, NULL),
+			($2, TRUE, 5300, TRUE, FALSE, NULL, FALSE, FALSE, NULL),
+			($3, TRUE, 5300, TRUE, TRUE, NULL, FALSE, FALSE, NULL),
+			($4, TRUE, 5300, TRUE, FALSE, $7, FALSE, FALSE, NULL),
+			($5, TRUE, 5300, TRUE, FALSE, NULL, TRUE, FALSE, NULL),
+			($6, TRUE, 5300, TRUE, FALSE, NULL, FALSE, TRUE, '\x01')
+	`, undecided, undecidedCleanup, deleteSent, deleteQueued, operatorRequested, clientRequested, deleteTaskID)
+	require.NoError(t, err)
+
+	// On chain every data set is gone, except undecidedCleanup, which still
+	// has pieces to clean up.
+	client := newChainSyncViewClient(t)
+	for _, dataSetID := range []int64{undecided, deleteSent, deleteQueued, operatorRequested, clientRequested} {
+		client.setRemoved(dataSetID)
+	}
+	client.setCleanupMode(undecidedCleanup)
+
+	task := &TaskChainSync{db: db, ethClient: client}
+	require.NoError(t, task.syncPDPVerifierDeletionState(ctx))
+
+	// Only the rows awaiting the operator keep their local data, untouched.
+	require.Equal(t, map[int64]bool{
+		undecided:        false,
+		undecidedCleanup: false,
+	}, loadKeptDataSets(t, ctx, db))
+
+	// Once the operator asks, they follow the chain like the others.
+	_, err = db.Exec(ctx, `
+		UPDATE pdp_delete_data_set
+		SET operator_requested_deletion = TRUE
+		WHERE id IN ($1, $2)
+	`, undecided, undecidedCleanup)
+	require.NoError(t, err)
+	require.NoError(t, task.syncPDPVerifierDeletionState(ctx))
+
+	require.Equal(t, map[int64]bool{undecidedCleanup: true}, loadKeptDataSets(t, ctx, db))
 }
