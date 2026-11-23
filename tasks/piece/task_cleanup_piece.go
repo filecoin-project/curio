@@ -124,6 +124,9 @@ func (c *CleanupPieceTask) schedule(ctx context.Context) error {
 }
 
 func (c *CleanupPieceTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
+	if !stillOwned() {
+		return false, xerrors.Errorf("lost ownership of piece cleanup task %d", taskID)
+	}
 	addDrop := c.dropAdder
 	if addDrop == nil {
 		addDrop = openpieces.DropAdder()
@@ -133,8 +136,9 @@ func (c *CleanupPieceTask) Do(ctx context.Context, taskID harmonytask.TaskID, st
 	committed, err := harmonytask.TxWithTask(ctx, c.db, addDrop, func(tx *harmonydb.Tx, dropTask harmonytask.TaskID) (bool, error) {
 		removed = false
 		withDropTask = dropTask != 0
-		if !stillOwned() {
-			return false, xerrors.Errorf("lost ownership of piece cleanup task %d", taskID)
+		// The callback can run again in the drop-task transaction.
+		if err := ctx.Err(); err != nil {
+			return false, err
 		}
 		var pieceCID string
 		var rawSize int64
