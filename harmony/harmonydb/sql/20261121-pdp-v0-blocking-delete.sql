@@ -3,17 +3,11 @@
 ALTER TABLE pdp_delete_data_set
     ADD COLUMN IF NOT EXISTS operator_requested_deletion BOOLEAN NOT NULL DEFAULT FALSE;
 
--- Data sets whose service was terminated on chain or whose proving stopped
--- while nobody had asked for their deletion. A row stays until the data set is
--- deleted, also after deletion is requested. It starts nothing: the deletion
--- pipeline reads pdp_delete_data_set only.
+-- A row stays until the data set is deleted, also after deletion is requested.
+-- It starts nothing: the deletion pipeline reads pdp_delete_data_set only.
 CREATE TABLE IF NOT EXISTS pdp_data_set_review (
     data_set BIGINT PRIMARY KEY REFERENCES pdp_data_sets(id) ON DELETE CASCADE,
-
-    -- NULL on a row created because proving stopped, until Curio also sees
-    -- the service terminated on chain.
     service_end_epoch BIGINT,
-
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -23,10 +17,9 @@ COMMENT ON TABLE pdp_data_set_review IS
 COMMENT ON COLUMN pdp_data_set_review.service_end_epoch IS
     'FWSS pdpEndEpoch of the data set, NULL until Curio sees the service terminated on chain';
 
--- Rows that nobody requested are not pipeline entries. Those that have not
--- reached the deleteDataSet stage are removed. Rows already in that stage are
--- left to finish. One whose delete transaction fails is not retried until
--- deletion is requested.
+-- Rows nobody requested leave the pipeline unless they already reached the
+-- deleteDataSet stage; a failed delete there is retried only after deletion is
+-- requested.
 DELETE FROM pdp_delete_data_set
 WHERE client_requested_termination = FALSE
   AND operator_requested_deletion = FALSE
