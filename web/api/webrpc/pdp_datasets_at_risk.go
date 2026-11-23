@@ -185,7 +185,7 @@ func (a *WebRPC) PDPDataSetAtRiskScanBatch(
 }
 
 // awaitingDecisionEntries returns the datasets recorded for the operator's
-// decision, with their local stats. It reads the database only.
+// decision, with their local stats.
 func (a *WebRPC) awaitingDecisionEntries(ctx context.Context) ([]atRiskEntry, error) {
 	snaps, err := paymentstatus.AwaitingDecision(ctx, a.Deps.DB)
 	if err != nil {

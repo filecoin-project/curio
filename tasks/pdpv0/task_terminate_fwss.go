@@ -88,6 +88,17 @@ func (t *TerminateFWSSTask) Do(ctx context.Context, taskID harmonytask.TaskID, s
 		return true, nil
 	}
 
+	state, err := readDataSetCleanupState(ctx, t.ethClient, dataSet.ID)
+	if err != nil {
+		return false, xerrors.Errorf("failed to read PDP cleanup state for data set %d: %w", dataSet.ID, err)
+	}
+	if !state.Live {
+		if err := t.skipTermination(ctx, taskID, dataSet.ID); err != nil {
+			return false, err
+		}
+		return true, nil
+	}
+
 	sender, err := getPDPOwner(ctx, t.db)
 	if err != nil {
 		return false, xerrors.Errorf("failed to get pdp owner: %w", err)
@@ -245,6 +256,33 @@ func (t *TerminateFWSSTask) Adder(taskFunc harmonytask.AddTaskFunc) {}
 
 var _ harmonytask.TaskInterface = &TerminateFWSSTask{}
 var _ = harmonytask.Reg(&TerminateFWSSTask{})
+
+// skipTermination hands a data set that is gone from PDPVerifier to the
+// deleteDataSet stage. It has no service to terminate and FWSS no longer
+// reports when its service ended, so the current epoch is recorded.
+func (t *TerminateFWSSTask) skipTermination(ctx context.Context, taskID harmonytask.TaskID, dataSetID int64) error {
+	current, err := t.ethClient.BlockNumber(ctx)
+	if err != nil {
+		return xerrors.Errorf("failed to get current block number: %w", err)
+	}
+
+	n, err := t.db.Exec(ctx, `UPDATE pdp_delete_data_set
+								SET after_terminate_service = TRUE,
+								    terminate_service_task_id = NULL,
+								    client_terminate_service_task_id = NULL,
+								    service_termination_epoch = $2,
+								    deletion_allowed = TRUE
+								WHERE terminate_service_task_id = $1`, taskID, int64(current))
+	if err != nil {
+		return xerrors.Errorf("failed to update pdp_delete_data_set: %w", err)
+	}
+	if n != 1 {
+		return xerrors.Errorf("expected to update 1 row but got %d", n)
+	}
+
+	log.Infow("skipped service termination for a PDP data set that is gone on chain", "dataSetId", dataSetID)
+	return nil
+}
 
 func getPDPOwner(ctx context.Context, db *harmonydb.DB) (common.Address, error) {
 	var owner string

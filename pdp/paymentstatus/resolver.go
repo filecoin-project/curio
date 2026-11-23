@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -41,6 +42,11 @@ func NewResolver(ttl time.Duration) *Resolver {
 	return &Resolver{
 		cache: newSnapshotCache(ttl),
 	}
+}
+
+// Invalidate makes the next Resolve of the data set read the database and chain again.
+func (r *Resolver) Invalidate(dataSetID int64) {
+	r.cache.drop(dataSetID)
 }
 
 func IsAtRisk(s Snapshot, currentEpoch uint64) bool {
@@ -90,6 +96,13 @@ func (c *snapshotCache) put(id int64, snap Snapshot) {
 	c.entries[id] = cachedSnapshot{snap: snap, at: time.Now()}
 }
 
+// drop removes the cached snapshot of one data set, if any.
+func (c *snapshotCache) drop(id int64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.entries, id)
+}
+
 type overlayBundle struct {
 	delete DeletePipelineOverlay
 	prove  ProvingOverlay
@@ -98,7 +111,8 @@ type overlayBundle struct {
 	recordedServiceEnd *int64
 }
 
-// localDeleteOverlay returns the delete overlay as far as the database knows it.
+// localDeleteOverlay returns the pipeline overlay, taking the service end epoch
+// from pdp_data_set_review when the pipeline row has none.
 func (b overlayBundle) localDeleteOverlay() DeletePipelineOverlay {
 	overlay := b.delete
 	if overlay.ServiceTerminationEpoch == nil {
@@ -108,8 +122,7 @@ func (b overlayBundle) localDeleteOverlay() DeletePipelineOverlay {
 }
 
 // AwaitingDecision lists the data sets recorded in pdp_data_set_review that
-// have no deletion in progress. It reads only the database, so it works without
-// the chain and covers data sets of any size.
+// have no deletion in progress.
 func AwaitingDecision(ctx context.Context, db *harmonydb.DB) ([]Snapshot, error) {
 	var recorded []struct {
 		DataSet int64 `db:"data_set"`
@@ -444,7 +457,11 @@ func resolveFromChainWithClients(
 		deleteOverlay.ServiceTerminationEpoch = &epoch
 	}
 
-	payer := info.Payer.Hex()
+	// Zero once FWSS has dropped the record.
+	payer := ""
+	if info.Payer != (common.Address{}) {
+		payer = info.Payer.Hex()
+	}
 	view := filecoinpayment.PaymentsRailView{}
 
 	if info.PdpRailId != nil && info.PdpRailId.Sign() > 0 {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"math"
 	"math/big"
 	"sort"
 	"strconv"
@@ -14,10 +15,14 @@ import (
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/go-state-types/builtin"
+
+	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/lib/filecoinpayment"
 	"github.com/filecoin-project/curio/lib/urlhelper"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/pdp/contract/FWSS"
+	"github.com/filecoin-project/curio/pdp/paymentstatus"
 )
 
 type PDPDataSetListResult struct {
@@ -77,9 +82,16 @@ type PDPDataSetPayments struct {
 	FundedUntilEpoch  string `json:"fundedUntilEpoch"`
 	LockupPeriod      string `json:"lockupPeriod"`
 	PaymentRate       string `json:"paymentRate"`
-	ProvenThisPeriod  *bool  `json:"provenThisPeriod,omitempty"`
-	HeadEpoch         int64  `json:"headEpoch"`
-	Error             string `json:"error,omitempty"`
+	// MonthlyIncome is PaymentRate over 30 days in USDFC, before fees.
+	MonthlyIncome string `json:"monthlyIncome,omitempty"`
+	// FundedDays is whole days until FundedUntilEpoch, unset when the payer's funds have no end.
+	FundedDays       *int64     `json:"fundedDays,omitempty"`
+	FundedUntilAt    *time.Time `json:"fundedUntilAt,omitempty"`
+	ProvenThisPeriod *bool      `json:"provenThisPeriod,omitempty"`
+	// RemovedOnChain is set when PDPVerifier no longer holds the data set as live.
+	RemovedOnChain bool   `json:"removedOnChain,omitempty"`
+	HeadEpoch      int64  `json:"headEpoch"`
+	Error          string `json:"error,omitempty"`
 }
 
 const pdpDataSetStatsFrom = `
@@ -421,7 +433,53 @@ func (a *WebRPC) PDPDataSetPayments(ctx context.Context, id int64) (*PDPDataSetP
 	if out.Payer == "" && out.PdpRailID == "" {
 		out.Error = "chain payment data unavailable"
 	}
+	out.RemovedOnChain = a.dataSetRemovedOnChain(chainCtx, id)
 	return out, nil
+}
+
+// dataSetRemovedOnChain reports whether PDPVerifier no longer holds the data
+// set as live. A failed read counts as not removed.
+func (a *WebRPC) dataSetRemovedOnChain(ctx context.Context, id int64) bool {
+	eclient, err := a.Deps.EthClient.Val()
+	if err != nil {
+		return false
+	}
+	verifier, err := contract.NewPDPVerifier(contract.ContractAddresses().PDPVerifier, eclient)
+	if err != nil {
+		return false
+	}
+	live, err := verifier.DataSetLive(contract.EthCallOpts(ctx), big.NewInt(id))
+	if err != nil {
+		log.Warnw("PDPDataSetPayments: DataSetLive", "id", id, "error", err)
+		return false
+	}
+	return !live
+}
+
+// monthlyIncome formats what a rail pays over 30 days at its per-epoch rate.
+func monthlyIncome(ratePerEpoch *big.Int) string {
+	if ratePerEpoch == nil || ratePerEpoch.Sign() <= 0 {
+		return ""
+	}
+	return formatUsdfc(new(big.Int).Mul(ratePerEpoch, big.NewInt(30*builtin.EpochsInDay)))
+}
+
+// MAX_DATED_EPOCHS is the furthest ahead of the chain head an epoch can be
+// turned into a date without overflowing time.Duration.
+const MAX_DATED_EPOCHS = int64(math.MaxInt64 / (time.Duration(build.BlockDelaySecs) * time.Second))
+
+// fundedDays returns the whole days left until fundedUntil, or nil when the
+// epoch is too far out to date, as it is for a payer whose funds have no end.
+func fundedDays(fundedUntil *big.Int, head int64) *int64 {
+	if fundedUntil == nil || !fundedUntil.IsInt64() || head <= 0 {
+		return nil
+	}
+	left := max(fundedUntil.Int64()-head, 0)
+	if left > MAX_DATED_EPOCHS {
+		return nil
+	}
+	days := left / builtin.EpochsInDay
+	return &days
 }
 
 func (a *WebRPC) PDPDataSetInteractions(ctx context.Context, id int64) ([]PDPDataSetInteraction, error) {
@@ -489,6 +547,7 @@ func (a *WebRPC) enrichDataSetFWSS(ctx context.Context, id int64, out *PDPDataSe
 	}
 	if rail.PaymentRate != nil {
 		out.PaymentRate = rail.PaymentRate.String()
+		out.MonthlyIncome = monthlyIncome(rail.PaymentRate)
 	}
 
 	acct, err := payments.GetAccountInfoIfSettled(contract.EthCallOpts(ctx), rail.Token, info.Payer)
@@ -501,6 +560,11 @@ func (a *WebRPC) enrichDataSetFWSS(ctx context.Context, id int64, out *PDPDataSe
 	}
 	if acct.FundedUntilEpoch != nil {
 		out.FundedUntilEpoch = acct.FundedUntilEpoch.String()
+		out.FundedDays = fundedDays(acct.FundedUntilEpoch, out.HeadEpoch)
+		if out.FundedDays != nil {
+			blockDelay := time.Duration(build.BlockDelaySecs) * time.Second
+			out.FundedUntilAt = epochToCalendarTime(a.chainHeadTime(ctx), out.HeadEpoch, acct.FundedUntilEpoch.Int64(), blockDelay)
+		}
 	}
 
 	if acct.FundedUntilEpoch != nil && rail.LockupPeriod != nil && rail.LockupPeriod.Sign() > 0 {
@@ -799,6 +863,7 @@ func (a *WebRPC) PDPDataSetRequestDeletion(ctx context.Context, id int64) error 
 	if err != nil {
 		return xerrors.Errorf("request dataset deletion: %w", err)
 	}
+	paymentstatus.DefaultResolver.Invalidate(id)
 	if n == 0 {
 		return xerrors.Errorf("deletion of dataset %d was already requested", id)
 	}

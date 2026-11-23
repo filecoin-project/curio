@@ -148,6 +148,35 @@ function atRiskBannerMessage(atRisk) {
   return `Contact the ${owner}.`
 }
 
+const EPOCHS_PER_DAY = 2880
+
+function daysLabel(days) {
+  return `${days} day${days === 1 ? '' : 's'}`
+}
+
+function deletionInProgress(atRisk) {
+  return atRisk?.status === 'terminating' || atRisk?.status === 'pending_delete'
+}
+
+function shortDate(value) {
+  return new Date(value).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+}
+
+function deleteConsequence(atRisk, payments) {
+  if (payments?.removedOnChain) {
+    return 'Curio deletes its data from this node. If cleanup on chain is unfinished, Curio finishes it first and pays the gas, which can take a while for a large dataset.'
+  }
+  if (atRisk?.status === 'terminated') {
+    return 'Curio deletes the data once the service period is over and the last payment is settled.'
+  }
+  if (!payments || payments.error) {
+    return 'Curio ends the service on chain if it is still running, then deletes the data once the service period is over.'
+  }
+  const lockupDays = Math.round(Number(payments.lockupPeriod) / EPOCHS_PER_DAY)
+  const period = lockupDays > 0 ? `, up to ${daysLabel(lockupDays)} from now` : ''
+  return `Curio ends the service on chain right away, then deletes the data once the service period is over${period}.`
+}
+
 customElements.define('pdp-dataset-detail', class PdpDatasetDetail extends LitElement {
   static properties = {
     data: { type: Object },
@@ -158,6 +187,11 @@ customElements.define('pdp-dataset-detail', class PdpDatasetDetail extends LitEl
     paymentsError: { type: String },
     interactionsStatus: { type: String },
     interactionsError: { type: String },
+    income: { type: Object },
+    incomeStatus: { type: String },
+    confirmOpen: { type: Boolean },
+    deleteBusy: { type: Boolean },
+    deleteError: { type: String },
   }
 
   constructor() {
@@ -170,11 +204,45 @@ customElements.define('pdp-dataset-detail', class PdpDatasetDetail extends LitEl
     this.paymentsError = null
     this.interactionsStatus = 'idle'
     this.interactionsError = null
+    this.income = null
+    this.incomeStatus = 'idle'
+    this.confirmOpen = false
+    this.deleteBusy = false
+    this.deleteError = null
     this.load()
   }
 
   createRenderRoot() {
     return this
+  }
+
+  openDeleteConfirm() {
+    this.deleteError = null
+    this.confirmOpen = true
+  }
+
+  closeDeleteConfirm() {
+    if (this.deleteBusy) return
+    this.confirmOpen = false
+  }
+
+  async confirmDelete() {
+    this.deleteBusy = true
+    this.deleteError = null
+    try {
+      await RPCCall('PDPDataSetRequestDeletion', [this.data.id])
+    } catch (e) {
+      // A deletion requested earlier needs no second request: the reload shows it.
+      if (!/already requested/.test(e?.message || '')) {
+        console.error('Dataset deletion request failed:', e)
+        this.deleteError = "Couldn't start the deletion. Try again."
+        this.deleteBusy = false
+        return
+      }
+    }
+    this.deleteBusy = false
+    this.confirmOpen = false
+    await this.load()
   }
 
   async load() {
@@ -198,10 +266,17 @@ customElements.define('pdp-dataset-detail', class PdpDatasetDetail extends LitEl
     }
     this.requestUpdate()
 
-    // Late-populate chain payments + interactions in parallel.
+    // Late-populate chain payments, income + interactions in parallel.
     this.paymentsStatus = 'loading'
     this.interactionsStatus = 'loading'
+    this.incomeStatus = 'loading'
     this.requestUpdate()
+
+    // Without income records there is nothing to show, whatever the cause.
+    const incomeP = RPCCall('PDPDataSetIncome', [numId])
+      .then((income) => { this.income = income })
+      .catch(() => { this.income = null })
+      .finally(() => { this.incomeStatus = 'ready' })
 
     const paymentsP = RPCCall('PDPDataSetPayments', [numId])
       .then((payments) => {
@@ -230,7 +305,7 @@ customElements.define('pdp-dataset-detail', class PdpDatasetDetail extends LitEl
       })
       .finally(() => this.requestUpdate())
 
-    await Promise.allSettled([paymentsP, interactionsP])
+    await Promise.allSettled([paymentsP, interactionsP, incomeP])
   }
 
   static styles = css``
@@ -251,6 +326,9 @@ customElements.define('pdp-dataset-detail', class PdpDatasetDetail extends LitEl
     const proven = p?.provenThisPeriod
     const paymentsLoading = this.paymentsStatus === 'loading'
     const interactionsLoading = this.interactionsStatus === 'loading'
+    const income = this.income
+    const incomeLoading = this.incomeStatus === 'loading'
+    const recorded = !!income?.recordedSince
     const head = d.headEpoch ?? p?.headEpoch
     const provingNote = statusSummary(d, proven)
 
@@ -352,6 +430,38 @@ customElements.define('pdp-dataset-detail', class PdpDatasetDetail extends LitEl
           margin-bottom: 4px;
           color: var(--color-danger-fg, #f85149);
         }
+        .income-block { margin-bottom: 24px; }
+        .income-metrics {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+          gap: 16px;
+        }
+        .income-actions { display: flex; justify-content: flex-end; }
+        .metric-unit { font-size: 14px; font-weight: 500; margin-left: 6px; }
+        .confirm-overlay {
+          position: fixed;
+          inset: 0;
+          z-index: 1050;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 16px;
+          background: var(--color-shadow-main, rgba(1, 4, 9, 0.8));
+        }
+        .confirm-dialog {
+          width: 100%;
+          max-width: 480px;
+          background: var(--color-bg-subtle, #161b22);
+          border: 1px solid var(--color-border-default, #30363d);
+          border-radius: var(--radius-lg, 8px);
+          box-shadow: var(--shadow-overlay, 0 8px 24px rgba(1, 4, 9, 0.5));
+          padding: 20px 24px;
+          font-size: 14px;
+          line-height: 1.5;
+        }
+        .confirm-dialog h3 { font-size: 16px; font-weight: 600; margin: 0 0 12px; }
+        .confirm-dialog p { margin: 0 0 8px; }
+        .confirm-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
       </style>
 
       ${d.paymentAtRisk?.atRisk ? html`
@@ -432,6 +542,61 @@ customElements.define('pdp-dataset-detail', class PdpDatasetDetail extends LitEl
           </dl>
         </div>
       </div>
+
+      <div class="info-block income-block">
+        <h2>Income</h2>
+        <div class="income-metrics">
+          <div>
+            <div class="metric-label">Recorded income</div>
+            <div class="metric">${maybeLoading(incomeLoading, recorded
+              ? html`${income.recordedIncome}<span class="metric-unit">USDFC</span>`
+              : '—')}</div>
+            ${incomeLoading ? '' : html`
+              <p class="section-note muted">${recorded ? `Since ${shortDate(income.recordedSince)}` : 'Not recorded yet'}</p>
+            `}
+            ${recorded && income.missingPeriods > 0 ? html`
+              <p class="section-note muted">${income.missingPeriods} period${income.missingPeriods === 1 ? '' : 's'} not recorded</p>
+            ` : ''}
+          </div>
+          <div>
+            <div class="metric-label">Income per month</div>
+            <div class="metric">${maybeLoading(paymentsLoading, p?.monthlyIncome
+              ? html`${p.monthlyIncome}<span class="metric-unit">USDFC</span>`
+              : '—')}</div>
+            ${p?.monthlyIncome ? html`<p class="section-note muted">Before fees</p>` : ''}
+          </div>
+          <div>
+            <div class="metric-label">Payer funded for</div>
+            <div class="metric">${maybeLoading(paymentsLoading, p?.fundedDays != null ? daysLabel(Number(p.fundedDays)) : '—')}</div>
+            ${p?.fundedUntilAt ? html`<p class="section-note muted">Until ${shortDate(p.fundedUntilAt)}</p>` : ''}
+          </div>
+        </div>
+        ${p?.removedOnChain ? html`<p class="section-note muted">No longer on chain</p>` : ''}
+        ${deletionInProgress(d.paymentAtRisk) ? '' : html`
+          <div class="income-actions">
+            <button type="button" class="btn btn-danger btn-sm" ?disabled=${paymentsLoading}
+              @click=${() => this.openDeleteConfirm()}>Delete dataset</button>
+          </div>
+        `}
+      </div>
+
+      ${this.confirmOpen ? html`
+        <div class="confirm-overlay" @click=${() => this.closeDeleteConfirm()}>
+          <div class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-dataset-title"
+            @click=${(e) => e.stopPropagation()}>
+            <h3 id="delete-dataset-title">Delete dataset ${d.id}?</h3>
+            <p>${deleteConsequence(d.paymentAtRisk, p)}</p>
+            <p class="err">This can't be undone.</p>
+            ${this.deleteError ? html`<p class="err">${this.deleteError}</p>` : ''}
+            <div class="confirm-actions">
+              <button type="button" class="btn btn-secondary btn-sm" ?disabled=${this.deleteBusy}
+                @click=${() => this.closeDeleteConfirm()}>Cancel</button>
+              <button type="button" class="btn btn-danger btn-sm" ?disabled=${this.deleteBusy}
+                @click=${() => this.confirmDelete()}>Delete dataset</button>
+            </div>
+          </div>
+        </div>
+      ` : ''}
 
       <div class="info-block">
         <h2>Recent interactions</h2>
