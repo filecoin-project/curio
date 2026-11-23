@@ -46,7 +46,7 @@ CREATE TABLE IF NOT EXISTS pdp_income_cursor (
     started_height BIGINT,
     started_at TIMESTAMPTZ,
 
-    -- Runs in a row that could not read next_height, and when the first ran.
+    -- Runs that failed to read next_height since the cursor reached it, and when the first failed.
     failed_runs INT NOT NULL DEFAULT 0,
     stalled_since TIMESTAMPTZ,
 
