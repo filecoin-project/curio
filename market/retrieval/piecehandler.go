@@ -99,30 +99,31 @@ func (rp *Provider) handleDownload(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	prefixLen := len(downloadPrefix)
 	if len(r.URL.Path) <= prefixLen {
-		log.Errorf("path '%s' is missing piece CID", r.URL.Path)
+		log.Errorf("path '%s' is missing a CID", r.URL.Path)
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
-	pieceCidStr := r.URL.Path[prefixLen:]
-	pieceCid, err := cid.Parse(pieceCidStr)
+	// The CID the client asked for, and signed its request over: a piece CID, or the root (or any
+	// block) of a private CAR, which the private index resolves to the piece holding it.
+	requestedCidStr := r.URL.Path[prefixLen:]
+	requestedCid, err := cid.Parse(requestedCidStr)
 	if err != nil {
-		log.Errorf("parsing piece CID '%s': %s", pieceCidStr, err.Error())
+		log.Errorf("parsing download CID '%s': %s", requestedCidStr, err.Error())
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	// The request is signed over the CID in the URL, so it is checked against that CID: a client
-	// fetching by root signs the root, never needing the piece CID the index resolves it to.
-	requested := pieceCid
-	// A piece CID is that piece. Any other CID is a block of a private CAR.
-	if !commcidv2.IsPieceCidV2(pieceCid) && !commcidv2.IsCidV1PieceCid(pieceCid) {
+	var pieceCid cid.Cid
+	if commcidv2.IsPieceCidV2(requestedCid) || commcidv2.IsCidV1PieceCid(requestedCid) {
+		pieceCid = requestedCid
+	} else {
 		if rp.privateIdx == nil {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
-		piece, ok, err := rp.privateIdx.PrivatePieceByMultihash(ctx, pieceCid.Hash())
+		piece, ok, err := rp.privateIdx.PrivatePieceByMultihash(ctx, requestedCid.Hash())
 		if err != nil {
-			log.Errorf("resolving download CID '%s': %s", pieceCidStr, err.Error())
+			log.Errorf("resolving download CID '%s': %s", requestedCidStr, err.Error())
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
@@ -160,8 +161,9 @@ func (rp *Provider) handleDownload(w http.ResponseWriter, r *http.Request) {
 		var labels keysmith.Labels
 		labels, err = keysmith.ReadEnvelopeLabelsAt(reader)
 		if err == nil {
-			// The labels are the resolved piece's: they decide whether the grant reaches it.
-			_, err = verifyPresentation(raw, requested.Bytes(), labels.Piece(), rp.blockChain, time.Now())
+			// The request names the CID asked for; the labels are the served piece's, and decide
+			// whether the grant reaches it.
+			_, err = verifyPresentation(raw, requestedCid.Bytes(), labels.Piece(), rp.blockChain, time.Now())
 		}
 	}
 	if err != nil {
