@@ -104,8 +104,7 @@ func (rp *Provider) handleDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The CID the client asked for, and signed its request over: a piece CID, or the root (or any
-	// block) of a private CAR, which the private index resolves to the piece holding it.
+	// The CID the client asked for. May be a piece CID, or the IPFS root (or any block) of a private CAR
 	requestedCidStr := r.URL.Path[prefixLen:]
 	requestedCid, err := cid.Parse(requestedCidStr)
 	if err != nil {
@@ -161,9 +160,7 @@ func (rp *Provider) handleDownload(w http.ResponseWriter, r *http.Request) {
 		var labels keysmith.Labels
 		labels, err = keysmith.ReadEnvelopeLabelsAt(reader)
 		if err == nil {
-			// The request names the CID asked for; the labels are the served piece's, and decide
-			// whether the grant reaches it.
-			_, err = verifyPresentation(raw, requestedCid.Bytes(), labels.Piece(), rp.blockChain, time.Now())
+			_, err = keysmith.VerifyPresentation(raw, requestedCid.Bytes(), labels.Piece(), rp.blockChain, time.Now())
 		}
 	}
 	if err != nil {
@@ -205,9 +202,6 @@ func (rp *Provider) handleDownload(w http.ResponseWriter, r *http.Request) {
 }
 
 var errBlockChainUnset = errors.New("blockchain is not configured")
-
-// verifyPresentation is keysmith.VerifyPresentation; tests replace it to see what the gate checks.
-var verifyPresentation = keysmith.VerifyPresentation
 
 // privatePieceIndex looks up the restricted piece that contains a CAR block.
 type privatePieceIndex interface {
