@@ -22,6 +22,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/market/ipni/ipniculib"
 	ipnitypes "github.com/filecoin-project/curio/market/ipni/types"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 type pieceGCRemoval struct {
@@ -143,6 +144,36 @@ func insertSharedPieceGCReference(t *testing.T, db *harmonydb.DB, piece pieceGCF
 		SELECT 'public', $2, ref_id, TIMEZONE('UTC', NOW()), FALSE FROM ref RETURNING id`, piece.parkedPiece, piece.v1.String()).Scan(&id)
 	require.NoError(t, err)
 	return id
+}
+
+func TestPieceGCLeavesCompletedPieceForParkCleanup(t *testing.T) {
+	db, piece := newPieceGCFixture(t)
+	_, err := db.Exec(t.Context(), `INSERT INTO hash_space_disk (storage_id, capacity)
+		VALUES ('piece-gc-test-disk', 1024)`)
+	require.NoError(t, err)
+	insertPieceGCAdvertisement(t, db, piece, false)
+
+	pieces, err := processIPNICleanup(t.Context(), db, &config.HTTPConfig{}, config.NewDynamic(2))
+	require.NoError(t, err)
+	require.Len(t, pieces, 1)
+	cleaner := &pieceGCIndexCleaner{}
+	require.NoError(t, processIndexCleanup(t.Context(), db, cleaner, pieces))
+	require.Equal(t, []pieceGCRemoval{{piece: piece.v1}, {piece: piece.v2}, {piece: piece.v2, aggregate: true}}, cleaner.calls)
+	assertPieceGCState(t, db, piece, false, 1)
+
+	var complete, unclaimed bool
+	var refs, queued, tasks int
+	err = db.QueryRow(t.Context(), `SELECT complete, cleanup_task_id IS NULL, ref_count,
+		(SELECT count(*) FROM hash_space_delete),
+		(SELECT count(*) FROM harmony_task WHERE name = $2)
+		FROM parked_pieces WHERE id = $1`, piece.parkedPiece, tasknames.HashSpaceDrop).
+		Scan(&complete, &unclaimed, &refs, &queued, &tasks)
+	require.NoError(t, err, "PDP GC must leave the parked piece for PiecePark cleanup")
+	require.True(t, complete)
+	require.True(t, unclaimed)
+	require.Zero(t, refs)
+	require.Zero(t, queued, "PDP GC must not queue hashspace deletion")
+	require.Zero(t, tasks, "PDP GC must not create a hashspace deletion task")
 }
 
 func TestPieceGCIndexFailuresRetainReferencesForRetry(t *testing.T) {

@@ -19,7 +19,6 @@ import (
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/mk20"
-	"github.com/filecoin-project/curio/tasks/hashspace"
 	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
@@ -350,9 +349,7 @@ func (p *PieceCleanupTask) Do(ctx context.Context, taskID harmonytask.TaskID, st
 	}
 
 	// remove_piece_deal deletes the parked ref, which cascades pdp_piecerefs.
-	// Queue the open-pieces drop in that same transaction when this was the
-	// last PDP ref, so the hash-space file is not left behind.
-	comm, err := harmonytask.TxWithTask(ctx, p.db, hashspace.DropAdder(), func(tx *harmonydb.Tx, dropTask harmonytask.TaskID) (commit bool, err error) {
+	comm, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		if task.PDP {
 			_, err = tx.Exec(`SELECT remove_piece_deal($1, $2, $3, $4)`, task.ID, -1, pi.PieceCIDV1.String(), pi.Size)
 		} else {
@@ -371,24 +368,6 @@ func (p *PieceCleanupTask) Do(ctx context.Context, taskID harmonytask.TaskID, st
 			}
 		}
 
-		_, err = tx.Exec(`DELETE FROM hash_space_place hp
-			WHERE hp.pdp_piece_cid = $1
-			  AND NOT EXISTS (SELECT 1 FROM pdp_piecerefs pr WHERE pr.id = hp.pdp_pieceref)`, pi.PieceCIDV1.String())
-		if err != nil {
-			return false, xerrors.Errorf("failed to drop open-pieces placement for %s: %w", pi.PieceCIDV1, err)
-		}
-
-		var stillPDP bool
-		err = tx.QueryRow(`SELECT EXISTS (SELECT 1 FROM pdp_piecerefs WHERE piece_cid = $1)`, pi.PieceCIDV1.String()).Scan(&stillPDP)
-		if err != nil {
-			return false, xerrors.Errorf("checking remaining PDP refs for %s: %w", pi.PieceCIDV1, err)
-		}
-		if task.PDP && !stillPDP {
-			if err := hashspace.QueueDrop(tx, dropTask, pcid2.String()); err != nil {
-				return false, err
-			}
-		}
-
 		_, err = tx.Exec(`UPDATE piece_cleanup SET 
 								 cleanup_task_id = NULL, 
 								 after_cleanup = TRUE,
@@ -400,7 +379,7 @@ func (p *PieceCleanupTask) Do(ctx context.Context, taskID harmonytask.TaskID, st
 		}
 		return true, nil
 
-	})
+	}, harmonydb.OptionRetry())
 	if err != nil {
 		return false, xerrors.Errorf("failed to commit piece cleanup: %w", err)
 	}

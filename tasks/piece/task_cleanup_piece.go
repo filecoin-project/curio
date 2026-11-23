@@ -2,9 +2,14 @@ package piece
 
 import (
 	"context"
+	"errors"
 	"time"
 
+	"github.com/ipfs/go-cid"
+	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
+
+	commcid "github.com/filecoin-project/go-fil-commcid"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
@@ -13,13 +18,15 @@ import (
 	"github.com/filecoin-project/curio/lib/piecestore"
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/tasks/hashspace"
 	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 type CleanupPieceTask struct {
-	max   int
-	db    *harmonydb.DB
-	piece piecestore.PieceIO
+	max       int
+	db        *harmonydb.DB
+	piece     piecestore.PieceIO
+	dropAdder harmonytask.AddTaskFunc
 
 	TF promise.Promise[harmonytask.AddTaskFunc]
 
@@ -117,34 +124,80 @@ func (c *CleanupPieceTask) schedule(ctx context.Context) error {
 }
 
 func (c *CleanupPieceTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-
-	// select by cleanup_task_id
+	addDrop := c.dropAdder
+	if addDrop == nil {
+		addDrop = hashspace.DropAdder()
+	}
 	var pieceID int64
-
-	err = c.db.QueryRow(ctx, "SELECT id FROM parked_pieces WHERE cleanup_task_id = $1", taskID).Scan(&pieceID)
-	if err != nil {
-		return false, xerrors.Errorf("query parked_piece: %w", err)
-	}
-
-	// Delete from the database first so new refs cannot attach to this piece.
-	// Storage removal below is best effort after the DB row is gone.
-	n, err := c.db.Exec(ctx, `DELETE FROM parked_pieces pp
-		WHERE pp.id = $1
-		  AND NOT EXISTS (
-			  SELECT 1
-			  FROM parked_piece_refs ppr
-			  WHERE ppr.piece_id = pp.id
-		  )`, pieceID)
-	if err != nil {
-		return false, xerrors.Errorf("delete parked_piece: %w", err)
-	}
-
-	if n == 0 {
-		_, err = c.db.Exec(ctx, `UPDATE parked_pieces SET cleanup_task_id = NULL WHERE id = $1`, pieceID)
+	var removed, withDropTask bool
+	committed, err := harmonytask.TxWithTask(ctx, c.db, addDrop, func(tx *harmonydb.Tx, dropTask harmonytask.TaskID) (bool, error) {
+		removed = false
+		withDropTask = dropTask != 0
+		if !stillOwned() {
+			return false, xerrors.Errorf("lost ownership of piece cleanup task %d", taskID)
+		}
+		var pieceCID string
+		var rawSize int64
+		var complete bool
+		err := tx.QueryRow(`SELECT id, piece_cid, piece_raw_size, complete
+			FROM parked_pieces WHERE cleanup_task_id = $1`, taskID).Scan(&pieceID, &pieceCID, &rawSize, &complete)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return true, nil
+		}
 		if err != nil {
-			return false, xerrors.Errorf("marking piece as complete: %w", err)
+			return false, xerrors.Errorf("reading parked piece: %w", err)
 		}
 
+		// Retire the row and record hashspace cleanup together, before its CID is lost.
+		n, err := tx.Exec(`DELETE FROM parked_pieces pp
+			WHERE pp.id = $1 AND pp.cleanup_task_id = $2
+			  AND NOT EXISTS (SELECT 1 FROM parked_piece_refs r WHERE r.piece_id = pp.id)`, pieceID, taskID)
+		if err != nil {
+			return false, xerrors.Errorf("deleting parked piece: %w", err)
+		}
+		if n == 0 {
+			_, err := tx.Exec(`UPDATE parked_pieces SET cleanup_task_id = NULL
+				WHERE id = $1 AND cleanup_task_id = $2`, pieceID, taskID)
+			return err == nil, err
+		}
+		removed = true
+
+		// Incomplete uploads may have provisional CIDs and have never reached hashspace.
+		if complete {
+			v1, err := cid.Parse(pieceCID)
+			if err != nil {
+				return false, xerrors.Errorf("parsing parked piece CID: %w", err)
+			}
+			v2, err := commcid.PieceCidV2FromV1(v1, uint64(rawSize))
+			if err != nil {
+				return false, xerrors.Errorf("converting parked piece CID: %w", err)
+			}
+			if err := hashspace.QueueDrop(tx, dropTask, v2.String()); err != nil {
+				return false, err
+			}
+		}
+		return true, nil
+	})
+	if err != nil {
+		return false, xerrors.Errorf("cleaning up parked piece: %w", err)
+	}
+	if !committed {
+		return false, xerrors.Errorf("piece cleanup transaction did not commit")
+	}
+	if withDropTask {
+		// The task adder cannot report commit failures; confirm the row was retired
+		// or its cleanup claim released before removing storage or finishing the task.
+		var pending bool
+		err = c.db.QueryRow(ctx, `SELECT EXISTS (
+			SELECT 1 FROM parked_pieces WHERE id = $1 AND ($2 OR cleanup_task_id = $3))`, pieceID, removed, taskID).Scan(&pending)
+		if err != nil {
+			return false, xerrors.Errorf("checking parked piece cleanup commit: %w", err)
+		}
+		if pending {
+			return false, xerrors.Errorf("parked piece %d cleanup did not commit", pieceID)
+		}
+	}
+	if !removed {
 		return true, nil
 	}
 
@@ -168,10 +221,6 @@ func (c *CleanupPieceTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.Ta
 	if err != nil {
 		return nil, xerrors.Errorf("getting local storage: %w", err)
 	}
-	if len(ls) == 0 {
-		return nil, nil
-	}
-
 	storageIDs := make([]string, 0, len(ls))
 	for _, l := range ls {
 		storageIDs = append(storageIDs, string(l.ID))
