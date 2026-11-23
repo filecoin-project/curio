@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/fxamacker/cbor/v2"
 	"github.com/go-chi/chi/v5"
@@ -24,6 +25,7 @@ import (
 	commcid "github.com/filecoin-project/go-fil-commcid"
 
 	"github.com/filecoin-project/curio/lib/cachedreader"
+	"github.com/filecoin-project/curio/lib/keysmith"
 	"github.com/filecoin-project/curio/lib/storiface"
 )
 
@@ -217,6 +219,52 @@ func TestHandleDownloadEncryptedFeeCID(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, miss.Body.Close())
 	require.Equal(t, http.StatusNotFound, miss.StatusCode)
+}
+
+// A request is checked against the CID in the URL: a client fetching by root signs the root, and
+// the labels still come from the piece the root resolves to.
+func TestHandleDownloadVerifiesTheRequestedCID(t *testing.T) {
+	v1, err := cid.Decode("baga6ea4seaqomqafu276g53zko4k23xzh4h4uecjwicbmvhsuqi7o4bhthhm4aq")
+	require.NoError(t, err)
+	payload := testFEEBytes(t)
+	fileCID, _, _, _ := makeUnixFSFile(t, payload)
+	wrapped := makeEncryptedFeeCAR(t, payload)
+	wrappedV2, err := commcid.PieceCidV2FromV1(v1, uint64(len(wrapped)))
+	require.NoError(t, err)
+
+	var checked [][]byte
+	var labels []keysmith.PieceLabels
+	original := verifyPresentation
+	verifyPresentation = func(_, pieceCID []byte, piece keysmith.PieceLabels, _ *big.Int, _ time.Time) (keysmith.VerifiedClaim, error) {
+		checked = append(checked, pieceCID)
+		labels = append(labels, piece)
+		return keysmith.VerifiedClaim{}, nil
+	}
+	t.Cleanup(func() { verifyPresentation = original })
+
+	cpr := &cachedreader.CachedPieceReader{}
+	cpr.SetACLPieceReader(&aclFiles{files: map[cid.Cid][]byte{wrappedV2: wrapped}})
+	provider := &Provider{cpr: cpr, privateIdx: feeLookup{piece: wrappedV2, fee: fileCID}}
+	provider.SetBlockChain(big.NewInt(314159))
+	mux := chi.NewMux()
+	Router(mux, provider, testDenyFilter())
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	token := base64.RawURLEncoding.EncodeToString([]byte("presentation"))
+	for _, requested := range []cid.Cid{fileCID, wrappedV2} {
+		res, err := http.Get(srv.URL + "/download/" + requested.String() + "?foc_grant=" + token)
+		require.NoError(t, err)
+		body, err := io.ReadAll(res.Body)
+		require.NoError(t, err)
+		require.NoError(t, res.Body.Close())
+		require.Equal(t, http.StatusOK, res.StatusCode)
+		require.Equal(t, wrapped, body)
+	}
+	require.Equal(t, [][]byte{fileCID.Bytes(), wrappedV2.Bytes()}, checked)
+	for _, piece := range labels {
+		require.Equal(t, "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266", piece.Owner)
+	}
 }
 
 func TestHandleDownloadCAREnvelopeGrantStatuses(t *testing.T) {
