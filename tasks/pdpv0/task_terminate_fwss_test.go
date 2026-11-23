@@ -3,12 +3,14 @@ package pdpv0
 import (
 	"context"
 	"database/sql"
+	"math/big"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
+	"github.com/filecoin-project/curio/pdp/contract"
 )
 
 const terminateTestHead = uint64(7000)
@@ -57,6 +59,41 @@ func runTerminateTestTasks(t *testing.T, ctx context.Context, tasks []terminateT
 		require.NoError(t, err)
 		require.True(t, done)
 	}
+}
+
+func TestIntegration_TerminateFWSS_DataSetLiveOnChain(t *testing.T) {
+	ctx := context.Background()
+	db, err := harmonydb.NewFromConfigWithITestID(t)
+	require.NoError(t, err)
+
+	live := insertFailureHandlingDataSet(t, ctx, db, failureHandlingDataSetState{InitReady: true})
+	_, err = db.Exec(ctx, `INSERT INTO pdp_delete_data_set (id, operator_requested_deletion) VALUES ($1, TRUE)`, live)
+	require.NoError(t, err)
+
+	// FWSS still runs the service and PDPVerifier still holds the data set.
+	view := newChainSyncViewClient(t)
+	view.setDataSet(live, 7, 0)
+	view.responses[view.callData(contract.PDPVerifierMetaData, "dataSetLive", big.NewInt(live))] =
+		view.pack(contract.PDPVerifierMetaData, "dataSetLive", true)
+	view.responses[view.callData(contract.PDPVerifierMetaData, "getNextPieceId", big.NewInt(live))] =
+		view.pack(contract.PDPVerifierMetaData, "getNextPieceId", big.NewInt(3))
+
+	terminate := &TerminateFWSSTask{db: db, ethClient: terminateChainClient{view}}
+	require.NoError(t, terminate.schedule(ctx, gateAddTaskFunc(t, ctx, db)))
+	var task terminateTestTask
+	require.NoError(t, db.QueryRow(ctx, `
+		SELECT terminate_service_task_id FROM pdp_delete_data_set WHERE id = $1
+	`, live).Scan(&task.ID))
+
+	// No PDP key is stored, so Do stops on its way to sending terminateService.
+	done, err := terminate.Do(ctx, harmonytask.TaskID(task.ID), func() bool { return true })
+	require.Error(t, err)
+	require.False(t, done)
+
+	row := loadTerminateTestRow(t, ctx, db, live)
+	require.False(t, row.AfterTerminate)
+	require.False(t, row.DeletionAllowed)
+	require.False(t, row.TerminationEpoch.Valid)
 }
 
 func TestIntegration_TerminateFWSS_DataSetGoneOnChain(t *testing.T) {

@@ -572,12 +572,14 @@ customElements.define('pdp-dataset-detail', class PdpDatasetDetail extends LitEl
           </div>
         </div>
         ${p?.removedOnChain ? html`<p class="section-note muted">No longer on chain</p>` : ''}
-        ${deletionInProgress(d.paymentAtRisk) ? '' : html`
-          <div class="income-actions">
-            <button type="button" class="btn btn-danger btn-sm" ?disabled=${paymentsLoading}
-              @click=${() => this.openDeleteConfirm()}>Delete dataset</button>
-          </div>
-        `}
+        <div class="income-actions">
+          ${deletionInProgress(d.paymentAtRisk)
+            ? html`<p class="section-note muted">Deletion in progress</p>`
+            : html`
+              <button type="button" class="btn btn-danger btn-sm" ?disabled=${paymentsLoading}
+                @click=${() => this.openDeleteConfirm()}>Delete dataset</button>
+            `}
+        </div>
       </div>
 
       ${this.confirmOpen ? html`
