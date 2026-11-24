@@ -245,8 +245,9 @@ customElements.define('pdp-wallet', class PDPWalletElement extends LitElement {
         }
         if (!confirm(
             'This sends changePayee from your browser wallet (MetaMask/Glif) as the current payee.\n' +
-            'Curio\'s worker key is not used.\n\n' +
-            'After it confirms, estimate and retarget rails so future income follows the new payee.'
+            'Curio\'s worker key is not used (old worker spends nothing).\n\n' +
+            'Rail retarget is a separate second step. If the old worker key is compromised, ' +
+            'rotate the worker and import the new key first, then retarget from that new worker.'
         )) {
             return;
         }
@@ -306,8 +307,17 @@ customElements.define('pdp-wallet', class PDPWalletElement extends LitElement {
             alert('Estimate gas first so you can review the cost warning.');
             return;
         }
+        const role = this.roleStatus;
+        if (role?.localWorker && !role.localWorkerMatches) {
+            alert(
+                'Local Curio key does not match the on-chain worker.\n' +
+                'Import the current (new) worker key first so retarget gas is paid by that wallet, not the old one.'
+            );
+            return;
+        }
         const warning = [
-            `Submit one retargetDataSetPayee transaction per live data set from the worker wallet.`,
+            'Second step only: submit retargetDataSetPayee from the CURRENT on-chain worker (Curio pdp key).',
+            'Do this after changePayee (and after worker rotation if the old worker should not spend gas).',
             `Live data sets: ${this.payeeEstimate.liveDataSets}`,
             `Estimated gas: ${this.payeeEstimate.totalGas} (~${this.payeeEstimate.estimatedCostFil} FIL at current base fee)`,
             this.payeeEstimate.note,
@@ -548,9 +558,11 @@ customElements.define('pdp-wallet', class PDPWalletElement extends LitElement {
                     </button>
                 </div>
 
-                <h4 class="h5 mt-3">Retarget payment rails</h4>
+                <h4 class="h5 mt-3">Retarget payment rails (second step)</h4>
                 <p class="text-muted">
-                    After the payee has changed on-chain, the worker must open replacement rails so future income goes to the new payee.
+                    Separate from role changes. After <code>changePayee</code>, call this from the
+                    <em>current</em> on-chain worker so gas is paid by that wallet — rotate the worker
+                    and import the new key first if you want to avoid spending on the old worker.
                 </p>
                 <button class="btn btn-outline-light me-2 mb-2" ?disabled=${this.estimating || this.retargeting}
                         @click=${this.estimateRetargetGas}>
