@@ -93,14 +93,56 @@ func (a *WebRPC) PDPRoleStatus(ctx context.Context) (*PDPRoleStatus, error) {
 		out.LocalWorker = localWorker
 		out.LocalWorkerMatches = strings.EqualFold(localWorker, worker)
 		if !out.LocalWorkerMatches {
-			out.WorkerMismatchNote = "Local Curio pdp key does not match the on-chain worker. Import the current worker private key after FilOzone updates changeServiceProvider on the registry."
+			out.WorkerMismatchNote = "Local Curio pdp key does not match the on-chain worker. Import the current worker private key, or have the payee rotate the worker via MetaMask/Glif."
 		}
 	}
 	return out, nil
 }
 
+// PDPWorkerWalletTx is calldata for the payee browser wallet to submit changeServiceProvider.
+type PDPWorkerWalletTx struct {
+	To         string `json:"to"`
+	Data       string `json:"data"`
+	ChainID    string `json:"chainId"`
+	FromMustBe string `json:"fromMustBe"`
+	ProviderID int64  `json:"providerId"`
+	NewWorker  string `json:"newWorker"`
+	Note       string `json:"note"`
+}
+
+// BuildChangeWorkerTx packs registry calldata for payee-direct worker rotation (MetaMask/Glif).
+// Curio does not submit this tx. Payee changes remain registry-owner only.
+func (a *WebRPC) BuildChangeWorkerTx(ctx context.Context, newWorker string) (*PDPWorkerWalletTx, error) {
+	if !common.IsHexAddress(newWorker) {
+		return nil, fmt.Errorf("invalid worker address")
+	}
+	role, err := a.PDPRoleStatus(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if !role.Configured {
+		return nil, fmt.Errorf("provider is not registered")
+	}
+	if strings.EqualFold(newWorker, role.Worker) {
+		return nil, fmt.Errorf("new worker is unchanged")
+	}
+	calldata, err := contract.PackChangeServiceProvider(big.NewInt(role.ProviderID), common.HexToAddress(newWorker))
+	if err != nil {
+		return nil, err
+	}
+	return &PDPWorkerWalletTx{
+		To:         role.RegistryAddress,
+		Data:       "0x" + common.Bytes2Hex(calldata),
+		ChainID:    role.ChainID,
+		FromMustBe: role.Payee,
+		ProviderID: role.ProviderID,
+		NewWorker:  common.HexToAddress(newWorker).Hex(),
+		Note:       "Submit from the current payee account in MetaMask or Glif. Worker key is not used for this call.",
+	}, nil
+}
+
 // EstimatePayeeRetargetGas estimates FIL gas for one retargetDataSetPayee per live data set.
-// Payee/worker role changes are registry-owner only (central vetting); Curio only retargets rails.
+// Payee changes are registry-owner only; worker rotation is payee (or owner) via browser wallet.
 func (a *WebRPC) EstimatePayeeRetargetGas(ctx context.Context) (*PDPPayeeRetargetEstimate, error) {
 	role, err := a.PDPRoleStatus(ctx)
 	if err != nil {

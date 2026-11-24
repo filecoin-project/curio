@@ -44,7 +44,7 @@ func emitProvingSendErrorAlert(al curioalerting.AlertingInterface, subsystem str
 	msg := err.Error()
 	if IsOperatorAttentionProvingError(err) {
 		msg = fmt.Sprintf(
-			"PDP worker wallet mismatch for data set %d: local eth_keys role=pdp is not the authorized on-chain worker. Import the current worker key after FilOzone updates the registry worker. Underlying error: %v",
+			"PDP worker wallet mismatch for data set %d: local eth_keys role=pdp is not the authorized on-chain worker. Import the current worker key, or have the payee rotate the worker via MetaMask/Glif. Underlying error: %v",
 			dataSetId, err,
 		)
 	}

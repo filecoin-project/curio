@@ -21,6 +21,7 @@ import (
 // to pack calldata and estimate gas.
 
 const registryRoleRotationABI = `[
+	{"type":"function","name":"changeServiceProvider","inputs":[{"name":"providerId","type":"uint256"},{"name":"newServiceProvider","type":"address"}],"outputs":[],"stateMutability":"nonpayable"},
 	{"type":"function","name":"providerActionNonce","inputs":[{"name":"providerId","type":"uint256"}],"outputs":[{"name":"nonce","type":"uint256"}],"stateMutability":"view"}
 ]`
 
@@ -34,6 +35,15 @@ func registryRoleABI() (abi.ABI, error) {
 
 func fwssRetargetParsedABI() (abi.ABI, error) {
 	return abi.JSON(strings.NewReader(fwssRetargetABI))
+}
+
+// PackChangeServiceProvider builds calldata for a payee-or-owner changeServiceProvider call.
+func PackChangeServiceProvider(providerID *big.Int, newWorker common.Address) ([]byte, error) {
+	parsed, err := registryRoleABI()
+	if err != nil {
+		return nil, err
+	}
+	return parsed.Pack("changeServiceProvider", providerID, newWorker)
 }
 
 // PackRetargetDataSetPayee builds calldata for FWSS.retargetDataSetPayee.
