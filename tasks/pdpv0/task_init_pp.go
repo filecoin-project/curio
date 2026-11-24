@@ -72,7 +72,8 @@ func NewInitProvingPeriodTask(db *harmonydb.DB, ethClient ethchain.EthClient, fi
                 WHERE challenge_request_task_id IS NULL
                   AND init_ready AND prove_at_epoch IS NULL
                   AND unrecoverable_proving_failure_epoch IS NULL
-	            `)
+                  AND (proving_retry_epoch IS NULL OR proving_retry_epoch <= $1)
+	            `, apply.Height())
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			_ = al.EmitEvent(ctx, curioalerting.AlertEvent{
 				System:    alertType,
@@ -236,7 +237,8 @@ func (ipp *InitProvingPeriodTask) Do(ctx context.Context, taskID harmonytask.Tas
             UPDATE pdp_data_sets
             SET challenge_request_msg_hash = $1,
                 prev_challenge_request_epoch = $2,
-				prove_at_epoch = $3
+				prove_at_epoch = $3,
+				proving_retry_epoch = NULL
             WHERE id = $4
         `, txHashLower, ts.Height(), init_prove_at.Uint64(), dataSetId)
 		if err != nil {

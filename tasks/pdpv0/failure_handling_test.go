@@ -37,6 +37,7 @@ func (r *recordingAlerting) ResolveCondition(context.Context, curioalerting.Aler
 
 type failureHandlingDataSetState struct {
 	UnrecoverableEpoch sql.NullInt64
+	ProvingRetryEpoch  sql.NullInt64
 	InitReady          bool
 	ProveAtEpoch       sql.NullInt64
 	ChallengeHash      sql.NullString
@@ -211,12 +212,6 @@ func TestIntegration_HandleSplitProvingSendErrors_RetryAndAlertPathsDoNotMutateD
 			handle: nextPPSendError,
 		},
 		{
-			name:       "unexpected proving invariant alerts",
-			err:        selectorRevert(contractErrorSelector(ErrPDPVerifierExcessiveChallengeDelay)),
-			wantAlerts: 1,
-			handle:     nextPPSendError,
-		},
-		{
 			name:       "operator attention alerts",
 			err:        reasonRevert(provingRevertOnlyStorageProviderCanProve),
 			wantAlerts: 1,
@@ -272,6 +267,85 @@ func TestIntegration_HandleSplitProvingSendErrors_RetryAndAlertPathsDoNotMutateD
 			require.Equal(t, 0, countFailureHandlingDeleteRows(t, ctx, db, dataSetID))
 		})
 	}
+}
+
+func TestIntegration_HandleNextProvingPeriodSendFailure_UnknownRevertDefersRecheck(t *testing.T) {
+	ctx := context.Background()
+	db, err := harmonydb.NewFromConfigWithITestID(t)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name string
+		err  error
+	}{
+		{
+			name: "unclassified contract revert",
+			err:  selectorRevert("deadbeef"),
+		},
+		{
+			name: "unexpected proving invariant",
+			err:  selectorRevert(contractErrorSelector(ErrPDPVerifierExcessiveChallengeDelay)),
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			initialState := failureHandlingDataSetState{
+				InitReady:          true,
+				ProveAtEpoch:       sql.NullInt64{Int64: 2300, Valid: true},
+				ChallengeHash:      sql.NullString{String: "0x00000000000000000000000000000000000000000000000000000000000000dd", Valid: true},
+				PrevChallengeEpoch: sql.NullInt64{Int64: 1300, Valid: true},
+			}
+			dataSetID := insertFailureHandlingDataSet(t, ctx, db, initialState)
+			currentHeight := int64(4700)
+
+			err := handleNextProvingPeriodSendFailure(ctx, db, nil, curioalerting.NewAlertingSystem(db), alertNameNextPP, dataSetID, currentHeight, tc.err)
+			require.NoError(t, err)
+
+			var eventContext []byte
+			err = db.QueryRow(ctx, `
+				SELECT context
+				FROM alert_history
+				WHERE kind = 'event' AND system = $1 AND subsystem = $2
+				  AND context->>'dataset' = $3
+			`, alertType, alertNameNextPP, strconv.FormatInt(dataSetID, 10)).Scan(&eventContext)
+			require.NoError(t, err)
+			require.JSONEq(t, fmt.Sprintf(`{"dataset": "%d"}`, dataSetID), string(eventContext))
+
+			held := initialState
+			held.ProvingRetryEpoch = sql.NullInt64{Int64: currentHeight + provingRecheckDelayEpochs, Valid: true}
+			require.Equal(t, held, loadFailureHandlingDataSet(t, ctx, db, dataSetID))
+			require.Equal(t, 0, countFailureHandlingDeleteRows(t, ctx, db, dataSetID))
+		})
+	}
+}
+
+func TestIntegration_HandleNextProvingPeriodPreflight_UnknownRevertDefersRecheck(t *testing.T) {
+	ctx := context.Background()
+	db, err := harmonydb.NewFromConfigWithITestID(t)
+	require.NoError(t, err)
+
+	initialState := failureHandlingDataSetState{
+		InitReady:          true,
+		ProveAtEpoch:       sql.NullInt64{Int64: 2300, Valid: true},
+		ChallengeHash:      sql.NullString{String: "0x00000000000000000000000000000000000000000000000000000000000000dd", Valid: true},
+		PrevChallengeEpoch: sql.NullInt64{Int64: 1300, Valid: true},
+	}
+	dataSetID := insertFailureHandlingDataSet(t, ctx, db, initialState)
+	currentHeight := int64(4701)
+	alerts := &recordingAlerting{}
+	task := &NextProvingPeriodTask{db: db, al: alerts}
+
+	done, err := task.handleNextProvingPeriodPreflightError(ctx, dataSetID, currentHeight, selectorRevert("deadbeef"))
+	require.NoError(t, err)
+	require.True(t, done)
+	require.Len(t, alerts.events, 1)
+	require.Equal(t, map[string]string{curioalerting.CONTEXT_KEY_DATASET: strconv.FormatInt(dataSetID, 10)}, alerts.events[0].Context)
+
+	held := initialState
+	held.ProvingRetryEpoch = sql.NullInt64{Int64: currentHeight + provingRecheckDelayEpochs, Valid: true}
+	require.Equal(t, held, loadFailureHandlingDataSet(t, ctx, db, dataSetID))
+	require.Equal(t, 0, countFailureHandlingDeleteRows(t, ctx, db, dataSetID))
 }
 
 func TestIntegration_HandleNextProvingPeriodSendError_UnsettledLockupStopsDatasetProving(t *testing.T) {
@@ -374,13 +448,14 @@ func loadFailureHandlingDataSet(t *testing.T, ctx context.Context, db *harmonydb
 	var state failureHandlingDataSetState
 	err := db.QueryRow(ctx, `
 		SELECT unrecoverable_proving_failure_epoch,
+			proving_retry_epoch,
 			init_ready,
 			prove_at_epoch,
 			challenge_request_msg_hash,
 			prev_challenge_request_epoch
 		FROM pdp_data_sets
 		WHERE id = $1
-	`, dataSetID).Scan(&state.UnrecoverableEpoch, &state.InitReady, &state.ProveAtEpoch,
+	`, dataSetID).Scan(&state.UnrecoverableEpoch, &state.ProvingRetryEpoch, &state.InitReady, &state.ProveAtEpoch,
 		&state.ChallengeHash, &state.PrevChallengeEpoch)
 	require.NoError(t, err)
 	return state
