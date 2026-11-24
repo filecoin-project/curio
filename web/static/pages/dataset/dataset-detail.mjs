@@ -187,8 +187,6 @@ customElements.define('pdp-dataset-detail', class PdpDatasetDetail extends LitEl
     paymentsError: { type: String },
     interactionsStatus: { type: String },
     interactionsError: { type: String },
-    income: { type: Object },
-    incomeStatus: { type: String },
     confirmOpen: { type: Boolean },
     deleteBusy: { type: Boolean },
     deleteError: { type: String },
@@ -204,8 +202,6 @@ customElements.define('pdp-dataset-detail', class PdpDatasetDetail extends LitEl
     this.paymentsError = null
     this.interactionsStatus = 'idle'
     this.interactionsError = null
-    this.income = null
-    this.incomeStatus = 'idle'
     this.confirmOpen = false
     this.deleteBusy = false
     this.deleteError = null
@@ -263,16 +259,9 @@ customElements.define('pdp-dataset-detail', class PdpDatasetDetail extends LitEl
       return
     }
 
-    // Late-populate chain payments, income + interactions in parallel.
+    // Late-populate chain payments + interactions in parallel.
     this.paymentsStatus = 'loading'
     this.interactionsStatus = 'loading'
-    this.incomeStatus = 'loading'
-
-    // Without income records there is nothing to show, whatever the cause.
-    const incomeP = RPCCall('PDPDataSetIncome', [numId])
-      .then((income) => { this.income = income })
-      .catch(() => { this.income = null })
-      .finally(() => { this.incomeStatus = 'ready' })
 
     const paymentsP = RPCCall('PDPDataSetPayments', [numId])
       .then((payments) => {
@@ -299,7 +288,7 @@ customElements.define('pdp-dataset-detail', class PdpDatasetDetail extends LitEl
         this.interactionsStatus = 'error'
       })
 
-    await Promise.allSettled([paymentsP, interactionsP, incomeP])
+    await Promise.allSettled([paymentsP, interactionsP])
   }
 
   static styles = css``
@@ -320,9 +309,6 @@ customElements.define('pdp-dataset-detail', class PdpDatasetDetail extends LitEl
     const proven = p?.provenThisPeriod
     const paymentsLoading = this.paymentsStatus === 'loading'
     const interactionsLoading = this.interactionsStatus === 'loading'
-    const income = this.income
-    const incomeLoading = this.incomeStatus === 'loading'
-    const recorded = !!income?.recordedSince
     const head = d.headEpoch ?? p?.headEpoch
     const provingNote = statusSummary(d, proven)
 
@@ -540,18 +526,6 @@ customElements.define('pdp-dataset-detail', class PdpDatasetDetail extends LitEl
       <div class="info-block income-block">
         <h2>Income</h2>
         <div class="income-metrics">
-          <div>
-            <div class="metric-label">Recorded income</div>
-            <div class="metric">${maybeLoading(incomeLoading, recorded
-              ? html`${income.recordedIncome}<span class="metric-unit">USDFC</span>`
-              : '—')}</div>
-            ${incomeLoading ? '' : html`
-              <p class="section-note muted">${recorded ? `Since ${shortDate(income.recordedSince)}` : 'Not recorded yet'}</p>
-            `}
-            ${recorded && income.missingPeriods > 0 ? html`
-              <p class="section-note muted">${income.missingPeriods} period${income.missingPeriods === 1 ? '' : 's'} not recorded</p>
-            ` : ''}
-          </div>
           <div>
             <div class="metric-label">Income per month</div>
             <div class="metric">${maybeLoading(paymentsLoading, p?.monthlyIncome
