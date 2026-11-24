@@ -191,7 +191,7 @@ func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthC
 					continue
 				}
 				log.Infow("rail finalized, inferred from getRail revert", "railId", railId, "dataSetId", dataSet.Int64())
-				if err := ensureDataSetDeletion(tx, dataSet.Int64()); err != nil {
+				if err := allowDataSetDeletion(tx, dataSet.Int64()); err != nil {
 					return false, xerrors.Errorf("failed to ensure deletion of dataSet: %w", err)
 				}
 				continue
@@ -210,7 +210,7 @@ func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthC
 			// time we see this rail in a finalized state, so we perform a hard-fail
 			// here to prevent tx cleanup to allow retry on next loop.
 			if view.EndEpoch.Int64() > 0 && view.EndEpoch.Cmp(view.SettledUpTo) == 0 {
-				if err := ensureDataSetDeletion(tx, dataSet.Int64()); err != nil {
+				if err := allowDataSetDeletion(tx, dataSet.Int64()); err != nil {
 					return false, xerrors.Errorf("failed to ensure deletion of dataSet: %w", err)
 				}
 			}
@@ -271,9 +271,9 @@ func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthC
 	return nil
 }
 
-// ensureDataSetDeletion lets the data set's pipeline row proceed to
+// allowDataSetDeletion lets the data set's pipeline row proceed to
 // deleteDataSet. It changes nothing when the data set has no pipeline row.
-func ensureDataSetDeletion(tx *harmonydb.Tx, dataSetID int64) error {
+func allowDataSetDeletion(tx *harmonydb.Tx, dataSetID int64) error {
 	_, err := tx.Exec(`UPDATE pdp_delete_data_set SET deletion_allowed = TRUE WHERE id = $1`, dataSetID)
 	if err != nil {
 		return xerrors.Errorf("failed to set deletion_allowed for data set %d: %w", dataSetID, err)

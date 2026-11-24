@@ -431,7 +431,7 @@ func (t *TaskChainSync) syncFinalizedDataSetDeletionRails(ctx context.Context) e
 		rail, err := payments.GetRail(contract.EthCallOpts(ctx), ds.PdpRailId)
 		if err != nil {
 			if payment.IsRailInactiveOrSettledError(err) {
-				if err := t.ensureDataSetDeletion(ctx, dataSet.ID); err != nil {
+				if err := t.allowDataSetDeletion(ctx, dataSet.ID); err != nil {
 					return err
 				}
 				log.Infow("allowed PDP data set deletion after finalized rail lookup reverted",
@@ -443,7 +443,7 @@ func (t *TaskChainSync) syncFinalizedDataSetDeletionRails(ctx context.Context) e
 		}
 
 		if rail.EndEpoch != nil && rail.SettledUpTo != nil && rail.EndEpoch.Sign() > 0 && rail.EndEpoch.Cmp(rail.SettledUpTo) == 0 {
-			if err := t.ensureDataSetDeletion(ctx, dataSet.ID); err != nil {
+			if err := t.allowDataSetDeletion(ctx, dataSet.ID); err != nil {
 				return err
 			}
 			log.Infow("allowed PDP data set deletion after rail finalized",
@@ -526,9 +526,9 @@ func (t *TaskChainSync) syncPDPVerifierDeletionState(ctx context.Context) error 
 	return nil
 }
 
-// ensureDataSetDeletion marks a terminated data set as eligible for the normal delete task once chain sync has confirmed rail finality.
+// allowDataSetDeletion marks a terminated data set as eligible for the normal delete task once chain sync has confirmed rail finality.
 // The WHERE clause preserves idempotency and prevents this helper from moving rows that have not reached the post-terminate state.
-func (t *TaskChainSync) ensureDataSetDeletion(ctx context.Context, dataSetID int64) error {
+func (t *TaskChainSync) allowDataSetDeletion(ctx context.Context, dataSetID int64) error {
 	n, err := t.db.Exec(ctx, `UPDATE pdp_delete_data_set
 		SET deletion_allowed = TRUE
 		WHERE id = $1
