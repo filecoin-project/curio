@@ -21,8 +21,6 @@ import (
 // to pack calldata and estimate gas.
 
 const registryRoleRotationABI = `[
-	{"type":"function","name":"changePayee","inputs":[{"name":"providerId","type":"uint256"},{"name":"newPayee","type":"address"},{"name":"signature","type":"bytes"}],"outputs":[],"stateMutability":"nonpayable"},
-	{"type":"function","name":"changeServiceProvider","inputs":[{"name":"providerId","type":"uint256"},{"name":"newServiceProvider","type":"address"},{"name":"signature","type":"bytes"}],"outputs":[],"stateMutability":"nonpayable"},
 	{"type":"function","name":"providerActionNonce","inputs":[{"name":"providerId","type":"uint256"}],"outputs":[{"name":"nonce","type":"uint256"}],"stateMutability":"view"}
 ]`
 
@@ -36,24 +34,6 @@ func registryRoleABI() (abi.ABI, error) {
 
 func fwssRetargetParsedABI() (abi.ABI, error) {
 	return abi.JSON(strings.NewReader(fwssRetargetABI))
-}
-
-// PackChangePayee builds calldata for a payee-direct changePayee call (empty signature).
-func PackChangePayee(providerID *big.Int, newPayee common.Address) ([]byte, error) {
-	parsed, err := registryRoleABI()
-	if err != nil {
-		return nil, err
-	}
-	return parsed.Pack("changePayee", providerID, newPayee, []byte{})
-}
-
-// PackChangeServiceProvider builds calldata for a payee-direct changeServiceProvider call (empty signature).
-func PackChangeServiceProvider(providerID *big.Int, newWorker common.Address) ([]byte, error) {
-	parsed, err := registryRoleABI()
-	if err != nil {
-		return nil, err
-	}
-	return parsed.Pack("changeServiceProvider", providerID, newWorker, []byte{})
 }
 
 // PackRetargetDataSetPayee builds calldata for FWSS.retargetDataSetPayee.

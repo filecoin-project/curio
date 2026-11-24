@@ -16,11 +16,6 @@ customElements.define('pdp-wallet', class PDPWalletElement extends LitElement {
         payeeEstimate: { type: Object },
         estimating: { type: Boolean },
         retargeting: { type: Boolean },
-        newPayee: { type: String },
-        newWorker: { type: String },
-        browserPayee: { type: String },
-        submittingPayeeWallet: { type: Boolean },
-        submittingWorkerWallet: { type: Boolean },
     }
 
     constructor() {
@@ -38,11 +33,6 @@ customElements.define('pdp-wallet', class PDPWalletElement extends LitElement {
         this.payeeEstimate = null;
         this.estimating = false;
         this.retargeting = false;
-        this.newPayee = '';
-        this.newWorker = '';
-        this.browserPayee = '';
-        this.submittingPayeeWallet = false;
-        this.submittingWorkerWallet = false;
         this.loadKeys();
         this.loadKeyStatus();
         this.loadRoleStatus();
@@ -168,125 +158,6 @@ customElements.define('pdp-wallet', class PDPWalletElement extends LitElement {
         } catch (error) {
             console.error('Failed to remove key:', error);
             alert('Failed to remove key: ' + (error.message || error));
-        }
-    }
-
-    async connectPayeeBrowserWallet() {
-        try {
-            const account = await this.requireBrowserPayeeAccount();
-            this.browserPayee = account;
-            alert(`Connected payee browser wallet: ${account}`);
-        } catch (error) {
-            console.error('Failed to connect browser wallet:', error);
-            alert(error.message || error);
-        }
-    }
-
-    async requireBrowserPayeeAccount() {
-        const role = this.roleStatus;
-        if (!role?.configured) {
-            throw new Error('Provider is not registered.');
-        }
-        if (!window.ethereum) {
-            throw new Error('No browser wallet found. Use MetaMask or Glif (window.ethereum).');
-        }
-        const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
-        const from = accounts?.[0];
-        if (!from) {
-            throw new Error('No account selected in the browser wallet.');
-        }
-        if (from.toLowerCase() !== (role.payee || '').toLowerCase()) {
-            throw new Error(`Browser wallet ${from} is not the current payee ${role.payee}. Switch accounts in MetaMask/Glif.`);
-        }
-        await this.ensureBrowserChain(role.chainId);
-        this.browserPayee = from;
-        return from;
-    }
-
-    async ensureBrowserChain(chainIdDecimal) {
-        const wantedHex = '0x' + BigInt(chainIdDecimal).toString(16);
-        const current = await window.ethereum.request({ method: 'eth_chainId' });
-        if ((current || '').toLowerCase() === wantedHex.toLowerCase()) {
-            return;
-        }
-        try {
-            await window.ethereum.request({
-                method: 'wallet_switchEthereumChain',
-                params: [{ chainId: wantedHex }],
-            });
-        } catch (error) {
-            throw new Error(`Switch the browser wallet to chainId ${chainIdDecimal} (${wantedHex}). ${error.message || error}`);
-        }
-    }
-
-    async submitPayeeBrowserTx(method, newAddress) {
-        const from = await this.requireBrowserPayeeAccount();
-        const tx = await RPCCall('BuildPayeeWalletTx', [method, newAddress]);
-        if (from.toLowerCase() !== (tx.fromMustBe || '').toLowerCase()) {
-            throw new Error(`Connected account must be payee ${tx.fromMustBe}.`);
-        }
-        const txHash = await window.ethereum.request({
-            method: 'eth_sendTransaction',
-            params: [{
-                from,
-                to: tx.to,
-                data: tx.data,
-                value: '0x0',
-            }],
-        });
-        return txHash;
-    }
-
-    async changePayeeViaBrowserWallet() {
-        const newPayee = this.newPayee.trim();
-        if (!newPayee) {
-            alert('Enter the new payee address.');
-            return;
-        }
-        if (!confirm(
-            'This sends changePayee from your browser wallet (MetaMask/Glif) as the current payee.\n' +
-            'Curio\'s worker key is not used (old worker spends nothing).\n\n' +
-            'Rail retarget is a separate second step. If the old worker key is compromised, ' +
-            'rotate the worker and import the new key first, then retarget from that new worker.'
-        )) {
-            return;
-        }
-        this.submittingPayeeWallet = true;
-        try {
-            const txHash = await this.submitPayeeBrowserTx('changePayee', newPayee);
-            alert(`changePayee submitted from browser wallet: ${txHash}`);
-            await this.loadRoleStatus();
-        } catch (error) {
-            console.error('Failed browser changePayee:', error);
-            alert('Failed changePayee: ' + (error.message || error));
-        } finally {
-            this.submittingPayeeWallet = false;
-        }
-    }
-
-    async changeWorkerViaBrowserWallet() {
-        const newWorker = this.newWorker.trim();
-        if (!newWorker) {
-            alert('Enter the new worker address (create/import the key on this node first).');
-            return;
-        }
-        if (!confirm(
-            'This sends changeServiceProvider from your browser wallet (MetaMask/Glif) as the current payee.\n' +
-            'Curio\'s worker key is not used.\n\n' +
-            'After it confirms, import that worker private key into Curio if it is not already stored.'
-        )) {
-            return;
-        }
-        this.submittingWorkerWallet = true;
-        try {
-            const txHash = await this.submitPayeeBrowserTx('changeServiceProvider', newWorker);
-            alert(`changeServiceProvider submitted from browser wallet: ${txHash}`);
-            await this.loadRoleStatus();
-        } catch (error) {
-            console.error('Failed browser changeServiceProvider:', error);
-            alert('Failed changeServiceProvider: ' + (error.message || error));
-        } finally {
-            this.submittingWorkerWallet = false;
         }
     }
 
@@ -490,8 +361,8 @@ customElements.define('pdp-wallet', class PDPWalletElement extends LitElement {
             <hr class="my-4">
             <h3>Payee and Worker</h3>
             <p class="text-muted">
-                Payee receives settlements and alone may change payee or worker (call the registry from Glif as the payee).
-                Curio holds only the worker key for proving and rail retargets.
+                Payee and worker rotation is done by the ServiceProviderRegistry owner (FilOzone) after human vetting.
+                Curio holds only the worker key for proving and rail retargets — never ask a possibly compromised wallet to authorize role changes.
             </p>
             ${this.roleStatusLoading ? html`
                 <div class="alert alert-secondary">Loading on-chain roles…</div>
@@ -522,47 +393,22 @@ customElements.define('pdp-wallet', class PDPWalletElement extends LitElement {
                     <dd class="col-sm-9">${this.roleStatus.liveDataSets}</dd>
                 </dl>
 
-                <h4 class="h5 mt-3">Change payee or worker (browser wallet)</h4>
-                <p class="text-muted">
-                    One-time payee action: connect MetaMask or Glif as
-                    <code>${this.roleStatus.payee}</code>
-                    and submit directly. Curio only builds calldata; the worker key never signs these.
-                </p>
-                <button class="btn btn-outline-light mb-3"
-                        @click=${this.connectPayeeBrowserWallet}>
-                    ${this.browserPayee ? `Connected: ${this.browserPayee}` : 'Connect payee MetaMask / Glif'}
-                </button>
-
-                <div class="mb-3">
-                    <label class="form-label" for="new-payee">New payee address</label>
-                    <input class="form-control font-monospace" id="new-payee"
-                           .value=${this.newPayee}
-                           @input=${(e) => { this.newPayee = e.target.value; }}>
-                    <button class="btn btn-primary mt-2" ?disabled=${this.submittingPayeeWallet}
-                            @click=${this.changePayeeViaBrowserWallet}>
-                        ${this.submittingPayeeWallet ? 'Waiting for wallet…' : 'Change payee via MetaMask / Glif'}
-                    </button>
-                </div>
-
-                <div class="mb-3">
-                    <label class="form-label" for="new-worker">New worker address</label>
-                    <input class="form-control font-monospace" id="new-worker"
-                           .value=${this.newWorker}
-                           @input=${(e) => { this.newWorker = e.target.value; }}>
-                    <div class="form-text text-muted">
-                        Create or import the new worker key on this node first, then submit the on-chain change from the payee browser wallet.
-                    </div>
-                    <button class="btn btn-primary mt-2" ?disabled=${this.submittingWorkerWallet}
-                            @click=${this.changeWorkerViaBrowserWallet}>
-                        ${this.submittingWorkerWallet ? 'Waiting for wallet…' : 'Change worker via MetaMask / Glif'}
-                    </button>
+                <h4 class="h5 mt-3">Change payee or worker</h4>
+                <div class="alert alert-info">
+                    Request FilOzone to call
+                    <code>changePayee(providerId, newPayee)</code>
+                    and/or
+                    <code>changeServiceProvider(providerId, newWorker)</code>
+                    on registry <code>${this.roleStatus.registryAddress}</code>
+                    (providerId <code>${this.roleStatus.providerId}</code>).
+                    Create or import the new worker key on this node first when rotating the worker.
                 </div>
 
                 <h4 class="h5 mt-3">Retarget payment rails (second step)</h4>
                 <p class="text-muted">
-                    Separate from role changes. After <code>changePayee</code>, call this from the
-                    <em>current</em> on-chain worker so gas is paid by that wallet — rotate the worker
-                    and import the new key first if you want to avoid spending on the old worker.
+                    After FilOzone updates the payee on-chain, call this from the
+                    <em>current</em> on-chain worker so gas is paid by that wallet — import the new
+                    worker key first if the old worker must not spend gas.
                 </p>
                 <button class="btn btn-outline-light me-2 mb-2" ?disabled=${this.estimating || this.retargeting}
                         @click=${this.estimateRetargetGas}>
