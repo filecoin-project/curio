@@ -274,6 +274,39 @@ func TestIntegration_HandleSplitProvingSendErrors_RetryAndAlertPathsDoNotMutateD
 	}
 }
 
+func TestIntegration_HandleNextProvingPeriodSendError_UnsettledLockupStopsDatasetProving(t *testing.T) {
+	ctx := context.Background()
+	db, err := harmonydb.NewFromConfigWithITestID(t)
+	require.NoError(t, err)
+
+	dataSetID := insertFailureHandlingDataSet(t, ctx, db, failureHandlingDataSetState{
+		InitReady:          true,
+		ProveAtEpoch:       sql.NullInt64{Int64: 2000, Valid: true},
+		ChallengeHash:      sql.NullString{String: "0x00000000000000000000000000000000000000000000000000000000000000aa", Valid: true},
+		PrevChallengeEpoch: sql.NullInt64{Int64: 1000, Valid: true},
+	})
+	sendErr := selectorRevert(contractErrorSelector(ErrPaymentsLockupNotSettledRateChangeNotAllowed))
+	currentHeight := int64(4600)
+
+	var alert bool
+	committed, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		var handleErr error
+		alert, handleErr = handleNextProvingPeriodSendError(ctx, tx, nil, alertNameNextPP, dataSetID, currentHeight, sendErr)
+		require.NoError(t, handleErr)
+		return true, nil
+	}, harmonydb.OptionRetry())
+	require.NoError(t, err)
+	require.True(t, committed)
+
+	require.False(t, alert)
+	require.Equal(t, failureHandlingDataSetState{
+		UnrecoverableEpoch: sql.NullInt64{Int64: currentHeight, Valid: true},
+		InitReady:          false,
+		PrevChallengeEpoch: sql.NullInt64{Int64: 1000, Valid: true},
+	}, loadFailureHandlingDataSet(t, ctx, db, dataSetID))
+	require.Equal(t, 1, countFailureHandlingDeleteRows(t, ctx, db, dataSetID))
+}
+
 func TestIntegration_HandleNextProvingPeriodSendFailure_RecordsAlert(t *testing.T) {
 	ctx := context.Background()
 	db, err := harmonydb.NewFromConfigWithITestID(t)

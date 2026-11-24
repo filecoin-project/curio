@@ -2,6 +2,7 @@ package pdpv0
 
 import (
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -18,6 +19,7 @@ var knownErrorClassifiers = []errorClassifier{
 	{name: "next proving period already called", fn: IsNextProvingPeriodAlreadyCalledError},
 	{name: "proving period not initialized", fn: IsProvingPeriodNotInitializedError},
 	{name: "next proving period empty dataset", fn: IsNextProvingPeriodEmptyDatasetError},
+	{name: "lockup not settled rate change", fn: IsLockupNotSettledRateChangeNotAllowedError},
 	{name: "refresh proving state", fn: IsRefreshProvingStateError},
 	{name: "unexpected proving invariant", fn: IsUnexpectedProvingInvariantError},
 	{name: "FWSS proving not started", fn: IsFWSSProvingNotStartedError},
@@ -145,6 +147,16 @@ func TestKnownErrorClassifiers(t *testing.T) {
 			err:            selectorRevert(contractErrorSelector(ErrPDPVerifierDataSetNotFound)),
 			wantClassifier: "PDPVerifier data set not found",
 		},
+		{
+			name:           "FilecoinPay LockupNotSettledRateChangeNotAllowed stops the dataset",
+			err:            selectorRevert(contractErrorSelector(ErrPaymentsLockupNotSettledRateChangeNotAllowed)),
+			wantClassifier: "lockup not settled rate change",
+		},
+		{
+			name:           "Filecoin exit 33 lockup revert stops the dataset",
+			err:            errors.New("failed to estimate gas: chain: message execution failed (exit=[33], revert reason=[" + observedLockupNotSettledRevert + "])"),
+			wantClassifier: "lockup not settled rate change",
+		},
 	}
 
 	for _, tc := range tests {
@@ -157,6 +169,19 @@ func TestKnownErrorClassifiers(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// observedLockupNotSettledRevert is the nextProvingPeriod revert for dataset
+// 1700: LockupNotSettledRateChangeNotAllowed(railId=2788, from=0xd6af...15f7,
+// isSettled=false, currentRate=1388890402896, attemptedRate=0).
+const observedLockupNotSettledRevert = "0x020c2e300000000000000000000000000000000000000000000000000000000000000ae4000000000000000000000000d6afedc754aeed226996b9971f20cc70607815f70000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001436051b0500000000000000000000000000000000000000000000000000000000000000000"
+
+func TestObservedLockupNotSettledRevertMatchesABI(t *testing.T) {
+	sel := contractErrorSelector(ErrPaymentsLockupNotSettledRateChangeNotAllowed)
+	body := strings.TrimPrefix(strings.ToLower(observedLockupNotSettledRevert), "0x")
+	if !strings.HasPrefix(body, sel) {
+		t.Fatalf("observed revert selector = %s, ABI selector = %s", body[:8], sel)
 	}
 }
 

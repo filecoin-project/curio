@@ -511,6 +511,17 @@ func handleNextProvingPeriodSendError(ctx context.Context, tx *harmonydb.Tx, pro
 		log.Warnw("Dataset unrecoverable, stopping proving period scheduling",
 			"dataSetId", dataSetId, "subsystem", alertSubsystem, "error", sendErr)
 		return false, nil
+	case IsLockupNotSettledRateChangeNotAllowedError(sendErr):
+		// FilecoinPay refused this dataset's rate change because the payer
+		// account lockup is not fully settled. The simulation reverts, so the
+		// proving period does not advance. Stop proving for this dataset and
+		// complete the task.
+		if err := markDatasetProvingUnrecoverableAndTerminate(tx, dataSetId, currentHeight); err != nil {
+			return false, err
+		}
+		log.Warnw("Dataset proving stopped; payer lockup is not settled for a rate change",
+			"dataSetId", dataSetId, "subsystem", alertSubsystem, "height", currentHeight, "error", sendErr)
+		return false, nil
 	case IsNextProvingPeriodAlreadyCalledError(sendErr):
 		// The chain has already advanced the proving period, but Curio cannot
 		// safely prove it without its own confirmed challenge request message.
