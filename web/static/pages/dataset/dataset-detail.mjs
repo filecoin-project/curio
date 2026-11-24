@@ -250,7 +250,6 @@ customElements.define('pdp-dataset-detail', class PdpDatasetDetail extends LitEl
     const id = params.get('id')
     if (!id) {
       this.loadError = 'Missing dataset id'
-      this.requestUpdate()
       return
     }
     const numId = Number(id)
@@ -261,16 +260,13 @@ customElements.define('pdp-dataset-detail', class PdpDatasetDetail extends LitEl
     } catch (e) {
       console.error('Failed to load dataset:', e)
       this.loadError = e.message || String(e)
-      this.requestUpdate()
       return
     }
-    this.requestUpdate()
 
     // Late-populate chain payments, income + interactions in parallel.
     this.paymentsStatus = 'loading'
     this.interactionsStatus = 'loading'
     this.incomeStatus = 'loading'
-    this.requestUpdate()
 
     // Without income records there is nothing to show, whatever the cause.
     const incomeP = RPCCall('PDPDataSetIncome', [numId])
@@ -289,7 +285,6 @@ customElements.define('pdp-dataset-detail', class PdpDatasetDetail extends LitEl
         this.paymentsError = e.message || String(e)
         this.paymentsStatus = 'error'
       })
-      .finally(() => this.requestUpdate())
 
     const interactionsP = RPCCall('PDPDataSetInteractions', [numId])
       .then((interactions) => {
@@ -303,7 +298,6 @@ customElements.define('pdp-dataset-detail', class PdpDatasetDetail extends LitEl
         this.interactionsError = e.message || String(e)
         this.interactionsStatus = 'error'
       })
-      .finally(() => this.requestUpdate())
 
     await Promise.allSettled([paymentsP, interactionsP, incomeP])
   }
