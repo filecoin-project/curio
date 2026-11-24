@@ -194,7 +194,7 @@ func (t *IncomeTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwn
 			System:    alertType,
 			Subsystem: INCOME_ALERT_SUBSYSTEM,
 			Message: fmt.Sprintf("PDP income paid at heights %d-%d is not recorded: Curio skipped them after %d runs could not read payment events at height %d.",
-				next, latestFrom-1, INCOME_GAP_AFTER_RUNS, next),
+				next, latestFrom-1, cur.FailedRuns+1, next),
 		})
 		next = latestFrom
 		cur.FailedRuns, cur.StalledSince = 0, nil
@@ -260,7 +260,7 @@ func (t *IncomeTask) syncDataSetRails(ctx context.Context, height int64, ours ma
 		info, err := fwssv.GetDataSet(opts, big.NewInt(id))
 		if err != nil {
 			unread++
-			log.Debugw("could not read data set from FWSS", "dataSetId", id, "height", height, "error", err)
+			log.Warnw("could not read data set from FWSS", "dataSetId", id, "height", height, "error", err)
 			continue
 		}
 		rails, ok := newDataSetRails(id, info.PdpRailId, info.CacheMissRailId, info.Payer)
