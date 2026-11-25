@@ -33,6 +33,8 @@ var (
 
 	ErrPDPVerifierPendingPieceDeletions abi.Error
 	ErrPDPVerifierNoPiecesToProve       abi.Error
+	// Optional until Curio's PDPVerifier bindings are regenerated after the worker-auth upgrade.
+	ErrPDPVerifierOnlyStorageProvider abi.Error
 
 	// Unexpected proving invariant errors. Curio should not produce these in
 	// normal PDPv0 initPP/nextPP/prove flow; classify them explicitly so they
@@ -89,6 +91,9 @@ func init() {
 	if !ok {
 		panic("PDPVerifier removal ABI missing NoPiecesToProve error")
 	}
+
+	// Present after the worker-registry auth upgrade; older bindings omit it.
+	ErrPDPVerifierOnlyStorageProvider = parsedPDPVerifier.Errors["OnlyStorageProvider"]
 
 	parsedFWSS, err := FWSS.FilecoinWarmStorageServiceMetaData.GetAbi()
 	if err != nil {
@@ -305,12 +310,21 @@ func IsFWSSProvingNotStartedError(err error) bool {
 
 // IsOperatorAttentionProvingError returns true for prove call authorization
 // errors that should be surfaced instead of retried as normal proving flow.
+// This includes the require-string used by provePossession and the OnlyStorageProvider
+// custom error used by nextProvingPeriod / other SP-gated PDPVerifier calls.
 func IsOperatorAttentionProvingError(err error) bool {
 	if err == nil {
 		return false
 	}
 	errStr := strings.ToLower(err.Error())
-	return strings.Contains(errStr, strings.ToLower(provingRevertOnlyStorageProviderCanProve))
+	if strings.Contains(errStr, strings.ToLower(provingRevertOnlyStorageProviderCanProve)) {
+		return true
+	}
+	if ErrPDPVerifierOnlyStorageProvider.Name != "" &&
+		strings.Contains(errStr, contractErrorSelector(ErrPDPVerifierOnlyStorageProvider)) {
+		return true
+	}
+	return strings.Contains(errStr, "onlystorageprovider")
 }
 
 // IsProofGenerationFailureError returns true when the contract rejected the

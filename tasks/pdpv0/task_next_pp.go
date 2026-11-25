@@ -536,6 +536,10 @@ func handleNextProvingPeriodSendError(ctx context.Context, tx *harmonydb.Tx, pro
 		// The selected challenge epoch is no longer valid. Retry the task so it
 		// recomputes the proving schedule from chain/listener state.
 		return false, sendErr
+	case IsOperatorAttentionProvingError(sendErr):
+		// Local worker key is not authorized on-chain. Alert with a wrong-wallet
+		// message and retry so the operator can import the live worker key.
+		return true, sendErr
 	case IsUnexpectedProvingInvariantError(sendErr):
 		// Curio should not hit these in the normal initPP/nextPP path. Alert and
 		// retry without mutating proving state so the condition can be investigated.

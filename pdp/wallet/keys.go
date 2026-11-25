@@ -158,6 +158,48 @@ func ImportPDPKeyHex(ctx context.Context, db *harmonydb.DB, keyMaterial string) 
 	return InsertPDPKey(ctx, db, privateKeyBytes)
 }
 
+// ReplacePDPKey stores keyMaterial as the only PDP worker key.
+// Any other role=pdp row is removed in the same transaction. The caller has
+// already checked that this address is the on-chain worker.
+func ReplacePDPKey(ctx context.Context, db *harmonydb.DB, keyMaterial string) (string, error) {
+	privateKeyBytes, err := ParsePrivateKeyMaterial(keyMaterial)
+	if err != nil {
+		return "", err
+	}
+	address, err := AddressFromPrivateKeyBytes(privateKeyBytes)
+	if err != nil {
+		return "", err
+	}
+
+	_, err = db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		if _, err := tx.Exec(`DELETE FROM eth_keys WHERE role = $1 AND address <> $2`, rolePDP, address); err != nil {
+			return false, xerrors.Errorf("removing previous pdp key: %w", err)
+		}
+		var existingRole string
+		err := tx.QueryRow(`SELECT role FROM eth_keys WHERE address = $1`, address).Scan(&existingRole)
+		if err != nil && err != pgx.ErrNoRows {
+			return false, xerrors.Errorf("checking existing key: %w", err)
+		}
+		if err == nil {
+			if existingRole != rolePDP {
+				return false, xerrors.Errorf("address %s is already stored with role %s", address, existingRole)
+			}
+			if _, err := tx.Exec(`UPDATE eth_keys SET private_key = $2 WHERE address = $1 AND role = $3`, address, privateKeyBytes, rolePDP); err != nil {
+				return false, xerrors.Errorf("updating pdp key: %w", err)
+			}
+			return true, nil
+		}
+		if _, err := tx.Exec(`INSERT INTO eth_keys (address, private_key, role) VALUES ($1, $2, $3)`, address, privateKeyBytes, rolePDP); err != nil {
+			return false, xerrors.Errorf("inserting pdp key: %w", err)
+		}
+		return true, nil
+	})
+	if err != nil {
+		return "", err
+	}
+	return address, nil
+}
+
 func CreatePDPKey(ctx context.Context, db *harmonydb.DB) (*CreatedKey, error) {
 	if created, err := createPDPKeyLocal(ctx, db); err != nil {
 		return nil, err

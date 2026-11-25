@@ -2,6 +2,7 @@ package pdpv0
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 
 	"golang.org/x/xerrors"
@@ -40,10 +41,17 @@ func markDatasetProvingUnrecoverableAndTerminate(tx *harmonydb.Tx, dataSetId int
 
 // emitProvingSendErrorAlert records a proving failure for a data set; err must be non-nil.
 func emitProvingSendErrorAlert(al curioalerting.AlertingInterface, subsystem string, dataSetId int64, err error) {
+	msg := err.Error()
+	if IsOperatorAttentionProvingError(err) {
+		msg = fmt.Sprintf(
+			"PDP worker wallet mismatch for data set %d: local eth_keys role=pdp is not the authorized on-chain worker. Have the owner (payee) wallet sign a worker change in the Wallets page, or import the current worker key. Underlying error: %v",
+			dataSetId, err,
+		)
+	}
 	_ = al.EmitEvent(context.Background(), curioalerting.AlertEvent{
 		System:    alertType,
 		Subsystem: subsystem,
-		Message:   err.Error(),
+		Message:   msg,
 		Context: map[string]string{
 			curioalerting.CONTEXT_KEY_DATASET: strconv.FormatInt(dataSetId, 10),
 		},
