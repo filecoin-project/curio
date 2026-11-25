@@ -1,6 +1,8 @@
 import { LitElement, html } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs';
 
+const SUPPORT_URL = 'https://filecoin.io/slack';
+
 customElements.define('pdp-wallet', class PDPWalletElement extends LitElement {
     static properties = {
         keys: { type: Array },
@@ -14,9 +16,8 @@ customElements.define('pdp-wallet', class PDPWalletElement extends LitElement {
         roleStatus: { type: Object },
         roleStatusLoading: { type: Boolean },
         payeeEstimate: { type: Object },
-        estimating: { type: Boolean },
         retargeting: { type: Boolean },
-        newWorker: { type: String },
+        newWorkerKey: { type: String },
         browserPayee: { type: String },
         submittingWorkerWallet: { type: Boolean },
     }
@@ -34,9 +35,8 @@ customElements.define('pdp-wallet', class PDPWalletElement extends LitElement {
         this.roleStatus = null;
         this.roleStatusLoading = true;
         this.payeeEstimate = null;
-        this.estimating = false;
         this.retargeting = false;
-        this.newWorker = '';
+        this.newWorkerKey = '';
         this.browserPayee = '';
         this.submittingWorkerWallet = false;
         this.loadKeys();
@@ -192,7 +192,7 @@ customElements.define('pdp-wallet', class PDPWalletElement extends LitElement {
             throw new Error('No account selected in the browser wallet.');
         }
         if (from.toLowerCase() !== (role.payee || '').toLowerCase()) {
-            throw new Error(`Browser wallet ${from} is not the current payee ${role.payee}. Switch accounts in MetaMask/Glif.`);
+            throw new Error(`Browser wallet ${from} is not the owner wallet (payee) ${role.payee}. That key is not stored in Curio. Switch accounts in MetaMask/Glif.`);
         }
         await this.ensureBrowserChain(role.chainId);
         this.browserPayee = from;
@@ -215,83 +215,125 @@ customElements.define('pdp-wallet', class PDPWalletElement extends LitElement {
         }
     }
 
+    async waitForTxReceipt(txHash) {
+        const deadline = Date.now() + 4 * 60 * 1000;
+        while (Date.now() < deadline) {
+            const receipt = await window.ethereum.request({
+                method: 'eth_getTransactionReceipt',
+                params: [txHash],
+            });
+            if (receipt) {
+                const status = (receipt.status || '').toLowerCase();
+                if (status === '0x0' || status === '0x') {
+                    throw new Error(`Transaction ${txHash} reverted. The database was not updated.`);
+                }
+                return receipt;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 4000));
+        }
+        throw new Error(`Timed out waiting for ${txHash}. The database was not updated.`);
+    }
+
+    async storeWorkerKey(keyMaterial) {
+        let lastError;
+        for (let attempt = 0; attempt < 8; attempt++) {
+            try {
+                return await RPCCall('ReplacePDPWorkerKey', [keyMaterial]);
+            } catch (error) {
+                lastError = error;
+                const message = String(error?.message || error);
+                if (!message.includes('on-chain worker')) {
+                    throw error;
+                }
+                await new Promise((resolve) => setTimeout(resolve, 4000));
+            }
+        }
+        throw lastError;
+    }
+
     async changeWorkerViaBrowserWallet() {
-        const newWorker = this.newWorker.trim();
-        if (!newWorker) {
-            alert('Enter the new worker address (create/import the key on this node first).');
+        const keyMaterial = this.newWorkerKey.trim();
+        if (!keyMaterial) {
+            alert('Paste the new worker private key. Curio stores it after the owner wallet signature confirms.');
             return;
         }
         if (!confirm(
-            'This sends changeServiceProvider from your payee browser wallet (MetaMask/Glif).\n' +
-            'Curio\'s worker key is not used for this call.\n\n' +
-            'After it confirms, import that worker private key into Curio if it is not already stored.'
+            'The owner wallet (payee) signs changeServiceProvider in MetaMask or Glif.\n' +
+            'That key is not stored in Curio.\n\n' +
+            'After the transaction confirms, Curio replaces the worker key in the database.'
         )) {
             return;
         }
         this.submittingWorkerWallet = true;
         try {
+            const newWorker = await RPCCall('PDPKeyAddress', [keyMaterial]);
+            let tx;
+            try {
+                tx = await RPCCall('BuildChangeWorkerTx', [newWorker]);
+            } catch (error) {
+                const message = String(error?.message || error);
+                if (message.includes('unchanged')) {
+                    const stored = await this.storeWorkerKey(keyMaterial);
+                    this.newWorkerKey = '';
+                    alert(`On-chain worker is already ${stored}. Database updated.`);
+                    await this.loadKeys();
+                    await this.loadKeyStatus();
+                    await this.loadRoleStatus();
+                    return;
+                }
+                throw error;
+            }
             const from = await this.requireBrowserPayeeAccount();
-            const tx = await RPCCall('BuildChangeWorkerTx', [newWorker]);
             if (from.toLowerCase() !== (tx.fromMustBe || '').toLowerCase()) {
-                throw new Error(`Connected account must be payee ${tx.fromMustBe}.`);
+                throw new Error(`Connected account must be the owner wallet (payee) ${tx.fromMustBe}.`);
             }
             const txHash = await window.ethereum.request({
                 method: 'eth_sendTransaction',
                 params: [{ from, to: tx.to, data: tx.data, value: '0x0' }],
             });
-            alert(`changeServiceProvider submitted from payee wallet: ${txHash}`);
+            await this.waitForTxReceipt(txHash);
+            const stored = await this.storeWorkerKey(keyMaterial);
+            this.newWorkerKey = '';
+            alert(`Worker is now ${stored}. Database updated. Transaction: ${txHash}`);
+            await this.loadKeys();
+            await this.loadKeyStatus();
             await this.loadRoleStatus();
         } catch (error) {
             console.error('Failed browser changeServiceProvider:', error);
-            alert('Failed changeServiceProvider: ' + (error.message || error));
+            alert('Failed to change worker: ' + (error.message || error));
         } finally {
             this.submittingWorkerWallet = false;
         }
     }
 
-    async estimateRetargetGas() {
-        this.estimating = true;
-        try {
-            this.payeeEstimate = await RPCCall('EstimatePayeeRetargetGas', []);
-        } catch (error) {
-            console.error('Failed to estimate retarget gas:', error);
-            alert('Failed to estimate gas: ' + (error.message || error));
-        } finally {
-            this.estimating = false;
-        }
+    railsNeedMove() {
+        return (this.roleStatus?.railsToMove || 0) > 0 && !!this.roleStatus?.localWorkerMatches;
     }
 
     async queueRetargets() {
-        if (!this.payeeEstimate) {
-            alert('Estimate gas first so you can review the cost warning.');
-            return;
-        }
-        const role = this.roleStatus;
-        if (role?.localWorker && !role.localWorkerMatches) {
-            alert(
-                'Local Curio key does not match the on-chain worker.\n' +
-                'Import the current (new) worker key first so retarget gas is paid by that wallet, not the old one.'
-            );
-            return;
-        }
-        const warning = [
-            'Second step only: submit retargetDataSetPayee from the CURRENT on-chain worker (Curio pdp key).',
-            'Do this after changePayee (and after worker rotation if the old worker should not spend gas).',
-            `Live data sets: ${this.payeeEstimate.liveDataSets}`,
-            `Estimated gas: ${this.payeeEstimate.totalGas} (~${this.payeeEstimate.estimatedCostFil} FIL at current base fee)`,
-            this.payeeEstimate.note,
-        ].join('\n');
-        if (!confirm(warning)) {
+        if (!this.railsNeedMove()) {
             return;
         }
         this.retargeting = true;
         try {
-            const hashes = await RPCCall('QueueDataSetPayeeRetargets', []);
+            const estimate = await RPCCall('EstimatePayeeRetargetGas', []);
+            this.payeeEstimate = estimate;
+            const warning = [
+                'Move payment rails to the current payee.',
+                'Gas is paid by the worker key stored in Curio.',
+                `Data sets to move: ${estimate.liveDataSets}`,
+                `Estimated gas: ${estimate.totalGas} (~${estimate.estimatedCostFil} FIL at the current base fee)`,
+                estimate.note,
+            ].join('\n');
+            if (!confirm(warning)) {
+                return;
+            }
+            const hashes = await RPCCall('RetargetAllDatasetPayees', []);
             alert(`Submitted ${hashes.length} retarget transaction(s).`);
             await this.loadRoleStatus();
         } catch (error) {
             console.error('Failed to queue retargets:', error);
-            alert('Failed to queue retargets: ' + (error.message || error));
+            alert('Failed to move payment rails: ' + (error.message || error));
         } finally {
             this.retargeting = false;
         }
@@ -355,7 +397,7 @@ customElements.define('pdp-wallet', class PDPWalletElement extends LitElement {
                 <table class="table table-dark table-striped w-100">
                     <thead>
                         <tr>
-                            <th style="width: 90%;">Owner Address</th>
+                            <th style="width: 90%;">Worker address</th>
                             <th style="width: 10%;">Action</th>
                         </tr>
                     </thead>
@@ -447,10 +489,10 @@ customElements.define('pdp-wallet', class PDPWalletElement extends LitElement {
             ` : ''}
 
             <hr class="my-4">
-            <h3>Payee and Worker</h3>
+            <h3>Owner wallet and worker</h3>
             <p class="text-muted">
-                Worker rotation is a normal payee action (MetaMask/Glif). Payee changes are rare and require
-                FilOzone (registry owner) after human vetting. Curio holds the worker key for proving and rail retargets.
+                The owner wallet is the payee. It is not stored on this node. Its signature changes the worker,
+                and Curio then stores that worker key. Changing the owner wallet itself is a support request.
             </p>
             ${this.roleStatusLoading ? html`
                 <div class="alert alert-secondary">Loading on-chain roles…</div>
@@ -471,7 +513,7 @@ customElements.define('pdp-wallet', class PDPWalletElement extends LitElement {
                     <dd class="col-sm-9"><code>${this.roleStatus.worker}</code></dd>
                     <dt class="col-sm-3">Local Curio key</dt>
                     <dd class="col-sm-9"><code>${this.roleStatus.localWorker || 'none'}</code></dd>
-                    <dt class="col-sm-3">Payee</dt>
+                    <dt class="col-sm-3">Owner wallet (payee)</dt>
                     <dd class="col-sm-9"><code>${this.roleStatus.payee}</code>
                         ${this.roleStatus.sameAddress ? html` <span class="badge text-bg-secondary">same as worker</span>` : ''}
                     </dd>
@@ -481,51 +523,61 @@ customElements.define('pdp-wallet', class PDPWalletElement extends LitElement {
                     <dd class="col-sm-9">${this.roleStatus.liveDataSets}</dd>
                 </dl>
 
-                <h4 class="h5 mt-3">Rotate worker (common)</h4>
+                <h4 class="h5 mt-3">Change worker</h4>
                 <p class="text-muted">
-                    Connect MetaMask/Glif as payee <code>${this.roleStatus.payee}</code>.
-                    Create or import the new worker key on this node first.
+                    Connect the owner wallet <code>${this.roleStatus.payee}</code> in MetaMask or Glif.
+                    Paste the new worker private key. Curio writes it to the database after that signature confirms.
                 </p>
                 <button class="btn btn-outline-light mb-3"
                         @click=${this.connectPayeeBrowserWallet}>
-                    ${this.browserPayee ? `Connected: ${this.browserPayee}` : 'Connect payee MetaMask / Glif'}
+                    ${this.browserPayee ? `Connected owner wallet: ${this.browserPayee}` : 'Connect owner wallet (MetaMask / Glif)'}
                 </button>
                 <div class="mb-3">
-                    <label class="form-label" for="new-worker">New worker address</label>
-                    <input class="form-control font-monospace" id="new-worker"
-                           .value=${this.newWorker}
-                           @input=${(e) => { this.newWorker = e.target.value; }}>
+                    <label class="form-label" for="new-worker-key">New worker private key</label>
+                    <textarea class="form-control font-monospace" id="new-worker-key" rows="3"
+                              .value=${this.newWorkerKey}
+                              @input=${(e) => { this.newWorkerKey = e.target.value; }}></textarea>
+                    <div class="form-text">Hex secp256k1 key, or the output of <code>lotus wallet export</code>.</div>
                     <button class="btn btn-primary mt-2" ?disabled=${this.submittingWorkerWallet}
                             @click=${this.changeWorkerViaBrowserWallet}>
-                        ${this.submittingWorkerWallet ? 'Waiting for wallet…' : 'Change worker via MetaMask / Glif'}
+                        ${this.submittingWorkerWallet ? 'Waiting for owner signature…' : 'Change worker'}
                     </button>
                 </div>
 
-                <h4 class="h5 mt-3">Change payee (rare)</h4>
+                <h4 class="h5 mt-3">Change owner wallet</h4>
                 <div class="alert alert-info">
-                    Request FilOzone to call
-                    <code>changePayee(${this.roleStatus.providerId}, newPayee)</code>
-                    on registry <code>${this.roleStatus.registryAddress}</code>
-                    after human vetting. Neither the worker nor the current payee can change the payee on-chain.
+                    This node cannot change the owner wallet. Contact support and include provider
+                    <strong>${this.roleStatus.providerId}</strong>. Ask in <strong>#fil-sp-help</strong> on Filecoin Slack.
+                    <div class="mt-2">
+                        <a class="btn btn-outline-light btn-sm" href="${SUPPORT_URL}" target="_blank" rel="noopener noreferrer">
+                            Contact support
+                        </a>
+                    </div>
                 </div>
 
-                <h4 class="h5 mt-3">Retarget payment rails (after payee change)</h4>
-                <p class="text-muted">
-                    After FilOzone updates the payee, call this from the <em>current</em> on-chain worker
-                    so gas is paid by that wallet — rotate/import the new worker first if the old worker
-                    must not spend gas.
-                </p>
-                <button class="btn btn-outline-light me-2 mb-2" ?disabled=${this.estimating || this.retargeting}
-                        @click=${this.estimateRetargetGas}>
-                    ${this.estimating ? 'Estimating…' : 'Estimate retarget gas'}
-                </button>
-                <button class="btn btn-warning mb-2" ?disabled=${this.retargeting || !this.payeeEstimate}
+                <h4 class="h5 mt-3">Payment rails</h4>
+                ${this.roleStatus.railsToMove > 0 ? html`
+                    <div class="alert alert-warning">
+                        ${this.roleStatus.railsNote}
+                        ${this.roleStatus.localWorkerMatches ? html`
+                            The button moves those rails to <code>${this.roleStatus.payee}</code>.
+                        ` : html`
+                            The button stays off until the worker key stored here matches the on-chain worker,
+                            so gas is paid by that wallet.
+                        `}
+                    </div>
+                ` : html`
+                    <div class="alert ${this.roleStatus.railsNote?.startsWith('Could not check') ? 'alert-warning' : 'alert-success'}">
+                        ${this.roleStatus.railsNote || 'Payment rails already pay the current payee.'}
+                    </div>
+                `}
+                <button class="btn btn-warning mb-2" ?disabled=${this.retargeting || !this.railsNeedMove()}
                         @click=${this.queueRetargets}>
-                    ${this.retargeting ? 'Retargeting…' : 'Retarget rails for all data sets'}
+                    ${this.retargeting ? 'Moving rails…' : 'Move payment rails to current payee'}
                 </button>
-                ${this.payeeEstimate ? html`
+                ${this.payeeEstimate && this.roleStatus.railsToMove > 0 ? html`
                     <div class="alert alert-warning mt-2">
-                        <strong>Gas warning:</strong> ${this.payeeEstimate.liveDataSets} data set(s),
+                        <strong>Gas:</strong> ${this.payeeEstimate.liveDataSets} data set(s),
                         ~${this.payeeEstimate.perRailGas} gas each.
                         Total ~${this.payeeEstimate.totalGas} gas
                         (~${this.payeeEstimate.estimatedCostFil} FIL at base fee ${this.payeeEstimate.baseFeeWei} wei).

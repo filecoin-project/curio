@@ -93,7 +93,7 @@ func init() {
 	}
 
 	// Present after the worker-registry auth upgrade; older bindings omit it.
-	ErrPDPVerifierOnlyStorageProvider, _ = parsedPDPVerifier.Errors["OnlyStorageProvider"]
+	ErrPDPVerifierOnlyStorageProvider = parsedPDPVerifier.Errors["OnlyStorageProvider"]
 
 	parsedFWSS, err := FWSS.FilecoinWarmStorageServiceMetaData.GetAbi()
 	if err != nil {
