@@ -1,5 +1,5 @@
 {
   "buildTags": ["debug", "fvm", "nosupraseal"],
-  "extraPaths": ["lib/proof/testgolden", "extern/filecoin-ffi"],
+  "extraPaths": ["lib/proof/testgolden", "extern/filecoin-ffi", ".github/runs-on.yml"],
   "coverageFile": "test-lib-proof.out"
 }
