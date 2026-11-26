@@ -18,7 +18,7 @@ import (
 	"github.com/filecoin-project/curio/lib/piecestore"
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/lib/storiface"
-	"github.com/filecoin-project/curio/tasks/openpieces"
+	"github.com/filecoin-project/curio/tasks/hashspace"
 	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
@@ -129,7 +129,7 @@ func (c *CleanupPieceTask) Do(ctx context.Context, taskID harmonytask.TaskID, st
 	}
 	addDrop := c.dropAdder
 	if addDrop == nil {
-		addDrop = openpieces.DropAdder()
+		addDrop = hashspace.DropAdder()
 	}
 	var pieceID int64
 	var removed, withDropTask bool
@@ -176,7 +176,7 @@ func (c *CleanupPieceTask) Do(ctx context.Context, taskID harmonytask.TaskID, st
 			if err != nil {
 				return false, xerrors.Errorf("converting parked piece CID: %w", err)
 			}
-			if err := openpieces.QueueDrop(tx, dropTask, v2.String()); err != nil {
+			if err := hashspace.QueueDrop(tx, dropTask, v2.String()); err != nil {
 				return false, err
 			}
 		}

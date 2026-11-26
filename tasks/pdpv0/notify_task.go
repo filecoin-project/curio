@@ -20,7 +20,7 @@ import (
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/piecestore"
 	"github.com/filecoin-project/curio/lib/proof"
-	"github.com/filecoin-project/curio/tasks/openpieces"
+	"github.com/filecoin-project/curio/tasks/hashspace"
 	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
@@ -40,7 +40,7 @@ func NewPDPNotifyTask(db *harmonydb.DB) *PDPNotifyTask {
 }
 
 // UseOpenPieces copies a published piece into its hash space before Do returns.
-// A piece no data set has claimed goes to open-pieces.
+// A piece no data set has claimed goes to open-pieces unless the upload is restricted.
 func (t *PDPNotifyTask) UseOpenPieces(hs *hashfolder.Cluster, local *paths.Local, pio piecestore.PieceIO) {
 	t.hs = hs
 	t.local = local
@@ -50,9 +50,11 @@ func (t *PDPNotifyTask) UseOpenPieces(hs *hashfolder.Cluster, local *paths.Local
 func (t *PDPNotifyTask) Do(ctx context.Context, taskID harmonytask.TaskID, _ func() bool) (bool, error) {
 	var placedRef sql.NullInt64
 	var uploadID string
+	var restricted bool
 	committed, err := t.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
 		placedRef = sql.NullInt64{}
 		uploadID = ""
+		restricted = false
 		var upload struct {
 			id            string
 			service       string
@@ -60,6 +62,7 @@ func (t *PDPNotifyTask) Do(ctx context.Context, taskID harmonytask.TaskID, _ fun
 			pieceRef      sql.NullInt64
 			pieceRawSize  sql.NullInt64
 			pieceComplete sql.NullBool
+			restricted    bool
 		}
 
 		err := tx.QueryRow(`
@@ -68,7 +71,8 @@ func (t *PDPNotifyTask) Do(ctx context.Context, taskID harmonytask.TaskID, _ fun
 			       pu.piece_cid,
 			       pu.piece_ref,
 			       pp.piece_raw_size,
-			       pp.complete
+			       pp.complete,
+			       pu.read_restricted
 			FROM pdp_piece_uploads pu
 			LEFT JOIN parked_piece_refs ppr ON ppr.ref_id = pu.piece_ref
 			LEFT JOIN parked_pieces pp ON pp.id = ppr.piece_id
@@ -80,6 +84,7 @@ func (t *PDPNotifyTask) Do(ctx context.Context, taskID harmonytask.TaskID, _ fun
 			&upload.pieceRef,
 			&upload.pieceRawSize,
 			&upload.pieceComplete,
+			&upload.restricted,
 		)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return true, nil
@@ -122,6 +127,7 @@ func (t *PDPNotifyTask) Do(ctx context.Context, taskID harmonytask.TaskID, _ fun
 
 		placedRef = upload.pieceRef
 		uploadID = upload.id
+		restricted = upload.restricted
 		return true, nil
 	}, harmonydb.OptionRetry())
 	if err != nil {
@@ -133,7 +139,7 @@ func (t *PDPNotifyTask) Do(ctx context.Context, taskID harmonytask.TaskID, _ fun
 	if !placedRef.Valid {
 		return true, nil
 	}
-	if err := openpieces.Place(ctx, t.db, t.hs, t.local, t.pio, placedRef.Int64); err != nil {
+	if err := hashspace.PlaceArrived(ctx, t.db, t.hs, t.local, t.pio, placedRef.Int64, restricted); err != nil {
 		return false, err
 	}
 	n, err := t.db.Exec(ctx, `
