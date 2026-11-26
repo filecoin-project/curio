@@ -348,17 +348,46 @@ func TestIntegration_HandleNextProvingPeriodPreflight_UnknownRevertDefersRecheck
 	require.Equal(t, 0, countFailureHandlingDeleteRows(t, ctx, db, dataSetID))
 }
 
-func TestIntegration_HandleNextProvingPeriodSendError_UnsettledLockupStopsDatasetProving(t *testing.T) {
+func TestIntegration_HandleInitProvingPeriodPreflight_UnknownRevertDefersRecheck(t *testing.T) {
 	ctx := context.Background()
 	db, err := harmonydb.NewFromConfigWithITestID(t)
 	require.NoError(t, err)
 
-	dataSetID := insertFailureHandlingDataSet(t, ctx, db, failureHandlingDataSetState{
+	initialState := failureHandlingDataSetState{
+		InitReady:          true,
+		ProveAtEpoch:       sql.NullInt64{Int64: 2300, Valid: true},
+		ChallengeHash:      sql.NullString{String: "0x00000000000000000000000000000000000000000000000000000000000000dd", Valid: true},
+		PrevChallengeEpoch: sql.NullInt64{Int64: 1300, Valid: true},
+	}
+	dataSetID := insertFailureHandlingDataSet(t, ctx, db, initialState)
+	currentHeight := int64(4702)
+	alerts := &recordingAlerting{}
+
+	done, err := handleProvingPeriodPreflightError(ctx, db, alerts, alertNameInitPP, dataSetID, currentHeight, selectorRevert("deadbeef"))
+	require.NoError(t, err)
+	require.True(t, done)
+	require.Len(t, alerts.events, 1)
+	require.Equal(t, alertNameInitPP, alerts.events[0].Subsystem)
+	require.Equal(t, map[string]string{curioalerting.CONTEXT_KEY_DATASET: strconv.FormatInt(dataSetID, 10)}, alerts.events[0].Context)
+
+	held := initialState
+	held.ProvingRetryEpoch = sql.NullInt64{Int64: currentHeight + provingRecheckDelayEpochs, Valid: true}
+	require.Equal(t, held, loadFailureHandlingDataSet(t, ctx, db, dataSetID))
+	require.Equal(t, 0, countFailureHandlingDeleteRows(t, ctx, db, dataSetID))
+}
+
+func TestIntegration_HandleNextProvingPeriodSendError_UnsettledLockupDefersProving(t *testing.T) {
+	ctx := context.Background()
+	db, err := harmonydb.NewFromConfigWithITestID(t)
+	require.NoError(t, err)
+
+	initialState := failureHandlingDataSetState{
 		InitReady:          true,
 		ProveAtEpoch:       sql.NullInt64{Int64: 2000, Valid: true},
 		ChallengeHash:      sql.NullString{String: "0x00000000000000000000000000000000000000000000000000000000000000aa", Valid: true},
 		PrevChallengeEpoch: sql.NullInt64{Int64: 1000, Valid: true},
-	})
+	}
+	dataSetID := insertFailureHandlingDataSet(t, ctx, db, initialState)
 	sendErr := selectorRevert(contractErrorSelector(ErrPaymentsLockupNotSettledRateChangeNotAllowed))
 	currentHeight := int64(4600)
 
@@ -372,13 +401,11 @@ func TestIntegration_HandleNextProvingPeriodSendError_UnsettledLockupStopsDatase
 	require.NoError(t, err)
 	require.True(t, committed)
 
-	require.False(t, alert)
-	require.Equal(t, failureHandlingDataSetState{
-		UnrecoverableEpoch: sql.NullInt64{Int64: currentHeight, Valid: true},
-		InitReady:          false,
-		PrevChallengeEpoch: sql.NullInt64{Int64: 1000, Valid: true},
-	}, loadFailureHandlingDataSet(t, ctx, db, dataSetID))
-	require.Equal(t, 1, countFailureHandlingDeleteRows(t, ctx, db, dataSetID))
+	require.True(t, alert)
+	held := initialState
+	held.ProvingRetryEpoch = sql.NullInt64{Int64: currentHeight + provingRecheckDelayEpochs, Valid: true}
+	require.Equal(t, held, loadFailureHandlingDataSet(t, ctx, db, dataSetID))
+	require.Equal(t, 0, countFailureHandlingDeleteRows(t, ctx, db, dataSetID))
 }
 
 func TestIntegration_HandleNextProvingPeriodSendFailure_RecordsAlert(t *testing.T) {

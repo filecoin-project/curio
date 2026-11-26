@@ -180,7 +180,7 @@ func (n *NextProvingPeriodTask) Do(ctx context.Context, taskID harmonytask.TaskI
 	// Get the proving schedule from the listener (handles view contract indirection)
 	provingSchedule, err := contract.GetProvingScheduleFromListener(ctx, listenerAddr, n.ethClient)
 	if err != nil {
-		return false, xerrors.Errorf("failed to get proving schedule from listener: %w", err)
+		return n.handleNextProvingPeriodPreflightError(ctx, dataSetId, currentHeight, xerrors.Errorf("failed to get proving schedule from listener: %w", err))
 	}
 
 	// In case of contract migration update db schema with latest proving schedule
@@ -428,10 +428,21 @@ func skipCurrentOnChainProvingPeriod(ctx context.Context, tx *harmonydb.Tx, prov
 	return nil
 }
 
+// handleNextProvingPeriodPreflightError classifies a nextPP preflight read
+// failure. The caller has the dataset id, the current chain height, and a
+// non-nil error from a contract read made before the transaction is sent.
 func (n *NextProvingPeriodTask) handleNextProvingPeriodPreflightError(ctx context.Context, dataSetId int64, currentHeight int64, err error) (bool, error) {
+	return handleProvingPeriodPreflightError(ctx, n.db, n.al, alertNameNextPP, dataSetId, currentHeight, err)
+}
+
+// handleProvingPeriodPreflightError classifies a failed contract read that
+// initPP or nextPP made before sending its transaction. err is non-nil. A
+// contract revert is deferred for a day; a non-revert is returned so Harmony
+// can retry the task.
+func handleProvingPeriodPreflightError(ctx context.Context, db *harmonydb.DB, al curioalerting.AlertingInterface, alertSubsystem string, dataSetId int64, currentHeight int64, err error) (bool, error) {
 	switch {
 	case IsUnrecoverableError(err), IsPDPVerifierDataSetNotFound(err):
-		committed, handleErr := n.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+		committed, handleErr := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 			if err := markDatasetProvingUnrecoverableAndTerminate(tx, dataSetId, currentHeight); err != nil {
 				return false, err
 			}
@@ -447,7 +458,7 @@ func (n *NextProvingPeriodTask) handleNextProvingPeriodPreflightError(ctx contex
 			"dataSetId", dataSetId, "height", currentHeight, "error", err)
 		return true, nil
 	case IsProvingPeriodNotInitializedError(err):
-		if err := resetDatasetToInitPP(ctx, n.db, dataSetId); err != nil {
+		if err := resetDatasetToInitPP(ctx, db, dataSetId); err != nil {
 			return false, xerrors.Errorf("failed to reset dataset to init proving period state: %w", err)
 		}
 		return true, nil
@@ -455,7 +466,7 @@ func (n *NextProvingPeriodTask) handleNextProvingPeriodPreflightError(ctx contex
 		// A contract revert here cannot be repaired by repeating the task now.
 		// Defer this dataset for a day and finish so other datasets keep their
 		// proving-period slots. The watcher tries it again after that.
-		if deferErr := n.deferProvingPeriodRecheck(ctx, dataSetId, currentHeight, err); deferErr != nil {
+		if deferErr := deferProvingPeriodRecheck(ctx, db, al, alertSubsystem, dataSetId, currentHeight, err); deferErr != nil {
 			return false, deferErr
 		}
 		return true, nil
@@ -465,11 +476,11 @@ func (n *NextProvingPeriodTask) handleNextProvingPeriodPreflightError(ctx contex
 }
 
 // deferProvingPeriodRecheck records a preflight contract revert and delays the
-// next scheduling attempt. The caller has a live task, a chain height, and a
+// next scheduling attempt. The caller has a database, a chain height, and a
 // non-nil revert from a read that runs before the proving-period transaction
 // is sent.
-func (n *NextProvingPeriodTask) deferProvingPeriodRecheck(ctx context.Context, dataSetId int64, currentHeight int64, revertErr error) error {
-	committed, err := n.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+func deferProvingPeriodRecheck(ctx context.Context, db *harmonydb.DB, al curioalerting.AlertingInterface, alertSubsystem string, dataSetId int64, currentHeight int64, revertErr error) error {
+	committed, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		if err := deferDatasetProvingRecheck(tx, dataSetId, currentHeight); err != nil {
 			return false, err
 		}
@@ -481,9 +492,9 @@ func (n *NextProvingPeriodTask) deferProvingPeriodRecheck(ctx context.Context, d
 	if !committed {
 		return xerrors.Errorf("failed to commit dataset proving recheck")
 	}
-	emitProvingSendErrorAlert(n.al, alertNameNextPP, dataSetId, revertErr)
+	emitProvingSendErrorAlert(al, alertSubsystem, dataSetId, revertErr)
 	log.Warnw("Deferring dataset proving recheck after a contract revert",
-		"dataSetId", dataSetId, "height", currentHeight, "retryEpoch", currentHeight+provingRecheckDelayEpochs, "error", revertErr)
+		"dataSetId", dataSetId, "subsystem", alertSubsystem, "height", currentHeight, "retryEpoch", currentHeight+provingRecheckDelayEpochs, "error", revertErr)
 	return nil
 }
 
@@ -544,15 +555,16 @@ func handleNextProvingPeriodSendError(ctx context.Context, tx *harmonydb.Tx, pro
 		return false, nil
 	case IsLockupNotSettledRateChangeNotAllowedError(sendErr):
 		// FilecoinPay refused this dataset's rate change because the payer
-		// account lockup is not fully settled. The simulation reverts, so the
-		// proving period does not advance. Stop proving for this dataset and
-		// complete the task.
-		if err := markDatasetProvingUnrecoverableAndTerminate(tx, dataSetId, currentHeight); err != nil {
+		// account lockup is not settled through the current epoch. A deposit
+		// that covers the catch-up lets the same call succeed, so defer and
+		// retry. Termination stays with the payment watcher's grace past the
+		// lockup period.
+		if err := deferDatasetProvingRecheck(tx, dataSetId, currentHeight); err != nil {
 			return false, err
 		}
-		log.Warnw("Dataset proving stopped; payer lockup is not settled for a rate change",
-			"dataSetId", dataSetId, "subsystem", alertSubsystem, "height", currentHeight, "error", sendErr)
-		return false, nil
+		log.Warnw("Deferring proving period scheduling until the payer lockup can settle",
+			"dataSetId", dataSetId, "subsystem", alertSubsystem, "height", currentHeight, "retryEpoch", currentHeight+provingRecheckDelayEpochs, "error", sendErr)
+		return true, nil
 	case IsNextProvingPeriodAlreadyCalledError(sendErr):
 		// The chain has already advanced the proving period, but Curio cannot
 		// safely prove it without its own confirmed challenge request message.

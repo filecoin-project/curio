@@ -35,9 +35,10 @@ var (
 	ErrPDPVerifierPendingPieceDeletions abi.Error
 	ErrPDPVerifierNoPiecesToProve       abi.Error
 
-	// FilecoinPay rejects the rail rate change while the payer account lockup
-	// is not fully settled. The failure is confined to the dataset whose rail
-	// nextPP/initPP is trying to reprice.
+	// FilecoinPay rejects a rail rate change while the payer account lockup is
+	// not settled through the current epoch. A later deposit clears it.
+	// initPP/nextPP retries; the payment watcher still terminates after its
+	// grace past the lockup period.
 	ErrPaymentsLockupNotSettledRateChangeNotAllowed abi.Error
 
 	// Unexpected proving invariant errors. Curio should not produce these in
@@ -253,9 +254,10 @@ func IsNextProvingPeriodEmptyDatasetError(err error) bool {
 }
 
 // IsLockupNotSettledRateChangeNotAllowedError reports whether FilecoinPay
-// rejected a rail rate change because the payer account lockup is not fully
-// settled. err is the initPP/nextPP send failure. A nil error does not match.
-// The caller stops proving for that dataset and completes its task.
+// rejected a rail rate change because the payer account lockup is not settled
+// through the current epoch. err is the initPP/nextPP send failure. A nil
+// error does not match. The caller defers that dataset and retries; a deposit
+// that covers the catch-up lets the same call succeed.
 func IsLockupNotSettledRateChangeNotAllowedError(err error) bool {
 	if err == nil {
 		return false

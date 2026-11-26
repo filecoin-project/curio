@@ -148,12 +148,12 @@ func TestKnownErrorClassifiers(t *testing.T) {
 			wantClassifier: "PDPVerifier data set not found",
 		},
 		{
-			name:           "FilecoinPay LockupNotSettledRateChangeNotAllowed stops the dataset",
+			name:           "FilecoinPay LockupNotSettledRateChangeNotAllowed defers proving",
 			err:            selectorRevert(contractErrorSelector(ErrPaymentsLockupNotSettledRateChangeNotAllowed)),
 			wantClassifier: "lockup not settled rate change",
 		},
 		{
-			name:           "Filecoin exit 33 lockup revert stops the dataset",
+			name:           "Filecoin exit 33 lockup revert defers proving",
 			err:            errors.New("failed to estimate gas: chain: message execution failed (exit=[33], revert reason=[" + observedLockupNotSettledRevert + "])"),
 			wantClassifier: "lockup not settled rate change",
 		},

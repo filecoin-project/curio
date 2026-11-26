@@ -137,10 +137,18 @@ func (ipp *InitProvingPeriodTask) Do(ctx context.Context, taskID harmonytask.Tas
 		return false, xerrors.Errorf("failed to instantiate PDPVerifier contract: %w", err)
 	}
 
+	// Preflight handlers need the current height when a contract lookup proves
+	// the dataset is already terminal or must wait a day.
+	ts, err := ipp.fil.ChainHead(ctx)
+	if err != nil {
+		return false, xerrors.Errorf("failed to get chain head: %w", err)
+	}
+	currentHeight := int64(ts.Height())
+
 	// Check if the data set has any leaves (pieces) before attempting to initialize proving period
 	leafCount, err := pdpVerifier.GetDataSetLeafCount(contract.EthCallOpts(ctx), big.NewInt(dataSetId))
 	if err != nil {
-		return false, xerrors.Errorf("failed to get leaf count for data set %d: %w", dataSetId, err)
+		return handleProvingPeriodPreflightError(ctx, ipp.db, ipp.al, alertNameInitPP, dataSetId, currentHeight, xerrors.Errorf("failed to get leaf count for data set %d: %w", dataSetId, err))
 	}
 	if leafCount.Cmp(big.NewInt(0)) == 0 {
 		// No leaves in the data set, we cannot prove anything
@@ -161,18 +169,18 @@ func (ipp *InitProvingPeriodTask) Do(ctx context.Context, taskID harmonytask.Tas
 
 	listenerAddr, err := pdpVerifier.GetDataSetListener(contract.EthCallOpts(ctx), big.NewInt(dataSetId))
 	if err != nil {
-		return false, xerrors.Errorf("failed to get listener address for data set %d: %w", dataSetId, err)
+		return handleProvingPeriodPreflightError(ctx, ipp.db, ipp.al, alertNameInitPP, dataSetId, currentHeight, xerrors.Errorf("failed to get listener address for data set %d: %w", dataSetId, err))
 	}
 
 	// Get the proving schedule from the listener (handles view contract indirection)
 	provingSchedule, err := contract.GetProvingScheduleFromListener(ctx, listenerAddr, ipp.ethClient)
 	if err != nil {
-		return false, xerrors.Errorf("failed to get proving schedule from listener: %w", err)
+		return handleProvingPeriodPreflightError(ctx, ipp.db, ipp.al, alertNameInitPP, dataSetId, currentHeight, xerrors.Errorf("failed to get proving schedule from listener: %w", err))
 	}
 
 	config, err := provingSchedule.GetPDPConfig(contract.EthCallOpts(ctx))
 	if err != nil {
-		return false, xerrors.Errorf("failed to GetPDPConfig: %w", err)
+		return handleProvingPeriodPreflightError(ctx, ipp.db, ipp.al, alertNameInitPP, dataSetId, currentHeight, xerrors.Errorf("failed to GetPDPConfig: %w", err))
 	}
 
 	init_prove_at := config.InitChallengeWindowStart.Add(config.InitChallengeWindowStart, config.ChallengeWindow.Div(config.ChallengeWindow, big.NewInt(2))) // Give a buffer of 1/2 challenge window epochs so that we are still within challenge window
@@ -208,20 +216,13 @@ func (ipp *InitProvingPeriodTask) Do(ctx context.Context, taskID harmonytask.Tas
 
 	fromAddress, _, err := pdpVerifier.GetDataSetStorageProvider(contract.EthCallOpts(ctx), big.NewInt(dataSetId))
 	if err != nil {
-		return false, xerrors.Errorf("failed to get default sender address: %w", err)
-	}
-
-	// Get the current tipset
-	ts, err := ipp.fil.ChainHead(ctx)
-	if err != nil {
-		return false, xerrors.Errorf("failed to get chain head: %w", err)
+		return handleProvingPeriodPreflightError(ctx, ipp.db, ipp.al, alertNameInitPP, dataSetId, currentHeight, xerrors.Errorf("failed to get default sender address: %w", err))
 	}
 
 	// Send the transaction
 	reason := "pdp-proving-init"
 	txHash, sendErr := ipp.sender.Send(ctx, fromAddress, txEth, reason)
 	if sendErr != nil {
-		currentHeight := int64(ts.Height())
 		if err := handleNextProvingPeriodSendFailure(ctx, ipp.db, provingSchedule, ipp.al, alertNameInitPP, dataSetId, currentHeight, sendErr); err != nil {
 			return false, err
 		}
