@@ -8,7 +8,7 @@ on:
 
 jobs:
   build:
-    runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-test-ami/env=production/cpu=8/ram=16/family=c6a+c7a/image=ubuntu24-full-x64/volume=128gb:gp3
+    runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-test-ami/env=production/cpu=8/ram=16/family=c6a+c7a/image=ubuntu24-full-x64/volume=64gb:gp3
 
     steps:
     - uses: actions/checkout@v6

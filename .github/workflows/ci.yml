@@ -219,7 +219,7 @@ jobs:
         shell: bash
 
   test:
-    runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.test-suite.name }}/env=production/cpu=8/ram=16/family=c6a+c7a/ami=${{ needs.ci-lint.outputs.curio_ami }}/volume=128gb:gp3
+    runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.test-suite.name }}/env=production/cpu=8/ram=16/family=c6a+c7a/ami=${{ needs.ci-lint.outputs.curio_ami }}/volume=64gb:gp3
     needs: [ci-lint]
     strategy:
       fail-fast: false  # Continue running even if one test fails
@@ -294,7 +294,7 @@ jobs:
           retention-days: 1
 
   test-lib-proof:
-    runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-lib-proof/env=production/cpu=16/ram=32/family=c6a+c7a/ami=${{ needs.ci-lint.outputs.curio_ami }}/volume=128gb:gp3
+    runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-lib-proof/env=production/cpu=16/ram=32/family=c6a+c7a/ami=${{ needs.ci-lint.outputs.curio_ami }}/volume=64gb:gp3
     needs: [ci-lint]
     steps:
       - uses: actions/checkout@v4
