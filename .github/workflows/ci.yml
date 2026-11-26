@@ -11,9 +11,23 @@ on:
 jobs:
   ci-lint:
     runs-on: ubuntu-latest
+    outputs:
+      curio_ami: ${{ steps.curio-ami.outputs.id }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      # On public repositories, RunsOn reads image aliases from the default branch.
+      - name: Resolve Curio AMI from checkout
+        id: curio-ami
+        shell: bash
+        run: |
+          if ! ami=$(yq -er '.images.curio.ami | select(tag == "!!str")' .github/runs-on.yml) ||
+             [[ ! "$ami" =~ ^ami-[a-f0-9]+$ ]]; then
+            echo "::error::Set images.curio.ami to an AMI ID in .github/runs-on.yml."
+            exit 1
+          fi
+          printf 'id=%s\n' "$ami" >> "$GITHUB_OUTPUT"
 
       - name: Setup Go
         uses: ./.github/actions/install-go
@@ -205,9 +219,10 @@ jobs:
         shell: bash
 
   test:
-    runs-on: ["self-hosted", "linux", "x64", "2xlarge+amd+curio"]
+    runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.test-suite.name }}/env=production/cpu=8/ram=16/family=c6a+c7a/ami=${{ needs.ci-lint.outputs.curio_ami }}/volume=128gb:gp3
     needs: [ci-lint]
     strategy:
+      max-parallel: 1
       fail-fast: false  # Continue running even if one test fails
       matrix:
         test-suite:
@@ -280,7 +295,7 @@ jobs:
           retention-days: 1
 
   test-lib-proof:
-    runs-on: ["self-hosted", "linux", "x64", "4xlarge+amd+curio"]
+    runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-lib-proof/env=production/cpu=16/ram=32/family=c6a+c7a/ami=${{ needs.ci-lint.outputs.curio_ami }}/volume=128gb:gp3
     needs: [ci-lint]
     steps:
       - uses: actions/checkout@v4
