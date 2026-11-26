@@ -78,7 +78,7 @@ source "amazon-ebs" "curio" {
   launch_block_device_mappings {
     device_name           = "/dev/sda1"
     volume_type           = "gp3"
-    volume_size           = 128
+    volume_size           = 64
     encrypted             = true
     delete_on_termination = true
   }
