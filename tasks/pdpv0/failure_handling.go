@@ -5,8 +5,9 @@ import (
 	"database/sql"
 	"strconv"
 
-	"github.com/filecoin-project/go-state-types/builtin"
 	"golang.org/x/xerrors"
+
+	"github.com/filecoin-project/go-state-types/builtin"
 
 	"github.com/filecoin-project/curio/alertmanager/curioalerting"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
