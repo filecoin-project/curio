@@ -133,7 +133,7 @@ The settle is a chain handler triggered on new blocks.  It waits for `filecoin_p
 
 If the settle transaction fails on chain then watcher logs an error. Each rail is checked for two end of life conditions:
 1. The rail is unpaid past its lockup period. The watcher alerts the operator, with a different message once it has been unpaid for a further 30 days. Terminating the service is the operator's decision.
-2. The rail has previously been terminated and is now finalized, i.e. settled through the entire lockup period.  In this case the watcher calls `ensureDataSetDeletion` to unlock the final gate of the service termination pipeline for a data set whose deletion was requested.
+2. The rail has previously been terminated and is now finalized, i.e. settled through the entire lockup period.  In this case the watcher calls `allowDataSetDeletion` to unlock the final gate of the service termination pipeline for a data set whose deletion was requested.
 
 For a more complete description of the fwss service termination pipeline see [the section above](#fwss-termination)
 
@@ -178,7 +178,7 @@ These are not harmony tasks but chain-event handlers registered via `chainsched.
 | `TerminateServiceWatcher` | `tasks/pdpv0/watch_fwss_terminate.go` | Monitors `terminateService` transaction completion. Retrieves `PdpEndEpoch` from the FWSS contract and updates `service_termination_epoch` in `pdp_delete_data_set`. |
 | `DataSetDeleteWatcher` | `tasks/pdpv0/watch_data_set_delete.go` | Monitors `deleteDataSet` transaction completion. Verifies dataset is no longer live on-chain, then deletes the `pdp_data_sets` row (CASCADE deletes pieces and prove tasks). |
 | `PieceDeleteWatcher` | `tasks/pdpv0/watch_piece_delete.go` | Cleans up orphaned PDP piece refs and, when appropriate, publishes IPNI removal advertisements. The earlier liveness-driven deletion of `pdp_data_set_pieces` rows is currently disabled while removed-piece proving behavior is investigated. |
-| `SettleWatcher` | `tasks/pay/watcher.go` | Monitors settlement transaction completion. Verifies settlement status on-chain via the FWSS contract. Alerts the operator about defaulting rails and, once a terminated rail is finalized, unlocks a requested dataset deletion via `ensureDataSetDeletion`. |
+| `SettleWatcher` | `tasks/pay/watcher.go` | Monitors settlement transaction completion. Verifies settlement status on-chain via the FWSS contract. Alerts the operator about defaulting rails and, once a terminated rail is finalized, unlocks a requested dataset deletion via `allowDataSetDeletion`. |
 
 # Task Dependency Tree
 
