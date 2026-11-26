@@ -24,7 +24,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/keysmith"
 	"github.com/filecoin-project/curio/pdp/contract"
-	"github.com/filecoin-project/curio/tasks/openpieces"
+	"github.com/filecoin-project/curio/tasks/hashspace"
 )
 
 type SubPieceEntry struct {
@@ -571,11 +571,11 @@ func (p *PDPService) placePieceRefs(ctx context.Context, infos map[string]*SubPi
 		var err error
 		switch {
 		case forceACL:
-			err = openpieces.PlaceACL(ctx, p.db, p.hashSpaces, p.local, p.pieceIO, info.PieceRef)
+			err = hashspace.PlaceACL(ctx, p.db, p.hashSpaces, p.local, p.pieceIO, info.PieceRef)
 		case forceOpen:
-			err = openpieces.PlaceOpen(ctx, p.db, p.hashSpaces, p.local, p.pieceIO, info.PieceRef)
+			err = hashspace.PlaceOpen(ctx, p.db, p.hashSpaces, p.local, p.pieceIO, info.PieceRef)
 		default:
-			err = openpieces.Place(ctx, p.db, p.hashSpaces, p.local, p.pieceIO, info.PieceRef)
+			err = hashspace.Place(ctx, p.db, p.hashSpaces, p.local, p.pieceIO, info.PieceRef)
 		}
 		if err != nil {
 			return err

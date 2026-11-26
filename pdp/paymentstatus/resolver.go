@@ -45,7 +45,7 @@ func NewResolver(ttl time.Duration) *Resolver {
 
 func IsAtRisk(s Snapshot, currentEpoch uint64) bool {
 	switch s.Status {
-	case StatusGrace, StatusTerminating, StatusPendingDelete:
+	case StatusGrace, StatusTerminated, StatusTerminating, StatusPendingDelete:
 	default:
 		return false
 	}
@@ -93,6 +93,57 @@ func (c *snapshotCache) put(id int64, snap Snapshot) {
 type overlayBundle struct {
 	delete DeletePipelineOverlay
 	prove  ProvingOverlay
+
+	// recordedServiceEnd is the service end epoch kept in pdp_data_set_review.
+	recordedServiceEnd *int64
+}
+
+// localDeleteOverlay returns the delete overlay as far as the database knows it.
+func (b overlayBundle) localDeleteOverlay() DeletePipelineOverlay {
+	overlay := b.delete
+	if overlay.ServiceTerminationEpoch == nil {
+		overlay.ServiceTerminationEpoch = b.recordedServiceEnd
+	}
+	return overlay
+}
+
+// AwaitingDecision lists the data sets recorded in pdp_data_set_review that
+// have no deletion in progress. It reads only the database, so it works without
+// the chain and covers data sets of any size.
+func AwaitingDecision(ctx context.Context, db *harmonydb.DB) ([]Snapshot, error) {
+	var recorded []struct {
+		DataSet int64 `db:"data_set"`
+	}
+	if err := db.Select(ctx, &recorded, `SELECT data_set FROM pdp_data_set_review ORDER BY data_set`); err != nil {
+		return nil, xerrors.Errorf("list data sets under review: %w", err)
+	}
+	if len(recorded) == 0 {
+		return nil, nil
+	}
+
+	ids := make([]int64, len(recorded))
+	for i, row := range recorded {
+		ids[i] = row.DataSet
+	}
+	bundles, err := loadOverlayBundles(ctx, db, ids)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]Snapshot, 0, len(ids))
+	for _, id := range ids {
+		bundle, ok := bundles[id]
+		if !ok {
+			continue
+		}
+		snap := Classify(0, filecoinpayment.PaymentsRailView{}, "", bundle.localDeleteOverlay(), bundle.prove, false)
+		if snap.Status != StatusTerminated {
+			continue
+		}
+		snap.DataSetID = id
+		out = append(out, snap)
+	}
+	return out, nil
 }
 
 func (r *Resolver) Resolve(
@@ -385,13 +436,12 @@ func resolveFromChainWithClients(
 		return Snapshot{}, xerrors.Errorf("GetDataSet %d: %w", dataSetID, err)
 	}
 
-	deleteOverlay := overlays.delete
+	// FWSS drops a data set's record when the data set is removed on chain; the
+	// epoch Curio recorded then stands in for the missing one.
+	deleteOverlay := overlays.localDeleteOverlay()
 	if info.PdpEndEpoch != nil && info.PdpEndEpoch.Sign() > 0 {
 		epoch := info.PdpEndEpoch.Int64()
 		deleteOverlay.ServiceTerminationEpoch = &epoch
-		if !deleteOverlay.InPipeline {
-			deleteOverlay.InPipeline = true
-		}
 	}
 
 	payer := info.Payer.Hex()
@@ -432,11 +482,13 @@ type overlayRow struct {
 	ID                        int64  `db:"id"`
 	InDeletePipeline          bool   `db:"in_delete_pipeline"`
 	ClientRequested           bool   `db:"client_requested_termination"`
+	OperatorRequested         bool   `db:"operator_requested_deletion"`
 	AfterTerminateService     bool   `db:"after_terminate_service"`
 	ServiceTerminationEpoch   *int64 `db:"service_termination_epoch"`
 	DeletionAllowed           bool   `db:"deletion_allowed"`
 	Terminated                bool   `db:"terminated"`
 	UnrecoverableFailureEpoch *int64 `db:"unrecoverable_proving_failure_epoch"`
+	RecordedServiceEndEpoch   *int64 `db:"recorded_service_end_epoch"`
 }
 
 func loadOverlayBundle(ctx context.Context, db *harmonydb.DB, dataSetID int64) (overlayBundle, error) {
@@ -460,15 +512,26 @@ func loadOverlayBundles(ctx context.Context, db *harmonydb.DB, ids []int64) (map
 	err := db.Select(ctx, &rows, `
 		SELECT
 			ds.id,
-			(dd.id IS NOT NULL AND COALESCE(dd.terminated, FALSE) = FALSE) AS in_delete_pipeline,
+			COALESCE(
+				dd.terminated = FALSE AND (
+					dd.client_requested_termination
+					OR dd.operator_requested_deletion
+					OR dd.after_delete_data_set
+					OR dd.delete_data_set_task_id IS NOT NULL
+				),
+				FALSE
+			) AS in_delete_pipeline,
 			COALESCE(dd.client_requested_termination, FALSE) AS client_requested_termination,
+			COALESCE(dd.operator_requested_deletion, FALSE) AS operator_requested_deletion,
 			COALESCE(dd.after_terminate_service, FALSE) AS after_terminate_service,
 			dd.service_termination_epoch,
 			COALESCE(dd.deletion_allowed, FALSE) AS deletion_allowed,
 			COALESCE(dd.terminated, FALSE) AS terminated,
-			ds.unrecoverable_proving_failure_epoch
+			ds.unrecoverable_proving_failure_epoch,
+			rv.service_end_epoch AS recorded_service_end_epoch
 		FROM pdp_data_sets ds
 		LEFT JOIN pdp_delete_data_set dd ON dd.id = ds.id
+		LEFT JOIN pdp_data_set_review rv ON rv.data_set = ds.id
 		WHERE ds.id = ANY($1)
 	`, ids)
 	if err != nil {
@@ -480,12 +543,14 @@ func loadOverlayBundles(ctx context.Context, db *harmonydb.DB, ids []int64) (map
 			delete: DeletePipelineOverlay{
 				InPipeline:              row.InDeletePipeline,
 				ClientRequested:         row.ClientRequested,
+				OperatorRequested:       row.OperatorRequested,
 				AfterTerminateService:   row.AfterTerminateService,
 				ServiceTerminationEpoch: row.ServiceTerminationEpoch,
 				DeletionAllowed:         row.DeletionAllowed,
 				Terminated:              row.Terminated,
 			},
-			prove: ProvingOverlay{UnrecoverableFailureEpoch: row.UnrecoverableFailureEpoch},
+			prove:              ProvingOverlay{UnrecoverableFailureEpoch: row.UnrecoverableFailureEpoch},
+			recordedServiceEnd: row.RecordedServiceEndEpoch,
 		}
 	}
 	return out, nil

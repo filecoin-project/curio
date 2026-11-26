@@ -110,6 +110,7 @@ const (
 	PDPv0_DatasetIdx = "PDPv0_DatasetIdx"
 	PDPv0_FixPiece   = "PDPv0_FixPiece"
 	PDPv0_ProcDel    = "PDPv0_ProcDel"
+	PDPv0_Income     = "PDPv0_Income"
 
 	// Open-pieces hash space
 	HashSpaceMove = "HashSpaceMove"

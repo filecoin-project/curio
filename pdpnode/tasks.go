@@ -15,9 +15,9 @@ import (
 	pdpsvc "github.com/filecoin-project/curio/pdp"
 	"github.com/filecoin-project/curio/tasks/dbmaint"
 	"github.com/filecoin-project/curio/tasks/gc"
+	"github.com/filecoin-project/curio/tasks/hashspace"
 	"github.com/filecoin-project/curio/tasks/indexing"
 	"github.com/filecoin-project/curio/tasks/message"
-	"github.com/filecoin-project/curio/tasks/openpieces"
 	"github.com/filecoin-project/curio/tasks/pay"
 	"github.com/filecoin-project/curio/tasks/pdp"
 	"github.com/filecoin-project/curio/tasks/pdpv0"
@@ -91,8 +91,8 @@ func buildPDPTasks(ctx context.Context, d *Deps, chainSched *chainsched.CurioCha
 		notify.UseOpenPieces(d.HashSpaces, d.LocalStore, d.PieceIO)
 		pull.UseOpenPieces(d.HashSpaces, d.LocalStore, d.PieceIO)
 		tasks = append(tasks,
-			openpieces.NewMoveTask(db, d.HashSpaces),
-			openpieces.NewDropTask(db, d.HashSpaces),
+			hashspace.NewMoveTask(db, d.HashSpaces),
+			hashspace.NewDropTask(db, d.HashSpaces),
 		)
 	}
 
@@ -106,8 +106,9 @@ func buildPDPTasks(ctx context.Context, d *Deps, chainSched *chainsched.CurioCha
 		pdpv0.NewTerminateServiceTask(db, ethClient, senderEth),
 		pdpv0.NewDeleteDataSetTask(db, ethClient, senderEth),
 		pdpv0.NewCleanupPiecesTask(db, ethClient, senderEth),
-		pdpv0.NewTaskChainSync(db, ethClient, senderEth),
+		pdpv0.NewTaskChainSync(db, ethClient, senderEth, d.Al),
 		pay.NewSettleTask(db, ethClient, senderEth, d.Al), // Move this to a common section once PDP v1 is live
+		pay.NewIncomeTask(db, ethClient, d.Al),
 		pdpv0.NewTaskPDPSaveCache(db, d.CachedPieceReader, d.IndexStore),
 		pdpv0.NewPieceGCTask(&cfg.HTTP, db, d.IndexStore, ethClient, cfg.Subsystems.PDPUnclaimedUploadKeepHours),
 		pdpv0.NewReorgCheckTask(db, ethClient, d.Chain),

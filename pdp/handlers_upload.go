@@ -30,7 +30,7 @@ import (
 	"github.com/filecoin-project/curio/lib/piecestore"
 	"github.com/filecoin-project/curio/lib/proof"
 	"github.com/filecoin-project/curio/lib/storiface"
-	"github.com/filecoin-project/curio/tasks/openpieces"
+	"github.com/filecoin-project/curio/tasks/hashspace"
 )
 
 var log = logging.Logger("pdpv0")
@@ -96,10 +96,20 @@ func readHasExtraByte(r io.Reader) (bool, error) {
 	}
 }
 
-// placeRef copies pieceRef into the hash space its data sets require.
-// A ref no data set has claimed goes to open-pieces.
-func (p *PDPService) placeRef(ctx context.Context, pieceRef int64) error {
-	return openpieces.Place(ctx, p.db, p.hashSpaces, p.local, p.pieceIO, pieceRef)
+// placeRef copies pieceRef into the hash space the arrival read flag requires.
+// restricted goes to acl-pieces; otherwise open-pieces. Linked data sets still apply.
+func (p *PDPService) placeRef(ctx context.Context, pieceRef int64, restricted bool) error {
+	return hashspace.PlaceArrived(ctx, p.db, p.hashSpaces, p.local, p.pieceIO, pieceRef, restricted)
+}
+
+// uploadReadRestricted reads the stored arrival flag for a direct upload intent.
+func (p *PDPService) uploadReadRestricted(ctx context.Context, uploadID string) (bool, error) {
+	var restricted bool
+	err := p.db.QueryRow(ctx, `SELECT read_restricted FROM pdp_piece_uploads WHERE id = $1`, uploadID).Scan(&restricted)
+	if err != nil {
+		return false, fmt.Errorf("reading upload read_restricted: %w", err)
+	}
+	return restricted, nil
 }
 
 func needsSaveCache(rawSize int64) bool {
@@ -167,7 +177,9 @@ func claimParkedPiece(tx *harmonydb.Tx, pieceCID string, rawSize, paddedSize int
 // the PDP ref and consumes the intent without reading the request body.
 func (p *PDPService) claimDirectUpload(ctx context.Context, uploadID, service, pieceCID string, rawSize, paddedSize int64) (parkedPieceClaim, error) {
 	var claim parkedPieceClaim
+	var restricted bool
 	committed, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		restricted = false
 		var err error
 		claim, err = claimParkedPiece(tx, pieceCID, rawSize, paddedSize)
 		if err != nil {
@@ -175,6 +187,13 @@ func (p *PDPService) claimDirectUpload(ctx context.Context, uploadID, service, p
 		}
 
 		if claim.complete {
+			err = tx.QueryRow(`SELECT read_restricted FROM pdp_piece_uploads WHERE id = $1 AND piece_ref IS NULL`, uploadID).Scan(&restricted)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return false, errUploadClaimed
+			}
+			if err != nil {
+				return false, fmt.Errorf("failed to read upload read_restricted: %w", err)
+			}
 			n, err := tx.Exec(`DELETE FROM pdp_piece_uploads WHERE id = $1 AND piece_ref IS NULL`, uploadID)
 			if err != nil {
 				return false, fmt.Errorf("failed to consume upload UUID: %w", err)
@@ -209,7 +228,7 @@ func (p *PDPService) claimDirectUpload(ctx context.Context, uploadID, service, p
 		return parkedPieceClaim{}, errors.New("failed to commit direct upload claim")
 	}
 	if claim.complete {
-		if err := p.placeRef(ctx, claim.pieceRefID); err != nil {
+		if err := p.placeRef(ctx, claim.pieceRefID, restricted); err != nil {
 			return parkedPieceClaim{}, err
 		}
 	}
@@ -385,7 +404,11 @@ func (p *PDPService) finalizeDirectUpload(ctx context.Context, uploadID, service
 	if !committed {
 		return errors.New("failed to commit direct upload completion")
 	}
-	if err := p.placeRef(ctx, claim.pieceRefID); err != nil {
+	restricted, err := p.uploadReadRestricted(ctx, uploadID)
+	if err != nil {
+		return err
+	}
+	if err := p.placeRef(ctx, claim.pieceRefID, restricted); err != nil {
 		return err
 	}
 	// Drop the upload after placement returns. A retry can place again if this copy failed.
@@ -626,8 +649,14 @@ func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		PieceCID string `json:"pieceCid"`
 		Notify   string `json:"notify,omitempty"`
+		Read     string `json:"read,omitempty"`
 	}
 	if err = json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpServerError(w, http.StatusBadRequest, "Invalid request body: "+err.Error(), err)
+		return
+	}
+	restricted, err := ParsePieceRead(req.Read)
+	if err != nil {
 		httpServerError(w, http.StatusBadRequest, "Invalid request body: "+err.Error(), err)
 		return
 	}
@@ -701,9 +730,9 @@ func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 		uploadUUID = uuid.New()
 
 		_, err = tx.Exec(`
-       INSERT INTO pdp_piece_uploads (id, service, piece_cid, notify_url, check_hash_codec, check_hash, check_size)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-   `, uploadUUID.String(), serviceID, pieceCidV1.String(), req.Notify, multicodec.Sha2_256Trunc254Padded.String(), dmh.Digest, size)
+       INSERT INTO pdp_piece_uploads (id, service, piece_cid, notify_url, check_hash_codec, check_hash, check_size, read_restricted)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+   `, uploadUUID.String(), serviceID, pieceCidV1.String(), req.Notify, multicodec.Sha2_256Trunc254Padded.String(), dmh.Digest, size, restricted)
 		if err != nil {
 			return false, fmt.Errorf("failed to store upload request in database: %w", err)
 		}
@@ -720,7 +749,7 @@ func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if responseStatus == http.StatusOK {
-		if err := p.placeRef(ctx, placedRef); err != nil {
+		if err := p.placeRef(ctx, placedRef, restricted); err != nil {
 			httpPlaceError(w, err)
 			return
 		}
@@ -765,11 +794,12 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 	var pieceCIDStr string
 	var checkSize int64
 	var pieceRef sql.NullInt64
+	var restricted bool
 	err = p.db.QueryRow(ctx, `
-		SELECT service, piece_cid, piece_ref, check_size
+		SELECT service, piece_cid, piece_ref, check_size, read_restricted
 		FROM pdp_piece_uploads
 		WHERE id = $1
-	`, uploadUUID.String()).Scan(&serviceID, &pieceCIDStr, &pieceRef, &checkSize)
+	`, uploadUUID.String()).Scan(&serviceID, &pieceCIDStr, &pieceRef, &checkSize, &restricted)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			httpServerError(w, http.StatusNotFound, "Upload UUID not found", err)
@@ -792,7 +822,7 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 			httpServerError(w, http.StatusConflict, "Data has already been uploaded", err)
 			return
 		}
-		if err := p.placeRef(ctx, pieceRef.Int64); err != nil {
+		if err := p.placeRef(ctx, pieceRef.Int64, restricted); err != nil {
 			httpPlaceError(w, err)
 			return
 		}
@@ -1116,8 +1146,14 @@ func (p *PDPService) handleFinalizeStreamingUpload(w http.ResponseWriter, r *htt
 	var req struct {
 		PieceCID string `json:"pieceCid"`
 		Notify   string `json:"notify,omitempty"`
+		Read     string `json:"read,omitempty"`
 	}
 	if err = json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpServerError(w, http.StatusBadRequest, "Invalid request body: "+err.Error(), err)
+		return
+	}
+	restricted, err := ParsePieceRead(req.Read)
+	if err != nil {
 		httpServerError(w, http.StatusBadRequest, "Invalid request body: "+err.Error(), err)
 		return
 	}
@@ -1177,6 +1213,18 @@ func (p *PDPService) handleFinalizeStreamingUpload(w http.ResponseWriter, r *htt
 
 	comm, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		n, err := tx.Exec(`
+			UPDATE pdp_piece_streaming_uploads
+			SET read_restricted = $4
+			WHERE id = $1 AND service = $2 AND piece_ref = $3 AND complete = TRUE
+		`, uploadUUID.String(), serviceID, pref, restricted)
+		if err != nil {
+			return false, fmt.Errorf("failed to store streaming upload read_restricted: %w", err)
+		}
+		if n != 1 {
+			return false, fmt.Errorf("failed to store streaming upload read_restricted: expected 1 row but got %d", n)
+		}
+
+		n, err = tx.Exec(`
 			INSERT INTO pdp_piecerefs (service, piece_cid, piece_ref, created_at, needs_save_cache)
 			SELECT su.service, su.piece_cid, su.piece_ref, NOW(), $4
 			FROM pdp_piece_streaming_uploads su
@@ -1217,7 +1265,7 @@ func (p *PDPService) handleFinalizeStreamingUpload(w http.ResponseWriter, r *htt
 		httpServerError(w, http.StatusInternalServerError, "Failed to process piece upload", err)
 		return
 	}
-	if err := p.placeRef(ctx, pref); err != nil {
+	if err := p.placeRef(ctx, pref, restricted); err != nil {
 		httpPlaceError(w, err)
 		return
 	}

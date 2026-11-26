@@ -196,12 +196,13 @@ type PullResponse struct {
 
 // PullRecord represents a pull request record from the database
 type PullRecord struct {
-	ID            int64
-	Service       string
-	ExtraDataHash []byte
-	DataSetId     uint64 // 0 = create new
-	RecordKeeper  string // address, required when DataSetId is 0
-	ClientAddress string // FWSS payer address
+	ID             int64
+	Service        string
+	ExtraDataHash  []byte
+	DataSetId      uint64 // 0 = create new
+	RecordKeeper   string // address, required when DataSetId is 0
+	ClientAddress  string // FWSS payer address
+	ReadRestricted bool   // place into acl-pieces at arrival
 }
 
 // PullPiece represents one source URL stored for a pull request.
@@ -307,16 +308,17 @@ func NewDBPullStore(db *harmonydb.DB) PullStore {
 
 func (s *dbPullStore) GetPullByKey(ctx context.Context, service string, hash []byte, dataSetId uint64, recordKeeper string) (*PullRecord, error) {
 	var records []struct {
-		ID            int64  `db:"id"`
-		Service       string `db:"service"`
-		ExtraDataHash []byte `db:"extra_data_hash"`
-		DataSetId     uint64 `db:"data_set_id"`
-		RecordKeeper  string `db:"record_keeper"`
-		ClientAddress string `db:"client_address"`
+		ID             int64  `db:"id"`
+		Service        string `db:"service"`
+		ExtraDataHash  []byte `db:"extra_data_hash"`
+		DataSetId      uint64 `db:"data_set_id"`
+		RecordKeeper   string `db:"record_keeper"`
+		ClientAddress  string `db:"client_address"`
+		ReadRestricted bool   `db:"read_restricted"`
 	}
 
 	err := s.db.Select(ctx, &records, `
-		SELECT id, service, extra_data_hash, data_set_id, record_keeper, client_address
+		SELECT id, service, extra_data_hash, data_set_id, record_keeper, client_address, read_restricted
 		FROM pdp_piece_pulls
 		WHERE service = $1 AND extra_data_hash = $2 AND data_set_id = $3 AND record_keeper = $4
 	`, service, hash, dataSetId, recordKeeper)
@@ -329,12 +331,13 @@ func (s *dbPullStore) GetPullByKey(ctx context.Context, service string, hash []b
 	}
 
 	return &PullRecord{
-		ID:            records[0].ID,
-		Service:       records[0].Service,
-		ExtraDataHash: records[0].ExtraDataHash,
-		DataSetId:     records[0].DataSetId,
-		RecordKeeper:  records[0].RecordKeeper,
-		ClientAddress: records[0].ClientAddress,
+		ID:             records[0].ID,
+		Service:        records[0].Service,
+		ExtraDataHash:  records[0].ExtraDataHash,
+		DataSetId:      records[0].DataSetId,
+		RecordKeeper:   records[0].RecordKeeper,
+		ClientAddress:  records[0].ClientAddress,
+		ReadRestricted: records[0].ReadRestricted,
 	}, nil
 }
 
@@ -348,11 +351,11 @@ func (s *dbPullStore) CreatePullWithPieces(ctx context.Context, pull *PullRecord
 
 	comm, err := s.db.BeginTransaction(ctx, func(tx *harmonyquery.Tx) (commit bool, err error) {
 		err = tx.QueryRow(`
-			INSERT INTO pdp_piece_pulls (service, extra_data_hash, data_set_id, record_keeper, client_address)
-			VALUES ($1, $2, $3, $4, $5)
+			INSERT INTO pdp_piece_pulls (service, extra_data_hash, data_set_id, record_keeper, client_address, read_restricted)
+			VALUES ($1, $2, $3, $4, $5, $6)
 			ON CONFLICT (service, extra_data_hash, data_set_id, record_keeper) DO NOTHING
 			RETURNING id
-		`, pull.Service, pull.ExtraDataHash, pull.DataSetId, pull.RecordKeeper, pull.ClientAddress).Scan(&pullID)
+		`, pull.Service, pull.ExtraDataHash, pull.DataSetId, pull.RecordKeeper, pull.ClientAddress, pull.ReadRestricted).Scan(&pullID)
 		if errors.Is(err, pgx.ErrNoRows) {
 			err = tx.QueryRow(`
 				SELECT id

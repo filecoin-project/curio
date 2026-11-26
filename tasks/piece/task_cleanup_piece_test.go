@@ -78,7 +78,14 @@ func newCleanupPieceFixture(t *testing.T) (*CleanupPieceTask, storiface.PieceNum
 
 func TestCleanupPieceQueuesOpenPieceDeletion(t *testing.T) {
 	task, pieceID, v2 := newCleanupPieceFixture(t)
-	done, err := task.Do(t.Context(), cleanupTestTaskID, func() bool { return true })
+	done, err := task.Do(t.Context(), cleanupTestTaskID, func() bool {
+		// The scheduler's stillOwned callback also reads through the DB pool.
+		var claim harmonytask.TaskID
+		err := task.db.QueryRow(t.Context(), `SELECT cleanup_task_id FROM parked_pieces WHERE id = $1`,
+			pieceID).Scan(&claim)
+		require.NoError(t, err)
+		return claim == cleanupTestTaskID
+	})
 	require.NoError(t, err)
 	require.True(t, done)
 
@@ -93,6 +100,34 @@ func TestCleanupPieceQueuesOpenPieceDeletion(t *testing.T) {
 	require.False(t, parked, "unreferenced parked metadata should be removed")
 	require.True(t, queued, "open-pieces deletion must remain queued after parked metadata is removed")
 	require.Equal(t, []storiface.PieceNumber{pieceID}, task.piece.(*cleanupPieceIO).removed)
+}
+
+func TestCleanupPieceCancellationBeforeDropTransaction(t *testing.T) {
+	task, pieceID, _ := newCleanupPieceFixture(t)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	addDrop := task.dropAdder
+	task.dropAdder = func(extra func(harmonytask.TaskID, *harmonydb.Tx) (bool, error)) {
+		cancel()
+		addDrop(extra)
+	}
+
+	done, err := task.Do(ctx, cleanupTestTaskID, func() bool { return true })
+	require.ErrorIs(t, err, context.Canceled)
+	require.False(t, done)
+	var parked bool
+	var queued, tasks int
+	err = task.db.QueryRow(t.Context(), `SELECT
+		EXISTS (SELECT 1 FROM parked_pieces WHERE id = $1 AND cleanup_task_id = $2),
+		(SELECT count(*) FROM hash_space_delete),
+		(SELECT count(*) FROM harmony_task WHERE name = $3)`,
+		pieceID, cleanupTestTaskID, tasknames.HashSpaceDrop).Scan(&parked, &queued, &tasks)
+	require.NoError(t, err)
+	require.True(t, parked)
+	require.Zero(t, queued)
+	require.Zero(t, tasks)
+	require.Empty(t, task.piece.(*cleanupPieceIO).removed)
 }
 
 func TestCleanupPieceRetainsReferenceAddedAfterScheduling(t *testing.T) {

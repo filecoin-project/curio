@@ -99,27 +99,30 @@ func (rp *Provider) handleDownload(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	prefixLen := len(downloadPrefix)
 	if len(r.URL.Path) <= prefixLen {
-		log.Errorf("path '%s' is missing piece CID", r.URL.Path)
+		log.Errorf("path '%s' is missing a CID", r.URL.Path)
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
-	pieceCidStr := r.URL.Path[prefixLen:]
-	pieceCid, err := cid.Parse(pieceCidStr)
+	// The CID the client asked for. May be a piece CID, or the IPFS root (or any block) of a private CAR
+	requestedCidStr := r.URL.Path[prefixLen:]
+	requestedCid, err := cid.Parse(requestedCidStr)
 	if err != nil {
-		log.Errorf("parsing piece CID '%s': %s", pieceCidStr, err.Error())
+		log.Errorf("parsing download CID '%s': %s", requestedCidStr, err.Error())
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	// A piece CID is that piece. Any other CID is a block of a private CAR.
-	if !commcidv2.IsPieceCidV2(pieceCid) && !commcidv2.IsCidV1PieceCid(pieceCid) {
+	var pieceCid cid.Cid
+	if commcidv2.IsPieceCidV2(requestedCid) || commcidv2.IsCidV1PieceCid(requestedCid) {
+		pieceCid = requestedCid
+	} else {
 		if rp.privateIdx == nil {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
-		piece, ok, err := rp.privateIdx.PrivatePieceByMultihash(ctx, pieceCid.Hash())
+		piece, ok, err := rp.privateIdx.PrivatePieceByMultihash(ctx, requestedCid.Hash())
 		if err != nil {
-			log.Errorf("resolving download CID '%s': %s", pieceCidStr, err.Error())
+			log.Errorf("resolving download CID '%s': %s", requestedCidStr, err.Error())
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
@@ -157,7 +160,7 @@ func (rp *Provider) handleDownload(w http.ResponseWriter, r *http.Request) {
 		var labels keysmith.Labels
 		labels, err = keysmith.ReadEnvelopeLabelsAt(reader)
 		if err == nil {
-			_, err = keysmith.VerifyPresentation(raw, pieceCid.Bytes(), labels.Piece(), rp.blockChain, time.Now())
+			_, err = keysmith.VerifyPresentation(raw, requestedCid.Bytes(), labels.Piece(), rp.blockChain, time.Now())
 		}
 	}
 	if err != nil {

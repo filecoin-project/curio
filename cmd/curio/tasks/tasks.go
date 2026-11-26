@@ -49,10 +49,10 @@ import (
 	"github.com/filecoin-project/curio/tasks/expmgr"
 	"github.com/filecoin-project/curio/tasks/f3"
 	"github.com/filecoin-project/curio/tasks/gc"
+	"github.com/filecoin-project/curio/tasks/hashspace"
 	"github.com/filecoin-project/curio/tasks/indexing"
 	"github.com/filecoin-project/curio/tasks/message"
 	"github.com/filecoin-project/curio/tasks/metadata"
-	"github.com/filecoin-project/curio/tasks/openpieces"
 	piece2 "github.com/filecoin-project/curio/tasks/piece"
 	"github.com/filecoin-project/curio/tasks/proofshare"
 	"github.com/filecoin-project/curio/tasks/scrub"
@@ -285,7 +285,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 				if err != nil {
 					return nil, xerrors.Errorf("piece cleanup storage auth: %w", err)
 				}
-				activeTasks = append(activeTasks, openpieces.NewDropTask(db, hashfolder.NewRemoteClient(db, auth)))
+				activeTasks = append(activeTasks, hashspace.NewDropTask(db, hashfolder.NewRemoteClient(db, auth)))
 			}
 		}
 	}

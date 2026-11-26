@@ -18,7 +18,7 @@ import (
 	"github.com/filecoin-project/curio/lib/piecestore"
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/lib/storiface"
-	"github.com/filecoin-project/curio/tasks/openpieces"
+	"github.com/filecoin-project/curio/tasks/hashspace"
 	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
@@ -124,17 +124,21 @@ func (c *CleanupPieceTask) schedule(ctx context.Context) error {
 }
 
 func (c *CleanupPieceTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
+	if !stillOwned() {
+		return false, xerrors.Errorf("lost ownership of piece cleanup task %d", taskID)
+	}
 	addDrop := c.dropAdder
 	if addDrop == nil {
-		addDrop = openpieces.DropAdder()
+		addDrop = hashspace.DropAdder()
 	}
 	var pieceID int64
 	var removed, withDropTask bool
 	committed, err := harmonytask.TxWithTask(ctx, c.db, addDrop, func(tx *harmonydb.Tx, dropTask harmonytask.TaskID) (bool, error) {
 		removed = false
 		withDropTask = dropTask != 0
-		if !stillOwned() {
-			return false, xerrors.Errorf("lost ownership of piece cleanup task %d", taskID)
+		// The callback can run again in the drop-task transaction.
+		if err := ctx.Err(); err != nil {
+			return false, err
 		}
 		var pieceCID string
 		var rawSize int64
@@ -172,7 +176,7 @@ func (c *CleanupPieceTask) Do(ctx context.Context, taskID harmonytask.TaskID, st
 			if err != nil {
 				return false, xerrors.Errorf("converting parked piece CID: %w", err)
 			}
-			if err := openpieces.QueueDrop(tx, dropTask, v2.String()); err != nil {
+			if err := hashspace.QueueDrop(tx, dropTask, v2.String()); err != nil {
 				return false, err
 			}
 		}
