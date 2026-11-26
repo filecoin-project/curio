@@ -221,7 +221,7 @@ During the upload-pipeline rollout, a compatibility-only PDP v0 task publishes c
 
 1. **Settle** periodically calls `filecoinpayment.SettleLockupPeriod()` and writes the transaction to `filecoin_payment_transactions` + `message_waits_eth`.
 2. When the transaction lands, **SettleWatcher** verifies settlement on-chain, inspects each rail's status, and alerts the operator about a defaulting rail.
-3. **PDPv0_ChainSync** periodically reads each data set's `PdpEndEpoch` from the FWSS contract. A service terminated on chain is recorded in `pdp_data_set_review` and raises one alert, unless a deletion of the data set is already in progress.
+3. **PDPv0_ChainSync** periodically reads each data set from the FWSS contract, and from PDPVerifier when FWSS has no record of it, at a height `ChainFinality` epochs behind the head. A data set whose service was terminated, or that is no longer live in PDPVerifier, is recorded in `pdp_data_set_review` and raises one alert, unless a deletion of the data set is already in progress.
 
 **When a client or the operator requests deletion:**
 4. The client's `POST /pdp/data-sets/{dataSetId}/terminate` or the operator's `PDPDataSetRequestDeletion` Web RPC call creates a `pdp_delete_data_set` row.

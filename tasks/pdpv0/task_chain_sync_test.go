@@ -2,6 +2,7 @@ package pdpv0
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"math/big"
 	"strconv"
@@ -17,6 +18,8 @@ import (
 	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/pdp/contract/FWSS"
+
+	"github.com/filecoin-project/lotus/chain/actors/policy"
 )
 
 var (
@@ -24,17 +27,31 @@ var (
 	chainSyncViewAddress = common.HexToAddress("0x00000000000000000000000000000000000c5a12")
 )
 
+const chainSyncHead = 10_000
+
+var chainSyncFinalHeight = int64(chainSyncHead) - int64(policy.ChainFinality)
+
 // chainSyncViewClient answers the contract calls made by the chain sync steps
 // under test. A call it has no answer for fails the test.
 type chainSyncViewClient struct {
 	ethchain.EthClient
 	t         *testing.T
+	head      uint64
 	responses map[string][]byte
 	failures  map[string]error
+	// heights holds the height of each call other than viewContractAddress.
+	heights []*big.Int
 }
 
-func (c *chainSyncViewClient) CallContract(_ context.Context, msg ethereum.CallMsg, _ *big.Int) ([]byte, error) {
+func (c *chainSyncViewClient) BlockNumber(context.Context) (uint64, error) {
+	return c.head, nil
+}
+
+func (c *chainSyncViewClient) CallContract(_ context.Context, msg ethereum.CallMsg, blockNumber *big.Int) ([]byte, error) {
 	c.t.Helper()
+	if string(msg.Data) != c.callData(contract.ContractWithViewMetaData, "viewContractAddress") {
+		c.heights = append(c.heights, blockNumber)
+	}
 	if err, ok := c.failures[string(msg.Data)]; ok {
 		return nil, err
 	}
@@ -47,10 +64,19 @@ func newChainSyncViewClient(t *testing.T) *chainSyncViewClient {
 	t.Helper()
 	contract.SetAddresses(contract.Addresses{FWSService: chainSyncFWSSAddress})
 
-	c := &chainSyncViewClient{t: t, responses: make(map[string][]byte), failures: make(map[string]error)}
+	c := &chainSyncViewClient{t: t, head: chainSyncHead, responses: make(map[string][]byte), failures: make(map[string]error)}
 	c.responses[c.callData(contract.ContractWithViewMetaData, "viewContractAddress")] =
 		c.pack(contract.ContractWithViewMetaData, "viewContractAddress", chainSyncViewAddress)
 	return c
+}
+
+func (c *chainSyncViewClient) requireReadAt(height int64) {
+	c.t.Helper()
+	require.NotEmpty(c.t, c.heights)
+	for _, got := range c.heights {
+		require.NotNil(c.t, got)
+		require.Equal(c.t, height, got.Int64())
+	}
 }
 
 func (c *chainSyncViewClient) callData(metadata *bind.MetaData, name string, args ...any) string {
@@ -91,9 +117,13 @@ func (c *chainSyncViewClient) setDataSet(dataSetID, railID, endEpoch int64) {
 		})
 }
 
-// setRemoved makes PDPVerifier report the data set as removed.
+// setRemoved makes PDPVerifier report the data set as removed: not live, and
+// unknown to getNextPieceId.
 func (c *chainSyncViewClient) setRemoved(dataSetID int64) {
-	c.failures[c.callData(contract.PDPVerifierMetaData, "dataSetLive", big.NewInt(dataSetID))] =
+	id := big.NewInt(dataSetID)
+	c.responses[c.callData(contract.PDPVerifierMetaData, "dataSetLive", id)] =
+		c.pack(contract.PDPVerifierMetaData, "dataSetLive", false)
+	c.failures[c.callData(contract.PDPVerifierMetaData, "getNextPieceId", id)] =
 		selectorRevert(contractErrorSelector(ErrPDPVerifierDataSetNotFound))
 }
 
@@ -107,6 +137,31 @@ func (c *chainSyncViewClient) setCleanupMode(dataSetID int64) {
 		c.pack(contract.PDPVerifierMetaData, "getNextPieceId", big.NewInt(1))
 	c.responses[c.callData(contract.PDPVerifierMetaData, "getNextChallengeEpoch", id)] =
 		c.pack(contract.PDPVerifierMetaData, "getNextChallengeEpoch", cleanupModeSentinel)
+}
+
+func (c *chainSyncViewClient) setNoRecord(dataSetID int64) {
+	zero := big.NewInt(0)
+	c.responses[c.getDataSetCall(dataSetID)] = c.pack(FWSS.FilecoinWarmStorageServiceStateViewMetaData, "getDataSet",
+		FWSS.FilecoinWarmStorageServiceDataSetInfoView{
+			PdpRailId:       zero,
+			CacheMissRailId: zero,
+			CdnRailId:       zero,
+			CommissionBps:   zero,
+			ClientDataSetId: zero,
+			PdpEndEpoch:     zero,
+			ProviderId:      zero,
+			DataSetId:       zero,
+		})
+}
+
+func (c *chainSyncViewClient) setNextDataSetID(next int64) {
+	c.responses[c.callData(contract.PDPVerifierMetaData, "getNextDataSetId")] =
+		c.pack(contract.PDPVerifierMetaData, "getNextDataSetId", uint64(next))
+}
+
+func (c *chainSyncViewClient) setLive(dataSetID int64) {
+	c.responses[c.callData(contract.PDPVerifierMetaData, "dataSetLive", big.NewInt(dataSetID))] =
+		c.pack(contract.PDPVerifierMetaData, "dataSetLive", true)
 }
 
 type failingAlerting struct {
@@ -166,6 +221,7 @@ func TestIntegration_SyncServiceTerminations(t *testing.T) {
 	for range 2 {
 		require.NoError(t, task.syncServiceTerminations(ctx))
 	}
+	client.requireReadAt(chainSyncFinalHeight)
 
 	endEpoch := func(epoch int64) []dataSetReview { return []dataSetReview{{ServiceEndEpoch: &epoch}} }
 	require.Empty(t, loadDataSetReviews(t, ctx, db, unreadable))
@@ -218,6 +274,69 @@ func TestIntegration_SyncServiceTerminations_RecordsWhenAlertFails(t *testing.T)
 
 	endEpoch := int64(5000)
 	require.Equal(t, []dataSetReview{{ServiceEndEpoch: &endEpoch}}, loadDataSetReviews(t, ctx, db, dataSetID))
+}
+
+func TestIntegration_SyncServiceTerminations_RemovedOnChain(t *testing.T) {
+	ctx := context.Background()
+	db, err := harmonydb.NewFromConfigWithITestID(t)
+	require.NoError(t, err)
+
+	// None of them has pieces, so no proving task would notice them.
+	removed := insertFailureHandlingDataSet(t, ctx, db, failureHandlingDataSetState{})
+	live := insertFailureHandlingDataSet(t, ctx, db, failureHandlingDataSetState{})
+	stopped := insertFailureHandlingDataSet(t, ctx, db, failureHandlingDataSetState{
+		UnrecoverableEpoch: sql.NullInt64{Int64: 42, Valid: true},
+	})
+	// Inserted last, so it has the highest id: not yet created at the read height.
+	recent := insertFailureHandlingDataSet(t, ctx, db, failureHandlingDataSetState{})
+
+	client := newChainSyncViewClient(t)
+	for _, dataSetID := range []int64{removed, live, stopped, recent} {
+		client.setNoRecord(dataSetID)
+	}
+	client.setNextDataSetID(recent)
+	client.setRemoved(removed)
+	client.setLive(live)
+	// No dataSetLive answer for stopped or recent: asking about either fails the test.
+
+	alerts := &recordingAlerting{}
+	task := &TaskChainSync{db: db, ethClient: client, al: alerts}
+
+	// The second pass must not alert again.
+	for range 2 {
+		require.NoError(t, task.syncServiceTerminations(ctx))
+	}
+	client.requireReadAt(chainSyncFinalHeight)
+
+	require.Equal(t, []dataSetReview{{}}, loadDataSetReviews(t, ctx, db, removed))
+	require.Equal(t, sql.NullInt64{Int64: chainSyncFinalHeight, Valid: true},
+		loadFailureHandlingDataSet(t, ctx, db, removed).UnrecoverableEpoch)
+	for _, dataSetID := range []int64{live, recent} {
+		require.Empty(t, loadDataSetReviews(t, ctx, db, dataSetID))
+		require.False(t, loadFailureHandlingDataSet(t, ctx, db, dataSetID).UnrecoverableEpoch.Valid)
+	}
+	require.Empty(t, loadDataSetReviews(t, ctx, db, stopped))
+
+	require.Len(t, alerts.events, 1)
+	require.Equal(t, alertType, alerts.events[0].System)
+	require.Equal(t, alertNameChainSync, alerts.events[0].Subsystem)
+	require.Equal(t, strconv.FormatInt(removed, 10), alerts.events[0].Context[curioalerting.CONTEXT_KEY_DATASET])
+}
+
+func TestIntegration_SyncServiceTerminations_WaitsForFinality(t *testing.T) {
+	ctx := context.Background()
+	db, err := harmonydb.NewFromConfigWithITestID(t)
+	require.NoError(t, err)
+
+	insertFailureHandlingDataSet(t, ctx, db, failureHandlingDataSetState{InitReady: true})
+
+	// No answers at all: any contract call fails the test.
+	client := newChainSyncViewClient(t)
+	client.head = uint64(policy.ChainFinality)
+	client.responses = make(map[string][]byte)
+
+	task := &TaskChainSync{db: db, ethClient: client, al: &recordingAlerting{}}
+	require.NoError(t, task.syncServiceTerminations(ctx))
 }
 
 // loadKeptDataSets maps each data set that still has its local row to whether

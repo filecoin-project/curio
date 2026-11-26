@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/alertmanager/curioalerting"
@@ -20,6 +21,8 @@ import (
 	"github.com/filecoin-project/curio/pdp/contract/FWSS"
 	"github.com/filecoin-project/curio/tasks/message"
 	"github.com/filecoin-project/curio/tasks/tasknames"
+
+	"github.com/filecoin-project/lotus/chain/actors/policy"
 )
 
 const alertNameChainSync = "ChainSync"
@@ -545,16 +548,20 @@ func (t *TaskChainSync) allowDataSetDeletion(ctx context.Context, dataSetID int6
 	return nil
 }
 
-// syncServiceTerminations records data sets whose FWSS service was terminated
-// on chain while no deletion of theirs was in progress, and alerts the operator
-// once per data set. A chain that cannot be read is logged and skipped, so it
-// does not hold back the steps that follow; database errors are returned.
+// syncServiceTerminations records data sets with no deletion in progress whose
+// FWSS service was terminated on chain, or that are no longer live in
+// PDPVerifier, and alerts the operator once per data set. It reads
+// ChainFinality epochs behind the head, because a record is never checked
+// against the chain again and must not rest on state a reorg can undo. A chain
+// that cannot be read is logged and skipped, so it does not hold back the steps
+// that follow; database errors are returned.
 func (t *TaskChainSync) syncServiceTerminations(ctx context.Context) error {
 	var pending []struct {
-		ID int64 `db:"id"`
+		ID             int64 `db:"id"`
+		ProvingStopped bool  `db:"proving_stopped"`
 	}
 	if err := t.db.Select(ctx, &pending, `
-		SELECT ds.id
+		SELECT ds.id, ds.unrecoverable_proving_failure_epoch IS NOT NULL AS proving_stopped
 		FROM pdp_data_sets ds
 		LEFT JOIN pdp_data_set_review r ON r.data_set = ds.id
 		WHERE r.service_end_epoch IS NULL
@@ -575,6 +582,23 @@ func (t *TaskChainSync) syncServiceTerminations(ctx context.Context) error {
 		return nil
 	}
 
+	headCtx, cancel := context.WithTimeout(ctx, contract.EthCallTimeout)
+	head, err := t.ethClient.BlockNumber(headCtx)
+	cancel()
+	if err != nil {
+		log.Warnw("skipping PDP service termination sync, chain head unavailable", "error", err)
+		return nil
+	}
+	height := int64(head) - int64(policy.ChainFinality)
+	if height < 1 {
+		return nil
+	}
+	callOpts := func() *bind.CallOpts {
+		opts := contract.EthCallOpts(ctx)
+		opts.BlockNumber = big.NewInt(height)
+		return opts
+	}
+
 	sAddr := contract.ContractAddresses().AllowedPublicRecordKeepers.FWSService
 	viewAddr, err := contract.ResolveViewAddress(ctx, sAddr, t.ethClient)
 	if err != nil {
@@ -588,18 +612,23 @@ func (t *TaskChainSync) syncServiceTerminations(ctx context.Context) error {
 	}
 
 	var unread int
+	var noRecord []int64
 	for _, dataSet := range pending {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 
-		info, err := fwssv.GetDataSet(contract.EthCallOpts(ctx), big.NewInt(dataSet.ID))
+		info, err := fwssv.GetDataSet(callOpts(), big.NewInt(dataSet.ID))
 		if err != nil {
 			unread++
 			log.Debugw("failed to read data set from FWSS view", "dataSetId", dataSet.ID, "error", err)
 			continue
 		}
 		if info.PdpEndEpoch == nil || info.PdpEndEpoch.Sign() <= 0 {
+			// FWSS drops its record when the data set is deleted on chain.
+			if !dataSet.ProvingStopped && (info.PdpRailId == nil || info.PdpRailId.Sign() == 0) {
+				noRecord = append(noRecord, dataSet.ID)
+			}
 			continue
 		}
 
@@ -613,11 +642,72 @@ func (t *TaskChainSync) syncServiceTerminations(ctx context.Context) error {
 		}
 	}
 
+	if len(noRecord) > 0 {
+		unreadRemoved, err := t.recordRemovedDataSets(ctx, height, callOpts, noRecord)
+		if err != nil {
+			return err
+		}
+		unread += unreadRemoved
+	}
+
 	if unread > 0 {
-		log.Warnw("PDP service termination sync could not read some data sets from FWSS",
+		log.Warnw("PDP service termination sync could not read some data sets from FWSS or PDPVerifier",
 			"unread", unread, "checked", len(pending))
 	}
 	return nil
+}
+
+// recordRemovedDataSets marks the data sets that are no longer live in
+// PDPVerifier as unrecoverable, which records them for review, and alerts once
+// for each. Data sets created after height are not live there either, so they
+// are skipped.
+func (t *TaskChainSync) recordRemovedDataSets(ctx context.Context, height int64, callOpts func() *bind.CallOpts, dataSetIDs []int64) (unread int, err error) {
+	verifier, err := contract.NewPDPVerifier(contract.ContractAddresses().PDPVerifier, t.ethClient)
+	if err != nil {
+		log.Warnw("skipping PDP removed data set check, PDPVerifier unavailable", "error", err)
+		return len(dataSetIDs), nil
+	}
+	next, err := verifier.GetNextDataSetId(callOpts())
+	if err != nil {
+		log.Debugw("failed to read the next data set id from PDPVerifier", "error", err)
+		return len(dataSetIDs), nil
+	}
+
+	for _, dataSetID := range dataSetIDs {
+		if err := ctx.Err(); err != nil {
+			return unread, err
+		}
+		if uint64(dataSetID) >= next {
+			continue
+		}
+
+		live, err := verifier.DataSetLive(callOpts(), big.NewInt(dataSetID))
+		if err != nil {
+			unread++
+			log.Debugw("failed to read data set liveness from PDPVerifier", "dataSetId", dataSetID, "error", err)
+			continue
+		}
+		if live {
+			continue
+		}
+
+		var alert bool
+		committed, err := t.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+			var markErr error
+			alert, markErr = markDatasetProvingUnrecoverable(tx, dataSetID, height)
+			return markErr == nil, markErr
+		}, harmonydb.OptionRetry())
+		if err != nil {
+			return unread, xerrors.Errorf("failed to record removed data set %d: %w", dataSetID, err)
+		}
+		if !committed {
+			return unread, xerrors.Errorf("failed to commit record of removed data set %d", dataSetID)
+		}
+		if alert {
+			emitProvingStoppedAlert(t.al, alertNameChainSync, dataSetID)
+		}
+	}
+	return unread, nil
 }
 
 // recordServiceTermination stores the service end epoch FWSS reports for a

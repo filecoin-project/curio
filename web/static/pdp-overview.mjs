@@ -701,8 +701,8 @@ customElements.define('pdp-overview', class PdpOverview extends LitElement {
         </ul>
         ${(s?.faultedPeriods30d ?? 0) > 0 && (s?.provingFailureCount ?? 0) === 0 ? html`
           <p class="proving-alerts-note">
-            Dataset faults are recorded when proving hits unrecoverable contract errors.
-            Those runs often complete as successful tasks, so they may not appear under Task Failed.
+            Datasets are marked unrecoverable when proving hits an unrecoverable contract error
+            or the dataset is removed on chain. These may not appear under Task Failed.
           </p>
         ` : ''}
         ${links.length ? html`
