@@ -8,12 +8,21 @@ import (
 	"strconv"
 	"sync/atomic"
 	"testing"
+	"time"
 
+	"github.com/ipfs/go-cid"
 	"github.com/stretchr/testify/require"
+
+	"github.com/filecoin-project/go-address"
+	"github.com/filecoin-project/go-state-types/abi"
+	"github.com/filecoin-project/go-state-types/crypto"
 
 	"github.com/filecoin-project/curio/alertmanager/curioalerting"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/pdp/contract"
+
+	chainTypes "github.com/filecoin-project/lotus/chain/types"
 )
 
 var failureHandlingTestSeq int64
@@ -502,6 +511,150 @@ func nullableInt64Arg(value sql.NullInt64) any {
 		return nil
 	}
 	return value.Int64
+}
+
+func TestProvingPeriodRecheckCooling(t *testing.T) {
+	require.False(t, provingPeriodRecheckCooling(sql.NullInt64{}, 100))
+	require.False(t, provingPeriodRecheckCooling(sql.NullInt64{Int64: 100, Valid: true}, 100))
+	require.False(t, provingPeriodRecheckCooling(sql.NullInt64{Int64: 99, Valid: true}, 100))
+	require.True(t, provingPeriodRecheckCooling(sql.NullInt64{Int64: 101, Valid: true}, 100))
+}
+
+func TestIntegration_ClaimDatasetProvingPeriodTask_RespectsRecheckCooldown(t *testing.T) {
+	ctx := context.Background()
+	db, err := harmonydb.NewFromConfigWithITestID(t)
+	require.NoError(t, err)
+
+	dataSetID := insertFailureHandlingDataSet(t, ctx, db, failureHandlingDataSetState{InitReady: true})
+	_, err = db.Exec(ctx, `UPDATE pdp_data_sets SET proving_retry_epoch = $2 WHERE id = $1`, dataSetID, 9000)
+	require.NoError(t, err)
+
+	claimed := claimFailureHandlingProvingTask(t, ctx, db, 1, dataSetID, 8000)
+	require.False(t, claimed)
+	require.False(t, failureHandlingTaskID(t, ctx, db, dataSetID).Valid)
+
+	taskID := insertFailureHandlingHarmonyTask(t, ctx, db)
+	claimed = claimFailureHandlingProvingTask(t, ctx, db, taskID, dataSetID, 9000)
+	require.True(t, claimed)
+	require.Equal(t, sql.NullInt64{Int64: int64(taskID), Valid: true}, failureHandlingTaskID(t, ctx, db, dataSetID))
+
+	stolen := claimFailureHandlingProvingTask(t, ctx, db, insertFailureHandlingHarmonyTask(t, ctx, db), dataSetID, 9000)
+	require.False(t, stolen)
+	require.Equal(t, sql.NullInt64{Int64: int64(taskID), Valid: true}, failureHandlingTaskID(t, ctx, db, dataSetID))
+
+	openID := insertFailureHandlingDataSet(t, ctx, db, failureHandlingDataSetState{InitReady: true})
+	openTaskID := insertFailureHandlingHarmonyTask(t, ctx, db)
+	require.True(t, claimFailureHandlingProvingTask(t, ctx, db, openTaskID, openID, 1))
+	require.Equal(t, sql.NullInt64{Int64: int64(openTaskID), Valid: true}, failureHandlingTaskID(t, ctx, db, openID))
+}
+
+func TestIntegration_ProvingPeriodDo_FinishesDuringRecheckCooldown(t *testing.T) {
+	ctx := context.Background()
+	db, err := harmonydb.NewFromConfigWithITestID(t)
+	require.NoError(t, err)
+	head := staticProvingHead{ts: failureHandlingTipSet(t, 8000)}
+
+	nextID := insertFailureHandlingDataSet(t, ctx, db, failureHandlingDataSetState{
+		InitReady:    true,
+		ProveAtEpoch: sql.NullInt64{Int64: 2000, Valid: true},
+	})
+	nextTaskID := insertFailureHandlingHarmonyTask(t, ctx, db)
+	_, err = db.Exec(ctx, `
+		UPDATE pdp_data_sets
+		SET challenge_request_task_id = $2, proving_retry_epoch = $3
+		WHERE id = $1
+	`, nextID, nextTaskID, 9000)
+	require.NoError(t, err)
+
+	nextDone, err := (&NextProvingPeriodTask{db: db, fil: head}).Do(ctx, nextTaskID, func() bool { return true })
+	require.NoError(t, err)
+	require.True(t, nextDone)
+	require.Equal(t, sql.NullInt64{Int64: 9000, Valid: true}, loadFailureHandlingDataSet(t, ctx, db, nextID).ProvingRetryEpoch)
+	require.Equal(t, sql.NullInt64{Int64: int64(nextTaskID), Valid: true}, failureHandlingTaskID(t, ctx, db, nextID))
+
+	initID := insertFailureHandlingDataSet(t, ctx, db, failureHandlingDataSetState{InitReady: true})
+	initTaskID := insertFailureHandlingHarmonyTask(t, ctx, db)
+	_, err = db.Exec(ctx, `
+		UPDATE pdp_data_sets
+		SET challenge_request_task_id = $2, proving_retry_epoch = $3
+		WHERE id = $1
+	`, initID, initTaskID, 9000)
+	require.NoError(t, err)
+
+	initDone, err := (&InitProvingPeriodTask{db: db, fil: head}).Do(ctx, initTaskID, func() bool { return true })
+	require.NoError(t, err)
+	require.True(t, initDone)
+	require.Equal(t, sql.NullInt64{Int64: 9000, Valid: true}, loadFailureHandlingDataSet(t, ctx, db, initID).ProvingRetryEpoch)
+	require.Equal(t, sql.NullInt64{Int64: int64(initTaskID), Valid: true}, failureHandlingTaskID(t, ctx, db, initID))
+	require.Equal(t, 0, countFailureHandlingDeleteRows(t, ctx, db, nextID))
+	require.Equal(t, 0, countFailureHandlingDeleteRows(t, ctx, db, initID))
+}
+
+type staticProvingHead struct {
+	ts *chainTypes.TipSet
+}
+
+func (s staticProvingHead) ChainHead(context.Context) (*chainTypes.TipSet, error) {
+	return s.ts, nil
+}
+
+func claimFailureHandlingProvingTask(t *testing.T, ctx context.Context, db *harmonydb.DB, taskID harmonytask.TaskID, dataSetID int64, height int64) bool {
+	t.Helper()
+
+	var claimed bool
+	committed, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		var claimErr error
+		claimed, claimErr = claimDatasetProvingPeriodTask(tx, taskID, dataSetID, height)
+		return true, claimErr
+	}, harmonydb.OptionRetry())
+	require.NoError(t, err)
+	require.True(t, committed)
+	return claimed
+}
+
+func insertFailureHandlingHarmonyTask(t *testing.T, ctx context.Context, db *harmonydb.DB) harmonytask.TaskID {
+	t.Helper()
+
+	var id int64
+	err := db.QueryRow(ctx, `
+		INSERT INTO harmony_task (posted_time, added_by, name)
+		VALUES (NOW(), 1, 'prov-cooldown')
+		RETURNING id
+	`).Scan(&id)
+	require.NoError(t, err)
+	return harmonytask.TaskID(id)
+}
+
+func failureHandlingTaskID(t *testing.T, ctx context.Context, db *harmonydb.DB, dataSetID int64) sql.NullInt64 {
+	t.Helper()
+
+	var taskID sql.NullInt64
+	err := db.QueryRow(ctx, `SELECT challenge_request_task_id FROM pdp_data_sets WHERE id = $1`, dataSetID).Scan(&taskID)
+	require.NoError(t, err)
+	return taskID
+}
+
+func failureHandlingTipSet(t *testing.T, height int64) *chainTypes.TipSet {
+	t.Helper()
+
+	miner, err := address.NewIDAddress(1)
+	require.NoError(t, err)
+	root, err := cid.Decode("bafy2bzacea3wsdh6y3a36tb3skempjoxqpuyompjbmfeyf34fi3uy6uue42v4")
+	require.NoError(t, err)
+	ts, err := chainTypes.NewTipSet([]*chainTypes.BlockHeader{{
+		Miner:                 miner,
+		Ticket:                &chainTypes.Ticket{VRFProof: []byte{byte(height)}},
+		Height:                abi.ChainEpoch(height),
+		ParentStateRoot:       root,
+		Messages:              root,
+		ParentMessageReceipts: root,
+		BlockSig:              &crypto.Signature{Type: crypto.SigTypeSecp256k1},
+		BLSAggregate:          &crypto.Signature{Type: crypto.SigTypeSecp256k1},
+		Timestamp:             uint64(time.Now().Unix()),
+		ParentBaseFee:         chainTypes.NewInt(100),
+	}})
+	require.NoError(t, err)
+	return ts
 }
 
 func nullableStringArg(value sql.NullString) any {

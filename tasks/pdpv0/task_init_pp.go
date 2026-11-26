@@ -2,6 +2,7 @@ package pdpv0
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"math/big"
@@ -83,23 +84,15 @@ func NewInitProvingPeriodTask(db *harmonydb.DB, ethClient ethchain.EthClient, fi
 			return
 		}
 
+		selectionHeight := int64(apply.Height())
 		for _, ps := range toCallInit {
+			dataSetID := ps.DataSetId
 			ipp.addFunc.Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-				// Update pdp_data_sets to set challenge_request_task_id = id
-				affected, err := tx.Exec(`
-                        UPDATE pdp_data_sets
-                        SET challenge_request_task_id = $1
-                        WHERE id = $2 AND challenge_request_task_id IS NULL
-                    `, id, ps.DataSetId)
+				claimed, err := claimDatasetProvingPeriodTask(tx, id, dataSetID, selectionHeight)
 				if err != nil {
-					return false, xerrors.Errorf("failed to update pdp_data_sets: %w", err)
+					return false, err
 				}
-				if affected == 0 {
-					// Someone else might have already scheduled the task
-					return false, nil
-				}
-
-				return true, nil
+				return claimed, nil
 			})
 		}
 	}, WatcherOrderProving)
@@ -110,12 +103,13 @@ func NewInitProvingPeriodTask(db *harmonydb.DB, ethClient ethchain.EthClient, fi
 func (ipp *InitProvingPeriodTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	// Select the data set where challenge_request_task_id = taskID
 	var dataSetId int64
+	var provingRetryEpoch sql.NullInt64
 
 	err = ipp.db.QueryRow(ctx, `
-        SELECT id
+        SELECT id, proving_retry_epoch
         FROM pdp_data_sets
         WHERE challenge_request_task_id = $1
-    `, taskID).Scan(&dataSetId)
+    `, taskID).Scan(&dataSetId, &provingRetryEpoch)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// No matching data set, task is done (something weird happened, and e.g another task was spawned in place of this one)
 		return true, nil
@@ -131,19 +125,25 @@ func (ipp *InitProvingPeriodTask) Do(ctx context.Context, taskID harmonytask.Tas
 		}
 	}()
 
-	// Get the listener address for this data set from the PDPVerifier contract
-	pdpVerifier, err := contract.NewPDPVerifier(contract.ContractAddresses().PDPVerifier, ipp.ethClient)
-	if err != nil {
-		return false, xerrors.Errorf("failed to instantiate PDPVerifier contract: %w", err)
-	}
-
 	// Preflight handlers need the current height when a contract lookup proves
-	// the dataset is already terminal or must wait a day.
+	// the dataset is already terminal or must wait a day. A task recovered
+	// during the recheck cooldown finishes before any contract read.
 	ts, err := ipp.fil.ChainHead(ctx)
 	if err != nil {
 		return false, xerrors.Errorf("failed to get chain head: %w", err)
 	}
 	currentHeight := int64(ts.Height())
+	if provingPeriodRecheckCooling(provingRetryEpoch, currentHeight) {
+		log.Infow("Skipping initial proving period scheduling during recheck cooldown",
+			"dataSetId", dataSetId, "height", currentHeight, "retryEpoch", provingRetryEpoch.Int64)
+		return true, nil
+	}
+
+	// Get the listener address for this data set from the PDPVerifier contract
+	pdpVerifier, err := contract.NewPDPVerifier(contract.ContractAddresses().PDPVerifier, ipp.ethClient)
+	if err != nil {
+		return false, xerrors.Errorf("failed to instantiate PDPVerifier contract: %w", err)
+	}
 
 	// Check if the data set has any leaves (pieces) before attempting to initialize proving period
 	leafCount, err := pdpVerifier.GetDataSetLeafCount(contract.EthCallOpts(ctx), big.NewInt(dataSetId))
