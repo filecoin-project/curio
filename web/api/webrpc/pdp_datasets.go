@@ -457,11 +457,20 @@ func (a *WebRPC) dataSetRemovedOnChain(ctx context.Context, id int64) bool {
 }
 
 // monthlyIncome formats what a rail pays over 30 days at its per-epoch rate.
-func monthlyIncome(ratePerEpoch *big.Int) string {
-	if ratePerEpoch == nil || ratePerEpoch.Sign() <= 0 {
+// A terminated rail keeps its rate until final settlement.
+func monthlyIncome(rail filecoinpayment.PaymentsRailView, head int64) string {
+	if rail.PaymentRate == nil || rail.PaymentRate.Sign() <= 0 {
 		return ""
 	}
-	return formatUsdfc(new(big.Int).Mul(ratePerEpoch, big.NewInt(30*builtin.EpochsInDay)))
+	if rail.EndEpoch != nil && rail.EndEpoch.Sign() > 0 {
+		if head <= 0 {
+			return ""
+		}
+		if rail.EndEpoch.Cmp(big.NewInt(head)) <= 0 {
+			return formatUsdfc(big.NewInt(0))
+		}
+	}
+	return formatUsdfc(new(big.Int).Mul(rail.PaymentRate, big.NewInt(30*builtin.EpochsInDay)))
 }
 
 // MAX_DATED_EPOCHS is the furthest ahead of the chain head an epoch can be
@@ -547,7 +556,7 @@ func (a *WebRPC) enrichDataSetFWSS(ctx context.Context, id int64, out *PDPDataSe
 	}
 	if rail.PaymentRate != nil {
 		out.PaymentRate = rail.PaymentRate.String()
-		out.MonthlyIncome = monthlyIncome(rail.PaymentRate)
+		out.MonthlyIncome = monthlyIncome(rail, out.HeadEpoch)
 	}
 
 	acct, err := payments.GetAccountInfoIfSettled(contract.EthCallOpts(ctx), rail.Token, info.Payer)
