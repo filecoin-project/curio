@@ -71,16 +71,18 @@ function formatAlertRange(firstAt, lastAt, count) {
 
 function normalizeAtRiskCounts(result) {
   const grace = Number(result?.grace ?? 0)
+  const terminated = Number(result?.terminated ?? 0)
   const terminating = Number(result?.terminating ?? 0)
   const pendingDelete = Number(result?.pendingDelete ?? 0)
-  const total = Number(result?.total ?? (grace + terminating + pendingDelete))
-  return { grace, terminating, pendingDelete, total }
+  const total = Number(result?.total ?? (grace + terminated + terminating + pendingDelete))
+  return { grace, terminated, terminating, pendingDelete, total }
 }
 
 function paymentAtRiskTitle(counts) {
-  const kinds = [counts.grace, counts.terminating, counts.pendingDelete].filter((n) => n > 0).length
+  const kinds = [counts.grace, counts.terminated, counts.terminating, counts.pendingDelete].filter((n) => n > 0).length
   if (kinds !== 1) return 'Payment status'
   if (counts.grace > 0) return 'Payment Grace'
+  if (counts.terminated > 0) return 'Service Terminated'
   if (counts.terminating > 0) return 'Service Termination'
   return 'Pending Deletion'
 }
@@ -88,9 +90,14 @@ function paymentAtRiskTitle(counts) {
 function paymentAtRiskLines(counts) {
   const lines = []
   if (counts.grace === 1) {
-    lines.push('1 dataset is in payment grace. Contact the owner to bring payments current before deletion.')
+    lines.push('1 dataset is in payment grace. Contact the owner to bring payments current.')
   } else if (counts.grace > 1) {
-    lines.push(`${counts.grace} datasets are in payment grace. Contact the owners to bring payments current before deletion.`)
+    lines.push(`${counts.grace} datasets are in payment grace. Contact the owners to bring payments current.`)
+  }
+  if (counts.terminated === 1) {
+    lines.push('1 dataset had its service terminated or its proving stopped. Curio keeps its data until deletion is requested.')
+  } else if (counts.terminated > 1) {
+    lines.push(`${counts.terminated} datasets had their service terminated or their proving stopped. Curio keeps their data until deletion is requested.`)
   }
   if (counts.terminating === 1) {
     lines.push('1 dataset has service termination confirmed and is waiting for its deletion date. Payment will not stop that.')
@@ -102,7 +109,7 @@ function paymentAtRiskLines(counts) {
   } else if (counts.pendingDelete > 1) {
     lines.push(`${counts.pendingDelete} datasets are pending deletion.`)
   }
-  const other = counts.total - counts.grace - counts.terminating - counts.pendingDelete
+  const other = counts.total - counts.grace - counts.terminated - counts.terminating - counts.pendingDelete
   if (other === 1) {
     lines.push('1 dataset is at risk of deletion.')
   } else if (other > 1) {
@@ -694,8 +701,8 @@ customElements.define('pdp-overview', class PdpOverview extends LitElement {
         </ul>
         ${(s?.faultedPeriods30d ?? 0) > 0 && (s?.provingFailureCount ?? 0) === 0 ? html`
           <p class="proving-alerts-note">
-            Dataset faults are recorded when proving hits unrecoverable contract errors.
-            Those runs often complete as successful tasks, so they may not appear under Task Failed.
+            Datasets are marked unrecoverable when proving hits an unrecoverable contract error
+            or the dataset is removed on chain. These may not appear under Task Failed.
           </p>
         ` : ''}
         ${links.length ? html`

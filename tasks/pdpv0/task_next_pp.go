@@ -425,8 +425,10 @@ func skipCurrentOnChainProvingPeriod(ctx context.Context, tx *harmonydb.Tx, prov
 func (n *NextProvingPeriodTask) handleNextProvingPeriodPreflightError(ctx context.Context, dataSetId int64, currentHeight int64, err error) (bool, error) {
 	switch {
 	case IsUnrecoverableError(err), IsPDPVerifierDataSetNotFound(err):
+		var alert bool
 		committed, handleErr := n.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
-			if err := markDatasetProvingUnrecoverableAndTerminate(tx, dataSetId, currentHeight); err != nil {
+			alert, err = markDatasetProvingUnrecoverable(tx, dataSetId, currentHeight)
+			if err != nil {
 				return false, err
 			}
 			return true, nil
@@ -436,6 +438,9 @@ func (n *NextProvingPeriodTask) handleNextProvingPeriodPreflightError(ctx contex
 		}
 		if !committed {
 			return false, xerrors.Errorf("failed to commit terminal proving period preflight error handling")
+		}
+		if alert {
+			emitProvingStoppedAlert(n.al, alertNameNextPP, dataSetId)
 		}
 		log.Warnw("Terminal proving period preflight error, stopping proving attempts",
 			"dataSetId", dataSetId, "height", currentHeight, "error", err)
@@ -456,10 +461,11 @@ func (n *NextProvingPeriodTask) handleNextProvingPeriodPreflightError(ctx contex
 	}
 }
 
-// handleNextProvingPeriodSendFailure handles a failed send and emits any alert after the transaction,
-// even on rollback. sendErr must be non-nil.
+// handleNextProvingPeriodSendFailure handles a failed send and emits its alert after the transaction.
+// A send-error alert is emitted even on rollback; a proving-stopped alert only once the mark is
+// committed. sendErr must be non-nil.
 func handleNextProvingPeriodSendFailure(ctx context.Context, db *harmonydb.DB, provingSchedule *contract.IPDPProvingSchedule, al curioalerting.AlertingInterface, alertSubsystem string, dataSetId int64, currentHeight int64, sendErr error) error {
-	var alert bool
+	var alert provingAlert
 	comm, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		var handleErr error
 		alert, handleErr = handleNextProvingPeriodSendError(ctx, tx, provingSchedule, alertSubsystem, dataSetId, currentHeight, sendErr)
@@ -468,8 +474,11 @@ func handleNextProvingPeriodSendFailure(ctx context.Context, db *harmonydb.DB, p
 		}
 		return true, nil
 	}, harmonydb.OptionRetry())
-	if alert {
+	switch {
+	case alert == provingAlertSendError:
 		emitProvingSendErrorAlert(al, alertSubsystem, dataSetId, sendErr)
+	case alert == provingAlertProvingStopped && err == nil && comm:
+		emitProvingStoppedAlert(al, alertSubsystem, dataSetId)
 	}
 	if err != nil {
 		return xerrors.Errorf("failed to send transaction: %w", err)
@@ -481,8 +490,8 @@ func handleNextProvingPeriodSendFailure(ctx context.Context, db *harmonydb.DB, p
 }
 
 // handleNextProvingPeriodSendError applies the state change for a failed initPP/nextPP send inside tx and
-// reports whether the failure needs a send-error alert.
-func handleNextProvingPeriodSendError(ctx context.Context, tx *harmonydb.Tx, provingSchedule *contract.IPDPProvingSchedule, alertSubsystem string, dataSetId int64, currentHeight int64, sendErr error) (alert bool, err error) {
+// reports which alert the failure needs.
+func handleNextProvingPeriodSendError(ctx context.Context, tx *harmonydb.Tx, provingSchedule *contract.IPDPProvingSchedule, alertSubsystem string, dataSetId int64, currentHeight int64, sendErr error) (alert provingAlert, err error) {
 	switch {
 	case IsPendingPieceDeletionsError(sendErr):
 		// PDPVerifier will not roll over while scheduled removals remain. This
@@ -490,27 +499,31 @@ func handleNextProvingPeriodSendError(ctx context.Context, tx *harmonydb.Tx, pro
 		// sure the data set is queued for draining and retry the task. It must
 		// not reach disableProvingForEmptyDataset or any terminal path.
 		if err := enqueueDeletionDrain(tx, dataSetId); err != nil {
-			return false, err
+			return provingAlertNone, err
 		}
 		log.Warnw("Proving period scheduling blocked by pending piece deletions; draining first",
 			"dataSetId", dataSetId, "subsystem", alertSubsystem, "height", currentHeight, "error", sendErr)
-		return false, nil
+		return provingAlertNone, nil
 	case IsInsufficientChallengeDelayError(sendErr):
 		// The challenge epoch was too close to the current block. Retry the
 		// task so it recomputes challenge state and calldata instead of
 		// resending the same transaction.
 		log.Warnw("Retrying proving period scheduling after insufficient challenge delay",
 			"dataSetId", dataSetId, "subsystem", alertSubsystem, "height", currentHeight, "error", sendErr)
-		return true, sendErr
+		return provingAlertSendError, sendErr
 	case IsUnrecoverableError(sendErr):
 		// FWSS payment/dataset state says proving cannot recover. Mark local
-		// state terminal and schedule FWSS termination instead of retrying.
-		if err := markDatasetProvingUnrecoverableAndTerminate(tx, dataSetId, currentHeight); err != nil {
-			return false, err
+		// state terminal instead of retrying.
+		needsAlert, err := markDatasetProvingUnrecoverable(tx, dataSetId, currentHeight)
+		if err != nil {
+			return provingAlertNone, err
 		}
 		log.Warnw("Dataset unrecoverable, stopping proving period scheduling",
 			"dataSetId", dataSetId, "subsystem", alertSubsystem, "error", sendErr)
-		return false, nil
+		if needsAlert {
+			return provingAlertProvingStopped, nil
+		}
+		return provingAlertNone, nil
 	case IsNextProvingPeriodAlreadyCalledError(sendErr):
 		// The chain has already advanced the proving period, but Curio cannot
 		// safely prove it without its own confirmed challenge request message.
@@ -519,33 +532,33 @@ func handleNextProvingPeriodSendError(ctx context.Context, tx *harmonydb.Tx, pro
 		log.Warnw("Proving period scheduling hit an already-applied period transition",
 			"dataSetId", dataSetId, "subsystem", alertSubsystem, "height", currentHeight, "error", sendErr)
 		if err := skipCurrentOnChainProvingPeriod(ctx, tx, provingSchedule, dataSetId, currentHeight); err != nil {
-			return false, xerrors.Errorf("failed to skip current on-chain proving period: %w", err)
+			return provingAlertNone, xerrors.Errorf("failed to skip current on-chain proving period: %w", err)
 		}
-		return false, nil
+		return provingAlertNone, nil
 	case IsNextProvingPeriodEmptyDatasetError(sendErr):
 		// PDPVerifier cannot start a new proving period without leaves. Disable
 		// local proving until a later piece-addition path makes the dataset
 		// eligible again.
 		if err := disableProvingForEmptyDataset(tx, dataSetId); err != nil {
-			return false, err
+			return provingAlertNone, err
 		}
 		log.Warnw("Stopping proving period scheduling for empty dataset",
 			"dataSetId", dataSetId, "subsystem", alertSubsystem, "height", currentHeight, "error", sendErr)
-		return false, nil
+		return provingAlertNone, nil
 	case IsRefreshProvingStateError(sendErr):
 		// The selected challenge epoch is no longer valid. Retry the task so it
 		// recomputes the proving schedule from chain/listener state.
-		return false, sendErr
+		return provingAlertNone, sendErr
 	case IsUnexpectedProvingInvariantError(sendErr):
 		// Curio should not hit these in the normal initPP/nextPP path. Alert and
 		// retry without mutating proving state so the condition can be investigated.
-		return true, sendErr
+		return provingAlertSendError, sendErr
 	case IsContractRevert(sendErr):
 		// Fallback for unclassified contract reverts: alert and let Harmony
 		// retry without mutating proving state.
-		return true, sendErr
+		return provingAlertSendError, sendErr
 	default:
 		// Non-contract send failures are transport/sender/task errors.
-		return false, sendErr
+		return provingAlertNone, sendErr
 	}
 }

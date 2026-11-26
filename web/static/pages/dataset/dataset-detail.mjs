@@ -119,6 +119,7 @@ function formatAtRiskDeleteDate(atRisk) {
 function atRiskBannerTitle(atRisk) {
   switch (atRisk?.status) {
     case 'grace': return 'Payment grace'
+    case 'terminated': return atRisk?.reason === 'proving_failure' ? 'Proving stopped' : 'Service terminated'
     case 'terminating': return 'Service termination'
     case 'pending_delete': return 'Pending deletion'
     default: return 'Payment status'
@@ -128,16 +129,23 @@ function atRiskBannerTitle(atRisk) {
 function atRiskBannerMessage(atRisk) {
   const owner = atRisk?.payer ? `owner (payer ${atRisk.payer})` : 'dataset owner (if known)'
   const deleteDate = formatAtRiskDeleteDate(atRisk)
+  const contactOwner = atRisk?.reason === 'operator_requested' ? '' : ` Contact the ${owner}.`
   if (atRisk?.status === 'grace') {
-    return `Contact the ${owner} to bring payments current before deletion on ${deleteDate}.`
+    return `Contact the ${owner} to bring payments current.`
+  }
+  if (atRisk?.status === 'terminated') {
+    if (atRisk?.reason === 'proving_failure') {
+      return 'The service for this dataset ended or the dataset was removed on chain. Curio keeps the data until its deletion is requested.'
+    }
+    return 'Service for this dataset was terminated on chain. Curio keeps the data until its deletion is requested.'
   }
   if (atRisk?.status === 'pending_delete') {
-    return `This dataset is pending deletion on ${deleteDate}. Contact the ${owner}.`
+    return `This dataset is pending deletion on ${deleteDate}.${contactOwner}`
   }
   if (atRisk?.status === 'terminating') {
-    return `Service termination is confirmed. Scheduled for deletion on ${deleteDate}. Contact the ${owner}. Payment will not stop that.`
+    return `Service termination is confirmed. Scheduled for deletion on ${deleteDate}.${contactOwner} Payment will not stop that.`
   }
-  return `This dataset is scheduled for deletion on ${deleteDate}. Contact the ${owner}.`
+  return `Contact the ${owner}.`
 }
 
 customElements.define('pdp-dataset-detail', class PdpDatasetDetail extends LitElement {

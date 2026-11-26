@@ -2,6 +2,8 @@ package pay
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"math/big"
 	"testing"
 
@@ -197,11 +199,10 @@ func TestIntegration_ProcessPendingTransactions_Retry(t *testing.T) {
 func TestIntegration_ProcessPendingTransactions_RailDefaultAlert(t *testing.T) {
 	// The rail is settled up to epoch 900 with a 50-epoch lockup, so its lockup ends at epoch 950.
 	tests := []struct {
-		name            string
-		block           uint64
-		endEpoch        int64
-		wantMessage     string
-		wantTermination bool
+		name        string
+		block       uint64
+		endEpoch    int64
+		wantMessage string
 	}{
 		{
 			name:        "within grace",
@@ -209,17 +210,15 @@ func TestIntegration_ProcessPendingTransactions_RailDefaultAlert(t *testing.T) {
 			wantMessage: "Rail 1 is soon to default (dataSet 2)",
 		},
 		{
-			name:            "past grace",
-			block:           950 + temporaryDefaultGraceInEpochs + 1,
-			wantMessage:     "Rail 1 is past its default grace period, scheduling termination of dataSet 2",
-			wantTermination: true,
+			name:        "past grace",
+			block:       950 + temporaryDefaultGraceInEpochs + 1,
+			wantMessage: "Rail 1 has been unpaid for more than 30 days past its lockup period; Curio will not terminate dataSet 2 on its own",
 		},
 		{
-			name:            "terminated rail",
-			block:           1000,
-			endEpoch:        2000,
-			wantMessage:     "Rail 1 is soon to default (dataSet 2)",
-			wantTermination: true,
+			name:        "terminated rail",
+			block:       1000,
+			endEpoch:    2000,
+			wantMessage: "Rail 1 is soon to default (dataSet 2)",
 		},
 	}
 
@@ -251,11 +250,210 @@ func TestIntegration_ProcessPendingTransactions_RailDefaultAlert(t *testing.T) {
 				require.JSONEq(t, `{"dataset": "2", "rail": "1"}`, string(events[0].Context))
 			}
 
-			var terminationScheduled bool
+			var deletionQueued bool
 			require.NoError(t, db.QueryRow(t.Context(), `
 				SELECT EXISTS (SELECT 1 FROM pdp_delete_data_set WHERE id = 2)
-			`).Scan(&terminationScheduled))
-			require.Equal(t, tc.wantTermination, terminationScheduled)
+			`).Scan(&deletionQueued))
+			require.False(t, deletionQueued, "the watcher must not queue a data set for deletion")
+		})
+	}
+}
+
+// insertSettleWatcherDataSet adds the local data set that rail 1 pays for.
+func insertSettleWatcherDataSet(t *testing.T, db *harmonydb.DB) {
+	t.Helper()
+	_, err := db.Exec(t.Context(), `INSERT INTO pdp_services (pubkey, service_label) VALUES ($1, $2)`, []byte("settle-watcher"), "settle-watcher")
+	require.NoError(t, err)
+	_, err = db.Exec(t.Context(), `
+		INSERT INTO pdp_data_sets (id, create_message_hash, service, proving_period, challenge_window, init_ready)
+		VALUES (2, $1, 'settle-watcher', 100, 10, FALSE)
+	`, fmt.Sprintf("0x%064x", 2))
+	require.NoError(t, err)
+}
+
+func insertConfirmedSettle(t *testing.T, db *harmonydb.DB, hash string) {
+	t.Helper()
+	_, err := db.Exec(t.Context(), `
+		INSERT INTO filecoin_payment_transactions (tx_hash, rail_ids, retry)
+		VALUES ($1, $2, FALSE)
+	`, hash, []int64{1})
+	require.NoError(t, err)
+	_, err = db.Exec(t.Context(), `
+		INSERT INTO message_waits_eth (signed_tx_hash, tx_status, tx_success)
+		VALUES ($1, 'confirmed', TRUE)
+	`, hash)
+	require.NoError(t, err)
+}
+
+func TestIntegration_ProcessPendingTransactions_TerminatedRail(t *testing.T) {
+	// Block 940 is inside the rail's lockup (settled up to 900, lockup 50), so no default alert fires.
+	// An end epoch of 900 equals settledUpTo: the rail is finalized.
+	tests := []struct {
+		name                string
+		endEpoch            int64
+		clientRequested     bool
+		wantDeletionAllowed bool
+	}{
+		{
+			name:     "terminated rail",
+			endEpoch: 2000,
+		},
+		{
+			name:     "finalized rail without a deletion request",
+			endEpoch: 900,
+		},
+		{
+			name:                "finalized rail unblocks a requested deletion",
+			endEpoch:            900,
+			clientRequested:     true,
+			wantDeletionAllowed: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			client := newSettleWatcherClientWith(t, settleWatcherRail{block: 940, lockupPeriod: 50, endEpoch: tc.endEpoch, dataSetID: 2})
+			db, err := harmonydb.NewFromConfigWithITestID(t)
+			require.NoError(t, err)
+			insertSettleWatcherDataSet(t, db)
+			if tc.clientRequested {
+				_, err = db.Exec(t.Context(), `
+					INSERT INTO pdp_delete_data_set (id, client_requested_termination, termination_extra_data)
+					VALUES (2, TRUE, '\x01')
+				`)
+				require.NoError(t, err)
+			}
+
+			alerts := &settleWatcherAlerts{}
+			insertConfirmedSettle(t, db, common.HexToHash("0x01").Hex())
+			require.NoError(t, processPendingTransactions(t.Context(), db, client, alerts))
+
+			require.Empty(t, alerts.events, "the watcher does not report a terminated service")
+			requireSettleWatcherOutcome(t, db, tc.clientRequested, tc.wantDeletionAllowed)
+		})
+	}
+}
+
+// settleWatcherFinalizedClient answers getRail(1) with the RailInactiveOrSettled
+// revert that FilecoinPay returns once the final settlement has zeroed the rail.
+type settleWatcherFinalizedClient struct {
+	*settleWatcherClient
+	getRail string
+}
+
+func (c *settleWatcherFinalizedClient) CallContract(ctx context.Context, msg ethereum.CallMsg, block *big.Int) ([]byte, error) {
+	if string(msg.Data) == c.getRail {
+		return nil, errors.New("execution reverted: 0x" + filecoinpayment.ErrSelectorRailInactiveOrSettled)
+	}
+	return c.settleWatcherClient.CallContract(ctx, msg, block)
+}
+
+func newSettleWatcherFinalizedClient(t *testing.T, rail settleWatcherRail) *settleWatcherFinalizedClient {
+	t.Helper()
+	parsed, err := filecoinpayment.PaymentsMetaData.GetAbi()
+	require.NoError(t, err)
+	data, err := parsed.Pack("getRail", big.NewInt(1))
+	require.NoError(t, err)
+	return &settleWatcherFinalizedClient{settleWatcherClient: newSettleWatcherClientWith(t, rail), getRail: string(data)}
+}
+
+func TestIntegration_ProcessPendingTransactions_FinalizedRailRevert(t *testing.T) {
+	tests := []struct {
+		name      string
+		requested bool
+	}{
+		{name: "nobody requested deletion"},
+		{name: "requested deletion is unblocked", requested: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			client := newSettleWatcherFinalizedClient(t, settleWatcherRail{block: 940, lockupPeriod: 50, endEpoch: 900, dataSetID: 2})
+			db, err := harmonydb.NewFromConfigWithITestID(t)
+			require.NoError(t, err)
+			insertSettleWatcherDataSet(t, db)
+			if tc.requested {
+				_, err = db.Exec(t.Context(), `
+					INSERT INTO pdp_delete_data_set (id, operator_requested_deletion, after_terminate_service, service_termination_epoch)
+					VALUES (2, TRUE, TRUE, 900)
+				`)
+				require.NoError(t, err)
+			}
+
+			alerts := &settleWatcherAlerts{}
+			insertConfirmedSettle(t, db, common.HexToHash("0x01").Hex())
+			require.NoError(t, processPendingTransactions(t.Context(), db, client, alerts))
+
+			require.Empty(t, alerts.events)
+			requireSettleWatcherOutcome(t, db, tc.requested, tc.requested)
+		})
+	}
+}
+
+// requireSettleWatcherOutcome checks that the settlement was processed and that
+// data set 2 has a pipeline row only when its deletion was requested.
+func requireSettleWatcherOutcome(t *testing.T, db *harmonydb.DB, requested, wantDeletionAllowed bool) {
+	t.Helper()
+
+	var tracked int
+	require.NoError(t, db.QueryRow(t.Context(), `SELECT COUNT(*) FROM filecoin_payment_transactions`).Scan(&tracked))
+	require.Zero(t, tracked, "the settlement must be processed")
+
+	var rows []struct {
+		DeletionAllowed bool `db:"deletion_allowed"`
+	}
+	require.NoError(t, db.Select(t.Context(), &rows, `SELECT deletion_allowed FROM pdp_delete_data_set WHERE id = 2`))
+	if !requested {
+		require.Empty(t, rows, "the watcher must not queue a data set for deletion")
+		return
+	}
+	require.Len(t, rows, 1)
+	require.Equal(t, wantDeletionAllowed, rows[0].DeletionAllowed)
+}
+
+func TestIntegration_PipelineFinalizationElapsed(t *testing.T) {
+	const current = 940
+	tests := []struct {
+		name          string
+		row           bool
+		requested     bool
+		terminated    bool
+		endEpoch      int64
+		wantFinalized bool
+		wantRequested bool
+	}{
+		{name: "no pipeline row"},
+		{name: "requested, service not terminated yet", row: true, requested: true, wantRequested: true},
+		{name: "requested, service end ahead", row: true, requested: true, terminated: true, endEpoch: current + 1, wantRequested: true},
+		{name: "requested, service ended", row: true, requested: true, terminated: true, endEpoch: current, wantFinalized: true, wantRequested: true},
+		{name: "unrequested row, service ended", row: true, terminated: true, endEpoch: current, wantFinalized: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			db, err := harmonydb.NewFromConfigWithITestID(t)
+			require.NoError(t, err)
+			if tc.row {
+				var endEpoch *int64
+				if tc.terminated {
+					endEpoch = &tc.endEpoch
+				}
+				_, err = db.Exec(t.Context(), `
+					INSERT INTO pdp_delete_data_set (id, operator_requested_deletion, after_terminate_service, service_termination_epoch)
+					VALUES (2, $1, $2, $3)
+				`, tc.requested, tc.terminated, endEpoch)
+				require.NoError(t, err)
+			}
+
+			var finalized, requested bool
+			_, err = db.BeginTransaction(t.Context(), func(tx *harmonydb.Tx) (bool, error) {
+				var err error
+				finalized, requested, err = pipelineFinalizationElapsed(tx, 2, current)
+				return false, err
+			})
+			require.NoError(t, err)
+			require.Equal(t, tc.wantFinalized, finalized, "finalized")
+			require.Equal(t, tc.wantRequested, requested, "requested")
 		})
 	}
 }

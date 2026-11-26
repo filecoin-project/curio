@@ -772,6 +772,39 @@ func (a *WebRPC) PDPDataSetFindByTxHash(ctx context.Context, txHash string) (int
 	return id, nil
 }
 
+// PDPDataSetRequestDeletion queues a dataset for deletion on the operator's
+// behalf. A pipeline row that nobody requested is taken over; a dataset whose
+// deletion a client or the operator already requested is rejected.
+func (a *WebRPC) PDPDataSetRequestDeletion(ctx context.Context, id int64) error {
+	if id <= 0 {
+		return xerrors.Errorf("invalid dataset id")
+	}
+
+	var exists bool
+	err := a.Deps.DB.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pdp_data_sets WHERE id = $1)`, id).Scan(&exists)
+	if err != nil {
+		return xerrors.Errorf("lookup dataset: %w", err)
+	}
+	if !exists {
+		return xerrors.Errorf("dataset %d not found", id)
+	}
+
+	n, err := a.Deps.DB.Exec(ctx, `
+		INSERT INTO pdp_delete_data_set (id, operator_requested_deletion)
+		VALUES ($1, TRUE)
+		ON CONFLICT (id) DO UPDATE
+		SET operator_requested_deletion = TRUE
+		WHERE pdp_delete_data_set.client_requested_termination = FALSE
+		  AND pdp_delete_data_set.operator_requested_deletion = FALSE`, id)
+	if err != nil {
+		return xerrors.Errorf("request dataset deletion: %w", err)
+	}
+	if n == 0 {
+		return xerrors.Errorf("deletion of dataset %d was already requested", id)
+	}
+	return nil
+}
+
 func summaryFromStatsRow(row pdpDataSetStatsRow, head int64) PDPDataSetSummary {
 	s := PDPDataSetSummary{
 		ID:                        row.ID,
