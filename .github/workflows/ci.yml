@@ -222,7 +222,6 @@ jobs:
     runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.test-suite.name }}/env=production/cpu=8/ram=16/family=c6a+c7a/ami=${{ needs.ci-lint.outputs.curio_ami }}/volume=128gb:gp3
     needs: [ci-lint]
     strategy:
-      max-parallel: 1
       fail-fast: false  # Continue running even if one test fails
       matrix:
         test-suite:
