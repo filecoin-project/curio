@@ -1,0 +1,1 @@
+-- no-op downgrade: income records cannot be read again from chain once the node prunes them, so the tables are retained

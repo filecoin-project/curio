@@ -139,6 +139,12 @@ For a more complete description of the fwss service termination pipeline see [th
 
 After processing a settlement verification without error, the watcher removes the associated entry from `filecoin_payment_transactions`. If the entry has `retry = TRUE`, it also sets `run_now_request` for the `Settle` singleton in the same database transaction. This requests another pass without waiting for the hourly interval. That pass reads current rail state and applies the usual eligibility and resolver checks, so it does not guarantee an immediate transaction for every partially settled rail. If verification returns an error, the tracking entry remains for retry, including when scheduling dataset deletion fails.
 
+## Income Task
+
+`PDPv0_Income` records Filecoin Pay payments to the PDP and cache-miss rails of data sets owned by this node's PDP keys in `pdp_income_events`, whoever sent the transaction. Records start at the chain head of the task's first run and trail the chain by `ChainFinality` (about 7.5 hours).
+
+If four runs fail to read payment events at one height but the chain node still returns the latest finalized heights, the task skips to those heights and records the skipped range in `pdp_income_gaps`; income paid in that range is not recorded.
+
 # PDP Harmony Tasks
 
 All PDP-related functionality is implemented as harmony tasks and chain-handler watchers. Tasks implement the `TaskInterface` and are scheduled by the harmony task engine. Chain-handler watchers are registered via `chainsched.AddHandler` and fire on every new chain head.
@@ -167,6 +173,7 @@ All three mechanisms funnel through `harmonytask.AddTask()`, which atomically in
 | `PDPv0_TermFWSS` | `TerminateFWSSTask` | `tasks/pdpv0/task_terminate_fwss.go` | IAmBored (1 min) |
 | `PDPv0_DelDataSet` | `DeleteDataSetTask` | `tasks/pdpv0/task_delete_data_set.go` | IAmBored (1 hour) |
 | `Settle` | `SettleTask` | `tasks/pay/settle_task.go` | IAmBored (1 hour, or earlier on a watcher request) |
+| `PDPv0_Income` | `IncomeTask` | `tasks/pay/income_task.go` | IAmBored (1 hour) |
 
 ## Chain-Handler Watchers
 
