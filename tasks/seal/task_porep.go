@@ -37,6 +37,7 @@ type PoRepTask struct {
 	sp          *SealPoller
 	sc          *ffi.SealCalls
 	paramsReady func() (bool, error)
+	health      porepHealth
 
 	cuzkClient *cuzk.Client
 
@@ -58,6 +59,17 @@ func NewPoRepTask(db *harmonydb.DB, api PoRepAPI, sp *SealPoller, sc *ffi.SealCa
 }
 
 func (p *PoRepTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
+	// Recheck at execution: CanAccept may have been cached before another C2 failed.
+	var backendEpoch uint64
+	if p.cuzkClient == nil || !p.cuzkClient.Enabled() {
+		var release func()
+		var ok bool
+		backendEpoch, release, ok = p.health.reserve()
+		if !ok {
+			return false, &taskhelp.WorkerUnavailable{Cause: xerrors.New("local PoRep backend is held for recovery")}
+		}
+		defer release()
+	}
 
 	var sectorParamsArr []struct {
 		SpID         int64                   `db:"sp_id"`
@@ -128,6 +140,7 @@ func (p *PoRepTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwne
 		proof, err = p.sc.PoRepSnarkCuzk(ctx, p.cuzkClient, sr, sealed, unsealed, sectorParams.TicketValue, abi.InteractiveSealRandomness(rand))
 	} else {
 		proof, err = p.sc.PoRepSnark(ctx, sr, sealed, unsealed, sectorParams.TicketValue, abi.InteractiveSealRandomness(rand))
+		err = p.health.result(backendEpoch, err)
 	}
 	if err != nil {
 		return false, xerrors.Errorf("failed to compute seal proof: %w", err)
@@ -168,6 +181,9 @@ func (p *PoRepTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEngin
 		return ids, nil
 	}
 
+	if p.health.blocked() {
+		return nil, nil
+	}
 	rdy, err := p.paramsReady()
 	if err != nil {
 		return []harmonytask.TaskID{}, xerrors.Errorf("failed to setup params: %w", err)
