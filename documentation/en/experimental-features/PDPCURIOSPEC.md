@@ -232,9 +232,9 @@ During the upload-pipeline rollout, a compatibility-only PDP v0 task publishes c
 
 **When a client or the operator requests deletion:**
 4. The client's `POST /pdp/data-sets/{dataSetId}/terminate` or the operator's `PDPDataSetRequestDeletion` Web RPC call creates a `pdp_delete_data_set` row.
-5. **PDPv0_TermFWSS** picks it up, calls `FWSS.terminateService()`.
+5. **PDPv0_TermFWSS** picks it up, calls `FWSS.terminateService()`. A data set that is no longer live in PDPVerifier has no service to terminate: the row goes straight to step 7 with the current epoch as `service_termination_epoch`.
 6. When that transaction lands, **TerminateServiceWatcher** retrieves `PdpEndEpoch` from the FWSS contract and sets `service_termination_epoch`.
-7. Once `service_termination_epoch <= current_block` and `deletion_allowed = TRUE`, **PDPv0_DelDataSet** calls `PDPVerifier.deleteDataSet()`.
+7. Once `service_termination_epoch <= current_block` and `deletion_allowed = TRUE`, **PDPv0_DelDataSet** calls `PDPVerifier.deleteDataSet()`. A data set already deleted on chain is not deleted again: Curio finishes its cleanup on chain if needed, then removes the local data.
 8. When the delete transaction lands, **DataSetDeleteWatcher** verifies the dataset is no longer live on-chain and deletes the `pdp_data_sets` row (CASCADE removes pieces and prove tasks).
 
 ## Piece Removal

@@ -312,8 +312,6 @@ customElements.define('pdp-datasets-list', class PdpDatasetsList extends LitElem
     const minScanSizeBytes = 100 * 1024
 
     try {
-      // Datasets recorded for the operator's decision come from Curio's own
-      // record, so they show before, and regardless of, the chain scan.
       const recorded = await RPCCall('PDPDataSetAwaitingDecision', [])
       if (generation !== this.loadGeneration) {
         this.scanProgress = {
@@ -625,7 +623,7 @@ customElements.define('pdp-datasets-list', class PdpDatasetsList extends LitElem
         : ''}
 
       ${!this.loadError && this.items.length === 0 && !this.scanning && !this.loading
-        ? html`<p class="hint">${this.viewMode === 'payment' ? 'No datasets in payment grace, with service terminated or proving stopped, or waiting for deletion.' : 'No datasets found.'}</p>`
+        ? html`<p class="hint">${this.viewMode === 'payment' ? 'No datasets to show.' : 'No datasets found.'}</p>`
         : this.items.length > 0 ? html`
           <table class="table table-dark table-striped table-sm">
             <thead>
