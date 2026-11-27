@@ -163,6 +163,37 @@ func (h *taskTypeHandler) considerWork(from string, tasks []task, eventEmitter e
 	})
 	tIDs = reorderTaskIDsByPostedOrder(tasks, tIDs)
 
+	// Reserve only after cached acceptance, before claiming ownership or storage.
+	// Hooks must be nonblocking. Unused reservations are returned on every exit.
+	type reservation struct {
+		start   func(context.Context) error
+		release func()
+	}
+	reservations := make(map[TaskID]reservation)
+	defer func() {
+		for _, r := range reservations {
+			if r.release != nil {
+				r.release()
+			}
+		}
+	}()
+	if gate, ok := h.TaskInterface.(interface {
+		ReserveTaskStart(TaskID) (func(context.Context) error, func(), bool)
+	}); ok {
+		var eligible []TaskID
+		for _, id := range tIDs {
+			start, release, accepted := gate.ReserveTaskStart(id)
+			if accepted {
+				reservations[id] = reservation{start, release}
+				eligible = append(eligible, id)
+			}
+		}
+		tIDs = eligible
+		if len(tIDs) == 0 {
+			return false
+		}
+	}
+
 	if from != workSourceRecover {
 		var tasksAccepted []TaskID
 		err := h.TaskEngine.cfg.db.Select(h.TaskEngine.cfg.ctx, &tasksAccepted, `
@@ -255,6 +286,8 @@ func (h *taskTypeHandler) considerWork(from string, tasks []task, eventEmitter e
 	//   - On failure, emits TaskNew to re-add the task for retry
 	i := 0
 	for _, tID := range tIDs {
+		reservation := reservations[tID]
+		delete(reservations, tID)
 		// Derive from context.Background(), not the engine ctx: a graceful
 		// shutdown (which cancels the engine ctx to stop picking up new work)
 		// must NOT cancel tasks already running, or in-flight time-sensitive
@@ -268,6 +301,9 @@ func (h *taskTypeHandler) considerWork(from string, tasks []task, eventEmitter e
 		handle := h.running.Start(int64(tID), taskCancel)
 
 		go func(tID TaskID, releaseStorage func(), handle *runregistry.Handle) {
+			if reservation.release != nil {
+				defer reservation.release()
+			}
 			eventEmitter.EmitTaskStarted(h.Name, tID)
 			var done bool
 			var doErr error
@@ -322,6 +358,12 @@ func (h *taskTypeHandler) considerWork(from string, tasks []task, eventEmitter e
 
 			defer taskCancel()
 
+			if reservation.start != nil {
+				if doErr = reservation.start(taskCtx); doErr != nil {
+					handle.Preempt()
+					return
+				}
+			}
 			done, doErr = h.Do(taskCtx, tID, func() bool {
 				if taskCtx.Err() != nil {
 					return false
