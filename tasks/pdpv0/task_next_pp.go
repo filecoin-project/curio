@@ -2,6 +2,7 @@ package pdpv0
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"math/big"
@@ -83,6 +84,7 @@ func NewNextProvingPeriodTask(db *harmonydb.DB, ethClient ethchain.EthClient, fi
 					WHERE challenge_request_task_id IS NULL
 					AND (prove_at_epoch + challenge_window) <= $1
 					AND unrecoverable_proving_failure_epoch IS NULL
+					AND (proving_retry_epoch IS NULL OR proving_retry_epoch <= $1)
 					AND NOT EXISTS (
 						SELECT 1
 						FROM pdpv0_deletion_drain d
@@ -96,6 +98,7 @@ func NewNextProvingPeriodTask(db *harmonydb.DB, ethClient ethchain.EthClient, fi
 			WHERE challenge_request_task_id IS NULL
 			AND (prove_at_epoch + challenge_window) <= $1
 			AND unrecoverable_proving_failure_epoch IS NULL
+			AND (proving_retry_epoch IS NULL OR proving_retry_epoch <= $1)
 			`, currentHeight)
 		}
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
@@ -108,22 +111,14 @@ func NewNextProvingPeriodTask(db *harmonydb.DB, ethClient ethchain.EthClient, fi
 		}
 
 		for _, ps := range toCallNext {
+			dataSetID := ps.DataSetId
+			height := int64(currentHeight)
 			n.addFunc.Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-				// Update pdp_data_sets to set challenge_request_task_id = id
-				affected, err := tx.Exec(`
-                        UPDATE pdp_data_sets
-                        SET challenge_request_task_id = $1
-                        WHERE id = $2 AND challenge_request_task_id IS NULL
-                    `, id, ps.DataSetId)
+				claimed, err := claimDatasetProvingPeriodTask(tx, id, dataSetID, height)
 				if err != nil {
-					return false, xerrors.Errorf("failed to update pdp_data_sets: %w", err)
+					return false, err
 				}
-				if affected == 0 {
-					// Someone else might have already scheduled the task
-					return false, nil
-				}
-
-				return true, nil
+				return claimed, nil
 			})
 		}
 	}, WatcherOrderProving)
@@ -135,12 +130,13 @@ func (n *NextProvingPeriodTask) Do(ctx context.Context, taskID harmonytask.TaskI
 
 	// Select the data set where challenge_request_task_id = taskID
 	var dataSetId int64
+	var provingRetryEpoch sql.NullInt64
 
 	err = n.db.QueryRow(ctx, `
-        SELECT id
+        SELECT id, proving_retry_epoch
         FROM pdp_data_sets
         WHERE challenge_request_task_id = $1 AND prove_at_epoch IS NOT NULL
-    `, taskID).Scan(&dataSetId)
+    `, taskID).Scan(&dataSetId, &provingRetryEpoch)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// No matching data set, task is done (something weird happened, and e.g another task was spawned in place of this one)
 		return true, nil
@@ -156,19 +152,25 @@ func (n *NextProvingPeriodTask) Do(ctx context.Context, taskID harmonytask.TaskI
 		}
 	}()
 
-	// Get the listener address for this data set from the PDPVerifier contract
-	pdpVerifier, err := contract.NewPDPVerifier(contract.ContractAddresses().PDPVerifier, n.ethClient)
-	if err != nil {
-		return false, xerrors.Errorf("failed to instantiate PDPVerifier contract: %w", err)
-	}
-
 	// Preflight handlers need the current height when a contract lookup proves
-	// the dataset is already terminal.
+	// the dataset is already terminal. A task recovered during the recheck
+	// cooldown finishes before any contract read.
 	ts, err := n.fil.ChainHead(ctx)
 	if err != nil {
 		return false, xerrors.Errorf("failed to get chain head: %w", err)
 	}
 	currentHeight := int64(ts.Height())
+	if provingPeriodRecheckCooling(provingRetryEpoch, currentHeight) {
+		log.Infow("Skipping next proving period scheduling during recheck cooldown",
+			"dataSetId", dataSetId, "height", currentHeight, "retryEpoch", provingRetryEpoch.Int64)
+		return true, nil
+	}
+
+	// Get the listener address for this data set from the PDPVerifier contract
+	pdpVerifier, err := contract.NewPDPVerifier(contract.ContractAddresses().PDPVerifier, n.ethClient)
+	if err != nil {
+		return false, xerrors.Errorf("failed to instantiate PDPVerifier contract: %w", err)
+	}
 
 	listenerAddr, err := pdpVerifier.GetDataSetListener(contract.EthCallOpts(ctx), big.NewInt(dataSetId))
 	if err != nil {
@@ -178,7 +180,7 @@ func (n *NextProvingPeriodTask) Do(ctx context.Context, taskID harmonytask.TaskI
 	// Get the proving schedule from the listener (handles view contract indirection)
 	provingSchedule, err := contract.GetProvingScheduleFromListener(ctx, listenerAddr, n.ethClient)
 	if err != nil {
-		return false, xerrors.Errorf("failed to get proving schedule from listener: %w", err)
+		return n.handleNextProvingPeriodPreflightError(ctx, dataSetId, currentHeight, xerrors.Errorf("failed to get proving schedule from listener: %w", err))
 	}
 
 	// In case of contract migration update db schema with latest proving schedule
@@ -245,7 +247,8 @@ func (n *NextProvingPeriodTask) Do(ctx context.Context, taskID harmonytask.TaskI
             SET challenge_request_msg_hash = $1,
                 prev_challenge_request_epoch = $2,
 				prove_at_epoch = $3,
-				pp_reconcile_needed = TRUE
+				pp_reconcile_needed = TRUE,
+				proving_retry_epoch = NULL
             WHERE id = $4
         `, txHash.Hex(), ts.Height(), next_prove_at.Uint64(), dataSetId)
 		if err != nil {
@@ -329,7 +332,8 @@ func resetDatasetToInitPP(ctx context.Context, db *harmonydb.DB, dataSetId int64
 		SET challenge_request_msg_hash = NULL,
 			prove_at_epoch = NULL,
 			init_ready = TRUE,
-			prev_challenge_request_epoch = NULL
+			prev_challenge_request_epoch = NULL,
+			proving_retry_epoch = NULL
 		WHERE id = $1
 	`, dataSetId)
 	if err != nil {
@@ -348,7 +352,8 @@ func disableProvingForEmptyDataset(tx *harmonydb.Tx, dataSetId int64) error {
 		SET challenge_request_msg_hash = NULL,
 			prove_at_epoch = NULL,
 			init_ready = FALSE,
-			prev_challenge_request_epoch = NULL
+			prev_challenge_request_epoch = NULL,
+			proving_retry_epoch = NULL
 		WHERE id = $1
 	`, dataSetId)
 	if err != nil {
@@ -408,7 +413,8 @@ func skipCurrentOnChainProvingPeriod(ctx context.Context, tx *harmonydb.Tx, prov
 		UPDATE pdp_data_sets
 		SET challenge_request_msg_hash = NULL,
 			prev_challenge_request_epoch = $2,
-			prove_at_epoch = $3
+			prove_at_epoch = $3,
+			proving_retry_epoch = NULL
 		WHERE id = $1
 		  AND unrecoverable_proving_failure_epoch IS NULL
 	`, dataSetId, currentHeight, challengeEpoch.Int64())
@@ -422,11 +428,22 @@ func skipCurrentOnChainProvingPeriod(ctx context.Context, tx *harmonydb.Tx, prov
 	return nil
 }
 
+// handleNextProvingPeriodPreflightError classifies a nextPP preflight read
+// failure. The caller has the dataset id, the current chain height, and a
+// non-nil error from a contract read made before the transaction is sent.
 func (n *NextProvingPeriodTask) handleNextProvingPeriodPreflightError(ctx context.Context, dataSetId int64, currentHeight int64, err error) (bool, error) {
+	return handleProvingPeriodPreflightError(ctx, n.db, n.al, alertNameNextPP, dataSetId, currentHeight, err)
+}
+
+// handleProvingPeriodPreflightError classifies a failed contract read that
+// initPP or nextPP made before sending its transaction. err is non-nil. A
+// contract revert is deferred for a day; a non-revert is returned so Harmony
+// can retry the task.
+func handleProvingPeriodPreflightError(ctx context.Context, db *harmonydb.DB, al curioalerting.AlertingInterface, alertSubsystem string, dataSetId int64, currentHeight int64, err error) (bool, error) {
 	switch {
 	case IsUnrecoverableError(err), IsPDPVerifierDataSetNotFound(err):
 		var alert bool
-		committed, handleErr := n.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+		committed, handleErr := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 			alert, err = markDatasetProvingUnrecoverable(tx, dataSetId, currentHeight)
 			if err != nil {
 				return false, err
@@ -440,25 +457,50 @@ func (n *NextProvingPeriodTask) handleNextProvingPeriodPreflightError(ctx contex
 			return false, xerrors.Errorf("failed to commit terminal proving period preflight error handling")
 		}
 		if alert {
-			emitProvingStoppedAlert(n.al, alertNameNextPP, dataSetId)
+			emitProvingStoppedAlert(al, alertSubsystem, dataSetId)
 		}
 		log.Warnw("Terminal proving period preflight error, stopping proving attempts",
 			"dataSetId", dataSetId, "height", currentHeight, "error", err)
 		return true, nil
 	case IsProvingPeriodNotInitializedError(err):
-		if err := resetDatasetToInitPP(ctx, n.db, dataSetId); err != nil {
+		if err := resetDatasetToInitPP(ctx, db, dataSetId); err != nil {
 			return false, xerrors.Errorf("failed to reset dataset to init proving period state: %w", err)
 		}
 		return true, nil
-	case IsUnexpectedProvingInvariantError(err):
-		emitProvingSendErrorAlert(n.al, alertNameNextPP, dataSetId, err)
-		return false, err
-	case IsContractRevert(err):
-		emitProvingSendErrorAlert(n.al, alertNameNextPP, dataSetId, err)
-		return false, err
+	case IsUnexpectedProvingInvariantError(err), IsContractRevert(err):
+		// A contract revert here cannot be repaired by repeating the task now.
+		// Defer this dataset for a day and finish so other datasets keep their
+		// proving-period slots. The watcher tries it again after that.
+		if deferErr := deferProvingPeriodRecheck(ctx, db, al, alertSubsystem, dataSetId, currentHeight, err); deferErr != nil {
+			return false, deferErr
+		}
+		return true, nil
 	default:
 		return false, err
 	}
+}
+
+// deferProvingPeriodRecheck records a preflight contract revert and delays the
+// next scheduling attempt. The caller has a database, a chain height, and a
+// non-nil revert from a read that runs before the proving-period transaction
+// is sent.
+func deferProvingPeriodRecheck(ctx context.Context, db *harmonydb.DB, al curioalerting.AlertingInterface, alertSubsystem string, dataSetId int64, currentHeight int64, revertErr error) error {
+	committed, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+		if err := deferDatasetProvingRecheck(tx, dataSetId, currentHeight); err != nil {
+			return false, err
+		}
+		return true, nil
+	}, harmonydb.OptionRetry())
+	if err != nil {
+		return xerrors.Errorf("failed to defer dataset proving recheck: %w", err)
+	}
+	if !committed {
+		return xerrors.Errorf("failed to commit dataset proving recheck")
+	}
+	emitProvingSendErrorAlert(al, alertSubsystem, dataSetId, revertErr)
+	log.Warnw("Deferring dataset proving recheck after a contract revert",
+		"dataSetId", dataSetId, "subsystem", alertSubsystem, "height", currentHeight, "retryEpoch", currentHeight+provingRecheckDelayEpochs, "error", revertErr)
+	return nil
 }
 
 // handleNextProvingPeriodSendFailure handles a failed send and emits its alert after the transaction.
@@ -524,6 +566,17 @@ func handleNextProvingPeriodSendError(ctx context.Context, tx *harmonydb.Tx, pro
 			return provingAlertProvingStopped, nil
 		}
 		return provingAlertNone, nil
+	case IsLockupNotSettledRateChangeNotAllowedError(sendErr):
+		// FilecoinPay refused this dataset's rate change because the payer
+		// account lockup is not settled through the current epoch. A deposit
+		// that covers the catch-up lets the same call succeed, so defer and
+		// retry.
+		if err := deferDatasetProvingRecheck(tx, dataSetId, currentHeight); err != nil {
+			return provingAlertNone, err
+		}
+		log.Warnw("Deferring proving period scheduling until the payer lockup can settle",
+			"dataSetId", dataSetId, "subsystem", alertSubsystem, "height", currentHeight, "retryEpoch", currentHeight+provingRecheckDelayEpochs, "error", sendErr)
+		return provingAlertSendError, nil
 	case IsNextProvingPeriodAlreadyCalledError(sendErr):
 		// The chain has already advanced the proving period, but Curio cannot
 		// safely prove it without its own confirmed challenge request message.
@@ -549,14 +602,16 @@ func handleNextProvingPeriodSendError(ctx context.Context, tx *harmonydb.Tx, pro
 		// The selected challenge epoch is no longer valid. Retry the task so it
 		// recomputes the proving schedule from chain/listener state.
 		return provingAlertNone, sendErr
-	case IsUnexpectedProvingInvariantError(sendErr):
-		// Curio should not hit these in the normal initPP/nextPP path. Alert and
-		// retry without mutating proving state so the condition can be investigated.
-		return provingAlertSendError, sendErr
-	case IsContractRevert(sendErr):
-		// Fallback for unclassified contract reverts: alert and let Harmony
-		// retry without mutating proving state.
-		return provingAlertSendError, sendErr
+	case IsUnexpectedProvingInvariantError(sendErr), IsContractRevert(sendErr):
+		// The proving-period call reverted for a reason Curio cannot repair by
+		// running it again now. Defer this dataset for a day, alert, and
+		// complete the task. The watcher retries after proving_retry_epoch.
+		if err := deferDatasetProvingRecheck(tx, dataSetId, currentHeight); err != nil {
+			return provingAlertNone, err
+		}
+		log.Warnw("Deferring dataset proving recheck after a contract revert",
+			"dataSetId", dataSetId, "subsystem", alertSubsystem, "height", currentHeight, "retryEpoch", currentHeight+provingRecheckDelayEpochs, "error", sendErr)
+		return provingAlertSendError, nil
 	default:
 		// Non-contract send failures are transport/sender/task errors.
 		return provingAlertNone, sendErr
