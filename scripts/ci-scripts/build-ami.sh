@@ -120,6 +120,11 @@ install_postgresql() {
   apt-get install -y --no-install-recommends \
     "postgresql-${PG_VERSION}" \
     "postgresql-client-${PG_VERSION}"
+
+  if [[ ! -d "${PG_CONF_DIR}" ]]; then
+    log "Creating PostgreSQL ${PG_VERSION}/${PG_CLUSTER} cluster"
+    pg_createcluster --start-conf=auto "${PG_VERSION}" "${PG_CLUSTER}"
+  fi
 }
 
 setup_locale() {

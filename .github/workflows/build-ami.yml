@@ -1,0 +1,131 @@
+name: Build Curio AMI
+
+on:
+  workflow_dispatch:
+    inputs:
+      open_update_pr:
+        description: Open or update the PR that selects the new AMI
+        type: boolean
+        default: false
+
+permissions: {}
+
+concurrency:
+  group: curio-ami-build
+
+jobs:
+  build:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      ami_id: ${{ steps.packer.outputs.ami_id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check image config before building an update
+        if: inputs.open_update_pr
+        run: |
+          if ! configured_ami=$(yq -er '.images.curio.ami | select(tag == "!!str")' .github/runs-on.yml) ||
+             [[ ! "$configured_ami" =~ ^ami-[a-f0-9]+$ ]]; then
+            echo "::error::Set images.curio.ami first, or run with open_update_pr disabled."
+            exit 1
+          fi
+
+      - uses: hashicorp/setup-packer@ce93c3c08a6c2ff2275bf4b54ff0d9a75f6c9789 # v3.4.0
+        with:
+          version: '1.16.3'
+
+      - uses: aws-actions/configure-aws-credentials@45666896f5d8e0f10ae255413f3a4cdd03bdc8f5 # v6.3.1
+        with:
+          role-to-assume: ${{ vars.CURIO_AMI_BUILD_ROLE_ARN }}
+          aws-region: us-west-2
+          allowed-account-ids: '009201190096'
+          role-duration-seconds: 7200
+
+      - name: Build AMI
+        id: packer
+        env:
+          BUILD_SUBNET_ID: ${{ vars.CURIO_AMI_BUILD_SUBNET_ID }}
+        run: |
+          : "${BUILD_SUBNET_ID:?Set the CURIO_AMI_BUILD_SUBNET_ID repository variable}"
+          ssh_source_ip=$(curl -4 --noproxy '*' -fsSL --max-time 15 https://checkip.amazonaws.com)
+          source_archive="$RUNNER_TEMP/curio-source.tar.gz"
+          manifest="$RUNNER_TEMP/curio-ami-manifest.json"
+          template=scripts/ci-scripts/curio.pkr.hcl
+
+          git archive --format=tar.gz --output="$source_archive" HEAD \
+            scripts/ci-scripts/build-ami.sh harmony/harmonydb/sql
+
+          packer init "$template"
+          packer build -color=false -on-error=cleanup \
+            -var "build_id=$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
+            -var "curio_commit=$GITHUB_SHA" \
+            -var "subnet_id=$BUILD_SUBNET_ID" \
+            -var "ssh_source_cidr=$ssh_source_ip/32" \
+            -var "source_archive=$source_archive" \
+            -var "manifest_path=$manifest" \
+            "$template"
+
+          ami_id=$(jq -er '.builds[-1].artifact_id | capture("^us-west-2:(?<id>ami-[a-f0-9]+)$").id' "$manifest")
+          printf 'ami_id=%s\n' "$ami_id" >> "$GITHUB_OUTPUT"
+          printf 'Curio AMI: `%s` (us-west-2)\n' "$ami_id" >> "$GITHUB_STEP_SUMMARY"
+
+  open-update-pr:
+    if: inputs.open_update_pr
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Update Curio image
+        id: update
+        env:
+          AMI_ID: ${{ needs.build.outputs.ami_id }}
+        run: |
+          config=.github/runs-on.yml
+          if ! test -f "$config" || ! old_ami=$(yq -er '.images.curio.ami | select(tag == "!!str")' "$config"); then
+            echo "::error::Configure images.curio.ami in $config first. The new AMI ID is in the build summary."
+            exit 1
+          fi
+
+          if [[ ! "$old_ami" =~ ^ami-[a-f0-9]+$ ]]; then
+            echo "::error::images.curio.ami must be a single AMI ID."
+            exit 1
+          fi
+
+          if [[ "$old_ami" == "$AMI_ID" ]]; then
+            exit 0
+          fi
+          yq -i '.images.curio.ami = strenv(AMI_ID)' "$config"
+          printf 'old_ami=%s\nchanged=true\n' "$old_ami" >> "$GITHUB_OUTPUT"
+
+      - name: Open or update AMI PR
+        if: steps.update.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@3ffccacd46053766916f087ce41d627c0b8cf2d1 # v8.1.3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          base: main
+          branch: automation/curio-ami
+          delete-branch: true
+          add-paths: .github/runs-on.yml
+          commit-message: 'ci: update Curio runner AMI'
+          title: 'ci: update Curio runner AMI'
+          body: |
+            Update the Curio RunsOn image from `${{ steps.update.outputs.old_ami }}` to
+            `${{ needs.build.outputs.ami_id }}`.
+
+            Build: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+            Approve the PR workflows and confirm the Curio tests pass with the new image before merging.
