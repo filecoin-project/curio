@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"reflect"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -22,8 +23,8 @@ import (
 var log = logging.Logger("config-ui")
 
 // durationPattern validates Go time.ParseDuration strings (e.g. "1h30m", "1m1s", "30s").
-// Each clause is optional, but at least one number+unit pair is required.
-const durationPattern = `^(\d+(\.\d+)?(h|m|s|ms|us|µs|ns))+$`
+// Range and field-specific validation remain with the config loader/consumer.
+const durationPattern = `^[+-]?(0|(([0-9]+(\.[0-9]*)?|\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+)$`
 
 type cfg struct {
 	*deps.Deps
@@ -68,7 +69,9 @@ func uiSchemaMapper(i reflect.Type) *jsonschema.Schema {
 		if mapped := uiSchemaSpecialType(inner); mapped != nil {
 			return mapped
 		}
-		return (&jsonschema.Reflector{Mapper: uiSchemaMapper}).ReflectFromType(inner)
+		// A mapper returns a subschema, not a separate document. Root-relative
+		// references in a nested ReflectFromType result otherwise escape its $defs.
+		return (&jsonschema.Reflector{Mapper: uiSchemaMapper, DoNotReference: true, Anonymous: true}).ReflectFromType(inner)
 	}
 	return uiSchemaSpecialType(i)
 }
@@ -76,8 +79,8 @@ func uiSchemaMapper(i reflect.Type) *jsonschema.Schema {
 func uiSchemaSpecialType(i reflect.Type) *jsonschema.Schema {
 	if i == reflect.TypeOf(types.MustParseFIL("1 Fil")) {
 		return &jsonschema.Schema{
-			Type:    "string",
-			Pattern: "1 fil/0.03 fil/0.31/1 attofil",
+			Type:        "string",
+			Description: "Decimal FIL amount, optionally suffixed with FIL or attoFIL; validated by the config loader.",
 		}
 	}
 	if i == reflect.TypeFor[time.Duration]() {
@@ -176,7 +179,63 @@ func buildUISchema() *jsonschema.Schema {
 		}
 	}
 	allOpt(sch)
+	addUIFieldDocs(sch, sch, reflect.TypeOf(uiSchemaRoot()))
 	return sch
+}
+
+// Follow the actual model so inline Dynamic elements receive the same help as
+// named definitions. No list of individual configuration fields is maintained.
+func addUIFieldDocs(root, node *jsonschema.Schema, typ reflect.Type) {
+	if inner, ok := config.DynamicInnerType(typ); ok {
+		typ = inner
+	}
+	for typ.Kind() == reflect.Pointer {
+		typ = typ.Elem()
+	}
+	if node == nil {
+		return
+	}
+	if node.Ref != "" {
+		node = root.Definitions[strings.TrimPrefix(node.Ref, "#/$defs/")]
+	}
+	if node == nil {
+		return
+	}
+	if typ == reflect.TypeFor[types.FIL]() || typ == reflect.TypeFor[time.Duration]() {
+		return
+	}
+	switch typ.Kind() {
+	case reflect.Struct:
+		for _, field := range config.Doc[typ.Name()] {
+			if node.Properties == nil {
+				continue
+			}
+			if prop, ok := node.Properties.Get(field.Name); ok && field.Comment != "" {
+				prop.Description = field.Comment
+			}
+		}
+		for i := 0; i < typ.NumField(); i++ {
+			field := typ.Field(i)
+			if !field.IsExported() || node.Properties == nil {
+				continue
+			}
+			name := field.Name
+			if tag := strings.Split(field.Tag.Get("json"), ",")[0]; tag != "" {
+				name = tag
+			}
+			if field.Anonymous && field.Tag.Get("json") == "" {
+				addUIFieldDocs(root, node, field.Type)
+				continue
+			}
+			if prop, ok := node.Properties.Get(name); ok {
+				addUIFieldDocs(root, prop, field.Type)
+			}
+		}
+	case reflect.Array, reflect.Slice:
+		addUIFieldDocs(root, node.Items, typ.Elem())
+	case reflect.Map:
+		addUIFieldDocs(root, node.AdditionalProperties, typ.Elem())
+	}
 }
 
 func (c *cfg) getLayers(w http.ResponseWriter, r *http.Request) {
@@ -209,7 +268,7 @@ func (c *cfg) setLayer(w http.ResponseWriter, r *http.Request) {
 	apihelper.OrHTTPFail(w, dec.Decode(&configStruct))
 
 	var existingToml string
-	_ = c.DB.QueryRow(context.Background(), `SELECT config FROM harmony_config WHERE title = $1`, layer).Scan(&existingToml)
+	apihelper.OrHTTPFail(w, c.DB.QueryRow(r.Context(), `SELECT config FROM harmony_config WHERE title = $1`, layer).Scan(&existingToml))
 
 	configStr, err := uiPrepareLayerSave(layer, configStruct, existingToml)
 	apihelper.OrHTTPFail(w, err)
